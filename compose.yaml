@@ -1,0 +1,43 @@
+name: nuoi-ong
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    ports:
+      - '3000:3000'
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    environment:
+      NODE_ENV: production
+      PORT: 5050
+    ports:
+      - '5050:5050'
+
+  postgres:
+    image: postgres:18-bookworm
+    container_name: nuoi-ong_postgres
+    environment:
+      POSTGRES_DB: nuoi_ong
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - '5435:5432'
+    volumes:
+      - nuoi-ong-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d nuoi_ong']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  nuoi-ong-postgres:
