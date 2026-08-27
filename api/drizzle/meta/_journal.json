@@ -8,6 +8,20 @@
       "when": 1787809908639,
       "tag": "0000_breezy_absorbing_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787821022808,
+      "tag": "0001_equipment-materials-domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787821027835,
+      "tag": "0002_equipment-materials-triggers",
+      "breakpoints": true
     }
   ]
 }
