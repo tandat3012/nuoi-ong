@@ -16,6 +16,7 @@ import {
   inet,
   primaryKey,
   pgEnum,
+  boolean,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -66,6 +67,14 @@ export const issueType = pgEnum('issue_type', [
   'OTHER',
 ]);
 export const itemType = pgEnum('item_type', ['EQUIPMENT', 'TOOL', 'MATERIAL']);
+export const materialKind = pgEnum('material_kind', [
+  'FEED',
+  'TREATMENT',
+  'PACKAGING',
+  'MAINTENANCE_SUPPLY',
+  'CONSUMABLE',
+  'OTHER',
+]);
 export const locationType = pgEnum('location_type', [
   'WAREHOUSE',
   'WAREHOUSE_ZONE',
@@ -380,6 +389,10 @@ export const items = pgTable(
       'ck_item_min_stock_nonnegative',
       sql`min_stock_level >= (0)::numeric`,
     ),
+    check(
+      'ck_item_type_tracking_mode',
+      sql`((item_type = 'MATERIAL'::item_type) AND (tracking_mode IN ('QUANTITY'::tracking_mode, 'LOT'::tracking_mode))) OR ((item_type IN ('EQUIPMENT'::item_type, 'TOOL'::item_type)) AND (tracking_mode IN ('QUANTITY'::tracking_mode, 'ASSET'::tracking_mode)))`,
+    ),
   ],
 );
 
@@ -417,6 +430,52 @@ export const units = pgTable(
       .notNull(),
   },
   (table) => [unique('units_code_key').on(table.code)],
+);
+
+export const materialProfiles = pgTable(
+  'material_profiles',
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    farmId: uuid('farm_id').notNull(),
+    itemId: uuid('item_id').notNull(),
+    kind: materialKind().default('CONSUMABLE').notNull(),
+    requiresExpiryTracking: boolean('requires_expiry_tracking')
+      .default(false)
+      .notNull(),
+    expiryWarningDays: integer('expiry_warning_days').default(30).notNull(),
+    defaultShelfLifeDays: integer('default_shelf_life_days'),
+    storageInstructions: text('storage_instructions'),
+    safetyNotes: text('safety_notes'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_material_profiles_farm_kind').using(
+      'btree',
+      table.farmId.asc().nullsLast(),
+      table.kind.asc().nullsLast(),
+    ),
+    foreignKey({
+      columns: [table.farmId],
+      foreignColumns: [farms.id],
+      name: 'material_profiles_farm_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.itemId],
+      foreignColumns: [items.id],
+      name: 'material_profiles_item_id_fkey',
+    }).onDelete('cascade'),
+    unique('uq_material_profile_item').on(table.itemId),
+    check('ck_material_expiry_warning_positive', sql`expiry_warning_days > 0`),
+    check(
+      'ck_material_shelf_life_positive',
+      sql`(default_shelf_life_days IS NULL) OR (default_shelf_life_days > 0)`,
+    ),
+  ],
 );
 
 export const stockReceipts = pgTable(
@@ -1117,6 +1176,10 @@ export const assetAssignments = pgTable(
       'ck_assignment_return_time',
       sql`(returned_at IS NULL) OR (returned_at >= assigned_at)`,
     ),
+    check(
+      'ck_assignment_status_fields',
+      sql`((status = 'ACTIVE'::assignment_status) AND (returned_at IS NULL)) OR ((status = 'RETURNED'::assignment_status) AND (returned_at IS NOT NULL)) OR ((status = 'CANCELLED'::assignment_status) AND (returned_at IS NULL))`,
+    ),
   ],
 );
 
@@ -1175,6 +1238,10 @@ export const assetIncidents = pgTable(
       'ck_incident_resolved_time',
       sql`(resolved_at IS NULL) OR (resolved_at >= reported_at)`,
     ),
+    check(
+      'ck_incident_status_fields',
+      sql`((status = 'RESOLVED'::incident_status) AND (resolved_at IS NOT NULL)) OR ((status <> 'RESOLVED'::incident_status) AND (resolved_at IS NULL))`,
+    ),
   ],
 );
 
@@ -1232,6 +1299,11 @@ export const maintenanceRecords = pgTable(
       table.status.asc().nullsLast(),
       table.scheduledAt.asc().nullsLast(),
     ),
+    uniqueIndex('ux_one_active_maintenance_per_asset')
+      .using('btree', table.assetId.asc().nullsLast())
+      .where(
+        sql`(status IN ('SCHEDULED'::maintenance_status, 'IN_PROGRESS'::maintenance_status))`,
+      ),
     foreignKey({
       columns: [table.assetId],
       foreignColumns: [assets.id],
@@ -1264,6 +1336,10 @@ export const maintenanceRecords = pgTable(
     check(
       'ck_maintenance_time_order',
       sql`((started_at IS NULL) OR (scheduled_at IS NULL) OR (started_at >= scheduled_at)) AND ((completed_at IS NULL) OR (started_at IS NULL) OR (completed_at >= started_at))`,
+    ),
+    check(
+      'ck_maintenance_status_fields',
+      sql`((status = 'SCHEDULED'::maintenance_status) AND (started_at IS NULL) AND (completed_at IS NULL)) OR ((status = 'IN_PROGRESS'::maintenance_status) AND (started_at IS NOT NULL) AND (completed_at IS NULL)) OR ((status = 'COMPLETED'::maintenance_status) AND (started_at IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = 'CANCELLED'::maintenance_status) AND (completed_at IS NULL))`,
     ),
   ],
 );
