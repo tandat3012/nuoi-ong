@@ -22,6 +22,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:pull": "drizzle-kit pull",
+    "db:seed": "ts-node --transpile-only scripts/seed.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
