@@ -1,10 +1,12 @@
 import { Show, SignInButton, UserButton } from '@clerk/nextjs';
+import { AuthBootstrap } from '@/features/auth/components/auth-bootstrap';
 
 import { SidebarNavigation } from './sidebar-navigation';
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <>
+      <AuthBootstrap />
       <a
         href="#main-content"
         className="sr-only z-50 rounded-lg bg-primary px-4 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
