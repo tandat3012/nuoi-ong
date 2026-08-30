@@ -8,6 +8,10 @@ describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
+    process.env.CLERK_SECRET_KEY = 'sk_test_e2e';
+    process.env.CLERK_PUBLISHABLE_KEY = 'pk_test_e2e';
+    process.env.CLERK_AUTHORIZED_PARTIES = 'http://localhost:3000';
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -24,6 +28,6 @@ describe('AppController (e2e)', () => {
   });
 
   afterEach(async () => {
-    await app.close();
+    await app?.close();
   });
 });
