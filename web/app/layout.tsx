@@ -29,7 +29,15 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
-        <ClerkProvider>{children}</ClerkProvider>
+        <ClerkProvider
+          afterSignOutUrl="/sign-in"
+          signUpUrl="/sign-up"
+          signInUrl="/sign-in"
+          signInFallbackRedirectUrl="/dashboard"
+          signUpFallbackRedirectUrl="/dashboard"
+        >
+          {children}
+        </ClerkProvider>
       </body>
     </html>
   );
