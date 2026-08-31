@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   normalizeSearch,
@@ -19,12 +20,16 @@ import { CreateMaterialDto } from './dto/create-material.dto';
 import { materialTrackingModes } from './dto/material-validation';
 import { UpdateMaterialDto } from './dto/update-material.dto';
 import { MaterialsService } from './materials.service';
+import { FarmAccessGuard } from '../auth/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access.decorator';
 
 @Controller('api/v1/materials')
+@UseGuards(FarmAccessGuard)
 export class MaterialsController {
   constructor(private readonly materialsService: MaterialsService) {}
 
   @Post()
+  @FarmRoles('ADMIN', 'FARM_OWNER')
   async createMaterial(
     @Query('farmId') farmIdValue: string | undefined,
     @Body() input: CreateMaterialDto,
@@ -101,6 +106,7 @@ export class MaterialsController {
   }
 
   @Patch(':id')
+  @FarmRoles('ADMIN', 'FARM_OWNER')
   async updateMaterial(
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue: string | undefined,

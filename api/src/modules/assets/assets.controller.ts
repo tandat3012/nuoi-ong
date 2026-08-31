@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   normalizeSearch,
   parseOptionalEnum,
@@ -7,8 +7,10 @@ import {
 } from '../../common/query-params';
 import { assetStatus } from '../../db/schema';
 import { AssetsService } from './assets.service';
+import { FarmAccessGuard } from '../auth/farm-access.guard';
 
 @Controller('api/v1/assets')
+@UseGuards(FarmAccessGuard)
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 
