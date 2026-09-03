@@ -7,6 +7,9 @@ import { AssetsModule } from './modules/assets/assets.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { MaterialsModule } from './modules/materials/materials.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { WarehousesModule } from './modules/warehouses/warehouses.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 
 @Module({
   imports: [
@@ -15,6 +18,9 @@ import { AuthModule } from './modules/auth/auth.module';
     AssetsModule,
     MaterialsModule,
     AuthModule,
+    WarehousesModule,
+    InventoryModule,
+    MaintenanceModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

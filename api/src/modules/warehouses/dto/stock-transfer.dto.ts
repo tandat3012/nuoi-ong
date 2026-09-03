@@ -1,0 +1,6 @@
+import { Type } from 'class-transformer';
+import { IsArray, IsDateString, IsOptional, IsString, IsUUID, Length, Matches, MaxLength, ValidateNested } from 'class-validator';
+const DECIMAL = /^(0|[1-9]\d{0,14})(\.\d{1,3})?$/;
+export class StockTransferItemDto { @IsUUID() itemId!: string; @Matches(DECIMAL) quantity!: string; @IsOptional() @IsUUID() lotId?: string | null; @IsOptional() @IsUUID() assetId?: string | null; @IsOptional() @IsString() @MaxLength(4000) note?: string | null; }
+export class CreateStockTransferDto { @IsUUID() fromWarehouseId!: string; @IsUUID() toWarehouseId!: string; @IsString() @Length(1, 50) transferCode!: string; @IsOptional() @IsDateString() transferDate?: string; @IsOptional() @IsString() @MaxLength(4000) note?: string | null; @IsArray() @ValidateNested({ each: true }) @Type(() => StockTransferItemDto) items!: StockTransferItemDto[]; }
+export class UpdateStockTransferDto { @IsOptional() @IsUUID() fromWarehouseId?: string; @IsOptional() @IsUUID() toWarehouseId?: string; @IsOptional() @IsString() @Length(1, 50) transferCode?: string; @IsOptional() @IsDateString() transferDate?: string; @IsOptional() @IsString() @MaxLength(4000) note?: string | null; @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => StockTransferItemDto) items?: StockTransferItemDto[]; }

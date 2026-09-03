@@ -59,12 +59,14 @@ export const inventoryTransactionType = pgEnum('inventory_transaction_type', [
   'ADJUSTMENT_OUT',
   'ASSIGNMENT_OUT',
   'RETURN_IN',
+  'MAINTENANCE_ISSUE',
 ]);
 export const issueType = pgEnum('issue_type', [
   'CONSUMPTION',
   'DAMAGE',
   'DISPOSAL',
   'OTHER',
+  'MAINTENANCE',
 ]);
 export const itemType = pgEnum('item_type', ['EQUIPMENT', 'TOOL', 'MATERIAL']);
 export const materialKind = pgEnum('material_kind', [
@@ -562,6 +564,17 @@ export const stockReceiptItems = pgTable(
     unitPrice: numeric('unit_price', { precision: 18, scale: 2 })
       .default('0')
       .notNull(),
+    lotId: uuid('lot_id').references(() => inventoryLots.id, {
+      onDelete: 'set null',
+    }),
+    lotNumber: varchar('lot_number', { length: 100 }),
+    manufacturedDate: date('manufactured_date'),
+    expiryDate: date('expiry_date'),
+    assetId: uuid('asset_id').references(() => assets.id, {
+      onDelete: 'set null',
+    }),
+    assetCode: varchar('asset_code', { length: 100 }),
+    serialNumber: varchar('serial_number', { length: 255 }),
     note: text(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -580,6 +593,14 @@ export const stockReceiptItems = pgTable(
     }).onDelete('cascade'),
     check('ck_receipt_item_price_nonnegative', sql`unit_price >= (0)::numeric`),
     check('ck_receipt_item_quantity_positive', sql`quantity > (0)::numeric`),
+    check(
+      'ck_receipt_item_asset_quantity',
+      sql`(asset_id IS NULL) OR (quantity = (1)::numeric)`,
+    ),
+    check(
+      'ck_receipt_item_lot_dates',
+      sql`(manufactured_date IS NULL) OR (expiry_date IS NULL) OR (expiry_date >= manufactured_date)`,
+    ),
   ],
 );
 
@@ -773,6 +794,105 @@ export const inventoryBalances = pgTable(
   ],
 );
 
+export const maintenanceRecords = pgTable(
+  'maintenance_records',
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    farmId: uuid('farm_id').notNull(),
+    assetId: uuid('asset_id').notNull(),
+    incidentId: uuid('incident_id'),
+    maintenanceType: maintenanceType('maintenance_type').notNull(),
+    scheduledAt: timestamp('scheduled_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'string' }),
+    completedAt: timestamp('completed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    status: maintenanceStatus().default('SCHEDULED').notNull(),
+    description: text(),
+    resultNote: text('result_note'),
+    performedByMemberId: uuid('performed_by_member_id'),
+    supplierId: uuid('supplier_id'),
+    laborCost: numeric('labor_cost', { precision: 18, scale: 2 })
+      .default('0')
+      .notNull(),
+    materialCost: numeric('material_cost', { precision: 18, scale: 2 })
+      .default('0')
+      .notNull(),
+    otherCost: numeric('other_cost', { precision: 18, scale: 2 })
+      .default('0')
+      .notNull(),
+    totalCost: numeric('total_cost', {
+      precision: 18,
+      scale: 2,
+    }).generatedAlwaysAs(sql`((labor_cost + material_cost) + other_cost)`),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_maintenance_asset').using(
+      'btree',
+      table.assetId.asc().nullsLast(),
+      table.scheduledAt.desc().nullsFirst(),
+    ),
+    index('idx_maintenance_status_schedule').using(
+      'btree',
+      table.farmId.asc().nullsLast(),
+      table.status.asc().nullsLast(),
+      table.scheduledAt.asc().nullsLast(),
+    ),
+    uniqueIndex('ux_one_active_maintenance_per_asset')
+      .using('btree', table.assetId.asc().nullsLast())
+      .where(
+        sql`(status IN ('SCHEDULED'::maintenance_status, 'IN_PROGRESS'::maintenance_status))`,
+      ),
+    foreignKey({
+      columns: [table.assetId],
+      foreignColumns: [assets.id],
+      name: 'maintenance_records_asset_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.farmId],
+      foreignColumns: [farms.id],
+      name: 'maintenance_records_farm_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.incidentId],
+      foreignColumns: [assetIncidents.id],
+      name: 'maintenance_records_incident_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.performedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'maintenance_records_performed_by_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.supplierId],
+      foreignColumns: [suppliers.id],
+      name: 'maintenance_records_supplier_id_fkey',
+    }),
+    check(
+      'ck_maintenance_costs_nonnegative',
+      sql`(labor_cost >= (0)::numeric) AND (material_cost >= (0)::numeric) AND (other_cost >= (0)::numeric)`,
+    ),
+    check(
+      'ck_maintenance_time_order',
+      sql`((started_at IS NULL) OR (scheduled_at IS NULL) OR (started_at >= scheduled_at)) AND ((completed_at IS NULL) OR (started_at IS NULL) OR (completed_at >= started_at))`,
+    ),
+    check(
+      'ck_maintenance_status_fields',
+      sql`((status = 'SCHEDULED'::maintenance_status) AND (started_at IS NULL) AND (completed_at IS NULL)) OR ((status = 'IN_PROGRESS'::maintenance_status) AND (started_at IS NOT NULL) AND (completed_at IS NULL)) OR ((status = 'COMPLETED'::maintenance_status) AND (started_at IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = 'CANCELLED'::maintenance_status) AND (completed_at IS NULL))`,
+    ),
+  ],
+);
+
 export const stockIssues = pgTable(
   'stock_issues',
   {
@@ -784,6 +904,7 @@ export const stockIssues = pgTable(
       .default(sql`CURRENT_DATE`)
       .notNull(),
     issueType: issueType('issue_type').default('CONSUMPTION').notNull(),
+    maintenanceRecordId: uuid('maintenance_record_id'),
     status: documentStatus().default('DRAFT').notNull(),
     reason: text(),
     note: text(),
@@ -815,6 +936,10 @@ export const stockIssues = pgTable(
       table.farmId.asc().nullsLast(),
       table.status.asc().nullsLast(),
     ),
+    index('idx_stock_issues_maintenance_record').using(
+      'btree',
+      table.maintenanceRecordId.asc().nullsLast(),
+    ).where(sql`maintenance_record_id IS NOT NULL`),
     foreignKey({
       columns: [table.confirmedByMemberId],
       foreignColumns: [farmMembers.id],
@@ -835,7 +960,16 @@ export const stockIssues = pgTable(
       foreignColumns: [warehouses.id],
       name: 'stock_issues_warehouse_id_fkey',
     }),
+    foreignKey({
+      columns: [table.maintenanceRecordId],
+      foreignColumns: [maintenanceRecords.id],
+      name: 'fk_stock_issues_maintenance_record',
+    }),
     unique('uq_issue_code_per_farm').on(table.farmId, table.issueCode),
+    check(
+      'ck_issue_maintenance_reference',
+      sql`((issue_type = 'MAINTENANCE'::issue_type) AND (maintenance_record_id IS NOT NULL)) OR ((issue_type <> 'MAINTENANCE'::issue_type) AND (maintenance_record_id IS NULL))`,
+    ),
     check(
       'ck_issue_confirm_fields',
       sql`(status <> 'CONFIRMED'::document_status) OR ((confirmed_by_member_id IS NOT NULL) AND (confirmed_at IS NOT NULL))`,
@@ -1245,105 +1379,6 @@ export const assetIncidents = pgTable(
   ],
 );
 
-export const maintenanceRecords = pgTable(
-  'maintenance_records',
-  {
-    id: uuid().defaultRandom().primaryKey().notNull(),
-    farmId: uuid('farm_id').notNull(),
-    assetId: uuid('asset_id').notNull(),
-    incidentId: uuid('incident_id'),
-    maintenanceType: maintenanceType('maintenance_type').notNull(),
-    scheduledAt: timestamp('scheduled_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
-    startedAt: timestamp('started_at', { withTimezone: true, mode: 'string' }),
-    completedAt: timestamp('completed_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
-    status: maintenanceStatus().default('SCHEDULED').notNull(),
-    description: text(),
-    resultNote: text('result_note'),
-    performedByMemberId: uuid('performed_by_member_id'),
-    supplierId: uuid('supplier_id'),
-    laborCost: numeric('labor_cost', { precision: 18, scale: 2 })
-      .default('0')
-      .notNull(),
-    materialCost: numeric('material_cost', { precision: 18, scale: 2 })
-      .default('0')
-      .notNull(),
-    otherCost: numeric('other_cost', { precision: 18, scale: 2 })
-      .default('0')
-      .notNull(),
-    totalCost: numeric('total_cost', {
-      precision: 18,
-      scale: 2,
-    }).generatedAlwaysAs(sql`((labor_cost + material_cost) + other_cost)`),
-    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    index('idx_maintenance_asset').using(
-      'btree',
-      table.assetId.asc().nullsLast(),
-      table.scheduledAt.desc().nullsFirst(),
-    ),
-    index('idx_maintenance_status_schedule').using(
-      'btree',
-      table.farmId.asc().nullsLast(),
-      table.status.asc().nullsLast(),
-      table.scheduledAt.asc().nullsLast(),
-    ),
-    uniqueIndex('ux_one_active_maintenance_per_asset')
-      .using('btree', table.assetId.asc().nullsLast())
-      .where(
-        sql`(status IN ('SCHEDULED'::maintenance_status, 'IN_PROGRESS'::maintenance_status))`,
-      ),
-    foreignKey({
-      columns: [table.assetId],
-      foreignColumns: [assets.id],
-      name: 'maintenance_records_asset_id_fkey',
-    }),
-    foreignKey({
-      columns: [table.farmId],
-      foreignColumns: [farms.id],
-      name: 'maintenance_records_farm_id_fkey',
-    }),
-    foreignKey({
-      columns: [table.incidentId],
-      foreignColumns: [assetIncidents.id],
-      name: 'maintenance_records_incident_id_fkey',
-    }),
-    foreignKey({
-      columns: [table.performedByMemberId],
-      foreignColumns: [farmMembers.id],
-      name: 'maintenance_records_performed_by_member_id_fkey',
-    }),
-    foreignKey({
-      columns: [table.supplierId],
-      foreignColumns: [suppliers.id],
-      name: 'maintenance_records_supplier_id_fkey',
-    }),
-    check(
-      'ck_maintenance_costs_nonnegative',
-      sql`(labor_cost >= (0)::numeric) AND (material_cost >= (0)::numeric) AND (other_cost >= (0)::numeric)`,
-    ),
-    check(
-      'ck_maintenance_time_order',
-      sql`((started_at IS NULL) OR (scheduled_at IS NULL) OR (started_at >= scheduled_at)) AND ((completed_at IS NULL) OR (started_at IS NULL) OR (completed_at >= started_at))`,
-    ),
-    check(
-      'ck_maintenance_status_fields',
-      sql`((status = 'SCHEDULED'::maintenance_status) AND (started_at IS NULL) AND (completed_at IS NULL)) OR ((status = 'IN_PROGRESS'::maintenance_status) AND (started_at IS NOT NULL) AND (completed_at IS NULL)) OR ((status = 'COMPLETED'::maintenance_status) AND (started_at IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = 'CANCELLED'::maintenance_status) AND (completed_at IS NULL))`,
-    ),
-  ],
-);
-
 export const inventoryTransactions = pgTable(
   'inventory_transactions',
   {
@@ -1358,6 +1393,7 @@ export const inventoryTransactions = pgTable(
       precision: 18,
       scale: 3,
     }).notNull(),
+    reason: text(),
     sourceType: varchar('source_type', { length: 50 }).notNull(),
     sourceId: uuid('source_id').notNull(),
     movementGroupId: uuid('movement_group_id'),

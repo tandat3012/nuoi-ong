@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   normalizeSearch,
   parseOptionalEnum,
@@ -7,6 +7,8 @@ import {
 } from '../../common/query-params';
 import { assetStatus } from '../../db/schema';
 import { AssetsService } from './assets.service';
+import { CurrentAuth } from '../auth/current-auth.decorator';
+import { ReturnAssetDto } from './dto/return-asset.dto';
 import { FarmAccessGuard } from '../auth/farm-access.guard';
 
 @Controller('api/v1/assets')
@@ -71,6 +73,23 @@ export class AssetsController {
       data: await this.assetsService.getAsset(
         requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
+      ),
+    };
+  }
+
+  @Post(':id/return')
+  async returnAsset(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') idValue: string,
+    @Query('farmId') farmIdValue: string | undefined,
+    @Body() input: ReturnAssetDto,
+  ) {
+    return {
+      data: await this.assetsService.returnAsset(
+        requireUuid(idValue, 'id'),
+        requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
+        input,
       ),
     };
   }
