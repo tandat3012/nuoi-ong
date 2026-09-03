@@ -109,4 +109,25 @@ describe('MaterialsController', () => {
       365,
     );
   });
+
+  it('rejects invalid IDs and missing farm IDs', async () => {
+    await expect(
+      controller.getMaterial('not-a-uuid', farmId),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(() => controller.listMaterialLots('not-a-uuid', farmId)).toThrow(
+      BadRequestException,
+    );
+    expect(() => controller.listMaterials()).toThrow(BadRequestException);
+    expect(materialsService.getMaterial).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid filters and expiry windows', () => {
+    expect(() =>
+      controller.listMaterials(farmId, undefined, undefined, undefined, 'BAD'),
+    ).toThrow(BadRequestException);
+    expect(() => controller.listExpiringMaterials(farmId, '0')).toThrow(
+      BadRequestException,
+    );
+    expect(materialsService.listMaterials).not.toHaveBeenCalled();
+  });
 });

@@ -9,8 +9,10 @@ import { assetStatus } from '../../db/schema';
 import { AssetsService } from './assets.service';
 import { CurrentAuth } from '../auth/current-auth.decorator';
 import { ReturnAssetDto } from './dto/return-asset.dto';
+import { FarmAccessGuard } from '../auth/farm-access.guard';
 
 @Controller('api/v1/assets')
+@UseGuards(FarmAccessGuard)
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 
