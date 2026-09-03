@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   normalizeSearch,
   parseOptionalEnum,
@@ -7,6 +7,7 @@ import {
 } from '../../common/query-params';
 import { itemType, recordStatus, trackingMode } from '../../db/schema';
 import { CatalogService } from './catalog.service';
+import { FarmAccessGuard } from '../auth/farm-access.guard';
 
 @Controller('api/v1')
 export class CatalogController {
@@ -23,6 +24,7 @@ export class CatalogController {
   }
 
   @Get('items')
+  @UseGuards(FarmAccessGuard)
   async listItems(
     @Query('farmId') farmIdValue?: string,
     @Query('page') pageValue?: string,
@@ -51,6 +53,7 @@ export class CatalogController {
   }
 
   @Get('items/:id')
+  @UseGuards(FarmAccessGuard)
   async getItem(
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
