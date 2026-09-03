@@ -730,13 +730,44 @@ async function seed(client: PoolClient) {
     ],
   );
 
+  const maintenanceIssueId = await id(
+    client,
+    `INSERT INTO stock_issues
+    (id,farm_id,warehouse_id,issue_code,issue_date,issue_type,maintenance_record_id,status,reason,note,created_by_member_id,confirmed_by_member_id,confirmed_at,created_at,updated_at)
+    VALUES ($1,$2,$3,'ISS-MAINT-001','2026-08-09','MAINTENANCE',$4,'CONFIRMED','Vật tư thay thế trong bảo trì','Phiếu xuất vật tư bảo trì mẫu.',$5,$5,'2026-08-09T03:00:00Z',$6,$6)
+    ON CONFLICT (farm_id,issue_code) DO UPDATE SET warehouse_id=EXCLUDED.warehouse_id,issue_type=EXCLUDED.issue_type,
+      maintenance_record_id=EXCLUDED.maintenance_record_id,status=EXCLUDED.status,reason=EXCLUDED.reason,note=EXCLUDED.note,
+      confirmed_by_member_id=EXCLUDED.confirmed_by_member_id,confirmed_at=EXCLUDED.confirmed_at,updated_at=EXCLUDED.updated_at
+    RETURNING id`,
+    [
+      uuid('issue:maintenance'),
+      farmId,
+      warehouseIds.main,
+      uuid('maintenance:completed'),
+      memberIds.owner,
+      SEEDED_AT,
+    ],
+  );
+  await client.query(
+    `INSERT INTO stock_issue_items (id,stock_issue_id,item_id,quantity,note,created_at)
+    VALUES ($1,$2,$3,$4,'Vật tư dùng cho bảo trì mẫu.',$5)
+    ON CONFLICT (id) DO UPDATE SET quantity=EXCLUDED.quantity,note=EXCLUDED.note`,
+    [
+      uuid('issue-item:maintenance-gloves'),
+      maintenanceIssueId,
+      itemIds.gloves,
+      '5',
+      SEEDED_AT,
+    ],
+  );
+
   for (const [key, warehouseId, itemId, lotId, quantity] of [
     ['extractor', warehouseIds.main, itemIds.extractor, null, '1'],
     ['smoker', warehouseIds.main, itemIds.smoker, null, '1'],
     ['feed-main', warehouseIds.main, itemIds.feed, lotIds.feed, '75'],
     ['feed-field', warehouseIds.field, itemIds.feed, lotIds.feed, '25'],
     ['treatment', warehouseIds.main, itemIds.treatment, lotIds.treatment, '40'],
-    ['gloves', warehouseIds.main, itemIds.gloves, null, '178'],
+    ['gloves', warehouseIds.main, itemIds.gloves, null, '173'],
     ['jars', warehouseIds.main, itemIds.jars, null, '250'],
   ]) {
     await client.query(
@@ -862,6 +893,18 @@ async function seed(client: PoolClient) {
       '-50',
       'STOCK_ISSUE',
       issueId,
+      null,
+    ],
+    [
+      'maintenance-issue-gloves',
+      warehouseIds.main,
+      itemIds.gloves,
+      null,
+      null,
+      'MAINTENANCE_ISSUE',
+      '-5',
+      'STOCK_ISSUE',
+      maintenanceIssueId,
       null,
     ],
     [

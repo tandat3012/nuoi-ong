@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, count, eq, ilike, or, SQL } from 'drizzle-orm';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { and, asc, count, eq, ilike, isNull, or, sql, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
-import { assets, assetStatus, items, locations } from '../../db/schema';
+import { assetAssignments, assets, assetStatus, inventoryBalances, inventoryTransactions, items, locations, warehouses } from '../../db/schema';
+import { ReturnAssetDto } from './dto/return-asset.dto';
+import { WarehousesService } from '../warehouses/warehouses.service';
 
 type AssetStatus = (typeof assetStatus.enumValues)[number];
 
@@ -16,7 +18,26 @@ export interface AssetListFilters extends PaginationParams {
 
 @Injectable()
 export class AssetsService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(private readonly databaseService: DatabaseService, private readonly warehousesService: WarehousesService) {}
+
+  async returnAsset(id: string, farmId: string, clerkUserId: string, input: ReturnAssetDto) {
+    const memberId = await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    return this.databaseService.db.transaction(async (tx) => {
+      const [asset] = await tx.select().from(assets).where(and(eq(assets.id, id), eq(assets.farmId, farmId))).limit(1);
+      if (!asset) throw new NotFoundException('Asset not found');
+      if (!['IN_USE', 'ASSIGNED'].includes(asset.status)) throw new ConflictException('Only assigned or in-use assets can be returned');
+      const [warehouse] = await tx.select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.id, input.warehouseId), eq(warehouses.farmId, farmId), eq(warehouses.status, 'ACTIVE')));
+      if (!warehouse) throw new ConflictException('Warehouse must exist and be ACTIVE');
+      const now = new Date().toISOString();
+      await tx.update(assetAssignments).set({ status: 'RETURNED', returnedAt: now, updatedAt: now }).where(and(eq(assetAssignments.assetId, id), eq(assetAssignments.farmId, farmId), eq(assetAssignments.status, 'ACTIVE')));
+      await tx.update(assets).set({ status: 'AVAILABLE', updatedAt: now }).where(eq(assets.id, id));
+      const [balance] = await tx.select().from(inventoryBalances).where(and(eq(inventoryBalances.farmId, farmId), eq(inventoryBalances.warehouseId, input.warehouseId), eq(inventoryBalances.itemId, asset.itemId), isNull(inventoryBalances.lotId))).limit(1);
+      if (balance) await tx.update(inventoryBalances).set({ quantityOnHand: sql`${inventoryBalances.quantityOnHand} + 1`, updatedAt: now }).where(eq(inventoryBalances.id, balance.id));
+      else await tx.insert(inventoryBalances).values({ farmId, warehouseId: input.warehouseId, itemId: asset.itemId, lotId: null, quantityOnHand: '1' });
+      await tx.insert(inventoryTransactions).values({ farmId, warehouseId: input.warehouseId, itemId: asset.itemId, assetId: id, transactionType: 'RETURN_IN', quantityChange: '1', sourceType: 'ASSET_RETURN', sourceId: id, performedByMemberId: memberId, reason: input.note });
+      return (await tx.select().from(assets).where(eq(assets.id, id)).limit(1))[0];
+    });
+  }
 
   async listAssets(filters: AssetListFilters) {
     const predicates: SQL[] = [eq(assets.farmId, filters.farmId)];

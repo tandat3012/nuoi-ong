@@ -331,6 +331,10 @@ export const stockIssuesRelations = relations(stockIssues, ({ one, many }) => ({
     fields: [stockIssues.warehouseId],
     references: [warehouses.id],
   }),
+  maintenanceRecord: one(maintenanceRecords, {
+    fields: [stockIssues.maintenanceRecordId],
+    references: [maintenanceRecords.id],
+  }),
   stockIssueItems: many(stockIssueItems),
 }));
 
@@ -498,7 +502,7 @@ export const assetIncidentsRelations = relations(
 
 export const maintenanceRecordsRelations = relations(
   maintenanceRecords,
-  ({ one }) => ({
+  ({ one, many }) => ({
     asset: one(assets, {
       fields: [maintenanceRecords.assetId],
       references: [assets.id],
@@ -519,6 +523,7 @@ export const maintenanceRecordsRelations = relations(
       fields: [maintenanceRecords.supplierId],
       references: [suppliers.id],
     }),
+    stockIssues: many(stockIssues),
   }),
 );
 

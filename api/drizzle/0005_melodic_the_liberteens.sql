@@ -1,0 +1,1 @@
+ALTER TABLE "inventory_transactions" ADD COLUMN "reason" text;
