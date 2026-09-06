@@ -23,7 +23,7 @@ import { MaterialsService } from './materials.service';
 import { FarmAccessGuard } from '../auth/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access.decorator';
 
-@Controller('api/v1/materials')
+@Controller('materials')
 @UseGuards(FarmAccessGuard)
 export class MaterialsController {
   constructor(private readonly materialsService: MaterialsService) {}

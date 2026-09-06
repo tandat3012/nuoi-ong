@@ -6,7 +6,7 @@ import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { StockReceiptsService } from './stock-receipts.service';
 
-@Controller('api/v1/stock-receipts')
+@Controller('stock-receipts')
 export class StockReceiptsController {
   constructor(private readonly stockReceiptsService: StockReceiptsService) {}
 

@@ -9,7 +9,7 @@ import { itemType, recordStatus, trackingMode } from '../../db/schema';
 import { CatalogService } from './catalog.service';
 import { FarmAccessGuard } from '../auth/farm-access.guard';
 
-@Controller('api/v1')
+@Controller()
 export class CatalogController {
   constructor(private readonly catalogService: CatalogService) {}
 
@@ -38,11 +38,7 @@ export class CatalogController {
       farmId: requireUuid(farmIdValue, 'farmId'),
       ...parsePagination(pageValue, pageSizeValue),
       search: normalizeSearch(searchValue),
-      itemType: parseOptionalEnum(
-        itemTypeValue,
-        itemType.enumValues,
-        'itemType',
-      ),
+      itemType: parseOptionalEnum(itemTypeValue, itemType.enumValues, 'itemType'),
       trackingMode: parseOptionalEnum(
         trackingModeValue,
         trackingMode.enumValues,
