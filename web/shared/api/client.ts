@@ -1,4 +1,11 @@
-const DEFAULT_API_URL = 'http://localhost:5050';
+import axios, {
+  type AxiosRequestConfig,
+  type RawAxiosRequestHeaders,
+} from 'axios';
+
+import { FULL_API_URL } from '../config/api';
+
+export const API_UNAUTHORIZED_EVENT = 'api:unauthorized';
 
 export class ApiError extends Error {
   constructor(
@@ -11,37 +18,69 @@ export class ApiError extends Error {
   }
 }
 
-type ApiRequestOptions = RequestInit & {
+const apiClient = axios.create({
+  baseURL: FULL_API_URL,
+  timeout: 10000,
+  headers: {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  },
+});
+
+export type ApiRequestOptions = Omit<
+  AxiosRequestConfig,
+  'headers' | 'url'
+> & {
   accessToken?: string;
+  headers?: RawAxiosRequestHeaders;
 };
 
 export async function apiRequest<T>(
   path: string,
-  { accessToken, headers, ...init }: ApiRequestOptions = {},
+  { accessToken, headers, ...config }: ApiRequestOptions = {},
 ): Promise<T> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
-  const response = await fetch(new URL(path, baseUrl), {
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...headers,
-    },
-  });
+  try {
+    const response = await apiClient.request<T>({
+      ...config,
+      url: path,
+      headers: {
+        ...headers,
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+    });
 
-  if (!response.ok) {
-    const details = await response.json().catch(() => undefined);
-    throw new ApiError(
-      `API request failed with status ${response.status}`,
-      response.status,
-      details,
-    );
+    return response.data;
+  } catch (error: unknown) {
+    throw toApiError(error);
+  }
+}
+
+function toApiError(error: unknown): ApiError {
+  if (!axios.isAxiosError(error)) {
+    return new ApiError('Unexpected error', 0, error);
   }
 
-  if (response.status === 204) {
-    return undefined as T;
+  const status = error.response?.status ?? 0;
+  const details = error.response?.data ?? error.request;
+  const message = getErrorMessage(details, error.message);
+
+  if (status === 401 && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(API_UNAUTHORIZED_EVENT));
   }
 
-  return (await response.json()) as T;
+  return new ApiError(message, status, details);
+}
+
+function getErrorMessage(details: unknown, fallback: string): string {
+  if (!details || typeof details !== 'object' || !('message' in details)) {
+    return fallback || 'Unexpected error';
+  }
+
+  const message = details.message;
+  if (typeof message === 'string') return message;
+  if (Array.isArray(message) && message.every((item) => typeof item === 'string')) {
+    return message.join(', ');
+  }
+
+  return fallback || 'Unexpected error';
 }
