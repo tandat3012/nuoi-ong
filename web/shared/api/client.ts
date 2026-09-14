@@ -1,3 +1,5 @@
+import axios, { type AxiosRequestConfig } from 'axios';
+
 const DEFAULT_API_URL = 'http://localhost:5050';
 
 export class ApiError extends Error {
@@ -11,37 +13,50 @@ export class ApiError extends Error {
   }
 }
 
-type ApiRequestOptions = RequestInit & {
+export type ApiRequestOptions = Pick<
+  AxiosRequestConfig,
+  'method' | 'headers' | 'data' | 'params'
+> & {
   accessToken?: string;
 };
 
 export async function apiRequest<T>(
   path: string,
-  { accessToken, headers, ...init }: ApiRequestOptions = {},
+  { accessToken, headers, ...options }: ApiRequestOptions = {},
 ): Promise<T> {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
-  const response = await fetch(new URL(path, baseUrl), {
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...headers,
-    },
-  });
+  try {
+    const response = await axios.request<T>({
+      baseURL: baseUrl,
+      url: path,
+      ...options,
+      validateStatus: () => true,
+      headers: {
+        Accept: 'application/json',
+        ...(options.data ? { 'Content-Type': 'application/json' } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        ...headers,
+      },
+    });
 
-  if (!response.ok) {
-    const details = await response.json().catch(() => undefined);
-    throw new ApiError(
-      `API request failed with status ${response.status}`,
-      response.status,
-      details,
-    );
+    if (response.status >= 400) {
+      throw new ApiError(
+        `API request failed with status ${response.status}`,
+        response.status,
+        response.data,
+      );
+    }
+
+    return response.data;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (axios.isAxiosError(error)) {
+      throw new ApiError(
+        error.message,
+        error.response?.status ?? 0,
+        error.response?.data,
+      );
+    }
+    throw error;
   }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
 }

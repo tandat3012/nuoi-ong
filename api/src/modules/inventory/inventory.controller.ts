@@ -1,11 +1,32 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { parsePagination, requireUuid } from '../../common/query-params';
+import { normalizeSearch, parseOptionalEnum, parsePagination, requireUuid } from '../../common/query-params';
 import { CurrentAuth } from '../auth/current-auth.decorator';
+import { itemType, recordStatus } from '../../db/schema';
 import { InventoryService } from './inventory.service';
 
 @Controller('api/v1')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
+
+  @Get('items')
+  listItems(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+    @Query('itemType') type?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.inventoryService.listItems({
+      clerkUserId: auth.clerkUserId,
+      farmId: requireUuid(farmId, 'farmId'),
+      ...parsePagination(page, pageSize),
+      search: normalizeSearch(search),
+      itemType: parseOptionalEnum(type, itemType.enumValues, 'itemType'),
+      status: parseOptionalEnum(status, recordStatus.enumValues, 'status'),
+    });
+  }
 
   @Get('inventory')
   listBalances(

@@ -1,12 +1,11 @@
 import { Show, SignInButton, UserButton } from '@clerk/nextjs';
-import { AuthBootstrap } from '@/features/auth/components/auth-bootstrap';
+import { FarmSelector } from '@/features/auth';
 
 import { SidebarNavigation } from './sidebar-navigation';
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <>
-      <AuthBootstrap />
       <a
         href="#main-content"
         className="sr-only z-50 rounded-lg bg-primary px-4 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
@@ -43,6 +42,10 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
             </div>
           </div>
 
+          <div className="mb-4 lg:hidden">
+            <FarmSelector />
+          </div>
+
           <SidebarNavigation />
 
           <div className="mt-8 hidden rounded-xl border bg-muted/60 p-4 lg:block">
@@ -61,6 +64,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
               <p className="text-sm font-medium">Hệ thống quản lý nội bộ</p>
               <p className="text-xs text-muted-foreground">CNTT-KLCN289 · Phiên bản V1</p>
             </div>
+            <FarmSelector />
             <div className="flex items-center gap-3">
               <Show when="signed-out">
                 <SignInButton>

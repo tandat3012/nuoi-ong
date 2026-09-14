@@ -1,10 +1,9 @@
 import type { Metadata } from 'next';
 
-import { issuesModule } from '@/features/issues';
-import { ModuleOverview } from '@/shared/components/module-overview';
+import { IssuesScreen } from '@/features/issues';
 
 export const metadata: Metadata = { title: 'Phiếu xuất' };
 
 export default function IssuesPage() {
-  return <ModuleOverview module={issuesModule} />;
+  return <IssuesScreen />;
 }

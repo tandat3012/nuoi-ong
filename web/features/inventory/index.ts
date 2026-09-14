@@ -12,3 +12,5 @@ export const inventoryModule: ModuleDefinition = {
   ],
   primaryAction: 'Kiểm kê kho',
 };
+
+export { InventoryScreen } from './components/inventory-screen';

@@ -9,6 +9,7 @@ export class AuthController {
   @Get('me')
   async getMe(@CurrentAuth() auth: { clerkUserId: string }) {
     const user = await this.authService.getOrCreateUser(auth.clerkUserId);
+    const farms = await this.authService.getUserFarms(user.id);
 
     return {
       user: {
@@ -18,6 +19,10 @@ export class AuthController {
         fullName: user.fullName,
         avatarUrl: user.avatarUrl,
       },
+      memberships: farms.map(({ roles, ...farm }) => ({
+        farm,
+        roles: roles.map((role) => role.code),
+      })),
     };
   }
 }
