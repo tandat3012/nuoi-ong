@@ -21,6 +21,7 @@ export function SidebarNavigation() {
           <Link
             key={item.href}
             href={item.href}
+            prefetch={false}
             aria-current={isCurrent ? 'page' : undefined}
             className={`flex min-h-11 shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
               isCurrent
