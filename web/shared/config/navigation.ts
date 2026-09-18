@@ -7,6 +7,7 @@ export type NavigationItem = {
 export const primaryNavigation: readonly NavigationItem[] = [
   { href: '/dashboard', label: 'Tổng quan', shortLabel: 'TQ' },
   { href: '/materials', label: 'Vật tư', shortLabel: 'VT' },
+  { href: '/warehouses', label: 'Kho', shortLabel: 'KH' },
   { href: '/catalog', label: 'Danh mục', shortLabel: 'DM' },
   { href: '/inventory', label: 'Tồn kho', shortLabel: 'TK' },
   { href: '/receipts', label: 'Phiếu nhập', shortLabel: 'PN' },
