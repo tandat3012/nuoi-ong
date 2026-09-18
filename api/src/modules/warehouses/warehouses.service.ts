@@ -254,7 +254,8 @@ export class WarehousesService {
   }
 
   private throwMappedDatabaseError(error: unknown): never {
-    const code = (error as { code?: string })?.code;
+    const databaseError = error as { code?: string; cause?: { code?: string } };
+    const code = databaseError?.code ?? databaseError?.cause?.code;
     if (code === '23505') throw new ConflictException('Warehouse code already exists');
     throw error;
   }
