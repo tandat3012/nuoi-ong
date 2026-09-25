@@ -13,7 +13,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-const DECIMAL = /^(0|[1-9]\d{0,14})(\.\d{1,3})?$/;
+const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 
 export class CreateStockReceiptItemDto {
   @IsUUID()
@@ -53,6 +53,10 @@ export class CreateStockReceiptItemDto {
   @IsString()
   @MaxLength(255)
   serialNumber?: string;
+
+  @IsOptional()
+  @IsUUID()
+  locationId?: string;
 }
 
 export class CreateStockReceiptDto {
