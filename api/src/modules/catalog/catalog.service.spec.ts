@@ -101,6 +101,48 @@ describe('CatalogService', () => {
     await expect(service.getItem('item-1', farmId)).resolves.toBe(item);
   });
 
+  it('returns paginated supplier and location lookups', async () => {
+    const supplierRows = [{ id: 'supplier-1', farmId }];
+    const locationRows = [{ id: 'location-1', farmId }];
+    const supplierQuery = queryReturning(supplierRows);
+    const supplierCountQuery = queryReturning([{ value: '1' }]);
+    const locationQuery = queryReturning(locationRows);
+    const locationCountQuery = queryReturning([{ value: '1' }]);
+    (databaseService.db.select as jest.Mock)
+      .mockReturnValueOnce(supplierQuery)
+      .mockReturnValueOnce(supplierCountQuery)
+      .mockReturnValueOnce(locationQuery)
+      .mockReturnValueOnce(locationCountQuery);
+
+    await expect(
+      service.listSuppliers({
+        farmId,
+        page: 1,
+        pageSize: 10,
+        offset: 0,
+        status: 'ACTIVE',
+        search: 'supplier',
+      }),
+    ).resolves.toMatchObject({
+      data: supplierRows,
+      page: { number: 1, size: 10, totalItems: 1, totalPages: 1 },
+    });
+    await expect(
+      service.listLocations({
+        farmId,
+        warehouseId: 'warehouse-1',
+        page: 1,
+        pageSize: 10,
+        offset: 0,
+        status: 'ACTIVE',
+        search: 'zone',
+      }),
+    ).resolves.toMatchObject({
+      data: locationRows,
+      page: { number: 1, size: 10, totalItems: 1, totalPages: 1 },
+    });
+  });
+
   it('throws when the item does not exist in the farm', async () => {
     const query = queryReturning([]);
     (databaseService.db.select as jest.Mock).mockReturnValue(query);
