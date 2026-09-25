@@ -1,5 +1,7 @@
 import type { ModuleDefinition } from '@/shared/types/module';
 
+export { ReceiptsPage } from './components/receipts-page';
+
 export const receiptsModule: ModuleDefinition = {
   title: 'Phiếu nhập kho',
   description:
