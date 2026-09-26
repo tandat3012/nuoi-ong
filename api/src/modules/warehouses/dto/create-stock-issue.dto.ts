@@ -4,12 +4,15 @@ import {
   Length, Matches, MaxLength, ValidateNested,
 } from 'class-validator';
 
-const DECIMAL = /^(0|[1-9]\d{0,14})(\.\d{1,3})?$/;
-const ISSUE_TYPES = ['CONSUMPTION', 'DAMAGE', 'DISPOSAL', 'OTHER', 'MAINTENANCE'] as const;
+const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
+const ISSUE_TYPES = ['CONSUMPTION', 'DAMAGE', 'DISPOSAL', 'OTHER', 'MAINTENANCE',
+] as const;
 
 export class CreateStockIssueItemDto {
   @IsUUID() itemId!: string;
-  @Matches(DECIMAL) quantity!: string;
+  @Matches(DECIMAL, {
+    message: 'quantity must be greater than zero with at most 3 decimal places',
+  }) quantity!: string;
   @IsOptional() @IsUUID() lotId?: string | null;
   @IsOptional() @IsUUID() assetId?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
