@@ -1,6 +1,11 @@
-import axios, { type AxiosRequestConfig } from 'axios';
+import axios, {
+  type AxiosRequestConfig,
+  type RawAxiosRequestHeaders,
+} from 'axios';
 
-const DEFAULT_API_URL = 'http://localhost:5050';
+import { FULL_API_URL } from '../config/api';
+
+export const API_UNAUTHORIZED_EVENT = 'api:unauthorized';
 
 export class ApiError extends Error {
   constructor(
@@ -13,50 +18,69 @@ export class ApiError extends Error {
   }
 }
 
-export type ApiRequestOptions = Pick<
+const apiClient = axios.create({
+  baseURL: FULL_API_URL,
+  timeout: 10000,
+  headers: {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  },
+});
+
+export type ApiRequestOptions = Omit<
   AxiosRequestConfig,
-  'method' | 'headers' | 'data' | 'params'
+  'headers' | 'url'
 > & {
   accessToken?: string;
+  headers?: RawAxiosRequestHeaders;
 };
 
 export async function apiRequest<T>(
   path: string,
-  { accessToken, headers, ...options }: ApiRequestOptions = {},
+  { accessToken, headers, ...config }: ApiRequestOptions = {},
 ): Promise<T> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
   try {
-    const response = await axios.request<T>({
-      baseURL: baseUrl,
+    const response = await apiClient.request<T>({
+      ...config,
       url: path,
-      ...options,
-      validateStatus: () => true,
       headers: {
-        Accept: 'application/json',
-        ...(options.data ? { 'Content-Type': 'application/json' } : {}),
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...headers,
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
     });
 
-    if (response.status >= 400) {
-      throw new ApiError(
-        `API request failed with status ${response.status}`,
-        response.status,
-        response.data,
-      );
-    }
-
     return response.data;
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    if (axios.isAxiosError(error)) {
-      throw new ApiError(
-        error.message,
-        error.response?.status ?? 0,
-        error.response?.data,
-      );
-    }
-    throw error;
+  } catch (error: unknown) {
+    throw toApiError(error);
   }
+}
+
+function toApiError(error: unknown): ApiError {
+  if (!axios.isAxiosError(error)) {
+    return new ApiError('Unexpected error', 0, error);
+  }
+
+  const status = error.response?.status ?? 0;
+  const details = error.response?.data ?? error.request;
+  const message = getErrorMessage(details, error.message);
+
+  if (status === 401 && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(API_UNAUTHORIZED_EVENT));
+  }
+
+  return new ApiError(message, status, details);
+}
+
+function getErrorMessage(details: unknown, fallback: string): string {
+  if (!details || typeof details !== 'object' || !('message' in details)) {
+    return fallback || 'Unexpected error';
+  }
+
+  const message = details.message;
+  if (typeof message === 'string') return message;
+  if (Array.isArray(message) && message.every((item) => typeof item === 'string')) {
+    return message.join(', ');
+  }
+
+  return fallback || 'Unexpected error';
 }

@@ -27,6 +27,35 @@ describe('AssetsController', () => {
     expect(assetsService.getAssetByQr).toHaveBeenCalledWith(qrToken, farmId);
   });
 
+  it('lists assets with validated filters', async () => {
+    assetsService.listAssets.mockResolvedValueOnce({ data: [], page: {} });
+
+    await expect(
+      controller.listAssets(farmId, '2', '10', 'smoker', 'AVAILABLE'),
+    ).resolves.toEqual({ data: [], page: {} });
+    expect(assetsService.listAssets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        farmId,
+        page: 2,
+        pageSize: 10,
+        offset: 10,
+        search: 'smoker',
+        status: 'AVAILABLE',
+      }),
+    );
+  });
+
+  it('gets an asset by ID', async () => {
+    const assetId = 'c796d96d-7260-4763-a9fe-8fe08a444165';
+    const asset = { asset: { id: assetId } };
+    assetsService.getAsset.mockResolvedValueOnce(asset);
+
+    await expect(controller.getAsset(assetId, farmId)).resolves.toEqual({
+      data: asset,
+    });
+    expect(assetsService.getAsset).toHaveBeenCalledWith(assetId, farmId);
+  });
+
   it('rejects an unsupported asset status', () => {
     expect(() =>
       controller.listAssets(farmId, undefined, undefined, undefined, 'BROKEN'),

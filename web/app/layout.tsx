@@ -2,8 +2,6 @@ import { ClerkProvider } from '@clerk/nextjs';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 
-import { AuthProvider } from '@/features/auth';
-
 import './globals.css';
 
 const geistSans = Geist({
@@ -38,7 +36,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
           signInFallbackRedirectUrl="/dashboard"
           signUpFallbackRedirectUrl="/dashboard"
         >
-          <AuthProvider>{children}</AuthProvider>
+          {children}
         </ClerkProvider>
       </body>
     </html>

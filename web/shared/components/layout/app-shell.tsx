@@ -1,5 +1,5 @@
 import { Show, SignInButton, UserButton } from '@clerk/nextjs';
-import { FarmSelector } from '@/features/auth';
+import { FarmSwitcher } from '@/features/auth/components/farm-switcher';
 
 import { SidebarNavigation } from './sidebar-navigation';
 
@@ -15,7 +15,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
 
       <div className="min-h-screen lg:grid lg:grid-cols-[17rem_1fr]">
         <aside className="border-b bg-card px-4 py-4 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
-          <div className="mb-4 flex items-center justify-between lg:mb-8 lg:block">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-4 lg:mb-8 lg:block">
             <div className="flex items-center gap-3">
               <div
                 aria-hidden="true"
@@ -28,7 +28,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
                 <p className="text-xs text-muted-foreground">Quản lý nguồn lực V1</p>
               </div>
             </div>
-            <div className="flex items-center lg:hidden">
+            <div className="flex w-full items-center justify-end gap-3 sm:w-auto lg:hidden">
               <Show when="signed-out">
                 <SignInButton>
                   <button className="min-h-11 rounded-xl border bg-card px-3 text-sm font-semibold">
@@ -37,13 +37,10 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
                 </SignInButton>
               </Show>
               <Show when="signed-in">
+                <FarmSwitcher className="flex-1 sm:flex-none" />
                 <UserButton />
               </Show>
             </div>
-          </div>
-
-          <div className="mb-4 lg:hidden">
-            <FarmSelector />
           </div>
 
           <SidebarNavigation />
@@ -62,9 +59,10 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
           <header className="hidden h-20 items-center justify-between border-b bg-card/90 px-6 lg:flex xl:px-10">
             <div>
               <p className="text-sm font-medium">Hệ thống quản lý nội bộ</p>
-              <p className="text-xs text-muted-foreground">CNTT-KLCN289 · Phiên bản V1</p>
+              <p className="text-xs text-muted-foreground">
+                CNTT-KLCN289 · Phiên bản V1
+              </p>
             </div>
-            <FarmSelector />
             <div className="flex items-center gap-3">
               <Show when="signed-out">
                 <SignInButton>
@@ -74,12 +72,16 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
                 </SignInButton>
               </Show>
               <Show when="signed-in">
+                <FarmSwitcher />
                 <UserButton />
               </Show>
             </div>
           </header>
 
-          <main id="main-content" className="mx-auto w-full max-w-[96rem] p-4 sm:p-6 xl:p-10">
+          <main
+            id="main-content"
+            className="mx-auto w-full max-w-[96rem] p-4 sm:p-6 xl:p-10"
+          >
             {children}
           </main>
         </div>

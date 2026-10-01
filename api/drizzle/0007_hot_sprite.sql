@@ -1,0 +1,2 @@
+ALTER TABLE "inventory_balances" DROP CONSTRAINT "uq_inventory_balance";--> statement-breakpoint
+ALTER TABLE "inventory_balances" ADD CONSTRAINT "uq_inventory_balance" UNIQUE NULLS NOT DISTINCT("item_id","lot_id","warehouse_id");

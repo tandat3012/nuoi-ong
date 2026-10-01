@@ -20,7 +20,7 @@ import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { WarehousesService } from './warehouses.service';
 import { recordStatus } from '../../db/schema';
 
-@Controller('api/v1/warehouses')
+@Controller('warehouses')
 export class WarehousesController {
   constructor(private readonly warehousesService: WarehousesService) {}
 

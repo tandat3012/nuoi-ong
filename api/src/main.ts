@@ -18,7 +18,9 @@ async function bootstrap() {
     origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
     allowedHeaders: ['Content-Type', 'Authorization'],
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+    credentials: true,
   });
+  app.setGlobalPrefix('api/v1');
 
   app.enableShutdownHooks();
   await app.listen(process.env.PORT ?? 5050);

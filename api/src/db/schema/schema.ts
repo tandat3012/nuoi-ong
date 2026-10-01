@@ -570,6 +570,9 @@ export const stockReceiptItems = pgTable(
     lotNumber: varchar('lot_number', { length: 100 }),
     manufacturedDate: date('manufactured_date'),
     expiryDate: date('expiry_date'),
+    locationId: uuid('location_id').references(() => locations.id, {
+      onDelete: 'set null',
+    }),
     assetId: uuid('asset_id').references(() => assets.id, {
       onDelete: 'set null',
     }),
@@ -782,11 +785,9 @@ export const inventoryBalances = pgTable(
       foreignColumns: [warehouses.id],
       name: 'inventory_balances_warehouse_id_fkey',
     }),
-    unique('uq_inventory_balance').on(
-      table.itemId,
-      table.lotId,
-      table.warehouseId,
-    ),
+    unique('uq_inventory_balance')
+      .on(table.itemId, table.lotId, table.warehouseId)
+      .nullsNotDistinct(),
     check(
       'ck_inventory_balance_nonnegative',
       sql`quantity_on_hand >= (0)::numeric`,

@@ -1,10 +1,15 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { normalizeSearch, parseOptionalEnum, parsePagination, requireUuid } from '../../common/query-params';
+import {
+  normalizeSearch,
+  parseOptionalEnum,
+  parsePagination,
+  requireUuid,
+} from '../../common/query-params';
 import { CurrentAuth } from '../auth/current-auth.decorator';
 import { itemType, recordStatus } from '../../db/schema';
 import { InventoryService } from './inventory.service';
 
-@Controller('api/v1')
+@Controller()
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 

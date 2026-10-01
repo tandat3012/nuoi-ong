@@ -52,4 +52,21 @@ describe('CatalogController', () => {
     );
     expect(catalogService.listItems).not.toHaveBeenCalled();
   });
+
+  it('rejects invalid pagination and enum filters', async () => {
+    await expect(controller.listItems(farmId, '0')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(
+      controller.listItems(farmId, undefined, undefined, undefined, 'INVALID'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(catalogService.listItems).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid item ID before calling the service', async () => {
+    await expect(
+      controller.getItem('not-a-uuid', farmId),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(catalogService.getItem).not.toHaveBeenCalled();
+  });
 });

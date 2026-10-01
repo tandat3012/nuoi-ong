@@ -1,19 +1,16 @@
 import type { ClerkClient } from '@clerk/backend';
 import {
+  ForbiddenException,
   Inject,
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DatabaseService } from '../../db/database.service';
-import {
-  farmMemberRoles,
-  farmMembers,
-  farms,
-  roles,
-  users,
-} from '../../db/schema';
+import { farmMemberRoles, farmMembers, farms, roles, users } from '../../db/schema';
 import { CLERK_CLIENT } from './clerk-client.provider';
+import { and } from 'drizzle-orm';
+import { asc } from 'drizzle-orm';
 
 @Injectable()
 export class AuthService {
@@ -41,8 +38,7 @@ export class AuthService {
     }
 
     const fullName =
-      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') ||
-      null;
+      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null;
 
     const [newUser] = await this.databaseService.db
       .insert(users)
@@ -67,65 +63,77 @@ export class AuthService {
     return newUser;
   }
 
-  async getUserFarms(userId: string) {
-    const memberships = await this.databaseService.db
+  async getAuthContext(clerkUserId: string) {
+    const user = await this.getOrCreateUser(clerkUserId);
+
+    if (!user || user.status !== 'ACTIVE') {
+      throw new ForbiddenException('User account is inactive or not found');
+    }
+
+    const rows = await this.databaseService.db
       .select({
+        memberId: farmMembers.id,
         farmId: farms.id,
         farmCode: farms.code,
         farmName: farms.name,
-        farmStatus: farms.status,
-        memberStatus: farmMembers.status,
         roleCode: roles.code,
-        roleName: roles.name,
       })
       .from(farmMembers)
-      .innerJoin(farms, eq(farms.id, farmMembers.farmId))
-      .leftJoin(
-        farmMemberRoles,
-        eq(farmMemberRoles.farmMemberId, farmMembers.id),
-      )
+      .innerJoin(farms, eq(farmMembers.farmId, farms.id))
+      .leftJoin(farmMemberRoles, eq(farmMemberRoles.farmMemberId, farmMembers.id))
       .leftJoin(roles, eq(roles.id, farmMemberRoles.roleId))
-      .where(eq(farmMembers.userId, userId));
+      .where(
+        and(
+          eq(farmMembers.userId, user.id),
+          eq(farmMembers.status, 'ACTIVE'),
+          eq(farms.status, 'ACTIVE'),
+        ),
+      )
+      .orderBy(asc(farms.name), asc(farms.id));
 
-    const grouped = new Map<
+    const memberShipMap = new Map<
       string,
       {
-        id: string;
-        code: string;
-        name: string;
-        status: string;
-        roles: Array<{ code: string; name: string }>;
+        memberId: string;
+        farm: {
+          id: string;
+          code: string;
+          name: string;
+        };
+        roles: string[];
       }
     >();
 
-    for (const membership of memberships) {
-      if (membership.memberStatus !== 'ACTIVE' || membership.farmStatus !== 'ACTIVE') {
-        continue;
-      }
-
-      const farm = grouped.get(membership.farmId) ?? {
-        id: membership.farmId,
-        code: membership.farmCode,
-        name: membership.farmName,
-        status: membership.farmStatus,
+    for (const row of rows) {
+      const membership = memberShipMap.get(row.memberId) ?? {
+        memberId: row.memberId,
+        farm: {
+          id: row.farmId,
+          code: row.farmCode,
+          name: row.farmName,
+        },
         roles: [],
       };
 
-      if (membership.roleCode && !farm.roles.some((role) => role.code === membership.roleCode)) {
-        farm.roles.push({
-          code: membership.roleCode,
-          name: membership.roleName ?? membership.roleCode,
-        });
+      if (row.roleCode && !membership.roles.includes(row.roleCode)) {
+        membership.roles.push(row.roleCode);
       }
-      grouped.set(membership.farmId, farm);
+
+      memberShipMap.set(row.memberId, membership);
     }
 
-    return [...grouped.values()].map((farm) => ({
-      ...farm,
-      role:
-        farm.roles.find((role) => ['ADMIN', 'FARM_OWNER'].includes(role.code))?.code ??
-        farm.roles[0]?.code ??
-        null,
-    }));
+    const memberships = [...memberShipMap.values()];
+
+    return {
+      user: {
+        id: user.id,
+        clerkUserId: user.authProviderUserId,
+        email: user.email,
+        fullName: user.fullName,
+        avatarUrl: user.avatarUrl,
+      },
+      memberships,
+      defaultFarmId: memberships[0]?.farm.id ?? null,
+    };
   }
 }

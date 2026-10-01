@@ -6,7 +6,7 @@ import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { StockIssuesService } from './stock-issues.service';
 
-@Controller('api/v1/stock-issues')
+@Controller('stock-issues')
 export class StockIssuesController {
   constructor(private readonly service: StockIssuesService) {}
   @Get() list(@CurrentAuth() auth: { clerkUserId: string }, @Query('farmId') farmId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('status') status?: string) { return this.service.list({ clerkUserId: auth.clerkUserId, farmId: requireUuid(farmId, 'farmId'), ...parsePagination(page, pageSize), status: parseOptionalEnum(status, documentStatus.enumValues, 'status') }); }

@@ -3,24 +3,35 @@
 import { useAuth } from '@clerk/nextjs';
 import { useCallback } from 'react';
 
-import { apiRequest, type ApiRequestOptions } from '@/shared/api/client';
+import {
+  API_UNAUTHORIZED_EVENT,
+  ApiError,
+  apiRequest,
+  ApiRequestOptions,
+} from '@/shared/api/client';
 
-type RequestOptions = Omit<ApiRequestOptions, 'accessToken'>;
+type AuthenticatedRequestOptions = Omit<ApiRequestOptions, 'accessToken'>;
 
 export function useAuthenticatedRequest() {
   const { getToken } = useAuth();
 
-  return useCallback(async function request<T>(path: string, options: RequestOptions = {}) {
-    const accessToken = await getToken();
+  return useCallback(
+    async <T>(
+      path: string,
+      options: AuthenticatedRequestOptions = {},
+    ): Promise<T> => {
+      const accessToken = await getToken();
 
-    try {
-      return await apiRequest<T>(path, {
+      if (!accessToken) {
+        window.dispatchEvent(new Event(API_UNAUTHORIZED_EVENT));
+        throw new ApiError('Authentication is required', 401);
+      }
+
+      return apiRequest<T>(path, {
         ...options,
-        accessToken: accessToken ?? undefined,
+        accessToken,
       });
-    } catch (error) {
-      if (error instanceof Error) throw error;
-      throw new Error('API request failed');
-    }
-  }, [getToken]);
+    },
+    [getToken],
+  );
 }

@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 
-import { ReceiptsScreen } from '@/features/receipts';
+import { ReceiptsPage } from '@/features/receipts';
 
 export const metadata: Metadata = { title: 'Phiếu nhập' };
 
-export default function ReceiptsPage() {
-  return <ReceiptsScreen />;
+export default function Page() {
+  return <ReceiptsPage />;
 }

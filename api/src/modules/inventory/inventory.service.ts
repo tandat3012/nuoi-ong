@@ -1,5 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, gt, gte, ilike, isNull, isNotNull, or, SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  isNull,
+  isNotNull,
+  or,
+  SQL,
+} from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -13,7 +26,13 @@ import {
 import { WarehousesService } from '../warehouses/warehouses.service';
 
 type Filters = { clerkUserId: string; farmId: string; warehouseId?: string; itemId?: string; lotId?: string };
-type ItemFilters = PaginationParams & { clerkUserId: string; farmId: string; search?: string; itemType?: (typeof itemType.enumValues)[number]; status?: (typeof recordStatus.enumValues)[number] };
+type ItemFilters = PaginationParams & {
+  clerkUserId: string;
+  farmId: string;
+  search?: string;
+  itemType?: (typeof itemType.enumValues)[number];
+  status?: (typeof recordStatus.enumValues)[number];
+};
 
 @Injectable()
 export class InventoryService {
@@ -33,11 +52,33 @@ export class InventoryService {
     if (filters.status) predicates.push(eq(items.status, filters.status));
     const where = and(...predicates);
     const [data, totals] = await Promise.all([
-      this.databaseService.db.select({ id: items.id, farmId: items.farmId, code: items.code, name: items.name, itemType: items.itemType, trackingMode: items.trackingMode, status: items.status }).from(items).where(where).orderBy(asc(items.code)).limit(filters.pageSize).offset(filters.offset),
+      this.databaseService.db
+        .select({
+          id: items.id,
+          farmId: items.farmId,
+          code: items.code,
+          name: items.name,
+          itemType: items.itemType,
+          trackingMode: items.trackingMode,
+          status: items.status,
+        })
+        .from(items)
+        .where(where)
+        .orderBy(asc(items.code))
+        .limit(filters.pageSize)
+        .offset(filters.offset),
       this.databaseService.db.select({ value: count() }).from(items).where(where),
     ]);
     const totalItems = Number(totals[0]?.value ?? 0);
-    return { data, page: { number: filters.page, size: filters.pageSize, totalItems, totalPages: Math.ceil(totalItems / filters.pageSize) } };
+    return {
+      data,
+      page: {
+        number: filters.page,
+        size: filters.pageSize,
+        totalItems,
+        totalPages: Math.ceil(totalItems / filters.pageSize),
+      },
+    };
   }
 
   async listBalances(filters: Filters) {

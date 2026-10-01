@@ -5,7 +5,7 @@ import { CurrentAuth } from '../auth/current-auth.decorator';
 import { CreateMaintenanceRecordDto, UpdateMaintenanceRecordDto } from './dto/maintenance.dto';
 import { MaintenanceService } from './maintenance.service';
 
-@Controller('api/v1/maintenance-records')
+@Controller('maintenance-records')
 export class MaintenanceController {
   constructor(private readonly service: MaintenanceService) {}
   @Get() list(@CurrentAuth() auth: { clerkUserId: string }, @Query('farmId') farmId?: string, @Query('assetId') assetId?: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.list({ clerkUserId: auth.clerkUserId, farmId: requireUuid(farmId, 'farmId'), assetId: assetId ? requireUuid(assetId, 'assetId') : undefined, status: parseOptionalEnum(status, maintenanceStatus.enumValues, 'status'), ...parsePagination(page, pageSize) }); }

@@ -155,6 +155,69 @@ async function seed(client: PoolClient) {
     );
   }
 
+  // Additional auth-context fixtures. Keep the original demo memberships and
+  // memberIds unchanged because inventory documents below reference them.
+  // Fresh seed: admin/guest have one farm; owner/employee have multiple farms.
+  const extraFarmIds: Record<string, string> = {};
+  for (const [key, code, name, status] of [
+    ['coffee', 'FARM-COFFEE', 'Trại ong Hoa Cà Phê', 'ACTIVE'],
+    ['longan', 'FARM-LONGAN', 'Trại ong Nhãn Miền Tây', 'ACTIVE'],
+    ['paused', 'FARM-PAUSED', 'Trại ong Tạm Nghỉ', 'INACTIVE'],
+  ]) {
+    extraFarmIds[key] = await id(
+      client,
+      `INSERT INTO farms (id,code,name,description,status,created_at,updated_at)
+      VALUES ($1,$2,$3,'Trại mẫu kiểm thử chọn trại và phân quyền.',$4::record_status,$5,$5)
+      ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,
+        status=EXCLUDED.status,updated_at=EXCLUDED.updated_at RETURNING id`,
+      [uuid(`farm:${key}`), code, name, status, SEEDED_AT],
+    );
+  }
+
+  const extraMemberships = [
+    // Different permissions for the same user across farms.
+    { user: 'owner', farm: 'coffee', status: 'ACTIVE', roles: ['GUEST'] },
+    {
+      user: 'owner',
+      farm: 'longan',
+      status: 'ACTIVE',
+      roles: ['FARM_OWNER', 'EMPLOYEE'],
+    },
+    { user: 'employee', farm: 'coffee', status: 'ACTIVE', roles: ['EMPLOYEE'] },
+    // Excluded from auth context: inactive membership or inactive farm.
+    {
+      user: 'employee',
+      farm: 'longan',
+      status: 'INACTIVE',
+      roles: ['EMPLOYEE'],
+    },
+    { user: 'owner', farm: 'paused', status: 'ACTIVE', roles: ['FARM_OWNER'] },
+  ];
+  for (const membership of extraMemberships) {
+    const memberId = await id(
+      client,
+      `INSERT INTO farm_members (id,farm_id,user_id,status,joined_at,created_at,updated_at)
+      VALUES ($1,$2,$3,$4::member_status,$5,$5,$5)
+      ON CONFLICT (farm_id,user_id) DO UPDATE SET status=EXCLUDED.status,
+        updated_at=EXCLUDED.updated_at RETURNING id`,
+      [
+        uuid(`member:${membership.farm}:${membership.user}`),
+        extraFarmIds[membership.farm],
+        userIds[membership.user],
+        membership.status,
+        SEEDED_AT,
+      ],
+    );
+    for (const roleCode of membership.roles) {
+      await client.query(
+        `INSERT INTO farm_member_roles (farm_member_id,role_id,assigned_at)
+        VALUES ($1,$2,$3) ON CONFLICT (farm_member_id,role_id)
+        DO UPDATE SET assigned_at=EXCLUDED.assigned_at`,
+        [memberId, roleIds[roleCode], SEEDED_AT],
+      );
+    }
+  }
+
   const categoryIds: Record<string, string> = {};
   for (const row of [
     ['EQUIPMENT', 'Thiết bị'],

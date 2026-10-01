@@ -1,127 +1,162 @@
 'use client';
-
-import { useAuth } from '@clerk/nextjs';
-import {
-  createContext,
-  startTransition,
-  useContext,
-  useEffect,
-  useState,
-} from 'react';
-
-import { apiRequest, ApiError } from '@/shared/api/client';
-import type { AuthMeResponse } from '@/shared/api/contracts';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { AuthContextResponse } from '../types/auth-context';
+import { SignOutButton, useAuth } from '@clerk/nextjs';
+import { useAuthenticatedRequest } from '../hooks/use-authenticated-request';
+import { useRouter } from 'next/navigation';
+import { API_UNAUTHORIZED_EVENT, ApiError } from '@/shared/api/client';
 
 type AuthContextValue = {
-  data: AuthMeResponse | null;
+  data: AuthContextResponse;
   selectedFarmId: string | null;
-  setSelectedFarmId: (farmId: string) => void;
+  selectFarm: (farmId: string) => void;
   isLoading: boolean;
-  error: ApiError | Error | null;
+  error: ApiError | null;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const STORAGE_KEY = 'nuoi-ong.selected-farm-id';
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
-  const [data, setData] = useState<AuthMeResponse | null>(null);
-  const [selectedFarmId, setSelectedFarmIdState] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<ApiError | Error | null>(null);
+export function AuthContextProvider({ children }: { children: React.ReactNode }) {
+  const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
+  if (!isLoaded) return <p>Đang tải...</p>;
+  if (!isSignedIn || !userId) return null;
+  return (
+    <SessionContextProvider key={`${userId}:${sessionId}`} userId={userId}>
+      {children}
+    </SessionContextProvider>
+  );
+}
+
+function SessionContextProvider({
+  children,
+  userId,
+}: {
+  children: React.ReactNode;
+  userId: string;
+}) {
+  const request = useAuthenticatedRequest();
+  const router = useRouter();
+
+  const { isSignedIn, isLoaded } = useAuth();
+  const [data, setData] = useState<AuthContextResponse | null>(null);
+  const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn) {
-      startTransition(() => {
-        setData(null);
-        setSelectedFarmIdState(null);
-        setIsLoading(false);
-      });
-      return;
-    }
+    const onUnauthorized = () => router.replace('/sign-in');
+    window.addEventListener(API_UNAUTHORIZED_EVENT, onUnauthorized);
+
+    return () => window.removeEventListener(API_UNAUTHORIZED_EVENT, onUnauthorized);
+  }, [router]);
+
+  useEffect(() => {
+    if (!isSignedIn || !isLoaded) return;
 
     let cancelled = false;
-    startTransition(() => {
-      setIsLoading(true);
-      setError(null);
-    });
 
-    void (async () => {
-      const accessToken = await getToken();
-      const response = await apiRequest<AuthMeResponse>('/auth/me', {
-        accessToken: accessToken ?? undefined,
-      });
-      if (cancelled) return;
+    void request<AuthContextResponse>('/auth/me')
+      .then((res) => {
+        if (cancelled) return;
 
-      setData(response);
-      const savedFarmId = window.localStorage.getItem(STORAGE_KEY);
-      const availableFarmId = response.memberships.some(
-        ({ farm }) => farm.id === savedFarmId,
-      )
-        ? savedFarmId
-        : response.memberships[0]?.farm.id ?? null;
-      setSelectedFarmIdState(availableFarmId);
-      if (availableFarmId) window.localStorage.setItem(STORAGE_KEY, availableFarmId);
-    })()
-      .catch((requestError: unknown) => {
-        if (!cancelled) {
-          setError(
-            requestError instanceof Error
-              ? requestError
-              : new Error('Không thể tải thông tin tài khoản.'),
-          );
+        const strorageKey = `farm:selected-farm:${res.user.id}`;
+        if (res.user.clerkUserId !== userId) {
+          throw new ApiError('Unexpected user context', 403);
         }
+        let savedFarmId: string | null = null;
+        try {
+          savedFarmId = localStorage.getItem(strorageKey);
+        } catch {}
+        const savedFarmIsValid =
+          savedFarmId && res.memberships.some(({ farm }) => farm.id === savedFarmId);
+
+        setData(res);
+        const defaultFarmId = res.memberships.some(
+          ({ farm }) => farm.id === res.defaultFarmId,
+        )
+          ? res.defaultFarmId
+          : (res.memberships[0]?.farm.id ?? null);
+        setSelectedFarmId(savedFarmIsValid ? savedFarmId : defaultFarmId);
+        setError(null);
       })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
+
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setError(
+          cause instanceof ApiError
+            ? cause
+            : new ApiError('Cannot load authenticated user data', 0, cause),
+        );
       });
 
     return () => {
       cancelled = true;
     };
-  }, [getToken, isLoaded, isSignedIn]);
+  }, [isSignedIn, isLoaded, request, userId, attempt]);
 
-  function setSelectedFarmId(farmId: string) {
-    if (!data?.memberships.some(({ farm }) => farm.id === farmId)) return;
-    setSelectedFarmIdState(farmId);
-    window.localStorage.setItem(STORAGE_KEY, farmId);
-  }
+  const value = useMemo(() => {
+    if (!data) return null;
 
-  return (
-    <AuthContext.Provider
-      value={{ data, selectedFarmId, setSelectedFarmId, isLoading, error }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+    return {
+      data,
+      selectedFarmId,
+      isLoading: false,
+      error,
+      selectFarm(farmId: string) {
+        const isAllowed = data.memberships.some(({ farm }) => farm.id === farmId);
+        if (!isAllowed) throw new Error('Farm is not available to this user');
+
+        try {
+          window.localStorage.setItem(`farm:selected-farm:${data.user.id}`, farmId);
+        } catch {}
+        setSelectedFarmId(farmId);
+      },
+    };
+  }, [data, selectedFarmId]);
+  if (!isLoaded || (isSignedIn && !data && !error)) return <p>Đang tải...</p>;
+  if (!isSignedIn) return null;
+  const retry = () => {
+    setError(null);
+    setAttempt((previous) => previous + 1);
+  };
+  if (error)
+    return (
+      <section role="alert">
+        <p>
+          {error.status === 403
+            ? 'Bạn không có quyền truy cập.'
+            : 'Không thể tải thông tin người dùng.'}
+        </p>
+        <button type="button" onClick={retry}>
+          Thử lại
+        </button>
+        <SignOutButton>
+          <button type="button">Đăng xuất</button>
+        </SignOutButton>
+      </section>
+    );
+  if (!value) return null;
+  if (!selectedFarmId)
+    return (
+      <section>
+        <p>Bạn chưa được cấp quyền vào trại. Vui lòng liên hệ chủ trại.</p>
+        <button type="button" onClick={retry}>
+          Kiểm tra lại
+        </button>
+        <SignOutButton>
+          <button type="button">Đăng xuất</button>
+        </SignOutButton>
+      </section>
+    );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuthContext() {
-  const value = useContext(AuthContext);
-  if (!value) throw new Error('useAuthContext must be used inside AuthProvider');
-  return value;
-}
+  const context = useContext(AuthContext);
 
-export function FarmSelector() {
-  const { data, selectedFarmId, setSelectedFarmId, isLoading } = useAuthContext();
-  const memberships = data?.memberships ?? [];
+  if (!context) {
+    throw new Error('useAuthContext must be used within an AuthContextProvider');
+  }
 
-  if (isLoading || memberships.length <= 1) return null;
-
-  return (
-    <label className="flex items-center gap-2 text-sm">
-      <span className="text-muted-foreground">Farm</span>
-      <select
-        value={selectedFarmId ?? ''}
-        onChange={(event) => setSelectedFarmId(event.target.value)}
-        className="min-h-10 rounded-lg border bg-background px-3 font-medium"
-      >
-        {memberships.map(({ farm, roles }) => (
-          <option key={farm.id} value={farm.id}>
-            {farm.name} ({roles.join(', ') || 'READ_ONLY'})
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  return context;
 }

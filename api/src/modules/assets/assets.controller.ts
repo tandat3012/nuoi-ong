@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   normalizeSearch,
   parseOptionalEnum,
@@ -9,8 +17,10 @@ import { assetStatus } from '../../db/schema';
 import { AssetsService } from './assets.service';
 import { CurrentAuth } from '../auth/current-auth.decorator';
 import { ReturnAssetDto } from './dto/return-asset.dto';
+import { FarmAccessGuard } from '../auth/farm-access.guard';
 
-@Controller('api/v1/assets')
+@Controller('/assets')
+@UseGuards(FarmAccessGuard)
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 

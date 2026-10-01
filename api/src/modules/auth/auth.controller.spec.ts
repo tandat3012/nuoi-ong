@@ -2,28 +2,19 @@ import { AuthController } from './auth.controller';
 import type { AuthService } from './auth.service';
 
 describe('AuthController', () => {
-  it('returns the safe local user profile for the current Clerk user', async () => {
-    const authService = {
-      getOrCreateUser: jest.fn().mockResolvedValue({
-        id: 'local-user-id',
-        authProviderUserId: 'user_123',
-        email: 'beekeeper@example.com',
-        fullName: 'Bee Keeper',
-        avatarUrl: null,
-      }),
-    } as unknown as AuthService;
-    const controller = new AuthController(authService);
-
+  it('uses the verified identity and returns the application context', async () => {
+    const context = {
+      user: { id: 'local-user' },
+      memberships: [],
+      defaultFarmId: null,
+    };
+    const getAuthContext = jest.fn().mockResolvedValue(context);
+    const controller = new AuthController({
+      getAuthContext,
+    } as unknown as AuthService);
     await expect(
       controller.getMe({ clerkUserId: 'user_123' }),
-    ).resolves.toEqual({
-      user: {
-        id: 'local-user-id',
-        clerkUserId: 'user_123',
-        email: 'beekeeper@example.com',
-        fullName: 'Bee Keeper',
-        avatarUrl: null,
-      },
-    });
+    ).resolves.toEqual(context);
+    expect(getAuthContext).toHaveBeenCalledWith('user_123');
   });
 });

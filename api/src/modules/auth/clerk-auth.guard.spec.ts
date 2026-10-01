@@ -72,6 +72,42 @@ describe('ClerkAuthGuard', () => {
     );
   });
 
+  it('rejects a non-session token or token without a user ID', async () => {
+    getAllAndOverride.mockReturnValue(false);
+    authenticateRequest.mockResolvedValueOnce({
+      isAuthenticated: true,
+      toAuth: () => ({
+        tokenType: 'oauth_token',
+        userId: 'user_123',
+        sessionId: null,
+      }),
+    });
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+
+    authenticateRequest.mockResolvedValueOnce({
+      isAuthenticated: true,
+      toAuth: () => ({
+        tokenType: 'session_token',
+        userId: null,
+        sessionId: 'sess_123',
+      }),
+    });
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('converts Clerk verification failures into Unauthorized', async () => {
+    getAllAndOverride.mockReturnValue(false);
+    authenticateRequest.mockRejectedValue(new Error('invalid token'));
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
   it('fails safely when allowed frontend origins are not configured', async () => {
     process.env.CLERK_AUTHORIZED_PARTIES = '';
     getAllAndOverride.mockReturnValue(false);

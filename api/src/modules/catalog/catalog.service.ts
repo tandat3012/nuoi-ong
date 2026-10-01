@@ -6,7 +6,9 @@ import {
   categories,
   itemType,
   items,
+  locations,
   recordStatus,
+  suppliers,
   trackingMode,
   units,
 } from '../../db/schema';
@@ -21,6 +23,16 @@ export interface ItemListFilters extends PaginationParams {
   itemType?: ItemType;
   trackingMode?: TrackingMode;
   status?: RecordStatus;
+}
+
+export interface FarmLookupFilters extends PaginationParams {
+  farmId: string;
+  search?: string;
+  status?: RecordStatus;
+}
+
+export interface LocationListFilters extends FarmLookupFilters {
+  warehouseId?: string;
 }
 
 @Injectable()
@@ -96,6 +108,106 @@ export class CatalogService {
         totalPages: Math.ceil(totalItems / filters.pageSize),
       },
     };
+  }
+
+  async listSuppliers(filters: FarmLookupFilters) {
+    const predicates: SQL[] = [eq(suppliers.farmId, filters.farmId)];
+    if (filters.status) predicates.push(eq(suppliers.status, filters.status));
+    if (filters.search) {
+      predicates.push(
+        or(
+          ilike(suppliers.code, `%${filters.search}%`),
+          ilike(suppliers.name, `%${filters.search}%`),
+        )!,
+      );
+    }
+
+    const where = and(...predicates);
+    const [data, totalRows] = await Promise.all([
+      this.databaseService.db
+        .select()
+        .from(suppliers)
+        .where(where)
+        .orderBy(asc(suppliers.name))
+        .limit(filters.pageSize)
+        .offset(filters.offset),
+      this.databaseService.db
+        .select({ value: count() })
+        .from(suppliers)
+        .where(where),
+    ]);
+    const totalItems = Number(totalRows[0]?.value ?? 0);
+
+    return {
+      data,
+      page: {
+        number: filters.page,
+        size: filters.pageSize,
+        totalItems,
+        totalPages: Math.ceil(totalItems / filters.pageSize),
+      },
+    };
+  }
+
+  async getSupplier(id: string, farmId: string) {
+    const [supplier] = await this.databaseService.db
+      .select()
+      .from(suppliers)
+      .where(and(eq(suppliers.id, id), eq(suppliers.farmId, farmId)))
+      .limit(1);
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    return supplier;
+  }
+
+  async listLocations(filters: LocationListFilters) {
+    const predicates: SQL[] = [eq(locations.farmId, filters.farmId)];
+    if (filters.warehouseId)
+      predicates.push(eq(locations.warehouseId, filters.warehouseId));
+    if (filters.status) predicates.push(eq(locations.status, filters.status));
+    if (filters.search) {
+      predicates.push(
+        or(
+          ilike(locations.code, `%${filters.search}%`),
+          ilike(locations.name, `%${filters.search}%`),
+        )!,
+      );
+    }
+
+    const where = and(...predicates);
+    const [data, totalRows] = await Promise.all([
+      this.databaseService.db
+        .select()
+        .from(locations)
+        .where(where)
+        .orderBy(asc(locations.name))
+        .limit(filters.pageSize)
+        .offset(filters.offset),
+      this.databaseService.db
+        .select({ value: count() })
+        .from(locations)
+        .where(where),
+    ]);
+    const totalItems = Number(totalRows[0]?.value ?? 0);
+
+    return {
+      data,
+      page: {
+        number: filters.page,
+        size: filters.pageSize,
+        totalItems,
+        totalPages: Math.ceil(totalItems / filters.pageSize),
+      },
+    };
+  }
+
+  async getLocation(id: string, farmId: string) {
+    const [location] = await this.databaseService.db
+      .select()
+      .from(locations)
+      .where(and(eq(locations.id, id), eq(locations.farmId, farmId)))
+      .limit(1);
+    if (!location) throw new NotFoundException('Location not found');
+    return location;
   }
 
   async getItem(id: string, farmId: string) {
