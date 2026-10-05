@@ -33,6 +33,7 @@ export class AssetsController {
     @Query('status') statusValue?: string,
     @Query('itemId') itemIdValue?: string,
     @Query('locationId') locationIdValue?: string,
+    @Query('warehouseId') warehouseIdValue?: string,
   ) {
     return this.assetsService.listAssets({
       farmId: requireUuid(farmIdValue, 'farmId'),
@@ -42,6 +43,9 @@ export class AssetsController {
       itemId: itemIdValue ? requireUuid(itemIdValue, 'itemId') : undefined,
       locationId: locationIdValue
         ? requireUuid(locationIdValue, 'locationId')
+        : undefined,
+      warehouseId: warehouseIdValue
+        ? requireUuid(warehouseIdValue, 'warehouseId')
         : undefined,
     });
   }
