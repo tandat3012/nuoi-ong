@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type { Warehouse } from '../types/warehouse';
 import { WAREHOUSE_STATUS_LABELS } from '../types/warehouse';
 
@@ -79,6 +80,12 @@ export function WarehouseDetail({
             )}
           </div>
         )}
+        <Link
+          href={`/inventory?warehouseId=${warehouse.id}`}
+          className="rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-muted"
+        >
+          Xem tồn kho
+        </Link>
       </div>
       <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-6">
         <h3 className="border-b pb-3 text-base font-semibold">Thông tin kho</h3>

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import type { MaterialDetail } from "../types/material";
 import {
   MATERIAL_KIND_LABELS,
@@ -87,16 +88,24 @@ export function MaterialDetailView({
           </div>
         </div>
 
-        {canWrite && (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:ring-2"
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/inventory?itemId=${item.id}`}
+            className="inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-muted"
           >
-            <span aria-hidden="true">✎</span>
-            <span>Chỉnh sửa</span>
-          </button>
-        )}
+            Xem tồn kho
+          </Link>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:ring-2"
+            >
+              <span aria-hidden="true">✎</span>
+              <span>Chỉnh sửa</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Overview Metric Cards */}
