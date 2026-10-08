@@ -1,4 +1,5 @@
 import { Transform } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsIn,
@@ -47,6 +48,10 @@ export class CreateMaterialDto {
   trackingMode!: (typeof materialTrackingModes)[number];
 
   @IsOptional()
+  @ApiPropertyOptional({
+    example: '5.000',
+    pattern: '^(0|[1-9]\\d{0,14})(\\.\\d{1,3})?$',
+  })
   @IsString()
   @Matches(/^(0|[1-9]\d{0,14})(\.\d{1,3})?$/)
   minStockLevel?: string;
@@ -75,12 +80,14 @@ export class CreateMaterialDto {
   requiresExpiryTracking?: boolean;
 
   @IsOptional()
+  @ApiPropertyOptional({ type: 'integer', example: 30 })
   @IsInt()
   @Min(1)
   @Max(3650)
   expiryWarningDays?: number;
 
   @IsOptional()
+  @ApiPropertyOptional({ type: 'integer', example: 365 })
   @IsInt()
   @Min(1)
   @Max(36500)
