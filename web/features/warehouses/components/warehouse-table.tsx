@@ -1,7 +1,20 @@
 'use client';
 
+import * as React from 'react';
 import type { Warehouse, WarehouseFilterParams } from '../types/warehouse';
 import { WAREHOUSE_STATUS_LABELS } from '../types/warehouse';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/shared/components/ui/table';
+import { Badge } from '@/shared/components/ui/badge';
+import { Button } from '@/shared/components/ui/button';
+import { EmptyState } from '@/shared/components/ui/empty-state';
+import { Loader2, Warehouse as WarehouseIcon, Eye, Edit } from 'lucide-react';
 
 export function WarehouseTable({
   warehouses,
@@ -23,121 +36,118 @@ export function WarehouseTable({
   onStartEdit: (warehouse: Warehouse) => void;
 }) {
   const hasFilters = Boolean(filters.search || filters.status);
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="border-b bg-muted/50 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <tr>
-            <th className="px-4 py-3.5" scope="col">
-              Mã kho
-            </th>
-            <th className="px-4 py-3.5" scope="col">
-              Tên kho
-            </th>
-            <th className="px-4 py-3.5" scope="col">
-              Địa chỉ
-            </th>
-            <th className="px-4 py-3.5 text-center" scope="col">
-              Trạng thái
-            </th>
-            <th className="px-4 py-3.5 text-right" scope="col">
-              Thao tác
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/60">
-          {isLoading ? (
-            <tr>
-              <td
-                colSpan={5}
-                className="py-12 text-center text-muted-foreground"
-              >
+    <Table className="min-w-[640px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-36 font-semibold uppercase tracking-wider text-[0.7rem]">
+            Mã kho
+          </TableHead>
+          <TableHead className="font-semibold uppercase tracking-wider text-[0.7rem]">
+            Tên kho
+          </TableHead>
+          <TableHead className="font-semibold uppercase tracking-wider text-[0.7rem]">
+            Địa chỉ
+          </TableHead>
+          <TableHead className="w-32 text-center font-semibold uppercase tracking-wider text-[0.7rem]">
+            Trạng thái
+          </TableHead>
+          <TableHead className="w-36 text-right font-semibold uppercase tracking-wider text-[0.7rem]">
+            Thao tác
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {isLoading ? (
+          <TableRow>
+            <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
+              <div className="inline-flex items-center justify-center gap-2">
+                <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" />
                 <span role="status">Đang tải danh sách kho...</span>
-              </td>
-            </tr>
-          ) : errorMessage ? (
-            <tr>
-              <td colSpan={5} className="py-12 text-center">
-                Không thể hiển thị danh sách kho.
-              </td>
-            </tr>
-          ) : warehouses.length === 0 ? (
-            <tr>
-              <td colSpan={5} className="py-16 text-center">
-                <p className="font-semibold text-foreground">
-                  {hasFilters
-                    ? 'Không tìm thấy kho phù hợp'
-                    : 'Chưa có kho nào trong trang trại'}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {hasFilters
+              </div>
+            </TableCell>
+          </TableRow>
+        ) : errorMessage ? (
+          <TableRow>
+            <TableCell colSpan={5} className="py-12 text-center text-destructive">
+              Không thể hiển thị danh sách kho.
+            </TableCell>
+          </TableRow>
+        ) : warehouses.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={5} className="p-0">
+              <EmptyState
+                icon={WarehouseIcon}
+                title={hasFilters ? 'Không tìm thấy kho phù hợp' : 'Chưa có kho nào trong trang trại'}
+                description={
+                  hasFilters
                     ? 'Thử điều chỉnh từ khóa hoặc bộ lọc.'
-                    : 'Bắt đầu bằng cách thêm kho đầu tiên cho trang trại.'}
-                </p>
-                {canWrite && !hasFilters && (
-                  <button
+                    : 'Bắt đầu bằng cách thêm kho đầu tiên cho trang trại.'
+                }
+                action={
+                  canWrite && !hasFilters ? (
+                    <Button size="sm" onClick={onStartCreate}>
+                      + Thêm kho mới
+                    </Button>
+                  ) : undefined
+                }
+              />
+            </TableCell>
+          </TableRow>
+        ) : (
+          warehouses.map((warehouse) => (
+            <TableRow key={warehouse.id}>
+              <TableCell className="font-mono text-xs font-semibold text-foreground">
+                {warehouse.code}
+              </TableCell>
+              <TableCell>
+                <button
+                  type="button"
+                  onClick={() => onViewDetail(warehouse)}
+                  className="text-left font-medium text-foreground transition-colors hover:text-primary hover:underline cursor-pointer"
+                >
+                  {warehouse.name}
+                </button>
+              </TableCell>
+              <TableCell className="max-w-xs truncate text-muted-foreground text-xs">
+                {warehouse.address || '—'}
+              </TableCell>
+              <TableCell className="text-center">
+                <Badge variant={warehouse.status === 'ACTIVE' ? 'success' : 'warning'}>
+                  {WAREHOUSE_STATUS_LABELS[warehouse.status]}
+                </Badge>
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex items-center justify-end gap-1.5">
+                  <Button
                     type="button"
-                    onClick={onStartCreate}
-                    className="mt-3 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
-                  >
-                    + Thêm kho mới
-                  </button>
-                )}
-              </td>
-            </tr>
-          ) : (
-            warehouses.map((warehouse) => (
-              <tr
-                key={warehouse.id}
-                className="transition-colors hover:bg-muted/40"
-              >
-                <td className="px-4 py-3.5 font-mono text-xs font-medium">
-                  {warehouse.code}
-                </td>
-                <td className="px-4 py-3.5">
-                  <button
-                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs gap-1"
                     onClick={() => onViewDetail(warehouse)}
-                    className="text-left font-medium hover:text-primary hover:underline"
                   >
-                    {warehouse.name}
-                  </button>
-                </td>
-                <td className="max-w-xs truncate px-4 py-3.5 text-muted-foreground">
-                  {warehouse.address || '—'}
-                </td>
-                <td className="px-4 py-3.5 text-center">
-                  <span
-                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${warehouse.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20' : 'bg-amber-50 text-amber-800 ring-1 ring-amber-600/20'}`}
-                  >
-                    {WAREHOUSE_STATUS_LABELS[warehouse.status]}
-                  </span>
-                </td>
-                <td className="px-4 py-3.5 text-right">
-                  <div className="flex justify-end gap-1.5">
-                    <button
+                    <Eye className="size-3" aria-hidden="true" />
+                    <span>Chi tiết</span>
+                  </Button>
+                  {canWrite && (
+                    <Button
                       type="button"
-                      onClick={() => onViewDetail(warehouse)}
-                      className="rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-muted focus-visible:ring-2"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2.5 text-xs gap-1 text-primary hover:text-primary"
+                      onClick={() => onStartEdit(warehouse)}
                     >
-                      Chi tiết
-                    </button>
-                    {canWrite && (
-                      <button
-                        type="button"
-                        onClick={() => onStartEdit(warehouse)}
-                        className="rounded-lg border px-2.5 py-1 text-xs font-medium text-primary hover:bg-muted focus-visible:ring-2"
-                      >
-                        Sửa
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
+                      <Edit className="size-3" aria-hidden="true" />
+                      <span>Sửa</span>
+                    </Button>
+                  )}
+                </div>
+              </TableCell>
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
   );
 }

@@ -200,12 +200,13 @@ export function ReceiptDraftForm({
         hệ thống.
       </p>
       {error && (
-        <p
+        <div
           role="alert"
-          className="rounded-xl border border-destructive/30 p-3 text-destructive"
+          aria-live="assertive"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
         >
           {error}
-        </p>
+        </div>
       )}
       <fieldset disabled={isSaving} className="space-y-4 disabled:opacity-60">
         <div className="grid gap-4 sm:grid-cols-2">

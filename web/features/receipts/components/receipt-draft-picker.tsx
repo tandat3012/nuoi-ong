@@ -170,7 +170,7 @@ export function ReceiptDraftPicker({
       {!current ? (
         <p role="status">Đang tải...</p>
       ) : current.error ? (
-        <div role="alert">
+        <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive">
           <p>{current.error}</p>
           <button
             type="button"
