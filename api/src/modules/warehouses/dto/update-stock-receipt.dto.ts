@@ -10,6 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { CreateStockReceiptItemDto } from './create-stock-receipt.dto';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateStockReceiptDto {
   @IsOptional()
@@ -20,6 +21,7 @@ export class UpdateStockReceiptDto {
   @IsUUID()
   supplierId?: string | null;
 
+  @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()
   receiptDate?: string;

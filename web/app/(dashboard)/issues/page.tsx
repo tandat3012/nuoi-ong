@@ -1,9 +1,9 @@
-import type { Metadata } from 'next';
+import type { Metadata } from "next";
 
-import { IssuesScreen } from '@/features/issues';
+import { IssuesPage } from "@/features/issues";
 
-export const metadata: Metadata = { title: 'Phiếu xuất' };
+export const metadata: Metadata = { title: "Phiếu xuất" };
 
-export default function IssuesPage() {
-  return <IssuesScreen />;
+export default function Page() {
+  return <IssuesPage />;
 }

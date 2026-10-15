@@ -4,7 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, count, desc, eq, gte, isNull, sql, SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  isNull,
+  sql,
+  SQL,
+} from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -17,6 +28,7 @@ import {
   maintenanceRecords,
   stockIssueItems,
   stockIssues,
+  units,
   warehouses,
 } from '../../db/schema';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
@@ -44,17 +56,32 @@ export class StockIssuesService {
       filters.clerkUserId,
       false,
     );
+
     const conditions: SQL[] = [eq(stockIssues.farmId, filters.farmId)];
+
     if (filters.status) conditions.push(eq(stockIssues.status, filters.status));
+
     const where = and(...conditions);
     const [data, totals] = await Promise.all([
       this.databaseService.db
-        .select()
+        .select({
+          ...getTableColumns(stockIssues),
+          warehouseCode: warehouses.code,
+          warehouseName: warehouses.name,
+        })
         .from(stockIssues)
+        .leftJoin(
+          warehouses,
+          and(
+            eq(warehouses.id, stockIssues.warehouseId),
+            eq(warehouses.farmId, stockIssues.farmId),
+          ),
+        )
         .where(where)
-        .orderBy(desc(stockIssues.createdAt))
+        .orderBy(desc(stockIssues.createdAt), desc(stockIssues.id))
         .limit(filters.pageSize)
         .offset(filters.offset),
+
       this.databaseService.db
         .select({ value: count() })
         .from(stockIssues)
@@ -77,7 +104,11 @@ export class StockIssuesService {
     return this.withItems(id, farmId);
   }
 
-  async create(farmId: string, clerkUserId: string, input: CreateStockIssueDto) {
+  async create(
+    farmId: string,
+    clerkUserId: string,
+    input: CreateStockIssueDto,
+  ) {
     const memberId = await this.warehousesService.assertFarmAccess(
       farmId,
       clerkUserId,
@@ -85,36 +116,44 @@ export class StockIssuesService {
     );
     this.validateItems(input.items);
     const issueType = input.issueType ?? 'CONSUMPTION';
-    await this.validateMaintenance(farmId, issueType, input.maintenanceRecordId);
-    const id = await this.databaseService.db.transaction(async (tx) => {
-      await this.assertWarehouse(tx, farmId, input.warehouseId);
-      await this.validateLines(tx, farmId, input.items);
-      const [issue] = await tx
-        .insert(stockIssues)
-        .values({
-          farmId,
-          warehouseId: input.warehouseId,
-          issueCode: input.issueCode,
-          issueDate: input.issueDate,
-          issueType,
-          maintenanceRecordId: input.maintenanceRecordId,
-          reason: input.reason,
-          note: input.note,
-          createdByMemberId: memberId,
-        })
-        .returning({ id: stockIssues.id });
-      await tx.insert(stockIssueItems).values(
-        input.items.map((line) => ({
-          stockIssueId: issue.id,
-          itemId: line.itemId,
-          lotId: line.lotId,
-          assetId: line.assetId,
-          quantity: line.quantity,
-          note: line.note,
-        })),
-      );
-      return issue.id;
-    });
+
+    await this.validateMaintenance(
+      farmId,
+      issueType,
+      input.maintenanceRecordId,
+    );
+
+    const id = await this.databaseService.db
+      .transaction(async (tx) => {
+        await this.assertWarehouse(tx, farmId, input.warehouseId);
+        await this.validateLines(tx, farmId, input.items);
+        const [issue] = await tx
+          .insert(stockIssues)
+          .values({
+            farmId,
+            warehouseId: input.warehouseId,
+            issueCode: input.issueCode,
+            issueDate: input.issueDate,
+            issueType,
+            maintenanceRecordId: input.maintenanceRecordId,
+            reason: input.reason,
+            note: input.note,
+            createdByMemberId: memberId,
+          })
+          .returning({ id: stockIssues.id });
+        await tx.insert(stockIssueItems).values(
+          input.items.map((line) => ({
+            stockIssueId: issue.id,
+            itemId: line.itemId,
+            lotId: line.lotId,
+            assetId: line.assetId,
+            quantity: line.quantity,
+            note: line.note,
+          })),
+        );
+        return issue.id;
+      })
+      .catch((error: unknown) => this.throwDuplicateCode(error));
     return this.withItems(id, farmId);
   }
 
@@ -125,51 +164,58 @@ export class StockIssuesService {
     input: UpdateStockIssueDto,
   ) {
     await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
-    await this.databaseService.db.transaction(async (tx) => {
-      const current = await this.getOnly(id, farmId, tx, true);
-      if (current.status !== 'DRAFT')
-        throw new ConflictException('Only DRAFT issues can be edited');
-      const issueType = input.issueType ?? current.issueType;
-      await this.validateMaintenance(
-        farmId,
-        issueType,
-        input.maintenanceRecordId === undefined
-          ? current.maintenanceRecordId
-          : input.maintenanceRecordId,
-        tx,
-      );
-      if (input.items) {
-        this.validateItems(input.items);
-        await this.validateLines(tx, farmId, input.items);
-        await tx.delete(stockIssueItems).where(eq(stockIssueItems.stockIssueId, id));
-        await tx.insert(stockIssueItems).values(
-          input.items.map((line) => ({
-            stockIssueId: id,
-            itemId: line.itemId,
-            lotId: line.lotId,
-            assetId: line.assetId,
-            quantity: line.quantity,
-            note: line.note,
-          })),
+    await this.databaseService.db
+      .transaction(async (tx) => {
+        const current = await this.getOnly(id, farmId, tx, true);
+        if (current.status !== 'DRAFT')
+          throw new ConflictException('Only DRAFT issues can be edited');
+        const issueType = input.issueType ?? current.issueType;
+        await this.validateMaintenance(
+          farmId,
+          issueType,
+          input.maintenanceRecordId === undefined
+            ? current.maintenanceRecordId
+            : input.maintenanceRecordId,
+          tx,
         );
-      }
-      if (input.warehouseId)
-        await this.assertWarehouse(tx, farmId, input.warehouseId);
-      const changes: Partial<typeof stockIssues.$inferInsert> = {};
-      for (const key of [
-        'warehouseId',
-        'issueCode',
-        'issueDate',
-        'issueType',
-        'maintenanceRecordId',
-        'reason',
-        'note',
-      ] as const)
-        if (input[key] !== undefined) changes[key] = input[key] as never;
-      changes.updatedAt = new Date().toISOString();
-      if (Object.keys(changes).length)
-        await tx.update(stockIssues).set(changes).where(eq(stockIssues.id, id));
-    });
+        if (input.items) {
+          this.validateItems(input.items);
+          await this.validateLines(tx, farmId, input.items);
+          await tx
+            .delete(stockIssueItems)
+            .where(eq(stockIssueItems.stockIssueId, id));
+          await tx.insert(stockIssueItems).values(
+            input.items.map((line) => ({
+              stockIssueId: id,
+              itemId: line.itemId,
+              lotId: line.lotId,
+              assetId: line.assetId,
+              quantity: line.quantity,
+              note: line.note,
+            })),
+          );
+        }
+        if (input.warehouseId)
+          await this.assertWarehouse(tx, farmId, input.warehouseId);
+        const changes: Partial<typeof stockIssues.$inferInsert> = {};
+        for (const key of [
+          'warehouseId',
+          'issueCode',
+          'issueDate',
+          'issueType',
+          'maintenanceRecordId',
+          'reason',
+          'note',
+        ] as const)
+          if (input[key] !== undefined) changes[key] = input[key] as never;
+        changes.updatedAt = new Date().toISOString();
+        if (Object.keys(changes).length)
+          await tx
+            .update(stockIssues)
+            .set(changes)
+            .where(eq(stockIssues.id, id));
+      })
+      .catch((error: unknown) => this.throwDuplicateCode(error));
     return this.withItems(id, farmId);
   }
 
@@ -330,6 +376,21 @@ export class StockIssuesService {
     return this.withItems(id, farmId);
   }
 
+  private throwDuplicateCode(error: unknown): never {
+    const databaseError = error as {
+      code?: string;
+      constraint?: string;
+      cause?: { code?: string; constraint?: string };
+    };
+    const code = databaseError?.code ?? databaseError?.cause?.code;
+    const constraint =
+      databaseError?.constraint ?? databaseError?.cause?.constraint;
+    if (code === '23505' && constraint === 'uq_issue_code_per_farm') {
+      throw new ConflictException('Issue code already exists for this farm');
+    }
+    throw error;
+  }
+
   private async getOnly(
     id: string,
     farmId: string,
@@ -347,13 +408,61 @@ export class StockIssuesService {
   }
 
   private async withItems(id: string, farmId: string) {
-    const issue = await this.getOnly(id, farmId);
-    const items = await this.databaseService.db
-      .select()
+    const [issue] = await this.databaseService.db
+      .select({
+        ...getTableColumns(stockIssues),
+        warehouseCode: warehouses.code,
+        warehouseName: warehouses.name,
+      })
+      .from(stockIssues)
+      .leftJoin(
+        warehouses,
+        and(
+          eq(warehouses.id, stockIssues.warehouseId),
+          eq(warehouses.farmId, stockIssues.farmId),
+        ),
+      )
+      .where(and(eq(stockIssues.id, id), eq(stockIssues.farmId, farmId)))
+      .limit(1);
+    if (!issue) throw new NotFoundException('Stock issue not found');
+    const lines = await this.databaseService.db
+      .select({
+        ...getTableColumns(stockIssueItems),
+        itemCode: items.code,
+        itemName: items.name,
+        trackingMode: items.trackingMode,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+        lotNumber: inventoryLots.lotNumber,
+        lotExpiryDate: inventoryLots.expiryDate,
+        assetCode: assets.assetCode,
+        serialNumber: assets.serialNumber,
+      })
       .from(stockIssueItems)
+      .leftJoin(
+        items,
+        and(eq(items.id, stockIssueItems.itemId), eq(items.farmId, farmId)),
+      )
+      .leftJoin(units, eq(units.id, items.unitId))
+      .leftJoin(
+        inventoryLots,
+        and(
+          eq(inventoryLots.id, stockIssueItems.lotId),
+          eq(inventoryLots.farmId, farmId),
+          eq(inventoryLots.itemId, items.id),
+        ),
+      )
+      .leftJoin(
+        assets,
+        and(
+          eq(assets.id, stockIssueItems.assetId),
+          eq(assets.farmId, farmId),
+          eq(assets.itemId, items.id),
+        ),
+      )
       .where(eq(stockIssueItems.stockIssueId, id))
-      .orderBy(asc(stockIssueItems.createdAt));
-    return { issue, items };
+      .orderBy(asc(stockIssueItems.createdAt), asc(stockIssueItems.id));
+    return { issue, items: lines };
   }
 
   private validateItems(lines: CreateStockIssueDto['items']) {

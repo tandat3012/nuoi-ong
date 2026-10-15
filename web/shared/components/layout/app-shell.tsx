@@ -1,87 +1,56 @@
-import { Show, SignInButton, UserButton } from '@clerk/nextjs';
-import { FarmSwitcher } from '@/features/auth/components/farm-switcher';
-
+import * as React from 'react';
+import Link from 'next/link';
 import { SidebarNavigation } from './sidebar-navigation';
+import { HeaderBar } from './header-bar';
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <>
       <a
         href="#main-content"
-        className="sr-only z-50 rounded-lg bg-primary px-4 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+        className="sr-only z-50 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-md focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
       >
         Đi tới nội dung chính
       </a>
 
-      <div className="min-h-screen lg:grid lg:grid-cols-[17rem_1fr]">
-        <aside className="border-b bg-card px-4 py-4 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-4 lg:mb-8 lg:block">
-            <div className="flex items-center gap-3">
+      <div className="min-h-screen bg-background lg:grid lg:grid-cols-[16rem_1fr]">
+        {/* Desktop persistent sidebar */}
+        <aside className="hidden border-r border-border bg-card lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
+          <div className="flex h-14 items-center gap-2.5 border-b border-border px-5">
+            <Link href="/dashboard" className="flex items-center gap-2.5 font-semibold tracking-tight text-foreground">
               <div
                 aria-hidden="true"
-                className="grid size-10 place-items-center rounded-xl bg-primary text-lg text-primary-foreground shadow-sm"
+                className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground shadow-2xs"
               >
-                ◈
+                <svg
+                  className="size-4.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 2l7.5 4.3v8.6L12 22l-7.5-4.3V6.3L12 2z" />
+                  <path d="M12 7l4 2.3v4.6L12 16.2l-4-2.3V9.3L12 7z" fill="currentColor" fillOpacity="0.3" />
+                </svg>
               </div>
               <div>
-                <p className="font-semibold tracking-tight">Nuôi Ong</p>
-                <p className="text-xs text-muted-foreground">Quản lý nguồn lực V1</p>
+                <p className="text-sm font-bold leading-tight">Nuôi Ong</p>
+                <p className="text-[0.65rem] text-muted-foreground font-medium">Hệ thống quản lý</p>
               </div>
-            </div>
-            <div className="flex w-full items-center justify-end gap-3 sm:w-auto lg:hidden">
-              <Show when="signed-out">
-                <SignInButton>
-                  <button className="min-h-11 rounded-xl border bg-card px-3 text-sm font-semibold">
-                    Đăng nhập
-                  </button>
-                </SignInButton>
-              </Show>
-              <Show when="signed-in">
-                <FarmSwitcher className="flex-1 sm:flex-none" />
-                <UserButton />
-              </Show>
-            </div>
+            </Link>
           </div>
 
-          <SidebarNavigation />
-
-          <div className="mt-8 hidden rounded-xl border bg-muted/60 p-4 lg:block">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Phạm vi hiện tại
-            </p>
-            <p className="mt-2 text-sm leading-6 text-secondary-foreground">
-              Danh mục, kho, phiếu nhập/xuất, tài sản và bảo trì.
-            </p>
+          <div className="flex-1 overflow-y-auto px-3.5 py-4">
+            <SidebarNavigation />
           </div>
         </aside>
 
-        <div className="min-w-0">
-          <header className="hidden h-20 items-center justify-between border-b bg-card/90 px-6 lg:flex xl:px-10">
-            <div>
-              <p className="text-sm font-medium">Hệ thống quản lý nội bộ</p>
-              <p className="text-xs text-muted-foreground">
-                CNTT-KLCN289 · Phiên bản V1
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Show when="signed-out">
-                <SignInButton>
-                  <button className="min-h-11 rounded-xl border bg-card px-4 text-sm font-semibold transition-colors hover:bg-muted">
-                    Đăng nhập
-                  </button>
-                </SignInButton>
-              </Show>
-              <Show when="signed-in">
-                <FarmSwitcher />
-                <UserButton />
-              </Show>
-            </div>
-          </header>
-
-          <main
-            id="main-content"
-            className="mx-auto w-full max-w-[96rem] p-4 sm:p-6 xl:p-10"
-          >
+        {/* Content area */}
+        <div className="flex min-w-0 flex-col">
+          <HeaderBar />
+          <main id="main-content" className="flex-1 p-4 sm:p-6 lg:p-8">
             {children}
           </main>
         </div>
