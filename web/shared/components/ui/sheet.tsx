@@ -34,12 +34,13 @@ export interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> {
   side?: 'top' | 'bottom' | 'left' | 'right';
   hideCloseButton?: boolean;
+  theme?: 'default' | 'storefront';
 }
 
 export const SheetContent = React.forwardRef<
   React.ComponentRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = 'left', className, children, hideCloseButton = false, ...props }, ref) => (
+>(({ side = 'left', className, children, hideCloseButton = false, theme = 'default', ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content
@@ -47,6 +48,7 @@ export const SheetContent = React.forwardRef<
       className={cn(
         'fixed z-50 gap-4 bg-background p-6 shadow-xl transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-300',
         sheetVariants[side],
+        theme === 'storefront' && 'storefront',
         className,
       )}
       {...props}
