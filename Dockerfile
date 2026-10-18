@@ -19,6 +19,9 @@ FROM base AS web-build
 
 WORKDIR /app
 
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+
 COPY web/package.json \
      web/pnpm-lock.yaml* \
      web/pnpm-workspace.yaml* \

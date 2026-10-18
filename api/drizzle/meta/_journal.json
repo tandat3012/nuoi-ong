@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1787809908639,
+      "tag": "0000_breezy_absorbing_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787821022808,
+      "tag": "0001_equipment-materials-domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787821027835,
+      "tag": "0002_equipment-materials-triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788338493486,
+      "tag": "0003_regular_selene",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788348867978,
+      "tag": "0004_nasty_lockjaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788350077918,
+      "tag": "0005_melodic_the_liberteens",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790322100117,
+      "tag": "0006_brief_earthquake",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790324287537,
+      "tag": "0007_hot_sprite",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,4423 @@
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "prevId": "",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.roles": {
+      "name": "roles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "role_scope",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "roles_code_key": {
+          "columns": [
+            "code"
+          ],
+          "nullsNotDistinct": false,
+          "name": "roles_code_key"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "auth_provider": {
+          "name": "auth_provider",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'CLERK'"
+        },
+        "auth_provider_user_id": {
+          "name": "auth_provider_user_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avatar_url": {
+          "name": "avatar_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "system_role_id": {
+          "name": "system_role_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "record_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ux_users_email_lower": {
+          "name": "ux_users_email_lower",
+          "columns": [
+            {
+              "expression": "lower((email)::text)",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": true
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "users_system_role_id_fkey": {
+          "name": "users_system_role_id_fkey",
+          "tableFrom": "users",
+          "tableTo": "roles",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "system_role_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_auth_provider_user_id_key": {
+          "columns": [
+            "auth_provider_user_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "users_auth_provider_user_id_key"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.farms": {
+      "name": "farms",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "record_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "farms_code_key": {
+          "columns": [
+            "code"
+          ],
+          "nullsNotDistinct": false,
+          "name": "farms_code_key"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.farm_members": {
+      "name": "farm_members",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "member_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "joined_at": {
+          "name": "joined_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_farm_members_user_id": {
+          "name": "idx_farm_members_user_id",
+          "columns": [
+            {
+              "expression": "user_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "farm_members_farm_id_fkey": {
+          "name": "farm_members_farm_id_fkey",
+          "tableFrom": "farm_members",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "farm_members_user_id_fkey": {
+          "name": "farm_members_user_id_fkey",
+          "tableFrom": "farm_members",
+          "tableTo": "users",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_farm_member": {
+          "columns": [
+            "farm_id",
+            "user_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_farm_member"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.suppliers": {
+      "name": "suppliers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone": {
+          "name": "phone",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "record_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_suppliers_farm_id": {
+          "name": "idx_suppliers_farm_id",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "suppliers_farm_id_fkey": {
+          "name": "suppliers_farm_id_fkey",
+          "tableFrom": "suppliers",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_supplier_code_per_farm": {
+          "columns": [
+            "code",
+            "farm_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_supplier_code_per_farm"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.warehouses": {
+      "name": "warehouses",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "record_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_warehouses_farm_id": {
+          "name": "idx_warehouses_farm_id",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "warehouses_farm_id_fkey": {
+          "name": "warehouses_farm_id_fkey",
+          "tableFrom": "warehouses",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_warehouse_code_per_farm": {
+          "columns": [
+            "code",
+            "farm_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_warehouse_code_per_farm"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.locations": {
+      "name": "locations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "warehouse_id": {
+          "name": "warehouse_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "location_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "record_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_locations_farm_id": {
+          "name": "idx_locations_farm_id",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_locations_warehouse_id": {
+          "name": "idx_locations_warehouse_id",
+          "columns": [
+            {
+              "expression": "warehouse_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "locations_farm_id_fkey": {
+          "name": "locations_farm_id_fkey",
+          "tableFrom": "locations",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "locations_warehouse_id_fkey": {
+          "name": "locations_warehouse_id_fkey",
+          "tableFrom": "locations",
+          "tableTo": "warehouses",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "warehouse_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_location_code_per_farm": {
+          "columns": [
+            "code",
+            "farm_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_location_code_per_farm"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.items": {
+      "name": "items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category_id": {
+          "name": "category_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit_id": {
+          "name": "unit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "item_type": {
+          "name": "item_type",
+          "type": "item_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tracking_mode": {
+          "name": "tracking_mode",
+          "type": "tracking_mode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "min_stock_level": {
+          "name": "min_stock_level",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "maintenance_interval_days": {
+          "name": "maintenance_interval_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "barcode": {
+          "name": "barcode",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "image_url": {
+          "name": "image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "surveyed_at": {
+          "name": "surveyed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "record_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_items_category_id": {
+          "name": "idx_items_category_id",
+          "columns": [
+            {
+              "expression": "category_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_items_farm_id": {
+          "name": "idx_items_farm_id",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_items_name_lower": {
+          "name": "idx_items_name_lower",
+          "columns": [
+            {
+              "expression": "lower((name)::text)",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": true
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ux_item_barcode_per_farm": {
+          "name": "ux_item_barcode_per_farm",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "barcode",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "(barcode IS NOT NULL)",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "items_category_id_fkey": {
+          "name": "items_category_id_fkey",
+          "tableFrom": "items",
+          "tableTo": "categories",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "category_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "items_farm_id_fkey": {
+          "name": "items_farm_id_fkey",
+          "tableFrom": "items",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "items_unit_id_fkey": {
+          "name": "items_unit_id_fkey",
+          "tableFrom": "items",
+          "tableTo": "units",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "unit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_item_code_per_farm": {
+          "columns": [
+            "code",
+            "farm_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_item_code_per_farm"
+        }
+      },
+      "checkConstraints": {
+        "ck_item_maintenance_interval_positive": {
+          "name": "ck_item_maintenance_interval_positive",
+          "value": "(maintenance_interval_days IS NULL) OR (maintenance_interval_days > 0)"
+        },
+        "ck_item_min_stock_nonnegative": {
+          "name": "ck_item_min_stock_nonnegative",
+          "value": "min_stock_level >= (0)::numeric"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.categories": {
+      "name": "categories",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "record_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "categories_code_key": {
+          "columns": [
+            "code"
+          ],
+          "nullsNotDistinct": false,
+          "name": "categories_code_key"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.units": {
+      "name": "units",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "record_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "units_code_key": {
+          "columns": [
+            "code"
+          ],
+          "nullsNotDistinct": false,
+          "name": "units_code_key"
+        }
+      },
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_receipts": {
+      "name": "stock_receipts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "warehouse_id": {
+          "name": "warehouse_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "supplier_id": {
+          "name": "supplier_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "receipt_code": {
+          "name": "receipt_code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "receipt_date": {
+          "name": "receipt_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_DATE"
+        },
+        "status": {
+          "name": "status",
+          "type": "document_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_member_id": {
+          "name": "created_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confirmed_by_member_id": {
+          "name": "confirmed_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_stock_receipts_farm_date": {
+          "name": "idx_stock_receipts_farm_date",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "receipt_date",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_stock_receipts_status": {
+          "name": "idx_stock_receipts_status",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "status",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "stock_receipts_confirmed_by_member_id_fkey": {
+          "name": "stock_receipts_confirmed_by_member_id_fkey",
+          "tableFrom": "stock_receipts",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "confirmed_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_receipts_created_by_member_id_fkey": {
+          "name": "stock_receipts_created_by_member_id_fkey",
+          "tableFrom": "stock_receipts",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "created_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_receipts_farm_id_fkey": {
+          "name": "stock_receipts_farm_id_fkey",
+          "tableFrom": "stock_receipts",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_receipts_supplier_id_fkey": {
+          "name": "stock_receipts_supplier_id_fkey",
+          "tableFrom": "stock_receipts",
+          "tableTo": "suppliers",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "supplier_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_receipts_warehouse_id_fkey": {
+          "name": "stock_receipts_warehouse_id_fkey",
+          "tableFrom": "stock_receipts",
+          "tableTo": "warehouses",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "warehouse_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_receipt_code_per_farm": {
+          "columns": [
+            "farm_id",
+            "receipt_code"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_receipt_code_per_farm"
+        }
+      },
+      "checkConstraints": {
+        "ck_receipt_confirm_fields": {
+          "name": "ck_receipt_confirm_fields",
+          "value": "(status <> 'CONFIRMED'::document_status) OR ((confirmed_by_member_id IS NOT NULL) AND (confirmed_at IS NOT NULL))"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_receipt_items": {
+      "name": "stock_receipt_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "stock_receipt_id": {
+          "name": "stock_receipt_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit_price": {
+          "name": "unit_price",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "stock_receipt_items_item_id_fkey": {
+          "name": "stock_receipt_items_item_id_fkey",
+          "tableFrom": "stock_receipt_items",
+          "tableTo": "items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_receipt_items_stock_receipt_id_fkey": {
+          "name": "stock_receipt_items_stock_receipt_id_fkey",
+          "tableFrom": "stock_receipt_items",
+          "tableTo": "stock_receipts",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "stock_receipt_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_receipt_item_price_nonnegative": {
+          "name": "ck_receipt_item_price_nonnegative",
+          "value": "unit_price >= (0)::numeric"
+        },
+        "ck_receipt_item_quantity_positive": {
+          "name": "ck_receipt_item_quantity_positive",
+          "value": "quantity > (0)::numeric"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.inventory_lots": {
+      "name": "inventory_lots",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_receipt_item_id": {
+          "name": "source_receipt_item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lot_number": {
+          "name": "lot_number",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "manufactured_date": {
+          "name": "manufactured_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expiry_date": {
+          "name": "expiry_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "initial_quantity": {
+          "name": "initial_quantity",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_inventory_lots_expiry_date": {
+          "name": "idx_inventory_lots_expiry_date",
+          "columns": [
+            {
+              "expression": "expiry_date",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "where": "(expiry_date IS NOT NULL)",
+          "with": {}
+        },
+        "idx_inventory_lots_item_id": {
+          "name": "idx_inventory_lots_item_id",
+          "columns": [
+            {
+              "expression": "item_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "inventory_lots_farm_id_fkey": {
+          "name": "inventory_lots_farm_id_fkey",
+          "tableFrom": "inventory_lots",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_lots_item_id_fkey": {
+          "name": "inventory_lots_item_id_fkey",
+          "tableFrom": "inventory_lots",
+          "tableTo": "items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_lots_source_receipt_item_id_fkey": {
+          "name": "inventory_lots_source_receipt_item_id_fkey",
+          "tableFrom": "inventory_lots",
+          "tableTo": "stock_receipt_items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "source_receipt_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_lot_per_item_farm": {
+          "columns": [
+            "farm_id",
+            "item_id",
+            "lot_number"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_lot_per_item_farm"
+        }
+      },
+      "checkConstraints": {
+        "ck_lot_expiry_after_manufacture": {
+          "name": "ck_lot_expiry_after_manufacture",
+          "value": "(manufactured_date IS NULL) OR (expiry_date IS NULL) OR (expiry_date >= manufactured_date)"
+        },
+        "ck_lot_initial_quantity_positive": {
+          "name": "ck_lot_initial_quantity_positive",
+          "value": "initial_quantity > (0)::numeric"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.assets": {
+      "name": "assets",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_receipt_item_id": {
+          "name": "source_receipt_item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_location_id": {
+          "name": "current_location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "asset_code": {
+          "name": "asset_code",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "serial_number": {
+          "name": "serial_number",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "qr_token": {
+          "name": "qr_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "status": {
+          "name": "status",
+          "type": "asset_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'AVAILABLE'"
+        },
+        "purchase_date": {
+          "name": "purchase_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purchase_price": {
+          "name": "purchase_price",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warranty_expiry_date": {
+          "name": "warranty_expiry_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_maintenance_date": {
+          "name": "last_maintenance_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_maintenance_date": {
+          "name": "next_maintenance_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_assets_farm_item": {
+          "name": "idx_assets_farm_item",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "item_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_assets_next_maintenance": {
+          "name": "idx_assets_next_maintenance",
+          "columns": [
+            {
+              "expression": "next_maintenance_date",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "where": "(next_maintenance_date IS NOT NULL)",
+          "with": {}
+        },
+        "idx_assets_status": {
+          "name": "idx_assets_status",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "status",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ux_asset_serial_per_farm": {
+          "name": "ux_asset_serial_per_farm",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "serial_number",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "(serial_number IS NOT NULL)",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "assets_current_location_id_fkey": {
+          "name": "assets_current_location_id_fkey",
+          "tableFrom": "assets",
+          "tableTo": "locations",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "current_location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "assets_farm_id_fkey": {
+          "name": "assets_farm_id_fkey",
+          "tableFrom": "assets",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "assets_item_id_fkey": {
+          "name": "assets_item_id_fkey",
+          "tableFrom": "assets",
+          "tableTo": "items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "assets_source_receipt_item_id_fkey": {
+          "name": "assets_source_receipt_item_id_fkey",
+          "tableFrom": "assets",
+          "tableTo": "stock_receipt_items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "source_receipt_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_asset_code_per_farm": {
+          "columns": [
+            "asset_code",
+            "farm_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_asset_code_per_farm"
+        },
+        "uq_asset_qr_token": {
+          "columns": [
+            "qr_token"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_asset_qr_token"
+        }
+      },
+      "checkConstraints": {
+        "ck_asset_next_maintenance_date": {
+          "name": "ck_asset_next_maintenance_date",
+          "value": "(last_maintenance_date IS NULL) OR (next_maintenance_date IS NULL) OR (next_maintenance_date >= last_maintenance_date)"
+        },
+        "ck_asset_purchase_price_nonnegative": {
+          "name": "ck_asset_purchase_price_nonnegative",
+          "value": "(purchase_price IS NULL) OR (purchase_price >= (0)::numeric)"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.inventory_balances": {
+      "name": "inventory_balances",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "warehouse_id": {
+          "name": "warehouse_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lot_id": {
+          "name": "lot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quantity_on_hand": {
+          "name": "quantity_on_hand",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_inventory_balances_lookup": {
+          "name": "idx_inventory_balances_lookup",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "warehouse_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "item_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "inventory_balances_farm_id_fkey": {
+          "name": "inventory_balances_farm_id_fkey",
+          "tableFrom": "inventory_balances",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_balances_item_id_fkey": {
+          "name": "inventory_balances_item_id_fkey",
+          "tableFrom": "inventory_balances",
+          "tableTo": "items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_balances_lot_id_fkey": {
+          "name": "inventory_balances_lot_id_fkey",
+          "tableFrom": "inventory_balances",
+          "tableTo": "inventory_lots",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "lot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_balances_warehouse_id_fkey": {
+          "name": "inventory_balances_warehouse_id_fkey",
+          "tableFrom": "inventory_balances",
+          "tableTo": "warehouses",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "warehouse_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_inventory_balance": {
+          "columns": [
+            "item_id",
+            "lot_id",
+            "warehouse_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_inventory_balance"
+        }
+      },
+      "checkConstraints": {
+        "ck_inventory_balance_nonnegative": {
+          "name": "ck_inventory_balance_nonnegative",
+          "value": "quantity_on_hand >= (0)::numeric"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_issues": {
+      "name": "stock_issues",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "warehouse_id": {
+          "name": "warehouse_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issue_code": {
+          "name": "issue_code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issue_date": {
+          "name": "issue_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_DATE"
+        },
+        "issue_type": {
+          "name": "issue_type",
+          "type": "issue_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'CONSUMPTION'"
+        },
+        "status": {
+          "name": "status",
+          "type": "document_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_member_id": {
+          "name": "created_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confirmed_by_member_id": {
+          "name": "confirmed_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_stock_issues_farm_date": {
+          "name": "idx_stock_issues_farm_date",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "issue_date",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_stock_issues_status": {
+          "name": "idx_stock_issues_status",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "status",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "stock_issues_confirmed_by_member_id_fkey": {
+          "name": "stock_issues_confirmed_by_member_id_fkey",
+          "tableFrom": "stock_issues",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "confirmed_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_issues_created_by_member_id_fkey": {
+          "name": "stock_issues_created_by_member_id_fkey",
+          "tableFrom": "stock_issues",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "created_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_issues_farm_id_fkey": {
+          "name": "stock_issues_farm_id_fkey",
+          "tableFrom": "stock_issues",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_issues_warehouse_id_fkey": {
+          "name": "stock_issues_warehouse_id_fkey",
+          "tableFrom": "stock_issues",
+          "tableTo": "warehouses",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "warehouse_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_issue_code_per_farm": {
+          "columns": [
+            "farm_id",
+            "issue_code"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_issue_code_per_farm"
+        }
+      },
+      "checkConstraints": {
+        "ck_issue_confirm_fields": {
+          "name": "ck_issue_confirm_fields",
+          "value": "(status <> 'CONFIRMED'::document_status) OR ((confirmed_by_member_id IS NOT NULL) AND (confirmed_at IS NOT NULL))"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_issue_items": {
+      "name": "stock_issue_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "stock_issue_id": {
+          "name": "stock_issue_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lot_id": {
+          "name": "lot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "stock_issue_items_asset_id_fkey": {
+          "name": "stock_issue_items_asset_id_fkey",
+          "tableFrom": "stock_issue_items",
+          "tableTo": "assets",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_issue_items_item_id_fkey": {
+          "name": "stock_issue_items_item_id_fkey",
+          "tableFrom": "stock_issue_items",
+          "tableTo": "items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_issue_items_lot_id_fkey": {
+          "name": "stock_issue_items_lot_id_fkey",
+          "tableFrom": "stock_issue_items",
+          "tableTo": "inventory_lots",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "lot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_issue_items_stock_issue_id_fkey": {
+          "name": "stock_issue_items_stock_issue_id_fkey",
+          "tableFrom": "stock_issue_items",
+          "tableTo": "stock_issues",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "stock_issue_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_issue_asset_quantity": {
+          "name": "ck_issue_asset_quantity",
+          "value": "(asset_id IS NULL) OR (quantity = (1)::numeric)"
+        },
+        "ck_issue_item_quantity_positive": {
+          "name": "ck_issue_item_quantity_positive",
+          "value": "quantity > (0)::numeric"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_transfers": {
+      "name": "stock_transfers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_warehouse_id": {
+          "name": "from_warehouse_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_warehouse_id": {
+          "name": "to_warehouse_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "transfer_code": {
+          "name": "transfer_code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "transfer_date": {
+          "name": "transfer_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_DATE"
+        },
+        "status": {
+          "name": "status",
+          "type": "document_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_member_id": {
+          "name": "created_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confirmed_by_member_id": {
+          "name": "confirmed_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_stock_transfers_farm_date": {
+          "name": "idx_stock_transfers_farm_date",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "transfer_date",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "stock_transfers_confirmed_by_member_id_fkey": {
+          "name": "stock_transfers_confirmed_by_member_id_fkey",
+          "tableFrom": "stock_transfers",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "confirmed_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_transfers_created_by_member_id_fkey": {
+          "name": "stock_transfers_created_by_member_id_fkey",
+          "tableFrom": "stock_transfers",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "created_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_transfers_farm_id_fkey": {
+          "name": "stock_transfers_farm_id_fkey",
+          "tableFrom": "stock_transfers",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_transfers_from_warehouse_id_fkey": {
+          "name": "stock_transfers_from_warehouse_id_fkey",
+          "tableFrom": "stock_transfers",
+          "tableTo": "warehouses",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "from_warehouse_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_transfers_to_warehouse_id_fkey": {
+          "name": "stock_transfers_to_warehouse_id_fkey",
+          "tableFrom": "stock_transfers",
+          "tableTo": "warehouses",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "to_warehouse_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_transfer_code_per_farm": {
+          "columns": [
+            "farm_id",
+            "transfer_code"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_transfer_code_per_farm"
+        }
+      },
+      "checkConstraints": {
+        "ck_transfer_confirm_fields": {
+          "name": "ck_transfer_confirm_fields",
+          "value": "(status <> 'CONFIRMED'::document_status) OR ((confirmed_by_member_id IS NOT NULL) AND (confirmed_at IS NOT NULL))"
+        },
+        "ck_transfer_different_warehouses": {
+          "name": "ck_transfer_different_warehouses",
+          "value": "from_warehouse_id <> to_warehouse_id"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_transfer_items": {
+      "name": "stock_transfer_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "stock_transfer_id": {
+          "name": "stock_transfer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lot_id": {
+          "name": "lot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "stock_transfer_items_asset_id_fkey": {
+          "name": "stock_transfer_items_asset_id_fkey",
+          "tableFrom": "stock_transfer_items",
+          "tableTo": "assets",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_transfer_items_item_id_fkey": {
+          "name": "stock_transfer_items_item_id_fkey",
+          "tableFrom": "stock_transfer_items",
+          "tableTo": "items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_transfer_items_lot_id_fkey": {
+          "name": "stock_transfer_items_lot_id_fkey",
+          "tableFrom": "stock_transfer_items",
+          "tableTo": "inventory_lots",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "lot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_transfer_items_stock_transfer_id_fkey": {
+          "name": "stock_transfer_items_stock_transfer_id_fkey",
+          "tableFrom": "stock_transfer_items",
+          "tableTo": "stock_transfers",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "stock_transfer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_transfer_asset_quantity": {
+          "name": "ck_transfer_asset_quantity",
+          "value": "(asset_id IS NULL) OR (quantity = (1)::numeric)"
+        },
+        "ck_transfer_item_quantity_positive": {
+          "name": "ck_transfer_item_quantity_positive",
+          "value": "quantity > (0)::numeric"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_counts": {
+      "name": "stock_counts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "warehouse_id": {
+          "name": "warehouse_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count_code": {
+          "name": "count_code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count_date": {
+          "name": "count_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_DATE"
+        },
+        "status": {
+          "name": "status",
+          "type": "stock_count_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "created_by_member_id": {
+          "name": "created_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confirmed_by_member_id": {
+          "name": "confirmed_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_stock_counts_farm_date": {
+          "name": "idx_stock_counts_farm_date",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "count_date",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "stock_counts_confirmed_by_member_id_fkey": {
+          "name": "stock_counts_confirmed_by_member_id_fkey",
+          "tableFrom": "stock_counts",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "confirmed_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_counts_created_by_member_id_fkey": {
+          "name": "stock_counts_created_by_member_id_fkey",
+          "tableFrom": "stock_counts",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "created_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_counts_farm_id_fkey": {
+          "name": "stock_counts_farm_id_fkey",
+          "tableFrom": "stock_counts",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_counts_warehouse_id_fkey": {
+          "name": "stock_counts_warehouse_id_fkey",
+          "tableFrom": "stock_counts",
+          "tableTo": "warehouses",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "warehouse_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_count_code_per_farm": {
+          "columns": [
+            "count_code",
+            "farm_id"
+          ],
+          "nullsNotDistinct": false,
+          "name": "uq_count_code_per_farm"
+        }
+      },
+      "checkConstraints": {
+        "ck_count_confirm_fields": {
+          "name": "ck_count_confirm_fields",
+          "value": "(status <> 'CONFIRMED'::stock_count_status) OR ((confirmed_by_member_id IS NOT NULL) AND (confirmed_at IS NOT NULL))"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_count_items": {
+      "name": "stock_count_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "stock_count_id": {
+          "name": "stock_count_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lot_id": {
+          "name": "lot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "system_quantity": {
+          "name": "system_quantity",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "actual_quantity": {
+          "name": "actual_quantity",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "difference": {
+          "name": "difference",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "(actual_quantity - system_quantity)",
+            "type": "stored"
+          }
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "stock_count_items_asset_id_fkey": {
+          "name": "stock_count_items_asset_id_fkey",
+          "tableFrom": "stock_count_items",
+          "tableTo": "assets",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_count_items_item_id_fkey": {
+          "name": "stock_count_items_item_id_fkey",
+          "tableFrom": "stock_count_items",
+          "tableTo": "items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_count_items_lot_id_fkey": {
+          "name": "stock_count_items_lot_id_fkey",
+          "tableFrom": "stock_count_items",
+          "tableTo": "inventory_lots",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "lot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stock_count_items_stock_count_id_fkey": {
+          "name": "stock_count_items_stock_count_id_fkey",
+          "tableFrom": "stock_count_items",
+          "tableTo": "stock_counts",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "stock_count_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_count_actual_quantity_nonnegative": {
+          "name": "ck_count_actual_quantity_nonnegative",
+          "value": "actual_quantity >= (0)::numeric"
+        },
+        "ck_count_system_quantity_nonnegative": {
+          "name": "ck_count_system_quantity_nonnegative",
+          "value": "system_quantity >= (0)::numeric"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.asset_assignments": {
+      "name": "asset_assignments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assigned_to_member_id": {
+          "name": "assigned_to_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assigned_by_member_id": {
+          "name": "assigned_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assigned_at": {
+          "name": "assigned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expected_return_at": {
+          "name": "expected_return_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "returned_at": {
+          "name": "returned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "assignment_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_asset_assignments_asset": {
+          "name": "idx_asset_assignments_asset",
+          "columns": [
+            {
+              "expression": "asset_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "assigned_at",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ux_one_active_assignment_per_asset": {
+          "name": "ux_one_active_assignment_per_asset",
+          "columns": [
+            {
+              "expression": "asset_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "(status = 'ACTIVE'::assignment_status)",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "asset_assignments_asset_id_fkey": {
+          "name": "asset_assignments_asset_id_fkey",
+          "tableFrom": "asset_assignments",
+          "tableTo": "assets",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "asset_assignments_assigned_by_member_id_fkey": {
+          "name": "asset_assignments_assigned_by_member_id_fkey",
+          "tableFrom": "asset_assignments",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "assigned_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "asset_assignments_assigned_to_member_id_fkey": {
+          "name": "asset_assignments_assigned_to_member_id_fkey",
+          "tableFrom": "asset_assignments",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "assigned_to_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "asset_assignments_farm_id_fkey": {
+          "name": "asset_assignments_farm_id_fkey",
+          "tableFrom": "asset_assignments",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_assignment_return_time": {
+          "name": "ck_assignment_return_time",
+          "value": "(returned_at IS NULL) OR (returned_at >= assigned_at)"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.asset_incidents": {
+      "name": "asset_incidents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reported_by_member_id": {
+          "name": "reported_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "incident_type": {
+          "name": "incident_type",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "severity": {
+          "name": "severity",
+          "type": "incident_severity",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'MEDIUM'"
+        },
+        "status": {
+          "name": "status",
+          "type": "incident_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'OPEN'"
+        },
+        "reported_at": {
+          "name": "reported_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_asset_incidents_asset": {
+          "name": "idx_asset_incidents_asset",
+          "columns": [
+            {
+              "expression": "asset_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "reported_at",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_asset_incidents_status": {
+          "name": "idx_asset_incidents_status",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "status",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "asset_incidents_asset_id_fkey": {
+          "name": "asset_incidents_asset_id_fkey",
+          "tableFrom": "asset_incidents",
+          "tableTo": "assets",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "asset_incidents_farm_id_fkey": {
+          "name": "asset_incidents_farm_id_fkey",
+          "tableFrom": "asset_incidents",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "asset_incidents_reported_by_member_id_fkey": {
+          "name": "asset_incidents_reported_by_member_id_fkey",
+          "tableFrom": "asset_incidents",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "reported_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_incident_resolved_time": {
+          "name": "ck_incident_resolved_time",
+          "value": "(resolved_at IS NULL) OR (resolved_at >= reported_at)"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.maintenance_records": {
+      "name": "maintenance_records",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "incident_id": {
+          "name": "incident_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "maintenance_type": {
+          "name": "maintenance_type",
+          "type": "maintenance_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scheduled_at": {
+          "name": "scheduled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "maintenance_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'SCHEDULED'"
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "result_note": {
+          "name": "result_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "performed_by_member_id": {
+          "name": "performed_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "supplier_id": {
+          "name": "supplier_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "labor_cost": {
+          "name": "labor_cost",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "material_cost": {
+          "name": "material_cost",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "other_cost": {
+          "name": "other_cost",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "total_cost": {
+          "name": "total_cost",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "((labor_cost + material_cost) + other_cost)",
+            "type": "stored"
+          }
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_maintenance_asset": {
+          "name": "idx_maintenance_asset",
+          "columns": [
+            {
+              "expression": "asset_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "scheduled_at",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_maintenance_status_schedule": {
+          "name": "idx_maintenance_status_schedule",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "status",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "scheduled_at",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "maintenance_records_asset_id_fkey": {
+          "name": "maintenance_records_asset_id_fkey",
+          "tableFrom": "maintenance_records",
+          "tableTo": "assets",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "maintenance_records_farm_id_fkey": {
+          "name": "maintenance_records_farm_id_fkey",
+          "tableFrom": "maintenance_records",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "maintenance_records_incident_id_fkey": {
+          "name": "maintenance_records_incident_id_fkey",
+          "tableFrom": "maintenance_records",
+          "tableTo": "asset_incidents",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "incident_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "maintenance_records_performed_by_member_id_fkey": {
+          "name": "maintenance_records_performed_by_member_id_fkey",
+          "tableFrom": "maintenance_records",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "performed_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "maintenance_records_supplier_id_fkey": {
+          "name": "maintenance_records_supplier_id_fkey",
+          "tableFrom": "maintenance_records",
+          "tableTo": "suppliers",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "supplier_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_maintenance_costs_nonnegative": {
+          "name": "ck_maintenance_costs_nonnegative",
+          "value": "(labor_cost >= (0)::numeric) AND (material_cost >= (0)::numeric) AND (other_cost >= (0)::numeric)"
+        },
+        "ck_maintenance_time_order": {
+          "name": "ck_maintenance_time_order",
+          "value": "((started_at IS NULL) OR (scheduled_at IS NULL) OR (started_at >= scheduled_at)) AND ((completed_at IS NULL) OR (started_at IS NULL) OR (completed_at >= started_at))"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.inventory_transactions": {
+      "name": "inventory_transactions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "warehouse_id": {
+          "name": "warehouse_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lot_id": {
+          "name": "lot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "transaction_type": {
+          "name": "transaction_type",
+          "type": "inventory_transaction_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity_change": {
+          "name": "quantity_change",
+          "type": "numeric(18, 3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "movement_group_id": {
+          "name": "movement_group_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "performed_by_member_id": {
+          "name": "performed_by_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_inventory_transactions_lookup": {
+          "name": "idx_inventory_transactions_lookup",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "warehouse_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "item_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "created_at",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_inventory_transactions_movement_group": {
+          "name": "idx_inventory_transactions_movement_group",
+          "columns": [
+            {
+              "expression": "movement_group_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "where": "(movement_group_id IS NOT NULL)",
+          "with": {}
+        },
+        "idx_inventory_transactions_source": {
+          "name": "idx_inventory_transactions_source",
+          "columns": [
+            {
+              "expression": "source_type",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "source_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "inventory_transactions_asset_id_fkey": {
+          "name": "inventory_transactions_asset_id_fkey",
+          "tableFrom": "inventory_transactions",
+          "tableTo": "assets",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_transactions_farm_id_fkey": {
+          "name": "inventory_transactions_farm_id_fkey",
+          "tableFrom": "inventory_transactions",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_transactions_item_id_fkey": {
+          "name": "inventory_transactions_item_id_fkey",
+          "tableFrom": "inventory_transactions",
+          "tableTo": "items",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_transactions_lot_id_fkey": {
+          "name": "inventory_transactions_lot_id_fkey",
+          "tableFrom": "inventory_transactions",
+          "tableTo": "inventory_lots",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "lot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_transactions_performed_by_member_id_fkey": {
+          "name": "inventory_transactions_performed_by_member_id_fkey",
+          "tableFrom": "inventory_transactions",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "performed_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inventory_transactions_warehouse_id_fkey": {
+          "name": "inventory_transactions_warehouse_id_fkey",
+          "tableFrom": "inventory_transactions",
+          "tableTo": "warehouses",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "warehouse_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_inventory_transaction_nonzero": {
+          "name": "ck_inventory_transaction_nonzero",
+          "value": "quantity_change <> (0)::numeric"
+        }
+      },
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.audit_logs": {
+      "name": "audit_logs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "farm_id": {
+          "name": "farm_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "action": {
+          "name": "action",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "old_data": {
+          "name": "old_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "new_data": {
+          "name": "new_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "inet",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_audit_logs_entity": {
+          "name": "idx_audit_logs_entity",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "entity_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "created_at",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_audit_logs_farm": {
+          "name": "idx_audit_logs_farm",
+          "columns": [
+            {
+              "expression": "farm_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            },
+            {
+              "expression": "created_at",
+              "asc": false,
+              "nulls": "first",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "audit_logs_farm_id_fkey": {
+          "name": "audit_logs_farm_id_fkey",
+          "tableFrom": "audit_logs",
+          "tableTo": "farms",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "audit_logs_user_id_fkey": {
+          "name": "audit_logs_user_id_fkey",
+          "tableFrom": "audit_logs",
+          "tableTo": "users",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    },
+    "public.farm_member_roles": {
+      "name": "farm_member_roles",
+      "schema": "",
+      "columns": {
+        "farm_member_id": {
+          "name": "farm_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role_id": {
+          "name": "role_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assigned_at": {
+          "name": "assigned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_farm_member_roles_role_id": {
+          "name": "idx_farm_member_roles_role_id",
+          "columns": [
+            {
+              "expression": "role_id",
+              "asc": true,
+              "nulls": "last",
+              "isExpression": false
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "farm_member_roles_farm_member_id_fkey": {
+          "name": "farm_member_roles_farm_member_id_fkey",
+          "tableFrom": "farm_member_roles",
+          "tableTo": "farm_members",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "farm_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "farm_member_roles_role_id_fkey": {
+          "name": "farm_member_roles_role_id_fkey",
+          "tableFrom": "farm_member_roles",
+          "tableTo": "roles",
+          "schemaTo": "public",
+          "columnsFrom": [
+            "role_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "farm_member_roles_pkey": {
+          "name": "farm_member_roles_pkey",
+          "columns": [
+            "farm_member_id",
+            "role_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.asset_status": {
+      "name": "asset_status",
+      "values": [
+        "AVAILABLE",
+        "ASSIGNED",
+        "IN_USE",
+        "MAINTENANCE",
+        "LOST",
+        "RETIRED"
+      ],
+      "schema": "public"
+    },
+    "public.assignment_status": {
+      "name": "assignment_status",
+      "values": [
+        "ACTIVE",
+        "RETURNED",
+        "CANCELLED"
+      ],
+      "schema": "public"
+    },
+    "public.document_status": {
+      "name": "document_status",
+      "values": [
+        "DRAFT",
+        "CONFIRMED",
+        "CANCELLED"
+      ],
+      "schema": "public"
+    },
+    "public.incident_severity": {
+      "name": "incident_severity",
+      "values": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ],
+      "schema": "public"
+    },
+    "public.incident_status": {
+      "name": "incident_status",
+      "values": [
+        "OPEN",
+        "IN_PROGRESS",
+        "RESOLVED",
+        "CANCELLED"
+      ],
+      "schema": "public"
+    },
+    "public.inventory_transaction_type": {
+      "name": "inventory_transaction_type",
+      "values": [
+        "RECEIPT",
+        "ISSUE",
+        "TRANSFER_OUT",
+        "TRANSFER_IN",
+        "ADJUSTMENT_IN",
+        "ADJUSTMENT_OUT",
+        "ASSIGNMENT_OUT",
+        "RETURN_IN"
+      ],
+      "schema": "public"
+    },
+    "public.issue_type": {
+      "name": "issue_type",
+      "values": [
+        "CONSUMPTION",
+        "DAMAGE",
+        "DISPOSAL",
+        "OTHER"
+      ],
+      "schema": "public"
+    },
+    "public.item_type": {
+      "name": "item_type",
+      "values": [
+        "EQUIPMENT",
+        "TOOL",
+        "MATERIAL"
+      ],
+      "schema": "public"
+    },
+    "public.location_type": {
+      "name": "location_type",
+      "values": [
+        "WAREHOUSE",
+        "WAREHOUSE_ZONE",
+        "APIARY",
+        "SITE",
+        "IN_USE",
+        "MAINTENANCE",
+        "OTHER"
+      ],
+      "schema": "public"
+    },
+    "public.maintenance_status": {
+      "name": "maintenance_status",
+      "values": [
+        "SCHEDULED",
+        "IN_PROGRESS",
+        "COMPLETED",
+        "CANCELLED"
+      ],
+      "schema": "public"
+    },
+    "public.maintenance_type": {
+      "name": "maintenance_type",
+      "values": [
+        "PREVENTIVE",
+        "CORRECTIVE",
+        "INSPECTION"
+      ],
+      "schema": "public"
+    },
+    "public.member_status": {
+      "name": "member_status",
+      "values": [
+        "ACTIVE",
+        "INACTIVE"
+      ],
+      "schema": "public"
+    },
+    "public.record_status": {
+      "name": "record_status",
+      "values": [
+        "ACTIVE",
+        "INACTIVE"
+      ],
+      "schema": "public"
+    },
+    "public.role_scope": {
+      "name": "role_scope",
+      "values": [
+        "SYSTEM",
+        "FARM"
+      ],
+      "schema": "public"
+    },
+    "public.stock_count_status": {
+      "name": "stock_count_status",
+      "values": [
+        "DRAFT",
+        "COUNTING",
+        "CONFIRMED",
+        "CANCELLED"
+      ],
+      "schema": "public"
+    },
+    "public.tracking_mode": {
+      "name": "tracking_mode",
+      "values": [
+        "QUANTITY",
+        "LOT",
+        "ASSET"
+      ],
+      "schema": "public"
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {}
+  }
+}

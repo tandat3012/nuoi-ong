@@ -1,26 +1,271 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces & Canvas */
+  --background: #f8faf7;
+  --foreground: #172018;
+  --card: #ffffff;
+  --card-foreground: #172018;
+  --popover: #ffffff;
+  --popover-foreground: #172018;
+
+  /* Primary Brand (Agricultural Green) */
+  --primary: #166534;
+  --primary-foreground: #ffffff;
+
+  /* Secondary Surface */
+  --secondary: #edf5ed;
+  --secondary-foreground: #24502e;
+
+  /* Muted / Neutral */
+  --muted: #f1f5f0;
+  --muted-foreground: #657268;
+
+  /* Interactive Accent */
+  --accent: #e2ede2;
+  --accent-foreground: #1b4324;
+
+  /* Semantic Feedback Tokens */
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+  --success: #15803d;
+  --success-foreground: #ffffff;
+  --info: #0369a1;
+  --info-foreground: #ffffff;
+
+  /* Borders, Inputs & Ring */
+  --border: #dce5dc;
+  --input: #dce5dc;
+  --ring: #22c55e;
+
+  /* Geometry */
+  --radius: 0.625rem;
+}
+
+.dark {
+  /* Dark Surfaces & Canvas */
+  --background: #0d130f;
+  --foreground: #f1f5f2;
+  --card: #131b15;
+  --card-foreground: #f1f5f2;
+  --popover: #131b15;
+  --popover-foreground: #f1f5f2;
+
+  /* Primary Brand (Lighter Emerald in Dark mode for contrast) */
+  --primary: #22c55e;
+  --primary-foreground: #052e16;
+
+  /* Secondary Surface */
+  --secondary: #1a261c;
+  --secondary-foreground: #86efac;
+
+  /* Muted / Neutral */
+  --muted: #18221a;
+  --muted-foreground: #8c9e90;
+
+  /* Interactive Accent */
+  --accent: #1e2e21;
+  --accent-foreground: #bbf7d0;
+
+  /* Semantic Feedback Tokens */
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --warning: #f59e0b;
+  --warning-foreground: #000000;
+  --success: #22c55e;
+  --success-foreground: #000000;
+  --info: #38bdf8;
+  --info-foreground: #000000;
+
+  /* Borders, Inputs & Ring */
+  --border: #223225;
+  --input: #223225;
+  --ring: #22c55e;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 0.25rem);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 0.25rem);
+  --radius-xl: calc(var(--radius) + 0.5rem);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+
+  --color-store-warm: var(--store-surface-warm);
+  --color-store-banner: var(--store-banner-bg);
+  --color-store-banner-foreground: var(--store-banner-foreground);
+  --color-store-announcement: var(--store-announcement-bg);
+  --color-store-announcement-foreground: var(--store-announcement-foreground);
+  --color-store-hero-highlight: var(--store-hero-highlight);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Storefront Scoped Semantic Theme (Mộc Ong) */
+.storefront {
+  /* Surfaces: Warm cream canvas & clean white card surfaces */
+  --background: #fdfbfd;
+  --foreground: #2d241e;
+  --card: #ffffff;
+  --card-foreground: #2d241e;
+  --popover: #ffffff;
+  --popover-foreground: #2d241e;
+
+  /* Primary Action: Warm honey amber */
+  --primary: #d97706;
+  --primary-foreground: #ffffff;
+
+  /* Secondary: Soft honey cream */
+  --secondary: #fef3c7;
+  --secondary-foreground: #78350f;
+
+  /* Muted / Neutral: Warm stone/cream */
+  --muted: #f7f3ed;
+  --muted-foreground: #786f66;
+
+  /* Interactive Accent: Warm golden glow */
+  --accent: #fefce8;
+  --accent-foreground: #92400e;
+
+  /* Borders, Inputs & Ring */
+  --border: #ede6dc;
+  --input: #ede6dc;
+  --ring: #d97706;
+
+  /* Dedicated Storefront Semantic Values */
+  --store-surface-warm: #fbf8f2;
+  --store-banner-bg: #1c140e;
+  --store-banner-foreground: #fef3c7;
+
+  /* Promotional Announcement Bar (Honey-yellow & Dark brown text) */
+  --store-announcement-bg: #fde68a;
+  --store-announcement-foreground: #451a03;
+
+  /* Hero Scoped Emphasis (Warm Golden Honey) */
+  --store-hero-highlight: #fcbe53;
+}
+
+/* Storefront Scoped Typography */
+.storefront h1,
+.storefront h2,
+.storefront h3,
+.storefront h4,
+.storefront .font-heading {
+  font-family: var(--font-serif);
+  letter-spacing: -0.015em;
+}
+
+/* Storefront Dark Mode (when dark class is active within customer context) */
+.dark .storefront,
+.storefront.dark {
+  --background: #14110e;
+  --foreground: #f5efe6;
+  --card: #1c1814;
+  --card-foreground: #f5efe6;
+  --popover: #1c1814;
+  --popover-foreground: #f5efe6;
+
+  --primary: #f59e0b;
+  --primary-foreground: #1c140e;
+
+  --secondary: #26201a;
+  --secondary-foreground: #fcd34d;
+
+  --muted: #201b16;
+  --muted-foreground: #a39688;
+
+  --accent: #2c241c;
+  --accent-foreground: #fde68a;
+
+  --border: #2e261f;
+  --input: #2e261f;
+  --ring: #f59e0b;
+
+  --store-surface-warm: #181410;
+  --store-banner-bg: #0c0a08;
+  --store-banner-foreground: #fef3c7;
+  --store-announcement-bg: #78350f;
+  --store-announcement-foreground: #fef3c7;
+
+  /* Hero Scoped Emphasis */
+  --store-hero-highlight: #fbbe24e4;
+}
+
+* {
+  border-color: var(--border);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--ring) 45%, transparent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Slim Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
 }
