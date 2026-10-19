@@ -4,12 +4,14 @@
 PNPM ?= pnpm
 COMPOSE := docker compose -f compose.yaml
 
-.PHONY: help fe be db-up db-down db-migrate db-seed db-reset
+.PHONY: help fe be fe-rebuild be-rebuild db-up db-down db-migrate db-seed db-reset
 
 help:
 	@printf '%s\n' \
 	  'make fe          Start Next.js development server' \
 	  'make be          Start NestJS development server' \
+	  'make fe-rebuild  Rebuild and restart the web container' \
+	  'make be-rebuild  Rebuild and restart the api container' \
 	  'make db-up       Start PostgreSQL and wait until healthy' \
 	  'make db-down     Stop PostgreSQL, preserving local data' \
 	  'make db-migrate  Apply migrations using api/.env' \
@@ -17,6 +19,7 @@ help:
 	  'make db-reset    Delete the local nuoi_ong database and recreate it (confirmation required)' \
 	  'After db-reset, run make db-migrate and make db-seed.' \
 	  'Prerequisites: dependencies installed, root .env and api/.env configured.' \
+	  'Docker rebuilds require the Compose stack and dependencies to be started (docker compose up -d --build).' \
 	  'Host DATABASE_URL should point to localhost:5435/nuoi_ong.'
 
 fe:
@@ -24,6 +27,12 @@ fe:
 
 be:
 	$(PNPM) --dir api start:dev
+
+fe-rebuild:
+	$(COMPOSE) up -d --build --no-deps web
+
+be-rebuild:
+	$(COMPOSE) up -d --build --no-deps api
 
 db-up:
 	$(COMPOSE) up -d --wait postgres
