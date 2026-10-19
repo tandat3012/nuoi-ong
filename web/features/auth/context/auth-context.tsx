@@ -16,7 +16,9 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthContextProvider({ children }: { children: React.ReactNode }) {
+export function AuthContextProvider({ children,
+}: { children: React.ReactNode;
+}) {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
   if (!isLoaded) return <p>Đang tải...</p>;
   if (!isSignedIn || !userId) return null;
@@ -103,11 +105,13 @@ function SessionContextProvider({
       isLoading: false,
       error,
       selectFarm(farmId: string) {
-        const isAllowed = data.memberships.some(({ farm }) => farm.id === farmId);
+        const isAllowed = data.memberships.some(({ farm }) => farm.id === farmId,
+        );
         if (!isAllowed) throw new Error('Farm is not available to this user');
 
         try {
-          window.localStorage.setItem(`farm:selected-farm:${data.user.id}`, farmId);
+          window.localStorage.setItem(`farm:selected-farm:${data.user.id}`, farmId,
+          );
         } catch {}
         setSelectedFarmId(farmId);
       },
@@ -155,7 +159,8 @@ export function useAuthContext() {
   const context = useContext(AuthContext);
 
   if (!context) {
-    throw new Error('useAuthContext must be used within an AuthContextProvider');
+    throw new Error('useAuthContext must be used within an AuthContextProvider',
+    );
   }
 
   return context;

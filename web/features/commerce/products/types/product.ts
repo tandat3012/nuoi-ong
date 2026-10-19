@@ -26,3 +26,7 @@ export type StorefrontProduct = {
   image?: StorefrontProductImage;
   inStock: boolean;
 };
+
+export type StorefrontProductDetail = StorefrontProduct & {
+  description: string;
+};
