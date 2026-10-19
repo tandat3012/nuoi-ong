@@ -30,7 +30,7 @@ For recovery, stop application writers, restore the dump into a **new** database
 
 - API build, TypeScript, lint, and 83 unit tests.
 - 207 API integration tests: HTTP/DTO/PostgreSQL paths, schema/enum agreement, inventory QR, receipt/issue behavior, maintenance draft and confirmation rules, count/transfer rollback, stale snapshots, exact decimal differences, and concurrent confirmation of the same document.
-- Web build, TypeScript, lint, and four test files, including browser API URL precedence and legacy configuration.
+- Web build, TypeScript, lint, and five test files, including browser API URL precedence, legacy configuration, and Clerk protection of warehouse routes.
 - Fresh-database migration and upgrade from a restored `0007` database through `0013`; repeat migration does not add journal entries.
 - Chromium UI checks exercise the actual count/transfer components with fixture authentication/API responses: create, confirm, refresh, farm switch, reader permissions, and desktop/mobile layouts. Images are in `web/test-artifacts/warehouse/`.
 - New count/transfer forms support QUANTITY items only; LOT/ASSET selectors are deferred. Existing receipt/issue pages retain their tracking-mode support.
