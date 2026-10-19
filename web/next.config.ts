@@ -1,10 +1,14 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  output: process.env.VERCEL ? undefined : 'standalone',
-  outputFileTracingIncludes: {
-    '/*': ['node_modules/@swc/helpers/esm/**'],
-  },
+  ...(process.env.VERCEL
+    ? {}
+    : {
+        output: 'standalone',
+        outputFileTracingIncludes: {
+          '/*': ['node_modules/@swc/helpers/esm/**'],
+        },
+      }),
 };
 
 export default nextConfig;
