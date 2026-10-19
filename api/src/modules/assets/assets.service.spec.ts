@@ -7,6 +7,9 @@ describe('AssetsService', () => {
   const databaseService = {
     db: { select },
   } as unknown as DatabaseService;
+  const warehousesService = {
+    assertFarmAccess: jest.fn(),
+  };
   const farmId = '6a8ac800-8daa-4e25-9ef8-57af547f8784';
   const assetId = 'c796d96d-7260-4763-a9fe-8fe08a444165';
   let service: AssetsService;
@@ -36,7 +39,7 @@ describe('AssetsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AssetsService(databaseService);
+    service = new AssetsService(databaseService, warehousesService as never);
   });
 
   it('lists assets with pagination and total count', async () => {

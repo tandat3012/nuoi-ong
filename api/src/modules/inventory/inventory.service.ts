@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   and,
   asc,
@@ -13,6 +13,7 @@ import {
   sql,
   SQL,
 } from 'drizzle-orm';
+import QRCode from 'qrcode';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -94,11 +95,13 @@ export class InventoryService {
       this.databaseService.db
         .select({
           id: inventoryBalances.id,
+          farmId: inventoryBalances.farmId,
           quantityOnHand: inventoryBalances.quantityOnHand,
           updatedAt: inventoryBalances.updatedAt,
           itemId: items.id,
           itemCode: items.code,
           itemName: items.name,
+          itemType: items.itemType,
           trackingMode: items.trackingMode,
           unitId: units.id,
           unitName: units.name,
@@ -139,6 +142,20 @@ export class InventoryService {
       data: rows.map((row) => ({
         id: row.id,
         quantityOnHand: row.quantityOnHand,
+        // Keep the Mobile response fields while exposing the richer Web/API shape.
+        balance: {
+          id: row.id,
+          farmId: row.farmId,
+          warehouseId: row.warehouseId,
+          itemId: row.itemId,
+          lotId: row.lotId,
+          quantityOnHand: row.quantityOnHand,
+          updatedAt: row.updatedAt,
+        },
+        itemCode: row.itemCode,
+        itemName: row.itemName,
+        itemType: row.itemType,
+        trackingMode: row.trackingMode,
         item: {
           id: row.itemId,
           code: row.itemCode,
@@ -166,6 +183,68 @@ export class InventoryService {
         totalItems,
         totalPages: Math.ceil(totalItems / filters.pageSize),
       },
+    };
+  }
+
+  async getBalanceQr(id: string, farmId: string, clerkUserId: string) {
+    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, false);
+    const [row] = await this.databaseService.db
+      .select({
+        balance: inventoryBalances,
+        itemCode: items.code,
+        itemName: items.name,
+        itemType: items.itemType,
+        trackingMode: items.trackingMode,
+        warehouseCode: warehouses.code,
+        warehouseName: warehouses.name,
+        lotNumber: inventoryLots.lotNumber,
+      })
+      .from(inventoryBalances)
+      .innerJoin(
+        items,
+        and(eq(inventoryBalances.itemId, items.id), eq(items.farmId, farmId)),
+      )
+      .innerJoin(
+        warehouses,
+        and(
+          eq(inventoryBalances.warehouseId, warehouses.id),
+          eq(warehouses.farmId, farmId),
+        ),
+      )
+      .leftJoin(
+        inventoryLots,
+        and(
+          eq(inventoryBalances.lotId, inventoryLots.id),
+          eq(inventoryLots.farmId, farmId),
+          eq(inventoryLots.itemId, inventoryBalances.itemId),
+        ),
+      )
+      .where(
+        and(eq(inventoryBalances.id, id), eq(inventoryBalances.farmId, farmId)),
+      )
+      .limit(1);
+
+    if (!row) throw new NotFoundException('Inventory balance not found');
+    const qrUrl = `${this.webAppUrl()}/inventory?warehouseId=${row.balance.warehouseId}&itemId=${row.balance.itemId}`;
+    const svg = await QRCode.toString(qrUrl, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 2,
+    });
+
+    return {
+      balanceId: row.balance.id,
+      qrUrl,
+      format: 'svg',
+      imageDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`,
+      balance: row.balance,
+      itemCode: row.itemCode,
+      itemName: row.itemName,
+      itemType: row.itemType,
+      trackingMode: row.trackingMode,
+      warehouseCode: row.warehouseCode,
+      warehouseName: row.warehouseName,
+      lotNumber: row.lotNumber,
     };
   }
 
@@ -504,5 +583,13 @@ export class InventoryService {
         ),
       )
       .orderBy(asc(inventoryLots.expiryDate), asc(inventoryLots.createdAt));
+  }
+
+  private webAppUrl() {
+    return (
+      process.env.WEB_APP_URL ??
+      process.env.WEB_ORIGIN ??
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
   }
 }

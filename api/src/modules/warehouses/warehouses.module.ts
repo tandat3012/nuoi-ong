@@ -11,8 +11,26 @@ import { StockCountsController } from './stock-counts.controller';
 import { StockCountsService } from './stock-counts.service';
 
 @Module({
-  controllers: [WarehousesController, StockReceiptsController, StockIssuesController, StockTransfersController, StockCountsController],
-  providers: [WarehousesService, StockReceiptsService, StockIssuesService, StockTransfersService, StockCountsService],
-  exports: [WarehousesService, StockReceiptsService, StockIssuesService, StockTransfersService, StockCountsService],
+  controllers: [
+    WarehousesController,
+    StockReceiptsController,
+    StockIssuesController,
+    StockTransfersController,
+    StockCountsController,
+  ],
+  providers: [
+    WarehousesService,
+    StockReceiptsService,
+    StockIssuesService,
+    StockTransfersService,
+    StockCountsService,
+  ],
+  exports: [
+    WarehousesService,
+    StockReceiptsService,
+    StockIssuesService,
+    StockTransfersService,
+    StockCountsService,
+  ],
 })
 export class WarehousesModule {}

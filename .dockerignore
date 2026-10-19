@@ -1,4 +1,5 @@
 .git
+.local-backups
 .gitignore
 .DS_Store
 

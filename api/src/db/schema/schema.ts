@@ -19,6 +19,7 @@ import {
   boolean,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 export const assetStatus = pgEnum('asset_status', [
   'AVAILABLE',
@@ -35,7 +36,9 @@ export const assignmentStatus = pgEnum('assignment_status', [
 ]);
 export const documentStatus = pgEnum('document_status', [
   'DRAFT',
+  'PENDING_APPROVAL',
   'CONFIRMED',
+  'REJECTED',
   'CANCELLED',
 ]);
 export const incidentSeverity = pgEnum('incident_severity', [
@@ -103,7 +106,9 @@ export const roleScope = pgEnum('role_scope', ['SYSTEM', 'FARM']);
 export const stockCountStatus = pgEnum('stock_count_status', [
   'DRAFT',
   'COUNTING',
+  'PENDING_APPROVAL',
   'CONFIRMED',
+  'REJECTED',
   'CANCELLED',
 ]);
 export const trackingMode = pgEnum('tracking_mode', [
@@ -495,6 +500,12 @@ export const stockReceipts = pgTable(
     note: text(),
     createdByMemberId: uuid('created_by_member_id').notNull(),
     confirmedByMemberId: uuid('confirmed_by_member_id'),
+    rejectionReason: text('rejection_reason'),
+    rejectedByMemberId: uuid('rejected_by_member_id'),
+    rejectedAt: timestamp('rejected_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     confirmedAt: timestamp('confirmed_at', {
       withTimezone: true,
       mode: 'string',
@@ -521,6 +532,11 @@ export const stockReceipts = pgTable(
       table.farmId.asc().nullsLast(),
       table.status.asc().nullsLast(),
     ),
+    foreignKey({
+      columns: [table.rejectedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_receipts_rejected_by_member_id_fkey',
+    }),
     foreignKey({
       columns: [table.confirmedByMemberId],
       foreignColumns: [farmMembers.id],
@@ -564,7 +580,7 @@ export const stockReceiptItems = pgTable(
     unitPrice: numeric('unit_price', { precision: 18, scale: 2 })
       .default('0')
       .notNull(),
-    lotId: uuid('lot_id').references(() => inventoryLots.id, {
+    lotId: uuid('lot_id').references((): AnyPgColumn => inventoryLots.id, {
       onDelete: 'set null',
     }),
     lotNumber: varchar('lot_number', { length: 100 }),
@@ -573,7 +589,7 @@ export const stockReceiptItems = pgTable(
     locationId: uuid('location_id').references(() => locations.id, {
       onDelete: 'set null',
     }),
-    assetId: uuid('asset_id').references(() => assets.id, {
+    assetId: uuid('asset_id').references((): AnyPgColumn => assets.id, {
       onDelete: 'set null',
     }),
     assetCode: varchar('asset_code', { length: 100 }),
@@ -911,6 +927,12 @@ export const stockIssues = pgTable(
     note: text(),
     createdByMemberId: uuid('created_by_member_id').notNull(),
     confirmedByMemberId: uuid('confirmed_by_member_id'),
+    rejectionReason: text('rejection_reason'),
+    rejectedByMemberId: uuid('rejected_by_member_id'),
+    rejectedAt: timestamp('rejected_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     confirmedAt: timestamp('confirmed_at', {
       withTimezone: true,
       mode: 'string',
@@ -937,10 +959,14 @@ export const stockIssues = pgTable(
       table.farmId.asc().nullsLast(),
       table.status.asc().nullsLast(),
     ),
-    index('idx_stock_issues_maintenance_record').using(
-      'btree',
-      table.maintenanceRecordId.asc().nullsLast(),
-    ).where(sql`maintenance_record_id IS NOT NULL`),
+    index('idx_stock_issues_maintenance_record')
+      .using('btree', table.maintenanceRecordId.asc().nullsLast())
+      .where(sql`maintenance_record_id IS NOT NULL`),
+    foreignKey({
+      columns: [table.rejectedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_issues_rejected_by_member_id_fkey',
+    }),
     foreignKey({
       columns: [table.confirmedByMemberId],
       foreignColumns: [farmMembers.id],
@@ -1036,6 +1062,12 @@ export const stockTransfers = pgTable(
     note: text(),
     createdByMemberId: uuid('created_by_member_id').notNull(),
     confirmedByMemberId: uuid('confirmed_by_member_id'),
+    rejectionReason: text('rejection_reason'),
+    rejectedByMemberId: uuid('rejected_by_member_id'),
+    rejectedAt: timestamp('rejected_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     confirmedAt: timestamp('confirmed_at', {
       withTimezone: true,
       mode: 'string',
@@ -1057,6 +1089,11 @@ export const stockTransfers = pgTable(
       table.farmId.asc().nullsLast(),
       table.transferDate.desc().nullsFirst(),
     ),
+    foreignKey({
+      columns: [table.rejectedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_transfers_rejected_by_member_id_fkey',
+    }),
     foreignKey({
       columns: [table.confirmedByMemberId],
       foreignColumns: [farmMembers.id],
@@ -1150,6 +1187,12 @@ export const stockCounts = pgTable(
     status: stockCountStatus().default('DRAFT').notNull(),
     createdByMemberId: uuid('created_by_member_id').notNull(),
     confirmedByMemberId: uuid('confirmed_by_member_id'),
+    rejectionReason: text('rejection_reason'),
+    rejectedByMemberId: uuid('rejected_by_member_id'),
+    rejectedAt: timestamp('rejected_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     confirmedAt: timestamp('confirmed_at', {
       withTimezone: true,
       mode: 'string',
@@ -1168,6 +1211,11 @@ export const stockCounts = pgTable(
       table.farmId.asc().nullsLast(),
       table.countDate.desc().nullsFirst(),
     ),
+    foreignKey({
+      columns: [table.rejectedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_counts_rejected_by_member_id_fkey',
+    }),
     foreignKey({
       columns: [table.confirmedByMemberId],
       foreignColumns: [farmMembers.id],
@@ -1526,5 +1574,53 @@ export const farmMemberRoles = pgTable(
       columns: [table.farmMemberId, table.roleId],
       name: 'farm_member_roles_pkey',
     }),
+  ],
+);
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    userId: uuid('user_id').notNull(),
+    farmId: uuid('farm_id'),
+    type: varchar({ length: 80 }).notNull(),
+    title: varchar({ length: 200 }).notNull(),
+    body: text().notNull(),
+    data: jsonb(),
+    entityType: varchar('entity_type', { length: 100 }),
+    entityId: uuid('entity_id'),
+    readAt: timestamp('read_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'notifications_user_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.farmId],
+      foreignColumns: [farms.id],
+      name: 'notifications_farm_id_fkey',
+    }).onDelete('cascade'),
+    index('idx_notifications_user_created_at').using(
+      'btree',
+      table.userId.asc().nullsLast(),
+      table.createdAt.desc().nullsFirst(),
+    ),
+    index('idx_notifications_user_unread_created_at')
+      .using(
+        'btree',
+        table.userId.asc().nullsLast(),
+        table.createdAt.desc().nullsFirst(),
+      )
+      .where(sql`read_at IS NULL`),
+    index('idx_notifications_farm_created_at').using(
+      'btree',
+      table.farmId.asc().nullsLast(),
+      table.createdAt.desc().nullsFirst(),
+    ),
   ],
 );

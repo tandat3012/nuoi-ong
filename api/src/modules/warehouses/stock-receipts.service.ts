@@ -26,7 +26,7 @@ import { WarehousesService } from './warehouses.service';
 export interface StockReceiptListFilters extends PaginationParams {
   farmId: string;
   clerkUserId: string;
-  status?: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  status?: typeof stockReceipts.$inferSelect.status;
   warehouseId?: string;
 }
 
@@ -44,7 +44,8 @@ export class StockReceiptsService {
       false,
     );
     const conditions = [eq(stockReceipts.farmId, filters.farmId)];
-    if (filters.status) conditions.push(eq(stockReceipts.status, filters.status));
+    if (filters.status)
+      conditions.push(eq(stockReceipts.status, filters.status));
     if (filters.warehouseId)
       conditions.push(eq(stockReceipts.warehouseId, filters.warehouseId));
     const [data, total] = await Promise.all([
@@ -170,10 +171,17 @@ export class StockReceiptsService {
         .where(eq(stockReceiptItems.stockReceiptId, id));
       const current = { receipt, items: currentItems };
       const changes: Partial<typeof stockReceipts.$inferInsert> = {};
-      for (const key of ['warehouseId', 'supplierId', 'receiptCode', 'receiptDate', 'note'] as const) {
+      for (const key of [
+        'warehouseId',
+        'supplierId',
+        'receiptCode',
+        'receiptDate',
+        'note',
+      ] as const) {
         if (input[key] !== undefined) changes[key] = input[key] as never;
       }
-      if (input.warehouseId) await this.assertActiveWarehouse(tx, input.warehouseId, farmId);
+      if (input.warehouseId)
+        await this.assertActiveWarehouse(tx, input.warehouseId, farmId);
       await this.assertReferences(tx, farmId, {
         ...current.receipt,
         ...input,
@@ -181,10 +189,15 @@ export class StockReceiptsService {
       } as CreateStockReceiptDto);
       changes.updatedAt = new Date().toISOString();
       if (Object.keys(changes).length > 0) {
-        await tx.update(stockReceipts).set(changes).where(eq(stockReceipts.id, id));
+        await tx
+          .update(stockReceipts)
+          .set(changes)
+          .where(eq(stockReceipts.id, id));
       }
       if (input.items) {
-        await tx.delete(stockReceiptItems).where(eq(stockReceiptItems.stockReceiptId, id));
+        await tx
+          .delete(stockReceiptItems)
+          .where(eq(stockReceiptItems.stockReceiptId, id));
         await tx.insert(stockReceiptItems).values(
           input.items.map((item) => ({
             stockReceiptId: id,
@@ -225,24 +238,34 @@ export class StockReceiptsService {
           cancelledAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
-        .where(
-          and(eq(stockReceipts.id, id), eq(stockReceipts.farmId, farmId)),
-        );
+        .where(and(eq(stockReceipts.id, id), eq(stockReceipts.farmId, farmId)));
     });
     return this.getReceiptWithItems(id, farmId);
   }
 
   async confirmReceipt(id: string, farmId: string, clerkUserId: string) {
-    const memberId = await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    const memberId = await this.warehousesService.assertFarmAccess(
+      farmId,
+      clerkUserId,
+      true,
+    );
     await this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       if (receipt.status === 'CONFIRMED') return;
-      if (receipt.status !== 'DRAFT') throw new ConflictException('Only DRAFT receipts can be confirmed');
+      if (receipt.status !== 'DRAFT')
+        throw new ConflictException('Only DRAFT receipts can be confirmed');
       await this.assertActiveWarehouse(tx, receipt.warehouseId, farmId);
-      const lines = await tx.select().from(stockReceiptItems).where(eq(stockReceiptItems.stockReceiptId, id));
-      if (lines.length === 0) throw new BadRequestException('Receipt must contain at least one item');
+      const lines = await tx
+        .select()
+        .from(stockReceiptItems)
+        .where(eq(stockReceiptItems.stockReceiptId, id));
+      if (lines.length === 0)
+        throw new BadRequestException('Receipt must contain at least one item');
       for (const line of lines) {
-        const [item] = await tx.select({ trackingMode: items.trackingMode }).from(items).where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
+        const [item] = await tx
+          .select({ trackingMode: items.trackingMode })
+          .from(items)
+          .where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
         if (!item) throw new NotFoundException('Receipt item not found');
         if (line.locationId) {
           if (item.trackingMode !== 'ASSET')
@@ -259,20 +282,41 @@ export class StockReceiptsService {
         if (item.trackingMode === 'LOT' && !line.lotNumber) {
           throw new BadRequestException('LOT receipt lines require lotNumber');
         }
-        if (item.trackingMode === 'LOT' && (line.assetCode || line.serialNumber)) {
-          throw new BadRequestException('LOT receipt lines cannot contain asset metadata');
+        if (
+          item.trackingMode === 'LOT' &&
+          (line.assetCode || line.serialNumber)
+        ) {
+          throw new BadRequestException(
+            'LOT receipt lines cannot contain asset metadata',
+          );
         }
         if (
           item.trackingMode === 'ASSET' &&
           (!line.assetCode || Number(line.quantity) !== 1)
         ) {
-          throw new BadRequestException('ASSET receipt lines require assetCode and quantity 1');
+          throw new BadRequestException(
+            'ASSET receipt lines require assetCode and quantity 1',
+          );
         }
-        if (item.trackingMode === 'ASSET' && (line.lotNumber || line.manufacturedDate || line.expiryDate)) {
-          throw new BadRequestException('ASSET receipt lines cannot contain LOT metadata');
+        if (
+          item.trackingMode === 'ASSET' &&
+          (line.lotNumber || line.manufacturedDate || line.expiryDate)
+        ) {
+          throw new BadRequestException(
+            'ASSET receipt lines cannot contain LOT metadata',
+          );
         }
-        if (item.trackingMode === 'QUANTITY' && (line.lotNumber || line.manufacturedDate || line.expiryDate || line.assetCode || line.serialNumber)) {
-          throw new BadRequestException('QUANTITY receipt lines cannot contain LOT or ASSET metadata');
+        if (
+          item.trackingMode === 'QUANTITY' &&
+          (line.lotNumber ||
+            line.manufacturedDate ||
+            line.expiryDate ||
+            line.assetCode ||
+            line.serialNumber)
+        ) {
+          throw new BadRequestException(
+            'QUANTITY receipt lines cannot contain LOT or ASSET metadata',
+          );
         }
 
         let lotId = line.lotId;
@@ -280,15 +324,18 @@ export class StockReceiptsService {
         if (item.trackingMode === 'LOT' && !lotId) {
           let createdLotId: string;
           try {
-            const [lot] = await tx.insert(inventoryLots).values({
-              farmId,
-              itemId: line.itemId,
-              sourceReceiptItemId: line.id,
-              lotNumber: line.lotNumber!,
-              manufacturedDate: line.manufacturedDate,
-              expiryDate: line.expiryDate,
-              initialQuantity: line.quantity,
-            }).returning({ id: inventoryLots.id });
+            const [lot] = await tx
+              .insert(inventoryLots)
+              .values({
+                farmId,
+                itemId: line.itemId,
+                sourceReceiptItemId: line.id,
+                lotNumber: line.lotNumber!,
+                manufacturedDate: line.manufacturedDate,
+                expiryDate: line.expiryDate,
+                initialQuantity: line.quantity,
+              })
+              .returning({ id: inventoryLots.id });
             createdLotId = lot.id;
           } catch (error: unknown) {
             this.throwMappedUniqueConflict(
@@ -298,21 +345,27 @@ export class StockReceiptsService {
             );
           }
           lotId = createdLotId;
-          await tx.update(stockReceiptItems).set({ lotId }).where(eq(stockReceiptItems.id, line.id));
+          await tx
+            .update(stockReceiptItems)
+            .set({ lotId })
+            .where(eq(stockReceiptItems.id, line.id));
         }
         if (item.trackingMode === 'ASSET' && !assetId) {
           let asset: { id: string };
           try {
-            [asset] = await tx.insert(assets).values({
-              farmId,
-              itemId: line.itemId,
-              sourceReceiptItemId: line.id,
-              currentLocationId: line.locationId,
-              assetCode: line.assetCode!,
-              serialNumber: line.serialNumber,
-              purchaseDate: receipt.receiptDate,
-              purchasePrice: line.unitPrice,
-            }).returning({ id: assets.id });
+            [asset] = await tx
+              .insert(assets)
+              .values({
+                farmId,
+                itemId: line.itemId,
+                sourceReceiptItemId: line.id,
+                currentLocationId: line.locationId,
+                assetCode: line.assetCode!,
+                serialNumber: line.serialNumber,
+                purchaseDate: receipt.receiptDate,
+                purchasePrice: line.unitPrice,
+              })
+              .returning({ id: assets.id });
           } catch (error: unknown) {
             const databaseError = error as {
               code?: string;
@@ -333,7 +386,10 @@ export class StockReceiptsService {
             throw error;
           }
           assetId = asset.id;
-          await tx.update(stockReceiptItems).set({ assetId }).where(eq(stockReceiptItems.id, line.id));
+          await tx
+            .update(stockReceiptItems)
+            .set({ assetId })
+            .where(eq(stockReceiptItems.id, line.id));
         }
 
         const balanceLotId = item.trackingMode === 'LOT' ? lotId : null;
@@ -357,9 +413,28 @@ export class StockReceiptsService {
               updatedAt: new Date().toISOString(),
             },
           });
-        await tx.insert(inventoryTransactions).values({ farmId, warehouseId: receipt.warehouseId, itemId: line.itemId, lotId, assetId, transactionType: 'RECEIPT', quantityChange: line.quantity, sourceType: 'STOCK_RECEIPT', sourceId: id, performedByMemberId: memberId });
+        await tx.insert(inventoryTransactions).values({
+          farmId,
+          warehouseId: receipt.warehouseId,
+          itemId: line.itemId,
+          lotId,
+          assetId,
+          transactionType: 'RECEIPT',
+          quantityChange: line.quantity,
+          sourceType: 'STOCK_RECEIPT',
+          sourceId: id,
+          performedByMemberId: memberId,
+        });
       }
-      await tx.update(stockReceipts).set({ status: 'CONFIRMED', confirmedByMemberId: memberId, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).where(eq(stockReceipts.id, id));
+      await tx
+        .update(stockReceipts)
+        .set({
+          status: 'CONFIRMED',
+          confirmedByMemberId: memberId,
+          confirmedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(stockReceipts.id, id));
     });
     return this.getReceiptWithItems(id, farmId);
   }
@@ -383,30 +458,62 @@ export class StockReceiptsService {
 
   private async getReceiptWithItems(id: string, farmId: string) {
     const receipt = await this.getReceiptOnly(id, farmId);
-    const items = await this.databaseService.db.select().from(stockReceiptItems).where(eq(stockReceiptItems.stockReceiptId, id));
+    const items = await this.databaseService.db
+      .select()
+      .from(stockReceiptItems)
+      .where(eq(stockReceiptItems.stockReceiptId, id));
     return { receipt, items };
   }
 
   private validateItems(items: CreateStockReceiptDto['items']) {
-    if (!items?.length) throw new BadRequestException('Receipt must contain at least one item');
+    if (!items?.length)
+      throw new BadRequestException('Receipt must contain at least one item');
   }
 
-  private async assertActiveWarehouse(db: any, warehouseId: string, farmId: string) {
-    const [warehouse] = await db.select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.id, warehouseId), eq(warehouses.farmId, farmId), eq(warehouses.status, 'ACTIVE')));
-    if (!warehouse) throw new ConflictException('Warehouse must exist and be ACTIVE');
+  private async assertActiveWarehouse(
+    db: Pick<DatabaseService['db'], 'select'>,
+    warehouseId: string,
+    farmId: string,
+  ) {
+    const [warehouse] = await db
+      .select({ id: warehouses.id })
+      .from(warehouses)
+      .where(
+        and(
+          eq(warehouses.id, warehouseId),
+          eq(warehouses.farmId, farmId),
+          eq(warehouses.status, 'ACTIVE'),
+        ),
+      );
+    if (!warehouse)
+      throw new ConflictException('Warehouse must exist and be ACTIVE');
   }
 
-  private async assertReferences(db: any, farmId: string, input: CreateStockReceiptDto) {
+  private async assertReferences(
+    db: Pick<DatabaseService['db'], 'select'>,
+    farmId: string,
+    input: CreateStockReceiptDto,
+  ) {
     if (input.supplierId) {
-      const [supplier] = await db.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, input.supplierId), eq(suppliers.farmId, farmId)));
+      const [supplier] = await db
+        .select({ id: suppliers.id })
+        .from(suppliers)
+        .where(
+          and(eq(suppliers.id, input.supplierId), eq(suppliers.farmId, farmId)),
+        );
       if (!supplier) throw new NotFoundException('Supplier not found');
     }
     for (const line of input.items ?? []) {
-      const [item] = await db.select({ id: items.id, trackingMode: items.trackingMode }).from(items).where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
+      const [item] = await db
+        .select({ id: items.id, trackingMode: items.trackingMode })
+        .from(items)
+        .where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
       if (!item) throw new NotFoundException('Receipt item not found');
       if (line.locationId) {
         if (item.trackingMode !== 'ASSET')
-          throw new BadRequestException('Only ASSET receipt lines can select a location');
+          throw new BadRequestException(
+            'Only ASSET receipt lines can select a location',
+          );
         await this.assertActiveLocation(
           db,
           line.locationId,
@@ -418,7 +525,7 @@ export class StockReceiptsService {
   }
 
   private async assertActiveLocation(
-    db: any,
+    db: Pick<DatabaseService['db'], 'select'>,
     locationId: string,
     farmId: string,
     warehouseId: string,

@@ -14,3 +14,5 @@ export const issuesModule: ModuleDefinition = {
   ],
   primaryAction: "Tạo phiếu xuất",
 };
+
+export { IssuesScreen } from './components/issues-screen';

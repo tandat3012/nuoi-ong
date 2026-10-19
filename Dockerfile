@@ -1,5 +1,4 @@
 ARG NODE_VERSION=22-bookworm-slim
-
 # ==========================================
 # BASE
 # ==========================================
@@ -21,6 +20,8 @@ WORKDIR /app
 
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_API_URL=http://localhost:5050
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 COPY web/package.json \
      web/pnpm-lock.yaml* \

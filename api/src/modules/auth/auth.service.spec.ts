@@ -21,17 +21,18 @@ describe('AuthService', () => {
     database.select.mockReturnValueOnce({
       from: () => ({
         where: () => ({
-          limit: async () => [
-            {
-              id: 'local-user',
-              authProviderUserId: 'user_123',
-              status,
-              email: 'user@example.com',
-              fullName: null,
-              avatarUrl: null,
-              systemRoleId: 'private-role-id',
-            },
-          ],
+          limit: () =>
+            Promise.resolve([
+              {
+                id: 'local-user',
+                authProviderUserId: 'user_123',
+                status,
+                email: 'user@example.com',
+                fullName: null,
+                avatarUrl: null,
+                systemRoleId: 'private-role-id',
+              },
+            ]),
         }),
       }),
     });

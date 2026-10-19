@@ -10,6 +10,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { WarehousesModule } from './modules/warehouses/warehouses.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
+import { CommerceModule } from './modules/commerce/commerce.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { MaintenanceModule } from './modules/maintenance/maintenance.module';
     WarehousesModule,
     InventoryModule,
     MaintenanceModule,
+    CommerceModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

@@ -11,7 +11,10 @@ describe('FarmAccessGuard', () => {
     db: { select },
   } as unknown as DatabaseService;
   const reflector = { getAllAndOverride } as unknown as Reflector;
-  const request = {
+  const request: {
+    query: { farmId?: string };
+    auth: { clerkUserId: string; sessionId: string };
+  } = {
     query: { farmId: '6a8ac800-8daa-4e25-9ef8-57af547f8784' },
     auth: { clerkUserId: 'user_123', sessionId: 'sess_123' },
   };
