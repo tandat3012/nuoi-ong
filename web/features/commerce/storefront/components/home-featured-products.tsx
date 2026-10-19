@@ -1,12 +1,25 @@
-import * as React from 'react';
-import Link from 'next/link';
-import { STOREFRONT_CONFIG } from '../config/storefront-config';
-import { STOREFRONT_FEATURED_PRODUCTS } from '@/features/commerce/products/fixtures/product-fixtures';
-import { ProductCard } from '@/features/commerce/products/components/product-card';
+import * as React from "react";
+import Link from "next/link";
+import { STOREFRONT_CONFIG } from "../config/storefront-config";
+import { ProductCard } from "@/features/commerce/products/components/product-card";
+import { StorefrontProduct } from "../../products/types/product";
+import { getProductsStore } from "../../products/api/product.api";
+import { ErrorAlert } from "@/shared/components/ui/error-alert";
 
-export function HomeFeaturedProducts() {
+export async function HomeFeaturedProducts() {
   const { featuredProducts } = STOREFRONT_CONFIG;
 
+  let products: StorefrontProduct[];
+
+  try {
+    products = (await getProductsStore(1, 4)).data;
+  } catch {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-12">
+        <ErrorAlert message="Không tải được sản phẩm. Vui lòng tải lại trang." />
+      </div>
+    );
+  }
   return (
     <section
       aria-label="Sản phẩm nổi bật được nhà ong tin chọn"
@@ -46,11 +59,16 @@ export function HomeFeaturedProducts() {
           </div>
         </div>
 
-        {/* Lưới sản phẩm nổi bật minh họa ProductCard */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
-          {STOREFRONT_FEATURED_PRODUCTS.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
+          {products.length === 0 ? (
+            <p className="col-span-full text-muted-foreground">
+              Chưa có sản phẩm{" "}
+            </p>
+          ) : (
+            products.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))
+          )}
         </div>
       </div>
     </section>

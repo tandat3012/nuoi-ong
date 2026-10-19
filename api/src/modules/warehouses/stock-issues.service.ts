@@ -38,7 +38,7 @@ import { WarehousesService } from './warehouses.service';
 type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
-  status?: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  status?: typeof stockIssues.$inferSelect.status;
 };
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -248,6 +248,24 @@ export class StockIssuesService {
       if (issue.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT issues can be confirmed');
       await this.assertWarehouse(tx, farmId, issue.warehouseId);
+      if (issue.maintenanceRecordId) {
+        const [maintenance] = await tx
+          .select({ status: maintenanceRecords.status })
+          .from(maintenanceRecords)
+          .where(
+            and(
+              eq(maintenanceRecords.id, issue.maintenanceRecordId),
+              eq(maintenanceRecords.farmId, farmId),
+            ),
+          )
+          .for('update');
+        if (!maintenance)
+          throw new NotFoundException('Maintenance record not found');
+        if (!['SCHEDULED', 'IN_PROGRESS'].includes(maintenance.status))
+          throw new ConflictException(
+            'Maintenance record must be SCHEDULED or IN_PROGRESS',
+          );
+      }
       const lines = await tx
         .select()
         .from(stockIssueItems)

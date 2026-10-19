@@ -38,12 +38,13 @@ export class ClerkAuthGuard implements CanActivate {
       return true;
     }
 
+    const isDevelopment = process.env.NODE_ENV === 'development';
     const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES ?? '')
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
 
-    if (authorizedParties.length === 0) {
+    if (!isDevelopment && authorizedParties.length === 0) {
       throw new ServiceUnavailableException(
         'CLERK_AUTHORIZED_PARTIES is not configured',
       );
@@ -75,7 +76,7 @@ export class ClerkAuthGuard implements CanActivate {
     try {
       requestState = (await this.clerkClient.authenticateRequest(clerkRequest, {
         acceptsToken: 'session_token',
-        authorizedParties,
+        ...(isDevelopment ? {} : { authorizedParties }),
       })) as unknown as ClerkRequestState;
     } catch {
       throw new UnauthorizedException('Unauthorized');

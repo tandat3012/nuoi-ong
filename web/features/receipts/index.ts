@@ -14,3 +14,5 @@ export const receiptsModule: ModuleDefinition = {
   ],
   primaryAction: 'Tạo phiếu nhập',
 };
+
+export { ReceiptsScreen } from './components/receipts-screen';

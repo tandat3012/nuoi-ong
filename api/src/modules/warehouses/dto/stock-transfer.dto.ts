@@ -11,7 +11,7 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
-const DECIMAL = /^(0|[1-9]\d{0,14})(\.\d{1,3})?$/;
+const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 export class StockTransferItemDto {
   @IsUUID() itemId!: string;
   @ApiProperty({

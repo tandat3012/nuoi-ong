@@ -6,6 +6,8 @@ import {
   ArrowUpFromLine,
   Boxes,
   Warehouse,
+  ClipboardCheck,
+  ArrowRightLeft,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -49,6 +51,16 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
         label: 'Phiếu xuất',
         icon: ArrowUpFromLine,
       },
+      {
+        href: '/counts',
+        label: 'Kiểm kê',
+        icon: ClipboardCheck,
+      },
+      {
+        href: '/transfers',
+        label: 'Điều chuyển',
+        icon: ArrowRightLeft,
+      },
     ],
   },
   {
@@ -79,6 +91,8 @@ export const routeLabels: Record<string, string> = {
   '/inventory': 'Tồn kho',
   '/receipts': 'Phiếu nhập',
   '/issues': 'Phiếu xuất',
+  '/counts': 'Kiểm kê',
+  '/transfers': 'Điều chuyển',
   '/materials': 'Vật tư',
   '/warehouses': 'Kho',
   '/catalog': 'Danh mục',

@@ -1,8 +1,10 @@
-export type ReceiptStatus = 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+export type ReceiptStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
 
 export const RECEIPT_STATUS_LABELS: Record<ReceiptStatus, string> = {
   DRAFT: 'Nháp',
+  PENDING_APPROVAL: 'Chờ duyệt',
   CONFIRMED: 'Đã xác nhận',
+  REJECTED: 'Đã từ chối',
   CANCELLED: 'Đã hủy',
 };
 

@@ -152,11 +152,7 @@ export class WarehousesService {
     return warehouse;
   }
 
-  async assertFarmAccess(
-    farmId: string,
-    clerkUserId: string,
-    write: boolean,
-  ) {
+  async assertFarmAccess(farmId: string, clerkUserId: string, write: boolean) {
     const memberships = await this.databaseService.db
       .select({
         memberId: farmMembers.id,
@@ -166,7 +162,10 @@ export class WarehousesService {
       })
       .from(farmMembers)
       .innerJoin(users, eq(users.id, farmMembers.userId))
-      .leftJoin(farmMemberRoles, eq(farmMemberRoles.farmMemberId, farmMembers.id))
+      .leftJoin(
+        farmMemberRoles,
+        eq(farmMemberRoles.farmMemberId, farmMembers.id),
+      )
       .leftJoin(roles, eq(roles.id, farmMemberRoles.roleId))
       .where(
         and(
@@ -224,12 +223,7 @@ export class WarehousesService {
       .select({ value: count() })
       .from(assets)
       .innerJoin(locations, eq(locations.id, assets.currentLocationId))
-      .where(
-        and(
-          eq(assets.farmId, farmId),
-          eq(locations.warehouseId, id),
-        ),
-      );
+      .where(and(eq(assets.farmId, farmId), eq(locations.warehouseId, id)));
     if (Number(assetCustody?.value ?? 0) > 0) {
       throw new ConflictException('WAREHOUSE_NOT_EMPTY');
     }
@@ -243,9 +237,7 @@ export class WarehousesService {
     return Object.values(input).some((value) => value !== undefined);
   }
 
-  private assignDefined<
-    T extends keyof typeof warehouses.$inferInsert,
-  >(
+  private assignDefined<T extends keyof typeof warehouses.$inferInsert>(
     target: Partial<typeof warehouses.$inferInsert>,
     key: T,
     value: (typeof warehouses.$inferInsert)[T] | undefined,
@@ -256,7 +248,8 @@ export class WarehousesService {
   private throwMappedDatabaseError(error: unknown): never {
     const databaseError = error as { code?: string; cause?: { code?: string } };
     const code = databaseError?.code ?? databaseError?.cause?.code;
-    if (code === '23505') throw new ConflictException('Warehouse code already exists');
+    if (code === '23505')
+      throw new ConflictException('Warehouse code already exists');
     throw error;
   }
 }

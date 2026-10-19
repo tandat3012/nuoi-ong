@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import {
   parseOptionalEnum,
   parsePagination,
@@ -13,6 +13,7 @@ import {
   ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -39,12 +40,12 @@ export class InventoryController {
   })
   @ApiFarmIdQuery()
   @ApiPageQueries()
-  @ApiUuidQuery('warehouseId', 'Lọc theo kho.')
-  @ApiUuidQuery('itemId', 'Lọc theo mặt hàng.')
   @ApiUuidQuery(
     'lotId',
     'Lọc theo lô; bỏ qua tham số để lấy các lô và số dư không theo lô.',
   )
+  @ApiUuidQuery('warehouseId', 'Lọc theo kho.')
+  @ApiUuidQuery('itemId', 'Lọc theo mặt hàng.')
   @ApiOkResponse({
     description:
       'Các dòng số dư dương cùng mặt hàng, kho, đơn vị và lô nếu có.',
@@ -58,6 +59,26 @@ export class InventoryController {
             properties: {
               id: { type: 'string', format: 'uuid' },
               quantityOnHand: OPENAPI_DECIMAL_STRING,
+              balance: {
+                type: 'object',
+                description: 'Các trường tương thích với Mobile hiện tại.',
+                properties: {
+                  id: { type: 'string', format: 'uuid' },
+                  farmId: { type: 'string', format: 'uuid' },
+                  warehouseId: { type: 'string', format: 'uuid' },
+                  itemId: { type: 'string', format: 'uuid' },
+                  lotId: { type: 'string', format: 'uuid', nullable: true },
+                  quantityOnHand: OPENAPI_DECIMAL_STRING,
+                  updatedAt: { type: 'string', format: 'date-time' },
+                },
+              },
+              itemCode: { type: 'string' },
+              itemName: { type: 'string' },
+              itemType: { type: 'string' },
+              trackingMode: {
+                type: 'string',
+                enum: ['QUANTITY', 'LOT', 'ASSET'],
+              },
               item: {
                 type: 'object',
                 properties: {
@@ -135,6 +156,32 @@ export class InventoryController {
       lotId: lotId ? requireUuid(lotId, 'lotId') : undefined,
       ...parsePagination(page, pageSize),
     });
+  }
+
+  @Get('inventory/:balanceId/qr')
+  @ApiOperation({ summary: 'Thông tin QR của một dòng tồn kho' })
+  @ApiFarmIdQuery()
+  @ApiParam({ name: 'balanceId', type: 'string', format: 'uuid' })
+  @ApiOkResponse({ description: 'QR và thông tin dòng tồn kho đã xác thực.' })
+  @ApiBadRequestResponse({ description: 'farmId hoặc balanceId không hợp lệ.' })
+  @ApiUnauthorizedResponse({
+    description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Người dùng không có quyền đọc tồn kho của trang trại.',
+  })
+  getBalanceQr(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('balanceId') balanceId?: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    return this.inventoryService
+      .getBalanceQr(
+        requireUuid(balanceId, 'balanceId'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+      )
+      .then((data) => ({ data }));
   }
 
   @Get('inventory/transactions')

@@ -2,6 +2,10 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Sprout, Package, Wrench, Droplets, ChevronRight } from 'lucide-react';
 import { STOREFRONT_CONFIG } from '../config/storefront-config';
+import type { StorefrontCategorySectionConfig } from '../config/storefront-config';
+import { getCategoriesStore } from '../../categories/api/category.api';
+import type { StorefrontCategory } from '../../categories/types/category';
+import { ErrorAlert } from '@/shared/components/ui/error-alert';
 import { cn } from '@/shared/lib/utils';
 
 const ICON_MAP = {
@@ -11,8 +15,19 @@ const ICON_MAP = {
   droplets: Droplets,
 } as const;
 
-export function HomeCategories() {
-  const { categories } = STOREFRONT_CONFIG;
+export async function HomeCategories() {
+  const categories: StorefrontCategorySectionConfig = STOREFRONT_CONFIG.categories;
+  let items: StorefrontCategory[];
+
+  try {
+    items = (await getCategoriesStore(1, 4)).data;
+  } catch {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-12">
+        <ErrorAlert message="Không tải được danh mục. Vui lòng tải lại trang." />
+      </div>
+    );
+  }
 
   return (
     <section
@@ -31,8 +46,12 @@ export function HomeCategories() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-          {categories.items.map((item) => {
-            const IconComponent = ICON_MAP[item.icon];
+          {items.length === 0 && (
+            <p className="col-span-full text-muted-foreground">Chưa có danh mục.</p>
+          )}
+          {items.map((item) => {
+            const presentation = categories.presentationBySlug[item.slug];
+            const IconComponent = ICON_MAP[presentation?.icon ?? 'package'];
 
             const cardContent = (
               <>
@@ -47,11 +66,13 @@ export function HomeCategories() {
                   {/* Tên danh mục và diễn giải phụ */}
                   <div className="flex flex-col text-left min-w-0 flex-1">
                     <h3 className="font-bold text-base text-[#2d241e] dark:text-foreground leading-snug truncate">
-                      {item.title}
+                      {item.name}
                     </h3>
-                    <p className="text-[0.6875rem] text-[#786f66] dark:text-muted-foreground mt-0.5 leading-snug line-clamp-1">
-                      {item.subtitle}
-                    </p>
+                    {presentation?.subtitle && (
+                      <p className="text-[0.6875rem] text-[#786f66] dark:text-muted-foreground mt-0.5 leading-snug line-clamp-1">
+                        {presentation.subtitle}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -65,19 +86,17 @@ export function HomeCategories() {
 
             const cardClassName = cn(
               'w-full h-24 rounded-2xl border border-[#e8dbcc]  bg-[#f5ede1]  px-4 py-3 flex items-center justify-between shadow-2xs transition-colors',
-              item.isImplemented &&
               'hover:bg-[#efe4d5] hover:border-amber-300 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 cursor-pointer',
             );
 
             return (
               <div key={item.id} className="h-full">
-                {item.isImplemented ? (
-                  <Link href={item.href} className={cardClassName}>
-                    {cardContent}
-                  </Link>
-                ) : (
-                  <div className={cardClassName}>{cardContent}</div>
-                )}
+                <Link
+                  href={`/products?category=${encodeURIComponent(item.slug)}`}
+                  className={cardClassName}
+                >
+                  {cardContent}
+                </Link>
               </div>
             );
           })}

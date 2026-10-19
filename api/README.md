@@ -78,10 +78,25 @@ Check out a few resources that may come in handy when working with NestJS:
 - For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
 - To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
 - Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
+
 - Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
 - Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
 - To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
 - Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+
+## API documentation
+
+With the API running in development mode (`NODE_ENV=development`), open the
+Swagger UI at `http://localhost:5050/api/v1/docs` or the OpenAPI JSON at
+`http://localhost:5050/api/v1/docs-json`. The documentation is disabled outside
+development mode.
+
+To authorize Swagger, sign in through the existing web app and copy the Clerk
+JWT from an authenticated request's `Authorization: Bearer …` header in the
+browser developer tools. Paste only the JWT into Swagger's **Authorize** dialog;
+tokens expire, so copy a fresh one when requests return `401`. Farm-scoped
+operations require a `farmId` UUID query parameter. Swagger **Try it out** calls
+the real API, so write operations create or change real records.
 
 ## Support
 

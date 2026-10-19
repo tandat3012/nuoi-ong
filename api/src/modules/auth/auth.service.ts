@@ -7,7 +7,13 @@ import {
 } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DatabaseService } from '../../db/database.service';
-import { farmMemberRoles, farmMembers, farms, roles, users } from '../../db/schema';
+import {
+  farmMemberRoles,
+  farmMembers,
+  farms,
+  roles,
+  users,
+} from '../../db/schema';
 import { CLERK_CLIENT } from './clerk-client.provider';
 import { and } from 'drizzle-orm';
 import { asc } from 'drizzle-orm';
@@ -38,7 +44,8 @@ export class AuthService {
     }
 
     const fullName =
-      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null;
+      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') ||
+      null;
 
     const [newUser] = await this.databaseService.db
       .insert(users)
@@ -80,7 +87,10 @@ export class AuthService {
       })
       .from(farmMembers)
       .innerJoin(farms, eq(farmMembers.farmId, farms.id))
-      .leftJoin(farmMemberRoles, eq(farmMemberRoles.farmMemberId, farmMembers.id))
+      .leftJoin(
+        farmMemberRoles,
+        eq(farmMemberRoles.farmMemberId, farmMembers.id),
+      )
       .leftJoin(roles, eq(roles.id, farmMemberRoles.roleId))
       .where(
         and(

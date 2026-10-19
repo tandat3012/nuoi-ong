@@ -1,11 +1,5 @@
 import { Transform } from 'class-transformer';
-import {
-  IsIn,
-  IsOptional,
-  IsString,
-  Length,
-  MaxLength,
-} from 'class-validator';
+import { IsIn, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import { recordStatus } from '../../../db/schema';
 
 function normalizeCode({ value }: { value: unknown }) {
