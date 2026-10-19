@@ -53,19 +53,15 @@ export type StorefrontBenefitItem = {
   icon: 'shipping' | 'quality' | 'support' | 'returns';
 };
 
-export type StorefrontCategoryCard = {
-  id: string;
-  title: string;
+export type StorefrontCategoryPresentation = {
   subtitle: string;
-  href: string;
   icon: 'sprout' | 'package' | 'wrench' | 'droplets';
-  isImplemented: boolean;
 };
 
 export type StorefrontCategorySectionConfig = {
   heading: string;
   description: string;
-  items: readonly StorefrontCategoryCard[];
+  presentationBySlug: Record<string, StorefrontCategoryPresentation>;
 };
 
 export type StorefrontFeaturedSectionConfig = {
@@ -100,7 +96,7 @@ export const STOREFRONT_CONFIG = {
     primaryAction: {
       label: 'Khám phá sản phẩm',
       href: '/products',
-      isImplemented: false,
+      isImplemented: true,
     },
     secondaryAction: {
       label: 'Câu chuyện Mộc Ong',
@@ -142,40 +138,24 @@ export const STOREFRONT_CONFIG = {
   categories: {
     heading: 'Mọi điều cho mùa ong bội thu',
     description: 'Từ chăm sóc đàn ong đến thu hoạch những giọt mật đầu tiên.',
-    items: [
-      {
-        id: 'vat-tu',
-        title: 'Vật tư',
+    presentationBySlug: {
+      'vat-tu': {
         subtitle: 'Đường ong · Thuốc ong · Thức ăn ong',
-        href: '/products?category=vat-tu',
         icon: 'sprout',
-        isImplemented: true,
       },
-      {
-        id: 'tai-san',
-        title: 'Tài sản',
+      'tai-san': {
         subtitle: 'Nhà gỗ ong · Thùng nuôi ong',
-        href: '/products?category=tai-san',
         icon: 'package',
-        isImplemented: true,
       },
-      {
-        id: 'thiet-bi',
-        title: 'Thiết bị',
+      'thiet-bi': {
         subtitle: 'Máy pha mật · Máy quay mật · Dụng cụ',
-        href: '/products?category=thiet-bi',
         icon: 'wrench',
-        isImplemented: true,
       },
-      {
-        id: 'mat-ong',
-        title: 'Mật ong',
+      'mat-ong': {
         subtitle: 'Mật hoa cà phê · Mật hoa rừng',
-        href: '/products?category=mat-ong',
         icon: 'droplets',
-        isImplemented: true,
       },
-    ],
+    },
   } satisfies StorefrontCategorySectionConfig,
   featuredProducts: {
     heading: 'Được nhà ong tin chọn',
@@ -183,16 +163,16 @@ export const STOREFRONT_CONFIG = {
     viewAll: {
       label: 'Xem tất cả',
       href: '/products',
-      isImplemented: false,
+      isImplemented: true,
     },
   } satisfies StorefrontFeaturedSectionConfig,
   navigation: [
     { label: 'Trang chủ', href: '/', isImplemented: true },
-    { label: 'Tất cả sản phẩm', href: '/products', isImplemented: false },
-    { label: 'Vật tư', href: '/products?category=vat-tu', isImplemented: false },
-    { label: 'Tài sản', href: '/products?category=tai-san', isImplemented: false },
-    { label: 'Thiết bị', href: '/products?category=thiet-bi', isImplemented: false },
-    { label: 'Mật ong', href: '/products?category=mat-ong', isImplemented: false },
+    { label: 'Tất cả sản phẩm', href: '/products', isImplemented: true },
+    { label: 'Vật tư', href: '/products?category=vat-tu', isImplemented: true },
+    { label: 'Tài sản', href: '/products?category=tai-san', isImplemented: true },
+    { label: 'Thiết bị', href: '/products?category=thiet-bi', isImplemented: true },
+    { label: 'Mật ong', href: '/products?category=mat-ong', isImplemented: true },
     { label: 'Kinh nghiệm nuôi ong', href: '/blog', isImplemented: false },
     { label: 'Về Mộc Ong', href: '/about', isImplemented: false },
     { label: 'Liên hệ', href: '/contact', isImplemented: false },
@@ -203,7 +183,7 @@ export const STOREFRONT_CONFIG = {
         title: 'Khám phá Mộc Ong',
         links: [
           { label: 'Về chúng tôi', href: '/about', isImplemented: false },
-          { label: 'Sản phẩm', href: '/products', isImplemented: false },
+          { label: 'Sản phẩm', href: '/products', isImplemented: true },
           { label: 'Kinh nghiệm nuôi ong', href: '/blog', isImplemented: false },
           { label: 'Liên hệ', href: '/contact', isImplemented: false },
         ],

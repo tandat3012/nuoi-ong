@@ -1,17 +1,17 @@
-'use client';
+"use client";
 
-import { useReceiptDetail } from '../hooks/use-receipt-detail';
-import { useCancelReceipt } from '../hooks/use-cancel-receipt';
-import { useConfirmReceipt } from '../hooks/use-confirm-receipt';
+import { useReceiptDetail } from "../hooks/use-receipt-detail";
+import { useCancelReceipt } from "../hooks/use-cancel-receipt";
+import { useConfirmReceipt } from "../hooks/use-confirm-receipt";
 import {
   supportsQuantityDraftConfirm,
   supportsQuantityDraftEdit,
-} from './receipt-draft.logic';
-import { RECEIPT_STATUS_LABELS } from '../types/receipt';
-import type { ReceiptDraftInitial } from '../types/receipt';
+} from "./receipt-draft.logic";
+import { RECEIPT_STATUS_LABELS } from "../types/receipt";
+import type { ReceiptDraftInitial } from "../types/receipt";
 
 const date = (value: string | null) =>
-  value ? value.split('-').reverse().join('/') : '—';
+  value ? value.split("-").reverse().join("/") : "—";
 
 export function ReceiptDetail({
   farmId,
@@ -76,7 +76,7 @@ export function ReceiptDetail({
           >
             Quay lại danh sách
           </button>
-          {canWrite && detail?.receipt.status === 'DRAFT' && canEdit && (
+          {canWrite && detail?.receipt.status === "DRAFT" && canEdit && (
             <button
               type="button"
               onClick={() => {
@@ -95,26 +95,26 @@ export function ReceiptDetail({
               Sửa nháp
             </button>
           )}
-          {canWrite && detail?.receipt.status === 'DRAFT' && (
+          {canWrite && detail?.receipt.status === "DRAFT" && (
             <button
               type="button"
               onClick={() => {
-                if (window.confirm('Bạn có chắc muốn hủy phiếu nhập nháp này?'))
+                if (window.confirm("Bạn có chắc muốn hủy phiếu nhập nháp này?"))
                   void cancel();
               }}
               disabled={isCancelling || isConfirming}
               className="rounded-xl border border-destructive/40 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
             >
-              {isCancelling ? 'Đang hủy...' : 'Hủy phiếu nháp'}
+              {isCancelling ? "Đang hủy..." : "Hủy phiếu nháp"}
             </button>
           )}
-          {canWrite && detail?.receipt.status === 'DRAFT' && canConfirm && (
+          {canWrite && detail?.receipt.status === "DRAFT" && canConfirm && (
             <button
               type="button"
               onClick={() => {
                 if (
                   window.confirm(
-                    'Xác nhận phiếu nhập này? Sau khi xác nhận, hệ thống sẽ cập nhật tồn kho và không thể sửa hoặc hủy phiếu.',
+                    "Xác nhận phiếu nhập này? Sau khi xác nhận, hệ thống sẽ cập nhật tồn kho và không thể sửa hoặc hủy phiếu.",
                   )
                 )
                   void confirm();
@@ -122,7 +122,7 @@ export function ReceiptDetail({
               disabled={isCancelling || isConfirming}
               className="rounded-xl bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {isConfirming ? 'Đang xác nhận...' : 'Xác nhận nhập kho'}
+              {isConfirming ? "Đang xác nhận..." : "Xác nhận nhập kho"}
             </button>
           )}
         </div>
@@ -132,7 +132,7 @@ export function ReceiptDetail({
       ) : error ? (
         <div
           role="alert"
-          className="rounded-xl border border-destructive/30 p-4"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
         >
           <p>{error}</p>
           <button type="button" onClick={reload} className="mt-2 underline">
@@ -143,32 +143,32 @@ export function ReceiptDetail({
         detail && (
           <>
             {cancelError && (
-              <p
+              <div
                 role="alert"
-                className="rounded-xl border border-destructive/30 p-3 text-destructive"
+                className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
               >
                 {cancelError}
-              </p>
+              </div>
             )}
             {confirmError && (
-              <p
+              <div
                 role="alert"
-                className="rounded-xl border border-destructive/30 p-3 text-destructive"
+                className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
               >
                 {confirmError}
-              </p>
+              </div>
             )}
             {canWrite &&
-              detail.receipt.status === 'DRAFT' &&
+              detail.receipt.status === "DRAFT" &&
               !canConfirm &&
               !warning && (
                 <p role="status" className="rounded-xl border p-3 text-sm">
                   {detail.items.length === 0
-                    ? 'Phiếu chưa có dòng hàng nên chưa thể xác nhận.'
-                    : 'Phiếu có dòng hàng thiếu thông tin LOT/ASSET hoặc dữ liệu hàng hóa chưa tải được nên chưa thể xác nhận.'}
+                    ? "Phiếu chưa có dòng hàng nên chưa thể xác nhận."
+                    : "Phiếu có dòng hàng thiếu thông tin LOT/ASSET hoặc dữ liệu hàng hóa chưa tải được nên chưa thể xác nhận."}
                 </p>
               )}
-            {canWrite && detail.receipt.status === 'DRAFT' && !canEdit && (
+            {canWrite && detail.receipt.status === "DRAFT" && !canEdit && (
               <p role="status" className="rounded-xl border p-3 text-sm">
                 Phiếu nháp có dòng hàng chưa tải được hoặc dữ liệu không hợp lệ
                 nên chưa thể sửa bằng form hiện tại.
@@ -176,8 +176,8 @@ export function ReceiptDetail({
             )}
             {warning && (
               <p role="status" className="rounded-xl border p-3 text-sm">
-              Không tải được một số thông tin kho/nhà cung cấp/hàng hóa/vị trí.
-              Mã tham chiếu được hiển thị thay thế.{' '}
+                Không tải được một số thông tin kho/nhà cung cấp/hàng hóa/vị
+                trí. Mã tham chiếu được hiển thị thay thế.{" "}
                 <button type="button" onClick={reload} className="underline">
                   Thử lại
                 </button>
@@ -202,14 +202,12 @@ export function ReceiptDetail({
                 </dd>
               </div>
               <div>
-                <dt className="text-sm text-muted-foreground">
-                  Nhà cung cấp
-                </dt>
+                <dt className="text-sm text-muted-foreground">Nhà cung cấp</dt>
                 <dd className="break-words">
                   {detail.receipt.supplierId
-                    ? supplier ??
-                      `Không tải được thông tin nhà cung cấp (${detail.receipt.supplierId})`
-                    : '—'}
+                    ? (supplier ??
+                      `Không tải được thông tin nhà cung cấp (${detail.receipt.supplierId})`)
+                    : "—"}
                 </dd>
               </div>
               <div>
@@ -219,7 +217,7 @@ export function ReceiptDetail({
               <div className="sm:col-span-2">
                 <dt className="text-sm text-muted-foreground">Ghi chú</dt>
                 <dd className="whitespace-pre-wrap break-words">
-                  {detail.receipt.note || '—'}
+                  {detail.receipt.note || "—"}
                 </dd>
               </div>
             </dl>
@@ -234,11 +232,11 @@ export function ReceiptDetail({
                   <thead className="border-b bg-muted/50">
                     <tr>
                       {[
-                        'Hàng hóa',
-                        'Số lượng',
-                        'Đơn giá',
-                        'Lô / Tài sản',
-                        'Ghi chú',
+                        "Hàng hóa",
+                        "Số lượng",
+                        "Đơn giá",
+                        "Lô / Tài sản",
+                        "Ghi chú",
                       ].map((label) => (
                         <th key={label} scope="col" className="px-4 py-3">
                           {label}
@@ -266,7 +264,7 @@ export function ReceiptDetail({
                             )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
-                            {line.quantity}{' '}
+                            {line.quantity}{" "}
                             {reference?.unitSymbol || reference?.unitName}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
@@ -298,7 +296,7 @@ export function ReceiptDetail({
                             )}
                             {line.locationId && (
                               <p>
-                                Vị trí:{' '}
+                                Vị trí:{" "}
                                 {locationLabels?.[line.locationId] ??
                                   `Không tải được thông tin vị trí (${line.locationId})`}
                               </p>
@@ -311,10 +309,10 @@ export function ReceiptDetail({
                               !line.assetId &&
                               !line.serialNumber &&
                               !line.locationId &&
-                              '—'}
+                              "—"}
                           </td>
                           <td className="whitespace-pre-wrap break-words px-4 py-3">
-                            {line.note || '—'}
+                            {line.note || "—"}
                           </td>
                         </tr>
                       );

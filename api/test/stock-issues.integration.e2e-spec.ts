@@ -1,6 +1,10 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  ForbiddenException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
@@ -8,13 +12,33 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DatabaseService } from '../src/db/database.service';
 import * as schema from '../src/db/schema';
+import { InventoryController } from '../src/modules/inventory/inventory.controller';
+import { InventoryService } from '../src/modules/inventory/inventory.service';
+import { AssetsController } from '../src/modules/assets/assets.controller';
+import { AssetsService } from '../src/modules/assets/assets.service';
+import { FarmAccessGuard } from '../src/modules/auth/farm-access.guard';
+import { MaintenanceController } from '../src/modules/maintenance/maintenance.controller';
+import { MaintenanceService } from '../src/modules/maintenance/maintenance.service';
 import { StockIssuesController } from '../src/modules/warehouses/stock-issues.controller';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 
 type Detail = {
-  issue: { id: string; status: string };
-  items: { quantity: string }[];
+  issue: typeof schema.stockIssues.$inferSelect & {
+    warehouseCode: string | null;
+    warehouseName: string | null;
+  };
+  items: (typeof schema.stockIssueItems.$inferSelect & {
+    itemCode: string | null;
+    itemName: string | null;
+    trackingMode: string | null;
+    unitName: string | null;
+    unitSymbol: string | null;
+    lotNumber: string | null;
+    lotExpiryDate: string | null;
+    assetCode: string | null;
+    serialNumber: string | null;
+  })[];
 };
 
 // Real PostgreSQL transactions on separate connections; only farm authorization
@@ -30,6 +54,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   const farm = randomUUID(),
     user = randomUUID(),
     member = randomUUID();
+  const access = jest.fn().mockResolvedValue(member);
   const category = randomUUID(),
     unit = randomUUID();
   const warehouse = randomUUID(),
@@ -38,7 +63,8 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     otherLocation = randomUUID();
   const quantityItem = randomUUID(),
     lotItem = randomUUID(),
-    assetItem = randomUUID();
+    assetItem = randomUUID(),
+    otherLotItem = randomUUID();
   const lot = randomUUID();
   const assetIds = [randomUUID(), randomUUID(), randomUUID()];
   let app: INestApplication<App>;
@@ -83,6 +109,28 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     );
     return result.rows[0];
   };
+  const maintenance = async (
+    status:
+      'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' = 'SCHEDULED',
+    assetId = assetIds[0],
+  ) => {
+    const now = new Date().toISOString();
+    const [record] = await db
+      .insert(schema.maintenanceRecords)
+      .values({
+        farmId: farm,
+        assetId,
+        maintenanceType: 'INSPECTION',
+        description: `Record ${tag}`,
+        scheduledAt: now,
+        status,
+        startedAt:
+          status === 'IN_PROGRESS' || status === 'COMPLETED' ? now : null,
+        completedAt: status === 'COMPLETED' ? now : null,
+      })
+      .returning();
+    return record;
+  };
 
   beforeAll(async () => {
     await db.transaction(async (tx) => {
@@ -119,7 +167,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
         })),
       );
       await tx.insert(schema.items).values(
-        [quantityItem, lotItem, assetItem].map((id, i) => ({
+        [quantityItem, lotItem, assetItem, otherLotItem].map((id, i) => ({
           id,
           farmId: farm,
           categoryId: category,
@@ -127,7 +175,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
           code: `I${i}`,
           name: tag,
           itemType: i === 2 ? ('EQUIPMENT' as const) : ('MATERIAL' as const),
-          trackingMode: (['QUANTITY', 'LOT', 'ASSET'] as const)[i],
+          trackingMode: (['QUANTITY', 'LOT', 'ASSET', 'LOT'] as const)[i],
         })),
       );
       await tx.insert(schema.inventoryLots).values({
@@ -148,16 +196,27 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       );
     });
     const module = await Test.createTestingModule({
-      controllers: [StockIssuesController],
+      controllers: [
+        StockIssuesController,
+        InventoryController,
+        AssetsController,
+        MaintenanceController,
+      ],
       providers: [
         StockIssuesService,
+        InventoryService,
+        AssetsService,
+        MaintenanceService,
         { provide: DatabaseService, useValue: { db } },
         {
           provide: WarehousesService,
-          useValue: { assertFarmAccess: jest.fn().mockResolvedValue(member) },
+          useValue: { assertFarmAccess: access },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(FarmAccessGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
     app = module.createNestApplication();
     app.useLogger(false);
     app.useGlobalPipes(
@@ -181,10 +240,14 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   });
 
   beforeEach(async () => {
+    access.mockReset().mockResolvedValue(member);
     await pool.query('DELETE FROM inventory_transactions WHERE farm_id=$1', [
       farm,
     ]);
     await pool.query('DELETE FROM stock_issues WHERE farm_id=$1', [farm]);
+    await pool.query('DELETE FROM maintenance_records WHERE farm_id=$1', [
+      farm,
+    ]);
     await pool.query('DELETE FROM inventory_balances WHERE farm_id=$1', [farm]);
     await pool.query(
       "UPDATE assets SET status='AVAILABLE',current_location_id=$2 WHERE farm_id=$1",
@@ -225,6 +288,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
         for (const table of [
           'inventory_transactions',
           'stock_issues',
+          'maintenance_records',
           'inventory_balances',
           'assets',
           'inventory_lots',
@@ -255,6 +319,1154 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     }
   });
 
+  it('lists warehouse labels with stable pagination and status filtering without duplicating multi-line issues', async () => {
+    const a = await create([line(), line()]);
+    const b = await create([line()]);
+    const c = await create([line()]);
+    await confirm(b.issue.id).expect(201);
+    await http()
+      .post(`/stock-issues/${c.issue.id}/cancel`)
+      .query({ farmId: farm })
+      .expect(201);
+    await pool.query('UPDATE stock_issues SET created_at=$2 WHERE farm_id=$1', [
+      farm,
+      '2026-01-01T00:00:00Z',
+    ]);
+    const list = async (page: number, status?: string) => {
+      const response = await http()
+        .get('/stock-issues')
+        .query({
+          farmId: farm,
+          page,
+          pageSize: 1,
+          ...(status ? { status } : {}),
+        })
+        .expect(200);
+      return response.body as {
+        data: Detail['issue'][];
+        page: {
+          number: number;
+          size: number;
+          totalItems: number;
+          totalPages: number;
+        };
+      };
+    };
+    const pages = await Promise.all([list(1), list(2), list(3)]);
+    expect(
+      pages.flatMap((result) => result.data.map((issue) => issue.id)),
+    ).toEqual([a.issue.id, b.issue.id, c.issue.id].sort().reverse());
+    for (const [index, result] of pages.entries()) {
+      expect(result.page).toEqual({
+        number: index + 1,
+        size: 1,
+        totalItems: 3,
+        totalPages: 3,
+      });
+      expect(result.data[0]).toMatchObject({
+        farmId: farm,
+        warehouseCode: 'W0',
+        warehouseName: tag,
+      });
+    }
+    expect((await list(4)).data).toEqual([]);
+    for (const [status, id] of [
+      ['DRAFT', a.issue.id],
+      ['CONFIRMED', b.issue.id],
+      ['CANCELLED', c.issue.id],
+    ]) {
+      const result = await list(1, status);
+      expect(result.data.map((issue) => issue.id)).toEqual([id]);
+      expect(result.page.totalItems).toBe(1);
+    }
+    await http()
+      .get('/stock-issues')
+      .query({ farmId: farm, status: 'UNKNOWN' })
+      .expect(400);
+  });
+
+  it('reads all tracking labels and original fields without changing decimal quantities or inventory', async () => {
+    const draft = await create(
+      [
+        line('1.250'),
+        {
+          itemId: lotItem,
+          lotId: lot,
+          quantity: '0.001',
+          note: 'Keep LOT note',
+        },
+        assetLine(),
+        assetLine(assetIds[1]),
+      ],
+      { reason: 'Test reason', note: 'Test note' },
+    );
+    await pool.query('UPDATE assets SET serial_number=$2 WHERE id=$1', [
+      assetIds[0],
+      tag,
+    ]);
+    const response = await http()
+      .get(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .expect(200);
+    const detail = (response.body as { data: Detail }).data;
+    expect(detail.issue).toMatchObject({
+      id: draft.issue.id,
+      warehouseId: warehouse,
+      warehouseCode: 'W0',
+      warehouseName: tag,
+      reason: 'Test reason',
+      note: 'Test note',
+      status: 'DRAFT',
+    });
+    expect(detail.items).toHaveLength(4);
+    expect(new Set(detail.items.map((item) => item.id)).size).toBe(4);
+    expect(
+      detail.items.find((item) => item.itemId === quantityItem),
+    ).toMatchObject({
+      quantity: '1.250',
+      trackingMode: 'QUANTITY',
+      itemCode: 'I0',
+      itemName: tag,
+      unitName: tag,
+      lotId: null,
+      assetId: null,
+    });
+    expect(detail.items.find((item) => item.lotId === lot)).toMatchObject({
+      quantity: '0.001',
+      trackingMode: 'LOT',
+      lotNumber: tag,
+      note: 'Keep LOT note',
+    });
+    expect(
+      detail.items.find((item) => item.assetId === assetIds[0]),
+    ).toMatchObject({
+      quantity: '1.000',
+      trackingMode: 'ASSET',
+      assetCode: 'A0',
+      serialNumber: tag,
+    });
+    expect(
+      detail.items.find((item) => item.assetId === assetIds[1]),
+    ).toMatchObject({ assetCode: 'A1' });
+    expect(await balance()).toBe('10.000');
+    expect(await balance(lotItem)).toBe('10.000');
+    expect(await balance(assetItem)).toBe('3.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+    });
+  });
+
+  it('cancels a mixed maintenance draft without changing balances, lots, assets, records, or lines', async () => {
+    const record = await maintenance();
+    const draft = await create(
+      [
+        line('2.500'),
+        { itemId: lotItem, lotId: lot, quantity: '0.125', note: 'Lot note' },
+        assetLine(),
+      ],
+      { issueType: 'MAINTENANCE', maintenanceRecordId: record.id },
+    );
+    const response = await http()
+      .post(`/stock-issues/${draft.issue.id}/cancel`)
+      .query({ farmId: farm })
+      .expect(201);
+    const cancelled = (response.body as { data: Detail }).data;
+    expect(cancelled.issue).toMatchObject({
+      status: 'CANCELLED',
+      maintenanceRecordId: record.id,
+      confirmedAt: null,
+    });
+    expect(cancelled.issue.cancelledAt).not.toBeNull();
+    expect(cancelled.items).toEqual(draft.items);
+    expect(await balance()).toBe('10.000');
+    expect(await balance(lotItem)).toBe('10.000');
+    expect(await balance(assetItem)).toBe('3.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'CANCELLED',
+      transactions: 0,
+    });
+    const assetRows = await pool.query<{
+      status: string;
+      current_location_id: string;
+    }>('SELECT status,current_location_id FROM assets WHERE farm_id=$1', [
+      farm,
+    ]);
+    for (const row of assetRows.rows)
+      expect(row).toMatchObject({
+        status: 'AVAILABLE',
+        current_location_id: location,
+      });
+    const lotRows = await pool.query<{
+      initial_quantity: string;
+      expiry_date: string | null;
+    }>(
+      'SELECT initial_quantity::text,expiry_date FROM inventory_lots WHERE id=$1',
+      [lot],
+    );
+    expect(lotRows.rows[0]).toMatchObject({
+      initial_quantity: '10.000',
+      expiry_date: null,
+    });
+    const records = await pool.query<{ status: string }>(
+      'SELECT status FROM maintenance_records WHERE id=$1',
+      [record.id],
+    );
+    expect(records.rows[0].status).toBe('SCHEDULED');
+    await http()
+      .post(`/stock-issues/${draft.issue.id}/cancel`)
+      .query({ farmId: farm })
+      .expect(409);
+    await confirm(draft.issue.id).expect(409);
+    await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({ note: 'cannot edit' })
+      .expect(409);
+    const after = await http()
+      .get(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .expect(200);
+    expect((after.body as { data: Detail }).data.issue.cancelledAt).toBe(
+      cancelled.issue.cancelledAt,
+    );
+  });
+
+  it('serializes concurrent duplicate cancellations and changes only the issue state', async () => {
+    const draft = await create([line('2')]);
+    const results = await race(
+      'SELECT id FROM stock_issues WHERE id=$1 FOR UPDATE',
+      [draft.issue.id],
+      [
+        () =>
+          http()
+            .post(`/stock-issues/${draft.issue.id}/cancel`)
+            .query({ farmId: farm }),
+        () =>
+          http()
+            .post(`/stock-issues/${draft.issue.id}/cancel`)
+            .query({ farmId: farm }),
+      ],
+    );
+    expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+    expect(await balance()).toBe('10.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'CANCELLED',
+      transactions: 0,
+    });
+  });
+
+  it('rejects cancellation without write access or with a different farm', async () => {
+    const draft = await create([line('2')]);
+    access.mockRejectedValueOnce(new ForbiddenException('Read only'));
+    await http()
+      .post(`/stock-issues/${draft.issue.id}/cancel`)
+      .query({ farmId: farm })
+      .expect(403);
+    expect(access).toHaveBeenLastCalledWith(farm, tag, true);
+    await http()
+      .post(`/stock-issues/${draft.issue.id}/cancel`)
+      .query({ farmId: randomUUID() })
+      .expect(404);
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+    });
+    expect(await balance()).toBe('10.000');
+  });
+
+  it('reads maintenance asset labels without restricting eligible record statuses or multiplying rows', async () => {
+    const records = [
+      await maintenance('SCHEDULED'),
+      await maintenance('IN_PROGRESS', assetIds[1]),
+      await maintenance('COMPLETED'),
+      await maintenance('CANCELLED'),
+    ];
+    const response = await http()
+      .get('/maintenance-records')
+      .query({ farmId: farm, pageSize: 2 })
+      .expect(200);
+    type RecordPage = {
+      data: {
+        id: string;
+        assetCode: string | null;
+        serialNumber: string | null;
+        status: string;
+      }[];
+      page: { totalItems: number; totalPages: number };
+    };
+    const page = response.body as RecordPage;
+    expect(page.page).toMatchObject({ totalItems: 4, totalPages: 2 });
+    const second = await http()
+      .get('/maintenance-records')
+      .query({ farmId: farm, page: 2, pageSize: 2 })
+      .expect(200);
+    const all = [...page.data, ...(second.body as RecordPage).data];
+    expect(all.map((row) => row.id).sort()).toEqual(
+      records.map((record) => record.id).sort(),
+    );
+    expect(all.map((row) => row.status).sort()).toEqual([
+      'CANCELLED',
+      'COMPLETED',
+      'IN_PROGRESS',
+      'SCHEDULED',
+    ]);
+    for (const record of records) {
+      const detail = await http()
+        .get(`/maintenance-records/${record.id}`)
+        .query({ farmId: farm })
+        .expect(200);
+      expect(
+        (detail.body as { data: { id: string; assetCode: string | null } })
+          .data,
+      ).toMatchObject({
+        id: record.id,
+        assetCode: record.assetId === assetIds[0] ? 'A0' : 'A1',
+      });
+    }
+  });
+
+  it('rejects missing and foreign-farm maintenance links without inserting a draft', async () => {
+    const record = await maintenance();
+    await http()
+      .post('/stock-issues')
+      .query({ farmId: farm })
+      .send(input([line()], { issueType: 'MAINTENANCE' }))
+      .expect(400);
+    await http()
+      .post('/stock-issues')
+      .query({ farmId: farm })
+      .send(
+        input([line()], { issueType: 'OTHER', maintenanceRecordId: record.id }),
+      )
+      .expect(400);
+    await http()
+      .post('/stock-issues')
+      .query({ farmId: farm })
+      .send(
+        input([line()], {
+          issueType: 'MAINTENANCE',
+          maintenanceRecordId: randomUUID(),
+        }),
+      )
+      .expect(404);
+    const foreignFarm = randomUUID();
+    try {
+      await db
+        .insert(schema.farms)
+        .values({ id: foreignFarm, code: `${tag}-MAINT`, name: tag });
+      await http()
+        .get(`/maintenance-records/${record.id}`)
+        .query({ farmId: foreignFarm })
+        .expect(404);
+      const foreignList = await http()
+        .get('/maintenance-records')
+        .query({ farmId: foreignFarm })
+        .expect(200);
+      expect((foreignList.body as { data: unknown[] }).data).toEqual([]);
+      // Foreign farm request is authorized by the suite stub; the record belongs to the source farm.
+      await http()
+        .post('/stock-issues')
+        .query({ farmId: foreignFarm })
+        .send(
+          input([line()], {
+            issueType: 'MAINTENANCE',
+            maintenanceRecordId: record.id,
+          }),
+        )
+        .expect(404);
+      const count = await pool.query<{ value: number }>(
+        'SELECT count(*)::int AS value FROM stock_issues WHERE farm_id=ANY($1::uuid[])',
+        [[farm, foreignFarm]],
+      );
+      expect(count.rows[0].value).toBe(0);
+    } finally {
+      await pool.query('DELETE FROM farms WHERE id=$1', [foreignFarm]);
+    }
+    expect(await balance()).toBe('10.000');
+  });
+
+  it.each(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const)(
+    'creates a maintenance draft linked to a %s record without changing inventory or maintenance',
+    async (status) => {
+      const record = await maintenance(status);
+      const draft = await create([line('0.125')], {
+        issueType: 'MAINTENANCE',
+        maintenanceRecordId: record.id,
+      });
+      expect(draft.issue).toMatchObject({
+        issueType: 'MAINTENANCE',
+        maintenanceRecordId: record.id,
+        status: 'DRAFT',
+      });
+      expect(await balance()).toBe('10.000');
+      expect(await state(draft.issue.id)).toMatchObject({ transactions: 0 });
+      const result = await pool.query<{ status: string }>(
+        'SELECT status FROM maintenance_records WHERE id=$1',
+        [record.id],
+      );
+      expect(result.rows[0].status).toBe(status);
+    },
+  );
+
+  it('preserves a maintenance link on draft edits and clears it when the issue type changes', async () => {
+    const record = await maintenance();
+    const draft = await create([line('0.125')], {
+      issueType: 'MAINTENANCE',
+      maintenanceRecordId: record.id,
+      note: 'Original note',
+    });
+    const updated = await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({
+        note: 'Edited note',
+        items: [{ ...line('0.250'), note: 'Line note' }],
+      })
+      .expect(200);
+    const detail = (updated.body as { data: Detail }).data;
+    expect(detail.issue).toMatchObject({
+      maintenanceRecordId: record.id,
+      issueType: 'MAINTENANCE',
+      note: 'Edited note',
+    });
+    expect(detail.items[0]).toMatchObject({
+      quantity: '0.250',
+      note: 'Line note',
+    });
+    await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({ issueType: 'OTHER', items: [line('9')] })
+      .expect(400);
+    const unchanged = await http()
+      .get(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .expect(200);
+    expect((unchanged.body as { data: Detail }).data.items[0].quantity).toBe(
+      '0.250',
+    );
+    const cleared = await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({ issueType: 'OTHER', maintenanceRecordId: null })
+      .expect(200);
+    expect((cleared.body as { data: Detail }).data.issue).toMatchObject({
+      issueType: 'OTHER',
+      maintenanceRecordId: null,
+      status: 'DRAFT',
+    });
+    await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({ issueType: 'MAINTENANCE' })
+      .expect(400);
+    expect(await balance()).toBe('10.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+    });
+  });
+
+  it('filters asset data and count by current warehouse while preserving unfiltered lists', async () => {
+    await pool.query('UPDATE assets SET current_location_id=$2 WHERE id=$1', [
+      assetIds[1],
+      otherLocation,
+    ]);
+    await pool.query('UPDATE assets SET current_location_id=NULL WHERE id=$1', [
+      assetIds[2],
+    ]);
+    const source = await http()
+      .get('/assets')
+      .query({
+        farmId: farm,
+        warehouseId: warehouse,
+        itemId: assetItem,
+        status: 'AVAILABLE',
+        pageSize: 1,
+      })
+      .expect(200);
+    const sourceBody = source.body as {
+      data: { asset: { id: string }; locationWarehouseId: string | null }[];
+      page: { totalItems: number; totalPages: number };
+    };
+    expect(sourceBody.data.map((row) => row.asset.id)).toEqual([assetIds[0]]);
+    expect(sourceBody.data[0].locationWarehouseId).toBe(warehouse);
+    expect(sourceBody.page).toMatchObject({ totalItems: 1, totalPages: 1 });
+    const other = await http()
+      .get('/assets')
+      .query({ farmId: farm, warehouseId: otherWarehouse, itemId: assetItem })
+      .expect(200);
+    expect(
+      (other.body as typeof sourceBody).data.map((row) => row.asset.id),
+    ).toEqual([assetIds[1]]);
+    expect((other.body as typeof sourceBody).page.totalItems).toBe(1);
+    const unfiltered = await http()
+      .get('/assets')
+      .query({ farmId: farm })
+      .expect(200);
+    expect((unfiltered.body as typeof sourceBody).data).toHaveLength(3);
+    expect((unfiltered.body as typeof sourceBody).page.totalItems).toBe(3);
+    const detail = await http()
+      .get(`/assets/${assetIds[1]}`)
+      .query({ farmId: farm })
+      .expect(200);
+    expect(
+      (detail.body as { data: { locationWarehouseId: string | null } }).data
+        .locationWarehouseId,
+    ).toBe(otherWarehouse);
+  });
+
+  it('keeps asset count and pagination consistent with combined warehouse filters', async () => {
+    await pool.query("UPDATE assets SET status='RETIRED' WHERE id=$1", [
+      assetIds[2],
+    ]);
+    const query = {
+      farmId: farm,
+      warehouseId: warehouse,
+      itemId: assetItem,
+      status: 'AVAILABLE',
+      pageSize: 1,
+    };
+    const first = await http().get('/assets').query(query).expect(200);
+    const second = await http()
+      .get('/assets')
+      .query({ ...query, page: 2 })
+      .expect(200);
+    type AssetPage = {
+      data: { asset: { id: string } }[];
+      page: { number: number; totalItems: number; totalPages: number };
+    };
+    const firstPage = first.body as AssetPage;
+    const secondPage = second.body as AssetPage;
+    expect(firstPage.page).toMatchObject({
+      number: 1,
+      totalItems: 2,
+      totalPages: 2,
+    });
+    expect(secondPage.page).toMatchObject({
+      number: 2,
+      totalItems: 2,
+      totalPages: 2,
+    });
+    expect([firstPage.data[0].asset.id, secondPage.data[0].asset.id]).toEqual([
+      assetIds[0],
+      assetIds[1],
+    ]);
+    const searched = await http()
+      .get('/assets')
+      .query({ ...query, search: 'A0', locationId: location })
+      .expect(200);
+    expect((searched.body as AssetPage).page.totalItems).toBe(1);
+    const wrongItem = await http()
+      .get('/assets')
+      .query({ ...query, itemId: quantityItem })
+      .expect(200);
+    expect((wrongItem.body as AssetPage).page.totalItems).toBe(0);
+    const wrongFarm = await http()
+      .get('/assets')
+      .query({ ...query, farmId: randomUUID() })
+      .expect(200);
+    expect((wrongFarm.body as AssetPage).data).toEqual([]);
+    await http()
+      .get('/assets')
+      .query({ farmId: farm, warehouseId: 'invalid' })
+      .expect(400);
+  });
+
+  it('does not use a location from another farm to satisfy the asset warehouse filter', async () => {
+    const foreignFarm = randomUUID(),
+      foreignWarehouse = randomUUID(),
+      foreignLocation = randomUUID();
+    try {
+      await db.transaction(async (tx) => {
+        await tx
+          .insert(schema.farms)
+          .values({ id: foreignFarm, code: `${tag}-ASSET-FARM`, name: tag });
+        await tx.insert(schema.warehouses).values({
+          id: foreignWarehouse,
+          farmId: foreignFarm,
+          code: 'FOREIGN',
+          name: tag,
+        });
+        await tx.insert(schema.locations).values({
+          id: foreignLocation,
+          farmId: foreignFarm,
+          warehouseId: foreignWarehouse,
+          type: 'WAREHOUSE_ZONE',
+          code: 'FOREIGN',
+          name: tag,
+        });
+      });
+      await expect(
+        pool.query('UPDATE assets SET current_location_id=$2 WHERE id=$1', [
+          assetIds[0],
+          foreignLocation,
+        ]),
+      ).rejects.toThrow(
+        'asset and current location must belong to the same farm',
+      );
+      const response = await http()
+        .get('/assets')
+        .query({ farmId: farm, warehouseId: foreignWarehouse })
+        .expect(200);
+      const page = response.body as {
+        data: unknown[];
+        page: { totalItems: number };
+      };
+      expect(page.data).toEqual([]);
+      expect(page.page.totalItems).toBe(0);
+      const detail = await http()
+        .get(`/assets/${assetIds[0]}`)
+        .query({ farmId: farm })
+        .expect(200);
+      expect(
+        (
+          detail.body as {
+            data: {
+              locationWarehouseId: string | null;
+              locationName: string | null;
+            };
+          }
+        ).data,
+      ).toMatchObject({ locationWarehouseId: warehouse, locationName: tag });
+    } finally {
+      await pool.query('UPDATE assets SET current_location_id=$2 WHERE id=$1', [
+        assetIds[0],
+        location,
+      ]);
+      await pool.query('DELETE FROM locations WHERE id=$1', [foreignLocation]);
+      await pool.query('DELETE FROM warehouses WHERE id=$1', [
+        foreignWarehouse,
+      ]);
+      await pool.query('DELETE FROM farms WHERE id=$1', [foreignFarm]);
+    }
+  });
+
+  it('persists three physical assets as separate lines in one draft without changing business state', async () => {
+    const draft = await create(
+      assetIds.map((id, index) => ({
+        ...assetLine(id),
+        note: `Tool ${index}`,
+      })),
+    );
+    expect(draft.items).toHaveLength(3);
+    expect(draft.items.map((row) => row.assetId).sort()).toEqual(
+      [...assetIds].sort(),
+    );
+    for (const row of draft.items)
+      expect(row).toMatchObject({
+        quantity: '1.000',
+        lotId: null,
+        trackingMode: 'ASSET',
+      });
+    const response = await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({
+        note: 'Three tools',
+        items: assetIds.map((id, index) => ({
+          ...assetLine(id),
+          note: `Updated ${index}`,
+        })),
+      })
+      .expect(200);
+    const updated = (response.body as { data: Detail }).data;
+    for (const [index, id] of assetIds.entries())
+      expect(updated.items.find((row) => row.assetId === id)?.note).toBe(
+        `Updated ${index}`,
+      );
+    expect(await balance(assetItem)).toBe('3.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+    });
+    const result = await pool.query<{
+      status: string;
+      current_location_id: string;
+    }>('SELECT status,current_location_id FROM assets WHERE farm_id=$1', [
+      farm,
+    ]);
+    for (const row of result.rows)
+      expect(row).toMatchObject({
+        status: 'AVAILABLE',
+        current_location_id: location,
+      });
+  });
+
+  it('returns raw lot suggestions scoped to eligible farm, warehouse, and item balances', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const todayLot = randomUUID();
+    const expiredLot = randomUUID();
+    const emptyLot = randomUUID();
+    const otherWarehouseLot = randomUUID();
+    const otherItemLot = randomUUID();
+    const foreignFarm = randomUUID();
+    const foreignWarehouse = randomUUID();
+    const foreignItem = randomUUID();
+    const foreignLot = randomUUID();
+    const localTestLots = [
+      {
+        id: todayLot,
+        itemId: lotItem,
+        lotNumber: `${tag}-TODAY`,
+        expiryDate: today,
+      },
+      {
+        id: expiredLot,
+        itemId: lotItem,
+        lotNumber: `${tag}-EXPIRED`,
+        expiryDate: '2000-01-01',
+      },
+      {
+        id: emptyLot,
+        itemId: lotItem,
+        lotNumber: `${tag}-EMPTY`,
+        expiryDate: null,
+      },
+      {
+        id: otherWarehouseLot,
+        itemId: lotItem,
+        lotNumber: `${tag}-OTHER-WH`,
+        expiryDate: null,
+      },
+      {
+        id: otherItemLot,
+        itemId: otherLotItem,
+        lotNumber: `${tag}-OTHER-ITEM`,
+        expiryDate: null,
+      },
+    ];
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(schema.inventoryLots).values(
+          localTestLots.map((row) => ({
+            ...row,
+            farmId: farm,
+            initialQuantity: '10',
+          })),
+        );
+        await tx.insert(schema.inventoryBalances).values([
+          {
+            farmId: farm,
+            warehouseId: warehouse,
+            itemId: lotItem,
+            lotId: todayLot,
+            quantityOnHand: '2',
+          },
+          {
+            farmId: farm,
+            warehouseId: warehouse,
+            itemId: lotItem,
+            lotId: expiredLot,
+            quantityOnHand: '2',
+          },
+          {
+            farmId: farm,
+            warehouseId: warehouse,
+            itemId: lotItem,
+            lotId: emptyLot,
+            quantityOnHand: '0',
+          },
+          {
+            farmId: farm,
+            warehouseId: otherWarehouse,
+            itemId: lotItem,
+            lotId: otherWarehouseLot,
+            quantityOnHand: '2',
+          },
+          {
+            farmId: farm,
+            warehouseId: warehouse,
+            itemId: otherLotItem,
+            lotId: otherItemLot,
+            quantityOnHand: '2',
+          },
+        ]);
+        await tx.insert(schema.farms).values({
+          id: foreignFarm,
+          code: `${tag}-OTHER-FARM`,
+          name: `${tag}-OTHER-FARM`,
+        });
+        await tx.insert(schema.warehouses).values({
+          id: foreignWarehouse,
+          farmId: foreignFarm,
+          code: `${tag}-OTHER-WH`,
+          name: tag,
+          status: 'ACTIVE',
+        });
+        await tx.insert(schema.items).values({
+          id: foreignItem,
+          farmId: foreignFarm,
+          categoryId: category,
+          unitId: unit,
+          code: `${tag}-OTHER-ITEM`,
+          name: tag,
+          itemType: 'MATERIAL',
+          trackingMode: 'LOT',
+        });
+        await tx.insert(schema.inventoryLots).values({
+          id: foreignLot,
+          farmId: foreignFarm,
+          itemId: foreignItem,
+          lotNumber: `${tag}-FOREIGN`,
+          initialQuantity: '10',
+        });
+        await tx.insert(schema.inventoryBalances).values({
+          farmId: foreignFarm,
+          warehouseId: foreignWarehouse,
+          itemId: foreignItem,
+          lotId: foreignLot,
+          quantityOnHand: '2',
+        });
+      });
+
+      const local = await http()
+        .get('/lots/suggestions')
+        .query({ farmId: farm, warehouseId: warehouse, itemId: lotItem })
+        .expect(200);
+      const localRows = local.body as {
+        lot: {
+          id: string;
+          farmId: string;
+          itemId: string;
+          expiryDate: string | null;
+        };
+        balance: {
+          farmId: string;
+          warehouseId: string;
+          itemId: string;
+          lotId: string | null;
+          quantityOnHand: string;
+        };
+      }[];
+      expect(Array.isArray(localRows)).toBe(true);
+      expect(localRows.map((row) => row.lot.id).sort()).toEqual(
+        [lot, todayLot].sort(),
+      );
+      const todaySuggestion = localRows.find(
+        ({ lot: suggestedLot }) => suggestedLot.id === todayLot,
+      );
+      expect(todaySuggestion?.lot).toMatchObject({
+        id: todayLot,
+        farmId: farm,
+        itemId: lotItem,
+        expiryDate: today,
+      });
+      expect(todaySuggestion?.balance).toMatchObject({
+        farmId: farm,
+        warehouseId: warehouse,
+        itemId: lotItem,
+        lotId: todayLot,
+        quantityOnHand: '2.000',
+      });
+
+      const foreign = await http()
+        .get('/lots/suggestions')
+        .query({
+          farmId: foreignFarm,
+          warehouseId: foreignWarehouse,
+          itemId: foreignItem,
+        })
+        .expect(200);
+      const foreignRows = foreign.body as { lot: { id: string } }[];
+      expect(Array.isArray(foreignRows)).toBe(true);
+      expect(foreignRows.map((row) => row.lot.id)).toEqual([foreignLot]);
+    } finally {
+      await pool.query(
+        'DELETE FROM inventory_balances WHERE lot_id = ANY($1::uuid[])',
+        [localTestLots.map(({ id }) => id)],
+      );
+      await pool.query(
+        'DELETE FROM inventory_lots WHERE id = ANY($1::uuid[])',
+        [localTestLots.map(({ id }) => id)],
+      );
+      await pool.query('DELETE FROM inventory_balances WHERE farm_id=$1', [
+        foreignFarm,
+      ]);
+      await pool.query('DELETE FROM inventory_lots WHERE farm_id=$1', [
+        foreignFarm,
+      ]);
+      await pool.query('DELETE FROM items WHERE farm_id=$1', [foreignFarm]);
+      await pool.query('DELETE FROM warehouses WHERE farm_id=$1', [
+        foreignFarm,
+      ]);
+      await pool.query('DELETE FROM farms WHERE id=$1', [foreignFarm]);
+    }
+  });
+
+  it('creates and updates mixed QUANTITY and LOT drafts without changing inventory', async () => {
+    const quantityBefore = await balance();
+    const lotBefore = await balance(lotItem);
+    const draft = await create(
+      [
+        line('1.250'),
+        { itemId: lotItem, lotId: lot, quantity: '0.001', note: 'LOT note' },
+      ],
+      { reason: 'Initial reason', note: 'Header note' },
+    );
+    expect(draft.items.find((item) => item.itemId === lotItem)).toMatchObject({
+      quantity: '0.001',
+      lotId: lot,
+      lotNumber: tag,
+      trackingMode: 'LOT',
+      note: 'LOT note',
+      assetId: null,
+    });
+    expect(await balance()).toBe(quantityBefore);
+    expect(await balance(lotItem)).toBe(lotBefore);
+
+    const updated = await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({
+        note: 'Updated header note',
+        items: [
+          { ...line('2.500'), note: 'Quantity note' },
+          {
+            itemId: lotItem,
+            lotId: lot,
+            quantity: '0.125',
+            note: 'LOT updated',
+          },
+        ],
+      })
+      .expect(200);
+    const detail = (updated.body as { data: Detail }).data;
+    expect(detail.issue.note).toBe('Updated header note');
+    expect(
+      detail.items.find((item) => item.itemId === quantityItem),
+    ).toMatchObject({
+      quantity: '2.500',
+      trackingMode: 'QUANTITY',
+      lotId: null,
+      assetId: null,
+      note: 'Quantity note',
+    });
+    expect(detail.items.find((item) => item.itemId === lotItem)).toMatchObject({
+      quantity: '0.125',
+      lotId: lot,
+      lotNumber: tag,
+      trackingMode: 'LOT',
+      note: 'LOT updated',
+      assetId: null,
+    });
+    expect(await balance()).toBe(quantityBefore);
+    expect(await balance(lotItem)).toBe(lotBefore);
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+    });
+  });
+
+  it('maps a duplicate issue code to 409 on create without inserting a partial issue', async () => {
+    const issueCode = `DUP-${randomUUID()}`;
+    const original = await create([line('1.250')], { issueCode });
+    const balanceBefore = await balance();
+
+    await http()
+      .post('/stock-issues')
+      .query({ farmId: farm })
+      .send(input([line('2.500')], { issueCode }))
+      .expect(409);
+
+    const result = await pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM stock_issues WHERE farm_id=$1 AND issue_code=$2',
+      [farm, issueCode],
+    );
+    const after = await http()
+      .get(`/stock-issues/${original.issue.id}`)
+      .query({ farmId: farm })
+      .expect(200);
+    expect(result.rows[0].count).toBe(1);
+    expect(
+      (after.body as { data: Detail }).data.items.map((item) => item.quantity),
+    ).toEqual(['1.250']);
+    expect(await balance()).toBe(balanceBefore);
+    expect(await state(original.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+    });
+  });
+
+  it('rolls back replacement lines when an update collides with the issue-code constraint', async () => {
+    const existingCode = `EXISTING-${randomUUID()}`;
+    const originalCode = `EDIT-${randomUUID()}`;
+    await create([line('1.250')], { issueCode: existingCode });
+    const draft = await create([line('2.500')], { issueCode: originalCode });
+    const balanceBefore = await balance();
+
+    await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({
+        issueCode: existingCode,
+        items: [line('3.750'), { ...line('4.125'), note: 'replacement' }],
+      })
+      .expect(409);
+
+    const after = await http()
+      .get(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .expect(200);
+    const detail = (after.body as { data: Detail }).data;
+    const count = await pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM stock_issues WHERE farm_id=$1',
+      [farm],
+    );
+    expect(detail.issue.issueCode).toBe(originalCode);
+    expect(detail.items.map((item) => [item.quantity, item.note])).toEqual([
+      ['2.500', null],
+    ]);
+    expect(count.rows[0].count).toBe(2);
+    expect(await balance()).toBe(balanceBefore);
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+    });
+  });
+
+  it('does not map an unrelated PostgreSQL unique-constraint error to 409', async () => {
+    const error = Object.assign(new Error('duplicate unrelated value'), {
+      code: '23505',
+      constraint: 'uq_unrelated_per_farm',
+    });
+    const spy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementationOnce(() => Promise.reject(error));
+    try {
+      await http()
+        .post('/stock-issues')
+        .query({ farmId: farm })
+        .send(input([line()]))
+        .expect(500);
+    } finally {
+      spy.mockRestore();
+    }
+    const issues = await pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM stock_issues WHERE farm_id=$1',
+      [farm],
+    );
+    expect(issues.rows[0].count).toBe(0);
+    expect(await balance()).toBe('10.000');
+  });
+
+  it('keeps lines when legacy references belong to another farm and does not expose their labels', async () => {
+    const draft = await create([
+      line(),
+      { itemId: lotItem, lotId: lot, quantity: '1' },
+      assetLine(),
+    ]);
+    const otherFarm = randomUUID();
+    await pool.query('INSERT INTO farms (id,code,name) VALUES ($1,$2,$2)', [
+      otherFarm,
+      `${tag}-other`,
+    ]);
+    try {
+      // Simulate legacy inconsistent foreign keys; never alter non-test data.
+      await pool.query('UPDATE warehouses SET farm_id=$2 WHERE id=$1', [
+        warehouse,
+        otherFarm,
+      ]);
+      await pool.query('UPDATE items SET farm_id=$2 WHERE id=$1', [
+        quantityItem,
+        otherFarm,
+      ]);
+      await pool.query('UPDATE inventory_lots SET farm_id=$2 WHERE id=$1', [
+        lot,
+        otherFarm,
+      ]);
+      await pool.query('UPDATE items SET farm_id=$2 WHERE id=$1', [
+        assetItem,
+        otherFarm,
+      ]);
+      const response = await http()
+        .get(`/stock-issues/${draft.issue.id}`)
+        .query({ farmId: farm })
+        .expect(200);
+      const detail = (response.body as { data: Detail }).data;
+      expect(detail.issue).toMatchObject({
+        warehouseId: warehouse,
+        warehouseName: null,
+        warehouseCode: null,
+      });
+      expect(detail.items).toHaveLength(3);
+      expect(
+        detail.items.find((item) => item.itemId === quantityItem),
+      ).toMatchObject({
+        quantity: '1.000',
+        itemName: null,
+        itemCode: null,
+        trackingMode: null,
+        unitName: null,
+      });
+      expect(detail.items.find((item) => item.lotId === lot)).toMatchObject({
+        lotId: lot,
+        lotNumber: null,
+      });
+      expect(
+        detail.items.find((item) => item.assetId === assetIds[0]),
+      ).toMatchObject({
+        assetId: assetIds[0],
+        assetCode: null,
+        serialNumber: null,
+      });
+      const listed = await http()
+        .get('/stock-issues')
+        .query({ farmId: farm })
+        .expect(200);
+      expect((listed.body as { data: Detail['issue'][] }).data).toHaveLength(1);
+      expect(
+        (listed.body as { data: Detail['issue'][] }).data[0].warehouseName,
+      ).toBeNull();
+      const remote = await http()
+        .get('/stock-issues')
+        .query({ farmId: otherFarm })
+        .expect(200);
+      expect((remote.body as { data: unknown[] }).data).toEqual([]);
+      await http()
+        .get(`/stock-issues/${draft.issue.id}`)
+        .query({ farmId: otherFarm })
+        .expect(404);
+    } finally {
+      await pool.query('UPDATE warehouses SET farm_id=$2 WHERE id=$1', [
+        warehouse,
+        farm,
+      ]);
+      await pool.query('UPDATE items SET farm_id=$2 WHERE id=$1', [
+        quantityItem,
+        farm,
+      ]);
+      await pool.query('UPDATE inventory_lots SET farm_id=$2 WHERE id=$1', [
+        lot,
+        farm,
+      ]);
+      await pool.query('UPDATE items SET farm_id=$2 WHERE id=$1', [
+        assetItem,
+        farm,
+      ]);
+      await pool.query('DELETE FROM farms WHERE id=$1', [otherFarm]);
+    }
+  });
+
+  it('enforces the read-access check and reports missing issues', async () => {
+    const draft = await create([line()]);
+    access.mockClear();
+    await http().get('/stock-issues').query({ farmId: farm }).expect(200);
+    expect(access).toHaveBeenCalledWith(farm, tag, false);
+    access.mockRejectedValueOnce(new ForbiddenException('No farm access'));
+    await http().get('/stock-issues').query({ farmId: farm }).expect(403);
+    access.mockRejectedValueOnce(new ForbiddenException('No farm access'));
+    await http()
+      .get(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .expect(403);
+    await http()
+      .get(`/stock-issues/${randomUUID()}`)
+      .query({ farmId: farm })
+      .expect(404);
+  });
+
   it('confirms QUANTITY once and rejects repeat confirmation, editing, and cancellation', async () => {
     const draft = await create([line('1.250')]);
     await confirm(draft.issue.id).expect(201);
@@ -274,6 +1486,74 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       .query({ farmId: farm })
       .expect(409);
     expect(await balance()).toBe('8.750');
+  });
+
+  it('confirms a mixed maintenance issue atomically and preserves the maintenance record', async () => {
+    const { id: recordId } = await maintenance();
+    const draft = await create(
+      [
+        line('2.125'),
+        { itemId: lotItem, lotId: lot, quantity: '0.125' },
+        assetLine(),
+      ],
+      { issueType: 'MAINTENANCE', maintenanceRecordId: recordId },
+    );
+    const response = await confirm(draft.issue.id).expect(201);
+    expect((response.body as { data: Detail }).data.issue.status).toBe(
+      'CONFIRMED',
+    );
+    expect(await balance()).toBe('7.875');
+    expect(await balance(lotItem)).toBe('9.875');
+    expect(await balance(assetItem)).toBe('2.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'CONFIRMED',
+      transactions: 3,
+    });
+    const ledger = await pool.query<{
+      transaction_type: string;
+      lot_id: string | null;
+      asset_id: string | null;
+    }>(
+      'SELECT transaction_type, lot_id, asset_id FROM inventory_transactions WHERE source_id=$1',
+      [draft.issue.id],
+    );
+    expect(
+      ledger.rows.every((row) => row.transaction_type === 'MAINTENANCE_ISSUE'),
+    ).toBe(true);
+    expect(ledger.rows.some((row) => row.lot_id === lot)).toBe(true);
+    expect(ledger.rows.some((row) => row.asset_id === assetIds[0])).toBe(true);
+    const record = await pool.query<{ status: string }>(
+      'SELECT status FROM maintenance_records WHERE id=$1',
+      [recordId],
+    );
+    expect(record.rows[0].status).toBe('SCHEDULED');
+    const asset = await pool.query<{
+      status: string;
+      current_location_id: string;
+    }>('SELECT status, current_location_id FROM assets WHERE id=$1', [
+      assetIds[0],
+    ]);
+    expect(asset.rows[0]).toEqual({
+      status: 'IN_USE',
+      current_location_id: location,
+    });
+  });
+
+  it('rejects confirmation without write access or with another farm without side effects', async () => {
+    const draft = await create([line('2')]);
+    access.mockRejectedValueOnce(new ForbiddenException('Read only'));
+    await confirm(draft.issue.id).expect(403);
+    expect(access).toHaveBeenLastCalledWith(farm, tag, true);
+    await http()
+      .post(`/stock-issues/${draft.issue.id}/confirm`)
+      .query({ farmId: randomUUID() })
+      .expect(404);
+    expect(await balance()).toBe('10.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+      confirmed_at: null,
+    });
   });
 
   it('confirms LOT and deducts its warehouse balance without changing initial quantity', async () => {
