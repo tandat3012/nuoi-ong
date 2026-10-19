@@ -57,6 +57,41 @@
       "when": 1790324287537,
       "tag": "0007_hot_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790899200000,
+      "tag": "0008_maintenance_issue_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791624466632,
+      "tag": "0009_stock_document_approval",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791627664377,
+      "tag": "0010_stock_transfer_rejection_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792022400000,
+      "tag": "0011_material_min_stock_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792153470496,
+      "tag": "0012_notifications_table",
+      "breakpoints": true
     }
   ]
 }

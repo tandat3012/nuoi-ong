@@ -96,7 +96,7 @@ describe('MaterialsService', () => {
       .mockReturnValueOnce(itemInsert)
       .mockReturnValueOnce(profileInsert);
     transaction.mockImplementation(
-      (callback: (tx: typeof tx) => Promise<unknown>) => callback(tx),
+      (callback: (tx: any) => Promise<unknown>) => callback(tx),
     );
     const material = { item: { id: 'item-1', code: validInput.code } };
     mockGetMaterial([material]);
@@ -126,7 +126,7 @@ describe('MaterialsService', () => {
         ),
     };
     transaction.mockImplementation(
-      (callback: (tx: typeof tx) => Promise<unknown>) => callback(tx),
+      (callback: (tx: any) => Promise<unknown>) => callback(tx),
     );
 
     await expect(service.createMaterial(farmId, validInput)).rejects.toEqual(
@@ -183,7 +183,7 @@ describe('MaterialsService', () => {
     itemUpdate.where.mockResolvedValue([]);
     tx.update.mockReturnValue(itemUpdate);
     transaction.mockImplementation(
-      (callback: (tx: typeof tx) => Promise<unknown>) => callback(tx),
+      (callback: (tx: any) => Promise<unknown>) => callback(tx),
     );
 
     await expect(

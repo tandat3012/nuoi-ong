@@ -10,6 +10,8 @@ type AuthContextValue = {
   data: AuthContextResponse;
   selectedFarmId: string | null;
   selectFarm: (farmId: string) => void;
+  isLoading: boolean;
+  error: ApiError | null;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -98,6 +100,8 @@ function SessionContextProvider({
     return {
       data,
       selectedFarmId,
+      isLoading: false,
+      error,
       selectFarm(farmId: string) {
         const isAllowed = data.memberships.some(({ farm }) => farm.id === farmId);
         if (!isAllowed) throw new Error('Farm is not available to this user');
