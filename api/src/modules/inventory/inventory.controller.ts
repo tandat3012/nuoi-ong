@@ -164,8 +164,12 @@ export class InventoryController {
   @ApiParam({ name: 'balanceId', type: 'string', format: 'uuid' })
   @ApiOkResponse({ description: 'QR và thông tin dòng tồn kho đã xác thực.' })
   @ApiBadRequestResponse({ description: 'farmId hoặc balanceId không hợp lệ.' })
-  @ApiUnauthorizedResponse({ description: 'Thiếu hoặc không hợp lệ Clerk session JWT.' })
-  @ApiForbiddenResponse({ description: 'Người dùng không có quyền đọc tồn kho của trang trại.' })
+  @ApiUnauthorizedResponse({
+    description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Người dùng không có quyền đọc tồn kho của trang trại.',
+  })
   getBalanceQr(
     @CurrentAuth() auth: { clerkUserId: string },
     @Param('balanceId') balanceId?: string,

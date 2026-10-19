@@ -160,7 +160,8 @@ describe('PostgreSQL schema, constraints, functions and triggers', () => {
            'validate_maintenance_scope',
            'validate_material_profile_scope',
            'protect_item_material_profile',
-           'set_material_profile_updated_at'
+           'set_material_profile_updated_at',
+           'validate_stock_issue_maintenance'
          )
        ORDER BY p.proname`,
     );
@@ -180,6 +181,7 @@ describe('PostgreSQL schema, constraints, functions and triggers', () => {
       'validate_asset_scope',
       'validate_maintenance_scope',
       'validate_material_profile_scope',
+      'validate_stock_issue_maintenance',
     ]);
     expect(triggers.rows.map((row) => row.trigger_name)).toEqual([
       'trg_material_profiles_updated_at',
@@ -189,6 +191,7 @@ describe('PostgreSQL schema, constraints, functions and triggers', () => {
       'trg_validate_asset_scope',
       'trg_validate_maintenance_scope',
       'trg_validate_material_profile_scope',
+      'trg_validate_stock_issue_maintenance',
     ]);
   });
 

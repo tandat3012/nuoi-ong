@@ -52,7 +52,7 @@ const issueSchema = {
       enum: ['CONSUMPTION', 'DAMAGE', 'DISPOSAL', 'OTHER', 'MAINTENANCE'],
     },
     maintenanceRecordId: { type: 'string', format: 'uuid', nullable: true },
-    status: { type: 'string', enum: ['DRAFT', 'CONFIRMED', 'CANCELLED'] },
+    status: { type: 'string', enum: [...documentStatus.enumValues] },
     reason: { type: 'string', nullable: true },
     note: { type: 'string', nullable: true },
     createdByMemberId: { type: 'string', format: 'uuid' },

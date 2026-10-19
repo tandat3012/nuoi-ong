@@ -269,6 +269,36 @@ describe('Current inventory HTTP and PostgreSQL contract', () => {
     }
   });
 
+  it('returns a QR image and preserves farm isolation', async () => {
+    const response = await http()
+      .get(`${base}/${balanceQuantity}/qr`)
+      .query({ farmId: farmA })
+      .expect(200);
+    const { data } = response.body as {
+      data: {
+        balanceId: string;
+        qrUrl: string;
+        imageDataUrl: string;
+        format: string;
+      };
+    };
+    expect(data.balanceId).toBe(balanceQuantity);
+    const destination = new URL(data.qrUrl);
+    expect(destination.pathname).toBe('/inventory');
+    expect(destination.searchParams.get('warehouseId')).toBe(warehouseA);
+    expect(destination.searchParams.get('itemId')).toBe(quantityItem);
+    expect(data.format).toBe('svg');
+    expect(data.imageDataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(
+      Buffer.from(data.imageDataUrl.split(',')[1], 'base64').toString(),
+    ).toContain('<svg');
+    await http()
+      .get(`${base}/${balanceQuantity}/qr`)
+      .query({ farmId: farmB })
+      .expect(404);
+    await http().get(`${base}/invalid/qr`).query({ farmId: farmA }).expect(400);
+  });
+
   it('returns only positive balances with a nested exact-string read model', async () => {
     const response = await http()
       .get(base)

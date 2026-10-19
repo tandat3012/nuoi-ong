@@ -49,7 +49,7 @@ const receiptSchema = {
     supplierId: { type: 'string', format: 'uuid', nullable: true },
     receiptCode: { type: 'string', example: 'RCV-2026-001' },
     receiptDate: { type: 'string', format: 'date' },
-    status: { type: 'string', enum: ['DRAFT', 'CONFIRMED', 'CANCELLED'] },
+    status: { type: 'string', enum: [...documentStatus.enumValues] },
     note: { type: 'string', nullable: true },
     createdByMemberId: { type: 'string', format: 'uuid' },
     confirmedByMemberId: { type: 'string', format: 'uuid', nullable: true },

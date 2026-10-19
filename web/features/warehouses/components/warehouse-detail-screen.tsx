@@ -44,6 +44,12 @@ function errorMessage(error: unknown) {
 }
 
 export function WarehouseDetailScreen() {
+  const { selectedFarmId } = useAuthContext();
+  const { id } = useParams<{ id: string }>();
+  return <FarmWarehouseDetailScreen key={`${selectedFarmId}:${id}`} />;
+}
+
+function FarmWarehouseDetailScreen() {
   const request = useAuthenticatedRequest();
   const { id } = useParams<{ id: string }>();
   const { data: auth, selectedFarmId, isLoading: authLoading, error: authError } = useAuthContext();
@@ -67,8 +73,8 @@ export function WarehouseDetailScreen() {
     });
 
     void Promise.all([
-      request<{ data: Warehouse }>(`/api/v1/warehouses/${id}`, { params: { farmId: selectedFarmId } }),
-      request<{ data: InventoryRow[] }>('/api/v1/inventory', { params: { farmId: selectedFarmId, warehouseId: id } }),
+      request<{ data: Warehouse }>(`/warehouses/${id}`, { params: { farmId: selectedFarmId } }),
+      request<{ data: InventoryRow[] }>('/inventory', { params: { farmId: selectedFarmId, warehouseId: id } }),
     ])
       .then(([warehouseResponse, inventoryResponse]) => {
         if (cancelled) return;
@@ -100,7 +106,7 @@ export function WarehouseDetailScreen() {
     setSaving(true);
     setError(null);
     try {
-      const response = await request<{ data: Warehouse }>(`/api/v1/warehouses/${warehouse.id}`, {
+      const response = await request<{ data: Warehouse }>(`/warehouses/${warehouse.id}`, {
         method: 'PATCH',
         params: { farmId: selectedFarmId },
         data: {

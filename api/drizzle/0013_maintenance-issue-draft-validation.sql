@@ -11,7 +11,8 @@ BEGIN
     SELECT farm_id, status
     INTO maintenance_farm_id, maintenance_status_value
     FROM maintenance_records
-    WHERE id = NEW.maintenance_record_id;
+    WHERE id = NEW.maintenance_record_id
+    FOR UPDATE;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'maintenance record does not exist';
@@ -21,8 +22,7 @@ BEGIN
         RAISE EXCEPTION 'stock issue and maintenance record must belong to the same farm';
     END IF;
 
-    -- A cancelled issue can remain cancellable after its maintenance is closed.
-    IF NEW.status <> 'CANCELLED'::document_status
+    IF NEW.status = 'CONFIRMED'::document_status
        AND maintenance_status_value NOT IN ('SCHEDULED'::maintenance_status, 'IN_PROGRESS'::maintenance_status) THEN
         RAISE EXCEPTION 'maintenance record must be SCHEDULED or IN_PROGRESS';
     END IF;

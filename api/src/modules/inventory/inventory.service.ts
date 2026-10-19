@@ -202,10 +202,7 @@ export class InventoryService {
       .from(inventoryBalances)
       .innerJoin(
         items,
-        and(
-          eq(inventoryBalances.itemId, items.id),
-          eq(items.farmId, farmId),
-        ),
+        and(eq(inventoryBalances.itemId, items.id), eq(items.farmId, farmId)),
       )
       .innerJoin(
         warehouses,
@@ -223,15 +220,12 @@ export class InventoryService {
         ),
       )
       .where(
-        and(
-          eq(inventoryBalances.id, id),
-          eq(inventoryBalances.farmId, farmId),
-        ),
+        and(eq(inventoryBalances.id, id), eq(inventoryBalances.farmId, farmId)),
       )
       .limit(1);
 
     if (!row) throw new NotFoundException('Inventory balance not found');
-    const qrUrl = `${this.webAppUrl()}/scan/inventory/${row.balance.id}`;
+    const qrUrl = `${this.webAppUrl()}/inventory?warehouseId=${row.balance.warehouseId}&itemId=${row.balance.itemId}`;
     const svg = await QRCode.toString(qrUrl, {
       type: 'svg',
       errorCorrectionLevel: 'M',
@@ -592,7 +586,10 @@ export class InventoryService {
   }
 
   private webAppUrl() {
-    return (process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000')
-      .replace(/\/+$/, '');
+    return (
+      process.env.WEB_APP_URL ??
+      process.env.WEB_ORIGIN ??
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
   }
 }

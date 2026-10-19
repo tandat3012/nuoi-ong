@@ -1,7 +1,6 @@
 import * as React from "react";
 import Link from "next/link";
 import { STOREFRONT_CONFIG } from "../config/storefront-config";
-import { STOREFRONT_FEATURED_PRODUCTS } from "@/features/commerce/products/fixtures/product-fixtures";
 import { ProductCard } from "@/features/commerce/products/components/product-card";
 import { StorefrontProduct } from "../../products/types/product";
 import { getProductsStore } from "../../products/api/product.api";
@@ -14,7 +13,7 @@ export async function HomeFeaturedProducts() {
 
   try {
     products = (await getProductsStore(1, 4)).data;
-  } catch (err) {
+  } catch {
     return (
       <div className="mx-auto max-w-7xl px-4 py-12">
         <ErrorAlert message="Không tải được sản phẩm. Vui lòng tải lại trang." />

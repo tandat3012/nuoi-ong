@@ -1,11 +1,13 @@
-export type IssueStatus = "DRAFT" | "CONFIRMED" | "CANCELLED";
+export type IssueStatus = "DRAFT" | "PENDING_APPROVAL" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 export type IssueDraftTrackingMode = "QUANTITY" | "LOT" | "ASSET";
 export type IssueType =
   "CONSUMPTION" | "DAMAGE" | "DISPOSAL" | "OTHER" | "MAINTENANCE";
 
 export const ISSUE_STATUS_LABELS: Record<IssueStatus, string> = {
   DRAFT: "Nháp",
+  PENDING_APPROVAL: "Chờ duyệt",
   CONFIRMED: "Đã xác nhận",
+  REJECTED: "Đã từ chối",
   CANCELLED: "Đã hủy",
 };
 export const ISSUE_TYPE_LABELS: Record<IssueType, string> = {

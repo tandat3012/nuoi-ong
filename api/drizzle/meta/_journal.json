@@ -92,6 +92,13 @@
       "when": 1792153470496,
       "tag": "0012_notifications_table",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792402005388,
+      "tag": "0013_maintenance-issue-draft-validation",
+      "breakpoints": true
     }
   ]
 }

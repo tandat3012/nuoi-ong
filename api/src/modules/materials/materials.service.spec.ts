@@ -95,8 +95,8 @@ describe('MaterialsService', () => {
     tx.insert
       .mockReturnValueOnce(itemInsert)
       .mockReturnValueOnce(profileInsert);
-    transaction.mockImplementation(
-      (callback: (tx: any) => Promise<unknown>) => callback(tx),
+    transaction.mockImplementation((callback: (tx: any) => Promise<unknown>) =>
+      callback(tx),
     );
     const material = { item: { id: 'item-1', code: validInput.code } };
     mockGetMaterial([material]);
@@ -125,8 +125,8 @@ describe('MaterialsService', () => {
           queryReturning([{ id: unitId, status: 'ACTIVE' }]),
         ),
     };
-    transaction.mockImplementation(
-      (callback: (tx: any) => Promise<unknown>) => callback(tx),
+    transaction.mockImplementation((callback: (tx: any) => Promise<unknown>) =>
+      callback(tx),
     );
 
     await expect(service.createMaterial(farmId, validInput)).rejects.toEqual(
@@ -182,8 +182,8 @@ describe('MaterialsService', () => {
     itemUpdate.set.mockReturnValue(itemUpdate);
     itemUpdate.where.mockResolvedValue([]);
     tx.update.mockReturnValue(itemUpdate);
-    transaction.mockImplementation(
-      (callback: (tx: any) => Promise<unknown>) => callback(tx),
+    transaction.mockImplementation((callback: (tx: any) => Promise<unknown>) =>
+      callback(tx),
     );
 
     await expect(

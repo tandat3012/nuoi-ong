@@ -116,7 +116,7 @@ function SessionContextProvider({
         setSelectedFarmId(farmId);
       },
     };
-  }, [data, selectedFarmId]);
+  }, [data, selectedFarmId, error]);
   if (!isLoaded || (isSignedIn && !data && !error)) return <p>Đang tải...</p>;
   if (!isSignedIn) return null;
   const retry = () => {

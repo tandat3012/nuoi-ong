@@ -709,6 +709,20 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     },
   );
 
+  it.each(['COMPLETED', 'CANCELLED'] as const)(
+    'rejects confirmation against a %s maintenance record without changing stock',
+    async (status) => {
+      const record = await maintenance(status);
+      const draft = await create([line('0.125')], {
+        issueType: 'MAINTENANCE',
+        maintenanceRecordId: record.id,
+      });
+      const before = await state(draft.issue.id);
+      await confirm(draft.issue.id).expect(409);
+      expect(await state(draft.issue.id)).toEqual(before);
+    },
+  );
+
   it('preserves a maintenance link on draft edits and clears it when the issue type changes', async () => {
     const record = await maintenance();
     const draft = await create([line('0.125')], {
@@ -853,11 +867,25 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       assetIds[0],
       assetIds[1],
     ]);
-    const searched = await http()
-      .get('/assets')
-      .query({ ...query, search: 'A0', locationId: location })
-      .expect(200);
-    expect((searched.body as AssetPage).page.totalItems).toBe(1);
+    await pool.query(
+      "UPDATE assets SET serial_number='warehouse-filter-needle' WHERE id=$1",
+      [assetIds[0]],
+    );
+    try {
+      const searched = await http()
+        .get('/assets')
+        .query({
+          ...query,
+          search: 'warehouse-filter-needle',
+          locationId: location,
+        })
+        .expect(200);
+      expect((searched.body as AssetPage).page.totalItems).toBe(1);
+    } finally {
+      await pool.query('UPDATE assets SET serial_number=NULL WHERE id=$1', [
+        assetIds[0],
+      ]);
+    }
     const wrongItem = await http()
       .get('/assets')
       .query({ ...query, itemId: quantityItem })

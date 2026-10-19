@@ -90,7 +90,7 @@ export function WarehousesScreen() {
       setError(null);
     });
 
-    void request<PaginatedResponse<Warehouse>>('/api/v1/warehouses', {
+    void request<PaginatedResponse<Warehouse>>('/warehouses', {
       params: {
         farmId: selectedFarmId,
         page,
@@ -154,12 +154,12 @@ export function WarehousesScreen() {
 
     try {
       const response = formMode === 'create'
-        ? await request<WarehouseResponse>('/api/v1/warehouses', {
+        ? await request<WarehouseResponse>('/warehouses', {
             method: 'POST',
             params: { farmId: selectedFarmId },
             data,
           })
-        : await request<WarehouseResponse>(`/api/v1/warehouses/${selectedWarehouse?.id}`, {
+        : await request<WarehouseResponse>(`/warehouses/${selectedWarehouse?.id}`, {
             method: 'PATCH',
             params: { farmId: selectedFarmId },
             data,
@@ -189,7 +189,7 @@ export function WarehousesScreen() {
     if (!selectedFarmId || !canWrite) return;
     if (!window.confirm(`Vô hiệu hóa kho ${warehouse.name}?`)) return;
     try {
-      await request(`/api/v1/warehouses/${warehouse.id}`, {
+      await request(`/warehouses/${warehouse.id}`, {
         method: 'DELETE',
         params: { farmId: selectedFarmId },
       });
