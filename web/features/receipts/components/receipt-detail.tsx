@@ -132,7 +132,7 @@ export function ReceiptDetail({
       ) : error ? (
         <div
           role="alert"
-          className="rounded-xl border border-destructive/30 p-4"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
         >
           <p>{error}</p>
           <button type="button" onClick={reload} className="mt-2 underline">
@@ -145,7 +145,7 @@ export function ReceiptDetail({
             {cancelError && (
               <p
                 role="alert"
-                className="rounded-xl border border-destructive/30 p-3 text-destructive"
+                className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
               >
                 {cancelError}
               </p>
@@ -153,7 +153,7 @@ export function ReceiptDetail({
             {confirmError && (
               <p
                 role="alert"
-                className="rounded-xl border border-destructive/30 p-3 text-destructive"
+                className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
               >
                 {confirmError}
               </p>

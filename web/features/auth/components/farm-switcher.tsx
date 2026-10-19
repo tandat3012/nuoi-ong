@@ -32,7 +32,7 @@ export function FarmSwitcher({ className = '' }: { className?: string }) {
           aria-describedby={`${id}-role`}
           onChange={(event) => selectFarm(event.target.value)}
           className={cn(
-            'h-9 w-full min-w-44 max-w-64 appearance-none truncate rounded-lg border border-input bg-card pl-8 pr-8 text-xs font-semibold text-foreground shadow-2xs transition-colors',
+            'h-9 w-full min-w-0 sm:min-w-44 max-w-64 appearance-none truncate rounded-lg border border-input bg-card pl-8 pr-8 text-xs font-semibold text-foreground shadow-2xs transition-colors',
             'hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary',
             data.memberships.length < 2 ? 'cursor-default' : 'cursor-pointer',
           )}
