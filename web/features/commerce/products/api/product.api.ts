@@ -2,18 +2,68 @@ import type { PaginatedResponse } from '@/shared/api/contracts';
 import type { StorefrontProduct, StorefrontProductDetail } from '../types/product';
 import { API_CONFIG } from '@/shared/config/api';
 
+export interface StoreProductsQuery {
+  page?: number;
+  pageSize?: number;
+  category?: string;
+  q?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  sort?: 'price_asc' | 'price_desc';
+}
+
 export async function getProductsStore(
-  page = 1,
+  query?: StoreProductsQuery,
+): Promise<PaginatedResponse<StorefrontProduct>>;
+export async function getProductsStore(
+  page?: number,
+  pageSize?: number,
+  category?: string,
+): Promise<PaginatedResponse<StorefrontProduct>>;
+export async function getProductsStore(
+  param1?: number | StoreProductsQuery,
   pageSize = 20,
   category?: string,
 ): Promise<PaginatedResponse<StorefrontProduct>> {
-  const baseUrl = process.env.API_INTERNAL_URL ?? process.env.API_URL ?? API_CONFIG.BASE_URL;
+  let queryObj: StoreProductsQuery;
+  if (typeof param1 === 'object' && param1 !== null) {
+    queryObj = param1;
+  } else {
+    queryObj = {
+      page: param1 ?? 1,
+      pageSize,
+      category,
+    };
+  }
+
+  const page = queryObj.page ?? 1;
+  const size = queryObj.pageSize ?? 20;
   const query = new URLSearchParams({
     page: String(page),
-    pageSize: String(pageSize),
+    pageSize: String(size),
   });
-  if (category) query.set('category', category);
 
+  if (queryObj.category) {
+    query.set('category', queryObj.category);
+  }
+
+  if (queryObj.q !== undefined && queryObj.q.trim().length > 0) {
+    query.set('q', queryObj.q.trim());
+  }
+
+  if (queryObj.minPrice !== undefined && queryObj.minPrice !== null) {
+    query.set('minPrice', String(queryObj.minPrice));
+  }
+
+  if (queryObj.maxPrice !== undefined && queryObj.maxPrice !== null) {
+    query.set('maxPrice', String(queryObj.maxPrice));
+  }
+
+  if (queryObj.sort === 'price_asc' || queryObj.sort === 'price_desc') {
+    query.set('sort', queryObj.sort);
+  }
+
+  const baseUrl = process.env.API_INTERNAL_URL ?? process.env.API_URL ?? API_CONFIG.BASE_URL;
   const response = await fetch(
     `${baseUrl}${API_CONFIG.VERSION}/store/products?${query}`,
     {

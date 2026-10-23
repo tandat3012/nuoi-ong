@@ -16,10 +16,12 @@ import {
 import { STOREFRONT_CONFIG } from '../config/storefront-config';
 import { StoreBrand } from './store-brand';
 import { StoreSearchBar } from './store-search-bar';
+import { useCart } from '@/features/commerce/cart/hooks/use-cart';
 
 export function StoreMobileNav() {
   const [open, setOpen] = React.useState(false);
   const pathname = usePathname();
+  const { totalUnits, openDrawer, isHydrated } = useCart();
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -53,7 +55,10 @@ export function StoreMobileNav() {
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               Tìm kiếm
             </p>
-            <StoreSearchBar />
+            <StoreSearchBar
+              idSuffix="drawer"
+              onSearchSubmit={() => setOpen(false)}
+            />
           </div>
 
           {/* Danh mục và điều hướng */}
@@ -104,16 +109,26 @@ export function StoreMobileNav() {
               <span>Đăng nhập tài khoản</span>
             </Link>
 
-            <div
-              className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground/60 cursor-not-allowed select-none opacity-80"
-              aria-disabled="true"
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                openDrawer();
+              }}
+              className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-foreground hover:bg-muted/70 transition-colors focus-visible:outline-2 focus-visible:outline-primary cursor-pointer w-full text-left"
             >
               <div className="flex items-center gap-2.5">
-                <ShoppingBag className="size-4.5 text-muted-foreground/60" aria-hidden="true" />
+                <ShoppingBag className="size-4.5 text-primary" aria-hidden="true" />
                 <span>Giỏ hàng</span>
               </div>
-              <span className="text-xs font-normal">(Đang chuẩn bị)</span>
-            </div>
+              {isHydrated && totalUnits > 0 ? (
+                <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[0.625rem] font-bold text-primary-foreground shadow-2xs">
+                  {totalUnits > 99 ? '99+' : totalUnits}
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">Trống</span>
+              )}
+            </button>
           </div>
         </div>
       </SheetContent>

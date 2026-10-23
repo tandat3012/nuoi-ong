@@ -1,5 +1,14 @@
 import type { StorefrontProduct } from '../types/product';
 
+/**
+ * Tập dữ liệu mẫu (Development Fixtures) cho sản phẩm nổi bật trên storefront.
+ *
+ * Bộ dữ liệu gồm 4 trường hợp điển hình:
+ * 1. Sản phẩm có huy hiệu ưu đãi ("Bán chạy"), có giá gốc giảm (originalPrice) và đánh giá sao đầy đủ.
+ * 2. Sản phẩm có huy hiệu phần trăm giảm giá ("-13%"), giá gốc và đánh giá sao.
+ * 3. Sản phẩm có tên dài (kiểm thử căn chỉnh chiều cao tiêu đề đồng đều min-h & line-clamp).
+ * 4. Sản phẩm nguyên giá (không có originalPrice) và không có đánh giá sao (kiểm thử chống layout shift).
+ */
 export const STOREFRONT_FEATURED_PRODUCTS: readonly StorefrontProduct[] = [
   {
     id: 'prod-mat-ong-hoa-ca-phe',
@@ -65,7 +74,7 @@ export const STOREFRONT_FEATURED_PRODUCTS: readonly StorefrontProduct[] = [
       slug: 'vat-tu',
     },
     price: 325000,
-    // Không giảm giá, không có đánh giá (thử nghiệm cả 2 ca rỗng)
+    // Không giảm giá, không có đánh giá (thử nghiệm cả 2 trường hợp khuyết dữ liệu)
     badge: 'Bán chạy',
     inStock: true,
   },
