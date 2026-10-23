@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   /* Surfaces & Canvas */
   --background: #f8faf7;
@@ -121,12 +123,27 @@
   --font-mono: var(--font-geist-mono);
   --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
 
+  --color-store-category-selected: var(--store-category-selected-bg);
+  --color-store-category-selected-foreground: var(--store-category-selected-foreground);
   --color-store-warm: var(--store-surface-warm);
   --color-store-banner: var(--store-banner-bg);
   --color-store-banner-foreground: var(--store-banner-foreground);
   --color-store-announcement: var(--store-announcement-bg);
   --color-store-announcement-foreground: var(--store-announcement-foreground);
   --color-store-hero-highlight: var(--store-hero-highlight);
+  --color-store-rating-fill: var(--store-rating-fill);
+  --color-store-rating-stroke: var(--store-rating-stroke);
+  --color-store-rating-empty-fill: var(--store-rating-empty-fill);
+  --color-store-rating-empty-stroke: var(--store-rating-empty-stroke);
+  --color-store-promo-supplies: var(--store-promo-supplies);
+  --color-store-promo-equipment: var(--store-promo-equipment);
+  --color-store-badge: var(--store-badge-bg);
+  --color-store-badge-foreground: var(--store-badge-foreground);
+  --color-store-newsletter: var(--store-newsletter-bg);
+  --color-store-newsletter-foreground: var(--store-newsletter-foreground);
+  --color-store-newsletter-subtext: var(--store-newsletter-subtext);
+  --color-store-newsletter-action: var(--store-newsletter-action-bg);
+  --color-store-newsletter-action-foreground: var(--store-newsletter-action-foreground);
 }
 
 /* Storefront Scoped Semantic Theme (Mộc Ong) */
@@ -160,6 +177,9 @@
   --input: #ede6dc;
   --ring: #d97706;
 
+  --store-category-selected-bg: #2d241e;
+  --store-category-selected-foreground: #ffffff;
+
   /* Dedicated Storefront Semantic Values */
   --store-surface-warm: #fbf8f2;
   --store-banner-bg: #1c140e;
@@ -171,6 +191,25 @@
 
   /* Hero Scoped Emphasis (Warm Golden Honey) */
   --store-hero-highlight: #fcbe53;
+
+  /* Rating Star Semantic Colors */
+  --store-rating-fill: #f59e0b;
+  --store-rating-stroke: #d97706;
+  --store-rating-empty-fill: #e7e5e4;
+  --store-rating-empty-stroke: #d6d3d1;
+
+  /* Promotional Surfaces & Badges */
+  --store-promo-supplies: #fbf5eb;
+  --store-promo-equipment: #f6efe4;
+  --store-badge-bg: #ebb02d;
+  --store-badge-foreground: #451a03;
+
+  /* Newsletter Banner (Rich Honey Amber) */
+  --store-newsletter-bg: #f4be38;
+  --store-newsletter-foreground: #2d241e;
+  --store-newsletter-subtext: #5c4314;
+  --store-newsletter-action-bg: #2e1d13;
+  --store-newsletter-action-foreground: #ffffff;
 }
 
 /* Storefront Scoped Typography */
@@ -186,6 +225,9 @@
 /* Storefront Dark Mode (when dark class is active within customer context) */
 .dark .storefront,
 .storefront.dark {
+  --store-category-selected-bg: var(--primary);
+  --store-category-selected-foreground: var(--primary-foreground);
+
   --background: #14110e;
   --foreground: #f5efe6;
   --card: #1c1814;
@@ -217,6 +259,25 @@
 
   /* Hero Scoped Emphasis */
   --store-hero-highlight: #fbbe24e4;
+
+  /* Rating Star Semantic Colors */
+  --store-rating-fill: #fbbf24;
+  --store-rating-stroke: #f59e0b;
+  --store-rating-empty-fill: #292524;
+  --store-rating-empty-stroke: #44403c;
+
+  /* Promotional Surfaces & Badges */
+  --store-promo-supplies: #1e1914;
+  --store-promo-equipment: #1a1612;
+  --store-badge-bg: #d97706;
+  --store-badge-foreground: #fef3c7;
+
+  /* Newsletter Banner */
+  --store-newsletter-bg: #92400e;
+  --store-newsletter-foreground: #fef3c7;
+  --store-newsletter-subtext: #fde68a;
+  --store-newsletter-action-bg: #1c140e;
+  --store-newsletter-action-foreground: #fef3c7;
 }
 
 * {

@@ -1,25 +1,23 @@
-import * as React from "react";
-import Link from "next/link";
-import { STOREFRONT_CONFIG } from "../config/storefront-config";
-import { ProductCard } from "@/features/commerce/products/components/product-card";
-import { StorefrontProduct } from "../../products/types/product";
-import { getProductsStore } from "../../products/api/product.api";
-import { ErrorAlert } from "@/shared/components/ui/error-alert";
+import * as React from 'react';
+import Link from 'next/link';
+import { STOREFRONT_CONFIG } from '../config/storefront-config';
+import type { StorefrontProduct } from '../../products/types/product';
+import { getProductsStore } from '../../products/api/product.api';
+import { FeaturedProductsCarousel } from './featured-products-carousel';
+import { StoreLoadError } from './store-load-error';
 
 export async function HomeFeaturedProducts() {
   const { featuredProducts } = STOREFRONT_CONFIG;
-
-  let products: StorefrontProduct[];
+  let products: StorefrontProduct[] = [];
+  let failed = false;
 
   try {
-    products = (await getProductsStore(1, 4)).data;
+    const result = await getProductsStore({ pageSize: 4 });
+    products = result.data;
   } catch {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-12">
-        <ErrorAlert message="Không tải được sản phẩm. Vui lòng tải lại trang." />
-      </div>
-    );
+    failed = true;
   }
+
   return (
     <section
       aria-label="Sản phẩm nổi bật được nhà ong tin chọn"
@@ -49,8 +47,7 @@ export async function HomeFeaturedProducts() {
             ) : (
               <span
                 aria-disabled="true"
-                title="Trang danh mục sản phẩm đang được chuẩn bị"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground/60 select-none cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground/60 select-none"
               >
                 <span>{featuredProducts.viewAll.label}</span>
                 <span aria-hidden="true">&rarr;</span>
@@ -59,17 +56,15 @@ export async function HomeFeaturedProducts() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
-          {products.length === 0 ? (
-            <p className="col-span-full text-muted-foreground">
-              Chưa có sản phẩm{" "}
-            </p>
-          ) : (
-            products.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))
-          )}
-        </div>
+        {failed ? (
+          <StoreLoadError>Không tải được sản phẩm.</StoreLoadError>
+        ) : products.length === 0 ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            Chưa có sản phẩm được công khai.
+          </p>
+        ) : (
+          <FeaturedProductsCarousel products={products} />
+        )}
       </div>
     </section>
   );
