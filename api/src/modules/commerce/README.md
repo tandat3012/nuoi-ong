@@ -1,68 +1,59 @@
 # Commerce — backend
 
-Module bán hàng phục vụ customer trong NestJS API hiện tại, đã đăng ký trong `AppModule`.
+Module cửa hàng trong NestJS API, đọc catalog từ PostgreSQL qua Drizzle.
 
-## API base hiện tại
+| Method | Endpoint                       | Kết quả                                                        |
+| ------ | ------------------------------ | -------------------------------------------------------------- |
+| GET    | `/api/v1/store/products`       | Danh sách sản phẩm có phân trang, lọc và sắp xếp               |
+| GET    | `/api/v1/store/products/:slug` | Chi tiết trong `{ data }`; không tìm thấy hoặc bị ẩn trả `404` |
+| GET    | `/api/v1/store/categories`     | Danh mục storefront có phân trang, kể cả danh mục trống        |
 
-| Method | Endpoint                       | Kết quả                                                           |
-| ------ | ------------------------------ | ----------------------------------------------------------------- |
-| GET    | `/api/v1/store/products`       | Danh sách sản phẩm có phân trang                                  |
-| GET    | `/api/v1/store/products/:slug` | Chi tiết sản phẩm, bọc trong `{ data }`; không tìm thấy trả `404` |
-| GET    | `/api/v1/store/categories`     | Danh sách danh mục có phân trang                                  |
+Các endpoint này dùng `@Public()`; API nội bộ vẫn giữ xác thực và phân quyền hiện có. Không nhận kho/trang trại từ customer.
 
-- Dùng **dữ liệu mẫu cố định** trong `commerce.fixtures.ts`: 4 sản phẩm và 4 danh mục. Giá (số nguyên VNĐ), ID và `inStock` đều là minh họa, không phản ánh dữ liệu thực tế.
-- API hiện chưa truy cập DB và không công khai hồ sơ vật tư/tài sản nội bộ. Schema storefront đã được chuẩn bị bằng migration `0014`–`0015`, chưa nối vào các endpoint này.
-- Mỗi endpoint được đánh dấu `@Public()` riêng; không yêu cầu Clerk token hay `farmId`. API Admin giữ nguyên cơ chế xác thực/phân quyền.
-- Hai API danh sách dùng lại `parsePagination`: `page` mặc định `1`, `pageSize` mặc định `20`, tối đa `100` bản ghi/lần. Yêu cầu trên `100` được giới hạn xuống `100`.
-- Giá trị rỗng dùng mặc định; số âm, `0`, số lẻ, giá trị không phải số hoặc trang vượt phạm vi số nguyên an toàn trả `400`.
-- Trang vượt dữ liệu trả `data: []` cùng thông tin tổng; thứ tự hiện tại theo mảng fixture.
-- Products hỗ trợ `category` là slug dài tối đa 100 ký tự, gồm chữ thường, số và dấu gạch nối giữa các nhóm. Lọc trước khi phân trang; tổng số là tổng trong danh mục. Slug đúng định dạng nhưng không tồn tại trả danh sách rỗng; sai định dạng hoặc truyền lặp trả `400`.
-- Frontend đã nối trang chủ và danh sách `/products` có phân trang/lọc danh mục. Chưa triển khai tìm kiếm, API ghi, checkout, đơn hàng hoặc cache.
+## Dữ liệu công khai
 
-```text
-api/
-  src/modules/commerce/
-    commerce.module.ts       # Đăng ký controller và service
-    commerce.controller.ts   # GET /store/products, /store/products/:slug, /store/categories
-    commerce.service.ts      # Đọc dữ liệu mẫu, phân trang, xử lý không tìm thấy
-    commerce.fixtures.ts     # Dữ liệu mẫu, tách khỏi nghiệp vụ
-    README.md
-  test/commerce.e2e-spec.ts   # Test HTTP, dùng mock DB và Clerk
-```
+- Kho bán lấy từ `store_settings.id = 1`. Thiếu cấu hình hoặc kho/trang trại không hoạt động trả `503`.
+- Chỉ trả sản phẩm `PUBLISHED` có ít nhất một variant `active`, gắn item và đơn vị hoạt động; item phải cùng trang trại với kho bán.
+- `price` là giá thấp nhất của các variant hợp lệ, kể cả variant hết hàng. Lọc và sort giá dùng cùng giá này. Đây là giá khởi điểm; variant còn hàng có thể có giá cao hơn.
+- Giá được so sánh bằng numeric trong DB, chỉ chuyển thành `number` khi trả response. Giá hiển thị vượt số nguyên an toàn của JavaScript trả `500` thay vì làm tròn âm thầm.
+- `inStock` đúng khi có variant hợp lệ đủ tồn cho ít nhất một `quantityStep` tại kho bán. Hết hàng vẫn được hiển thị.
+- `QUANTITY` dùng balance không gắn lô. `LOT` chỉ cộng lô đúng item/trang trại và chưa hết hạn; ngày hết hạn bằng hôm nay vẫn hợp lệ, ngày tính theo UTC như module kho.
+- `ASSET` cần balance đủ và cá thể `AVAILABLE` có vị trí thuộc kho bán. Dữ liệu thiếu vị trí được coi là chưa sẵn hàng.
+- Ảnh đại diện là ảnh có `position` nhỏ nhất, trả `image: { src, alt }`; thiếu ảnh thì bỏ trường `image`.
+- Chỉ trả trường catalog công khai, không trả giá vốn, item nội bộ hoặc serial. ID là UUID từ DB.
 
-Ví dụ:
+Sản phẩm gồm `id`, `slug`, `name`, `description`, `category: { id, name, slug }`, `price`, `inStock` và `image` nếu có. Chi tiết dùng cùng quy tắc hiển thị với danh sách.
 
-```text
-GET /api/v1/store/products?page=1&pageSize=4
-GET /api/v1/store/products?category=vat-tu&page=1&pageSize=20
-GET /api/v1/store/categories?page=2&pageSize=2
-GET /api/v1/store/products/mat-ong-hoa-ca-phe-nguyen-chat
-```
+## Query và phân trang
 
-Hợp đồng danh sách dùng quy ước `{ data, page }` hiện có:
+| Query                   | Hợp đồng                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `page`                  | Mặc định `1`, số nguyên dương                                                                                                  |
+| `pageSize`              | Mặc định `20`, tối đa `100`                                                                                                    |
+| `category`              | Slug danh mục, tối đa 100 ký tự; slug hợp lệ không tồn tại trả danh sách rỗng                                                  |
+| `q`                     | Trim, tối đa 100 ký tự; tìm substring trong tên, không phân biệt hoa/thường, có phân biệt dấu; `%`, `_` và `\` là ký tự thường |
+| `minPrice` / `maxPrice` | Cận giá bao gồm, chỉ chữ số, từ `0` đến `9007199254740991`; hai cận bằng nhau hợp lệ                                           |
+| `sort`                  | `price_asc` hoặc `price_desc`; giá bằng nhau theo ID tăng dần                                                                  |
 
-```json
-{
-  "data": [],
-  "page": {
-    "number": 3,
-    "size": 2,
-    "totalItems": 4,
-    "totalPages": 2
-  }
-}
-```
+Không truyền sort thì theo tên, ID tăng dần. Query sai định dạng, lặp không hợp lệ, cận giá đảo hoặc phân trang vượt phạm vi an toàn trả `400`. Bộ lọc kết hợp theo AND.
 
-Sản phẩm gồm `id`, `slug`, `name`, `description`, `category`, `price`, `inStock`. Danh mục gồm `id`, `name`, `slug`. ID hiện là chuỗi mẫu, chưa phải UUID từ DB.
+Danh sách dùng envelope `{ data, page: { number, size, totalItems, totalPages } }`. Trang vượt dữ liệu trả `data: []` và giữ tổng đã lọc; không có kết quả thì tổng và số trang bằng `0`.
 
-Khi nối DB, phân trang tại truy vấn (`LIMIT`/`OFFSET` và thứ tự ổn định), không tải toàn bộ dữ liệu rồi cắt mảng. Giới hạn `100` kiểm soát kích thước phản hồi, không thay thế giới hạn tần suất request hay tối ưu truy vấn.
+Query catalog chỉ tổng hợp giá và dữ liệu sản phẩm. Lọc/sort/`LIMIT`/`OFFSET` chạy trong DB; count dùng cùng tập lọc. Sau đó lấy ảnh và tính tồn bằng hai query theo ID trên trang; trang rỗng bỏ qua hai query này. List và count không dùng cùng snapshot nên có thể lệch tạm thời khi catalog được sửa đồng thời.
 
-Chạy kiểm tra từ `api/`:
+## Kiểm tra
+
+Từ `api/`:
 
 ```bash
 pnpm exec jest --config ./test/jest-e2e.json --runInBand commerce.e2e-spec.ts
+pnpm exec jest --config ./test/jest-db.json --runInBand commerce.integration.e2e-spec.ts
 pnpm build
 ```
+
+- `commerce.e2e-spec.ts` kiểm tra HTTP, validation, async response và guard bằng service/Clerk mock.
+- `commerce.integration.e2e-spec.ts` kiểm tra service thật trên DB đã migrate: publication, giá variants, lọc/sort/phân trang, ảnh và ba kiểu tồn kho. Mỗi test tạo fixture trong transaction rồi rollback; cấu hình kho cũng được phục hồi.
+- `commerce.fixtures.ts` không còn được service dùng.
 
 ## Schema storefront
 
@@ -78,7 +69,7 @@ pnpm build
 
 - Sản phẩm mặc định `DRAFT`. Một sản phẩm đơn vẫn cần một biến thể; khi triển khai API xuất bản phải kiểm tra có biến thể hợp lệ. Chuyển về nháp sẽ ẩn sản phẩm, không giữ thêm phiên bản công khai song song.
 - Mỗi `item_id` chỉ xuất hiện ở một biến thể. Giá bán thuộc biến thể, đơn vị lấy từ `items.unit_id`; chưa có combo/quy đổi đơn vị.
-- `price` là `numeric(18,0)`, không âm; `quantity_step` là `numeric(18,3)`, dương, mặc định `1`. Cả hai cấm `NaN`. Drizzle/pg trả numeric dưới dạng chuỗi để giữ độ chính xác; API nối DB sau này cần quyết định serialize giá tương thích frontend, không ép mọi giá sang `Number` thiếu kiểm tra.
+- `price` là `numeric(18,0)`, không âm; `quantity_step` là `numeric(18,3)`, dương, mặc định `1`. Cả hai cấm `NaN`. Drizzle/pg trả numeric dưới dạng chuỗi để giữ độ chính xác; API chỉ chuyển giá sang `number` sau khi kiểm tra phạm vi số nguyên an toàn.
 - PostgreSQL làm tròn numeric theo scale khi ghi. API ghi sau này phải từ chối giá lẻ đồng và bước có quá 3 chữ số thập phân trước khi gửi DB. Số lượng đặt phải là bội số dương của bước; tối thiểu bằng một bước. Quy tắc tính/làm tròn tiền thuộc bước triển khai đơn hàng.
 - Migration `0015` dùng trigger buộc bước của item `ASSET` bằng `1`, kiểm tra cả thay đổi biến thể và đổi `items.tracking_mode`. Trigger khóa chia sẻ item khi kiểm tra để tránh tranh chấp với đổi cách quản lý.
 - Ảnh có thứ tự không âm, duy nhất trong từng sản phẩm. Khi đổi chỗ hai ảnh, API cần dùng vị trí tạm còn trống trong transaction để tránh vi phạm unique.
@@ -110,11 +101,11 @@ pnpm db:seed:storefront
 - Cả lần seed dùng một transaction, khóa advisory tránh hai lần seed chạy đồng thời. Thiếu điều kiện hoặc lỗi SQL sẽ rollback. CLI từ chối môi trường production và host ngoài local.
 - Test seed dùng DB test riêng, storefront trống và chưa có `FARM-DEMO`; không chạy bộ test này trên DB chứa dữ liệu phát triển cần giữ.
 
-### Điều kiện cần xử lý khi nối API
+### Ràng buộc khi tích hợp quản trị và đơn hàng
 
-- Thiết lập kho trước khi bán. Kho phải hoạt động; item phải cùng trang trại với kho được chọn. Khóa ngoại hiện chỉ kiểm tra sự tồn tại, chưa kiểm tra cùng trang trại hoặc trạng thái hoạt động. API quản trị phải kiểm tra cả khi đổi kho/item và luôn giới hạn truy vấn tồn theo đúng kho/trang trại.
+- Thiết lập kho trước khi bán. Kho phải hoạt động; item phải cùng trang trại với kho được chọn. Khóa ngoại hiện chỉ kiểm tra sự tồn tại, chưa kiểm tra cùng trang trại hoặc trạng thái hoạt động. API đọc đã kiểm tra các điều kiện này và giới hạn tồn theo kho/trang trại; API quản trị sau này phải kiểm tra cả khi đổi kho/item.
 - `QUANTITY` lấy tồn kho bán; `LOT` xét lô và hạn dùng theo nghiệp vụ. Với `ASSET`, phải bảo đảm vị trí cá thể thuộc kho bán và trạng thái đủ điều kiện xuất. Luồng nhập cho phép thiếu vị trí và luồng trả thiết bị hiện chưa cập nhật vị trí, nên cần xử lý trước khi dùng làm tồn khả dụng.
-- Không tự công khai toàn bộ items hoặc danh mục nội bộ. Catalog được chọn và biên tập riêng; sửa bảng storefront chưa làm thay đổi API mock hiện tại.
+- Không tự công khai toàn bộ items hoặc danh mục nội bộ. Catalog được chọn và biên tập riêng trong các bảng storefront.
 
 ## Định hướng giai đoạn sau (chưa triển khai)
 
