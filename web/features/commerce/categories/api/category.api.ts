@@ -7,7 +7,7 @@ export async function getCategoriesStore(
   pageSize = 20,
 ): Promise<PaginatedResponse<StorefrontCategory>> {
   const baseUrl =
-    process.env.API_INTERNAL_URL ?? process.env.API_URL ?? API_CONFIG.BASE_URL;
+    process.env.API_INTERNAL_URL ?? API_CONFIG.BASE_URL;
   const response = await fetch(
     `${baseUrl}${API_CONFIG.VERSION}/store/categories?page=${page}&pageSize=${pageSize}`,
     {
