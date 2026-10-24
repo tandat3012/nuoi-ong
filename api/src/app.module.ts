@@ -11,6 +11,7 @@ import { WarehousesModule } from './modules/warehouses/warehouses.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { CommerceModule } from './modules/commerce/commerce.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { CommerceModule } from './modules/commerce/commerce.module';
     InventoryModule,
     MaintenanceModule,
     CommerceModule,
+    CloudinaryModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
