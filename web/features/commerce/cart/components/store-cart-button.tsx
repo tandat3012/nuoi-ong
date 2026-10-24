@@ -15,10 +15,11 @@ export function StoreCartButton({ className }: StoreCartButtonProps) {
 
   return (
     <button
+      data-store-cart-trigger
       type="button"
       onClick={openDrawer}
       aria-label={
-        showBadge
+        !isHydrated ? 'Mở giỏ hàng, đang khôi phục' : showBadge
           ? `Mở giỏ hàng, hiện có ${totalUnits} sản phẩm`
           : 'Mở giỏ hàng, giỏ hàng trống'
       }

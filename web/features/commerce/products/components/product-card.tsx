@@ -2,6 +2,9 @@
 
 import * as React from 'react';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import { getProductStore } from '../api/product.api';
+import { resolveCartInput, resolveProductForCart } from '../../cart/components/cart.logic';
 import Link from 'next/link';
 import { Star, ShoppingBag, Package } from 'lucide-react';
 import type { StorefrontProduct } from '../types/product';
@@ -40,32 +43,39 @@ export function ProductCard({
   const ratingInfo = getProductCardRating(product.rating);
 
   const cart = useOptionalCart();
+  const router = useRouter();
+  const [isAdding, setIsAdding] = React.useState(false);
+  const [addError, setAddError] = React.useState<string | null>(null);
+  const adding = React.useRef(false);
   const hasMultipleVariants = Array.isArray(product.variants) && product.variants.length > 1;
 
-  const handleAddToCart = () => {
-    if (!product.inStock) return;
-    if (onAddToCart) {
-      onAddToCart(product);
-      return;
-    }
-    if (cart) {
-      const singleVariant =
-        product.variants && product.variants.length === 1
-          ? product.variants[0]
-          : undefined;
-
-      cart.addItem({
-        productId: product.id,
-        productSlug: product.slug,
-        productName: product.name,
-        variantId: singleVariant?.id,
-        variantName: singleVariant?.name,
-        unitPrice: singleVariant?.price ?? product.price,
-        originalPrice: singleVariant?.originalPrice ?? product.originalPrice,
-        image: singleVariant?.image ?? product.image,
-        quantity: 1,
-        inStock: singleVariant?.inStock ?? product.inStock,
-      });
+  const handleAddToCart = async () => {
+    if (!product.inStock || adding.current) return;
+    adding.current = true;
+    setIsAdding(true);
+    setAddError(null);
+    try {
+      const resolved = await resolveProductForCart(product, getProductStore);
+      if (!resolved || resolved.id !== product.id) {
+        setAddError('Không còn tìm thấy sản phẩm. Vui lòng tải lại danh sách.');
+        return;
+      }
+      if (resolved.variants && resolved.variants.length > 1) {
+        router.push(`/products/${product.slug}`);
+        return;
+      }
+      const input = resolveCartInput(resolved);
+      if (!input) {
+        setAddError('Chưa thể xác minh quy cách, giá hoặc tình trạng hàng. Vui lòng xem chi tiết.');
+        return;
+      }
+      if (onAddToCart) onAddToCart(resolved);
+      else if (!cart?.addItem(input)) setAddError('Chưa thể thêm sản phẩm vào giỏ hàng.');
+    } catch {
+      setAddError('Không tải được thông tin sản phẩm. Vui lòng thử lại.');
+    } finally {
+      adding.current = false;
+      setIsAdding(false);
     }
   };
 
@@ -218,7 +228,8 @@ export function ProductCard({
         ) : isCartImplemented ? (
           <Button
             type="button"
-            disabled={!product.inStock}
+            disabled={!product.inStock || isAdding}
+            aria-busy={isAdding}
             onClick={handleAddToCart}
             size="sm"
             aria-label={
@@ -232,7 +243,7 @@ export function ProductCard({
             )}
           >
             <ShoppingBag className="size-4 text-[#786f66]" aria-hidden="true" />
-            <span>{product.inStock ? 'Thêm vào giỏ' : 'Hết hàng'}</span>
+            <span>{isAdding ? 'Đang xác minh…' : product.inStock ? 'Thêm vào giỏ' : 'Hết hàng'}</span>
           </Button>
         ) : (
           <Button
@@ -246,6 +257,11 @@ export function ProductCard({
             <ShoppingBag className="size-4 text-[#786f66]" aria-hidden="true" />
             <span>Thêm vào giỏ</span>
           </Button>
+        )}
+        {addError && (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {addError} <Link href={`/products/${product.slug}`} className="underline">Xem chi tiết</Link>
+          </p>
         )}
       </div>
     </article>

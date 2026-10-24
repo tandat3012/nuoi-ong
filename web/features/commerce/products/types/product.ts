@@ -31,9 +31,9 @@ export type StorefrontProduct = {
 export type StorefrontProductVariant = {
   id: string;
   name: string;
-  price?: number;
+  price: number;
   originalPrice?: number;
-  inStock?: boolean;
+  inStock: boolean;
   image?: StorefrontProductImage;
   sku?: string;
 };

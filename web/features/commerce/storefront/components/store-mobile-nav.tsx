@@ -20,6 +20,8 @@ import { useCart } from '@/features/commerce/cart/hooks/use-cart';
 
 export function StoreMobileNav() {
   const [open, setOpen] = React.useState(false);
+  const menuTrigger = React.useRef<HTMLButtonElement>(null);
+  const cartAfterClose = React.useRef(false);
   const pathname = usePathname();
   const { totalUnits, openDrawer, isHydrated } = useCart();
 
@@ -27,6 +29,7 @@ export function StoreMobileNav() {
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button
+          ref={menuTrigger}
           variant="ghost"
           size="icon"
           className="md:hidden size-9 text-foreground hover:bg-muted/70"
@@ -37,6 +40,13 @@ export function StoreMobileNav() {
       </SheetTrigger>
 
       <SheetContent
+        onCloseAutoFocus={(event) => {
+          if (!cartAfterClose.current) return;
+          event.preventDefault();
+          cartAfterClose.current = false;
+          menuTrigger.current?.focus();
+          openDrawer();
+        }}
         side="left"
         theme="storefront"
         className="w-80 max-w-[85vw] p-0 flex flex-col bg-background text-foreground"
@@ -112,8 +122,8 @@ export function StoreMobileNav() {
             <button
               type="button"
               onClick={() => {
+                cartAfterClose.current = true;
                 setOpen(false);
-                openDrawer();
               }}
               className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-foreground hover:bg-muted/70 transition-colors focus-visible:outline-2 focus-visible:outline-primary cursor-pointer w-full text-left"
             >
@@ -126,7 +136,7 @@ export function StoreMobileNav() {
                   {totalUnits > 99 ? '99+' : totalUnits}
                 </span>
               ) : (
-                <span className="text-xs text-muted-foreground">Trống</span>
+                <span className="text-xs text-muted-foreground">{isHydrated ? 'Trống' : 'Đang khôi phục…'}</span>
               )}
             </button>
           </div>

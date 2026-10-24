@@ -15,6 +15,7 @@ export interface StoreProductsQuery {
 export async function getProductsStore(
   query?: StoreProductsQuery,
 ): Promise<PaginatedResponse<StorefrontProduct>>;
+
 export async function getProductsStore(
   page?: number,
   pageSize?: number,
@@ -38,6 +39,7 @@ export async function getProductsStore(
 
   const page = queryObj.page ?? 1;
   const size = queryObj.pageSize ?? 20;
+
   const query = new URLSearchParams({
     page: String(page),
     pageSize: String(size),
@@ -79,7 +81,7 @@ export async function getProductsStore(
   return (await response.json()) as PaginatedResponse<StorefrontProduct>;
 }
 
-export async function getProductStore(
+async function fetchProductStore(
   slug: string,
 ): Promise<{ data: StorefrontProductDetail } | null> {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return null;
@@ -99,5 +101,28 @@ export async function getProductStore(
     throw new Error(`Không tải được chi tiết sản phẩm: HTTP ${response.status}`);
   }
 
-  return (await response.json()) as { data: StorefrontProductDetail };
+  const payload = (await response.json()) as { data?: StorefrontProductDetail };
+  const detail = payload?.data;
+
+  if (!detail || typeof detail.id !== 'string' || detail.slug !== slug ||
+    typeof detail.name !== 'string' ||
+    (detail.variants !== undefined && (!Array.isArray(detail.variants) ||
+      !detail.variants.every((variant) => variant && typeof variant.id === 'string' && variant.id.trim() &&
+        typeof variant.name === 'string' && Number.isSafeInteger(variant.price) && variant.price >= 0 &&
+        typeof variant.inStock === 'boolean')))) {
+    throw new Error('Thông tin quy cách sản phẩm không hợp lệ');
+  }
+  return { data: detail };
+}
+
+const pendingDetails = new Map<string, Promise<{ data: StorefrontProductDetail } | null>>();
+
+export function getProductStore(slug: string): Promise<{ data: StorefrontProductDetail } | null> {
+  const pending = pendingDetails.get(slug);
+
+  if (pending) return pending;
+
+  const request = fetchProductStore(slug).finally(() => pendingDetails.delete(slug));
+  pendingDetails.set(slug, request);
+  return request;
 }

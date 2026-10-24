@@ -148,9 +148,9 @@ export function resolveActiveProductSnapshot(
   }
 
   return {
-    price: selectedVariant.price ?? product.price,
-    originalPrice: selectedVariant.originalPrice ?? product.originalPrice,
-    inStock: selectedVariant.inStock ?? product.inStock,
+    price: selectedVariant.price ?? NaN,
+    originalPrice: selectedVariant.originalPrice,
+    inStock: selectedVariant.inStock === true,
     sku: selectedVariant.sku ?? product.sku,
     image: selectedVariant.image ?? product.image,
   };

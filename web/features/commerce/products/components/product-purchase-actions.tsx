@@ -7,12 +7,14 @@ import { cn } from '@/shared/lib/utils';
 
 export interface ProductPurchaseActionsProps {
   inStock: boolean;
+  canAdd?: boolean;
   onAddToCart?: () => void;
   className?: string;
 }
 
 export function ProductPurchaseActions({
   inStock,
+  canAdd = inStock,
   onAddToCart,
   className,
 }: ProductPurchaseActionsProps) {
@@ -21,8 +23,8 @@ export function ProductPurchaseActions({
       {/* Nút Thêm vào giỏ — Hành động chính (Primary) */}
       <Button
         type="button"
-        disabled={!inStock}
-        aria-disabled={!inStock}
+        disabled={!canAdd}
+        aria-disabled={!canAdd}
         onClick={onAddToCart}
         aria-label={inStock ? 'Thêm vào giỏ hàng' : 'Sản phẩm tạm hết hàng'}
         className={cn(
@@ -30,7 +32,10 @@ export function ProductPurchaseActions({
           !inStock && 'opacity-50 cursor-not-allowed hover:bg-[#faf5ee]',
         )}
       >
-        <ShoppingBag className="size-4 sm:size-5 text-[#786f66]" aria-hidden="true" />
+        <ShoppingBag
+          className="size-4 sm:size-5 text-[#786f66]"
+          aria-hidden="true"
+        />
         <span>{inStock ? 'Thêm vào giỏ' : 'Hết hàng'}</span>
       </Button>
 
