@@ -2,7 +2,10 @@
 
 import * as React from 'react';
 import { Star, Truck, ShieldCheck, RotateCcw } from 'lucide-react';
-import type { StorefrontProductDetail, StorefrontProductVariant } from '../types/product';
+import type {
+  StorefrontProductDetail,
+  StorefrontProductVariant,
+} from '../types/product';
 import {
   computeDetailDiscount,
   resolveActiveProductSnapshot,
@@ -12,6 +15,7 @@ import { ProductQuantitySelector } from './product-quantity-selector';
 import { ProductPurchaseActions } from './product-purchase-actions';
 import { formatVndCurrency } from '@/shared/lib/currency';
 import { cn } from '@/shared/lib/utils';
+import { resolveCartInput } from '../../cart/components/cart.logic';
 import { useCart } from '@/features/commerce/cart/hooks/use-cart';
 
 export interface ProductDetailSummaryProps {
@@ -25,28 +29,23 @@ export function ProductDetailSummary({
   onVariantChange,
   className,
 }: ProductDetailSummaryProps) {
-  const hasVariants = Array.isArray(product.variants) && product.variants.length > 1;
-  const [selectedVariantId, setSelectedVariantId] = React.useState<string | undefined>(
-    hasVariants && product.variants ? product.variants[0].id : undefined,
-  );
+  const hasMultipleVariants =
+    Array.isArray(product.variants) && product.variants.length > 1;
+  const [selectedVariantId, setSelectedVariantId] = React.useState<
+    string | undefined
+  >(undefined);
   const [quantity, setQuantity] = React.useState<number>(1);
 
-  const selectedVariant = React.useMemo(() => {
-    if (!hasVariants || !product.variants) return undefined;
-    return product.variants.find((v) => v.id === selectedVariantId) ?? product.variants[0];
-  }, [hasVariants, product.variants, selectedVariantId]);
-
-  const snapshot = React.useMemo(() => {
-    return resolveActiveProductSnapshot(product, selectedVariant);
-  }, [product, selectedVariant]);
-
-  const discount = React.useMemo(() => {
-    return computeDetailDiscount(snapshot.price, snapshot.originalPrice);
-  }, [snapshot.price, snapshot.originalPrice]);
-
-  const ratingInfo = React.useMemo(() => {
-    return getProductCardRating(product.rating);
-  }, [product.rating]);
+  const selectedVariant =
+    product.variants?.length === 1
+      ? product.variants[0]
+      : product.variants?.find((variant) => variant.id === selectedVariantId);
+  const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
+  const discount = computeDetailDiscount(
+    snapshot.price,
+    snapshot.originalPrice,
+  );
+  const ratingInfo = getProductCardRating(product.rating);
 
   const { addItem } = useCart();
 
@@ -55,23 +54,14 @@ export function ProductDetailSummary({
     onVariantChange?.(variant);
   };
 
-  const handleAddToCart = React.useCallback(() => {
-    if (!snapshot.inStock) return;
-
-    addItem({
-      productId: product.id,
-      productSlug: product.slug,
-      productName: product.name,
-      variantId: selectedVariant?.id,
-      variantName: selectedVariant?.name,
-      unitPrice: snapshot.price,
-      originalPrice: snapshot.originalPrice,
-      image: snapshot.image,
-      quantity,
-      purchaseLimit: product.purchaseLimit,
-      inStock: snapshot.inStock,
-    });
-  }, [addItem, product, selectedVariant, snapshot, quantity]);
+  const purchaseInput = resolveCartInput(
+    product,
+    selectedVariant?.id,
+    quantity,
+  );
+  const handleAddToCart = () => {
+    if (purchaseInput) addItem(purchaseInput);
+  };
 
   return (
     <div className={cn('flex flex-col gap-5 text-left', className)}>
@@ -131,7 +121,8 @@ export function ProductDetailSummary({
       {/* 5. Current price, valid previous price, and calculated savings */}
       <div className="flex flex-wrap items-baseline gap-3">
         <span className="text-2xl sm:text-3xl font-bold text-[#2d241e] dark:text-foreground">
-          {formatVndCurrency(snapshot.price)}
+          {hasMultipleVariants && !selectedVariant ? 'Giá từ ' : ''}
+          {formatVndCurrency(snapshot.price) ?? 'Chưa có giá'}
         </span>
 
         {discount.hasDiscount && snapshot.originalPrice && (
@@ -175,7 +166,13 @@ export function ProductDetailSummary({
       )}
 
       {/* 8. Variants, if supported by data */}
-      {hasVariants && product.variants && (
+      {selectedVariant && !hasMultipleVariants && (
+        <p className="text-sm text-foreground">
+          <span className="text-muted-foreground">Quy cách: </span>
+          {selectedVariant.name}
+        </p>
+      )}
+      {hasMultipleVariants && product.variants && (
         <div className="flex flex-col gap-2 pt-1">
           <span className="text-xs sm:text-sm font-medium text-foreground">
             Quy cách
@@ -215,13 +212,21 @@ export function ProductDetailSummary({
           quantity={quantity}
           onChange={setQuantity}
           purchaseLimit={product.purchaseLimit}
-          disabled={!snapshot.inStock}
+          disabled={!purchaseInput}
         />
       </div>
 
       {/* 10. Purchase controls */}
+      {!purchaseInput && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {hasMultipleVariants && !selectedVariant
+            ? 'Vui lòng chọn quy cách trước khi thêm vào giỏ.'
+            : 'Chưa xác minh được quy cách/giá bán hoặc quy cách đã hết hàng.'}
+        </p>
+      )}
       <ProductPurchaseActions
         inStock={snapshot.inStock}
+        canAdd={Boolean(purchaseInput)}
         onAddToCart={handleAddToCart}
       />
 
@@ -232,11 +237,17 @@ export function ProductDetailSummary({
           <span>Giao hàng toàn quốc</span>
         </div>
         <div className="flex items-center gap-2">
-          <ShieldCheck className="size-4 text-primary shrink-0" aria-hidden="true" />
+          <ShieldCheck
+            className="size-4 text-primary shrink-0"
+            aria-hidden="true"
+          />
           <span>Chính hãng</span>
         </div>
         <div className="flex items-center gap-2">
-          <RotateCcw className="size-4 text-primary shrink-0" aria-hidden="true" />
+          <RotateCcw
+            className="size-4 text-primary shrink-0"
+            aria-hidden="true"
+          />
           <span>Đổi trả 7 ngày</span>
         </div>
       </div>

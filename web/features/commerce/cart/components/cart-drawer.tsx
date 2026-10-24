@@ -10,7 +10,6 @@ import {
   Plus,
   Minus,
   ArrowRight,
-  AlertCircle,
 } from 'lucide-react';
 import {
   Sheet,
@@ -22,21 +21,47 @@ import {
 import { Button } from '@/shared/components/ui/button';
 import { formatVndCurrency } from '@/shared/lib/currency';
 import { useCart } from '../hooks/use-cart';
+import { cartItemStatus, isValidCartPrice } from './cart.logic';
+import { CartVerificationNote } from './cart-verification-note';
 
 export function CartDrawer() {
   const {
     items,
     totalUnits,
     subtotal,
+    isHydrated,
     isDrawerOpen,
     closeDrawer,
     updateQuantity,
     removeItem,
   } = useCart();
 
+  const returnFocus = React.useRef<HTMLElement | null>(null);
+
   return (
     <Sheet open={isDrawerOpen} onOpenChange={(open) => !open && closeDrawer()}>
       <SheetContent
+        onOpenAutoFocus={() => {
+          returnFocus.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null;
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const target = returnFocus.current;
+          if (
+            target?.isConnected &&
+            target !== document.body &&
+            !target.closest('[role="dialog"]') &&
+            !target.matches(':disabled')
+          )
+            target.focus();
+          else
+            document
+              .querySelector<HTMLElement>('[data-store-cart-trigger]')
+              ?.focus();
+        }}
         side="right"
         theme="storefront"
         className="w-full sm:max-w-md p-0 flex flex-col bg-background text-foreground shadow-2xl"
@@ -58,7 +83,11 @@ export function CartDrawer() {
         </SheetHeader>
 
         {/* Content Body */}
-        {items.length === 0 ? (
+        {!isHydrated ? (
+          <p role="status" className="p-6 text-sm text-muted-foreground">
+            Đang khôi phục giỏ hàng…
+          </p>
+        ) : items.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
             <div className="rounded-full bg-[#faf5ee] dark:bg-muted/40 p-5 mb-4 text-[#8c827a] dark:text-muted-foreground">
               <ShoppingBag className="size-10 stroke-1" aria-hidden="true" />
@@ -67,7 +96,8 @@ export function CartDrawer() {
               Giỏ hàng của bạn đang trống
             </h3>
             <p className="text-sm text-muted-foreground max-w-xs mb-6">
-              Hãy khám phá các sản phẩm mật ong nguyên chất và thiết bị nuôi ong chất lượng tại Mộc Ong.
+              Hãy khám phá các sản phẩm mật ong nguyên chất và thiết bị nuôi ong
+              chất lượng tại Mộc Ong.
             </p>
             <Link
               href="/products"
@@ -80,12 +110,19 @@ export function CartDrawer() {
         ) : (
           <div className="flex-1 overflow-y-auto px-6 py-4 divide-y divide-[#ede6dc] dark:divide-border/60">
             {items.map((item) => {
-              const formattedLineTotal = formatVndCurrency(item.unitPrice * item.quantity);
-              const formattedUnitPrice = formatVndCurrency(item.unitPrice);
-              const isUnavailable = !item.inStock || item.isUnavailable;
+              const formattedLineTotal =
+                isValidCartPrice(item.unitPrice) &&
+                Number.isSafeInteger(item.unitPrice * item.quantity)
+                  ? formatVndCurrency(item.unitPrice * item.quantity)
+                  : 'Chưa có giá';
+              const formattedUnitPrice =
+                formatVndCurrency(item.unitPrice) ?? 'Chưa có giá';
 
               return (
-                <div key={item.id} className="py-4 first:pt-0 last:pb-0 flex gap-4">
+                <div
+                  key={item.id}
+                  className="py-4 first:pt-0 last:pb-0 flex gap-4"
+                >
                   {/* Ảnh sản phẩm */}
                   <Link
                     href={`/products/${item.productSlug}`}
@@ -104,7 +141,10 @@ export function CartDrawer() {
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-muted-foreground/40">
-                        <Package className="size-8 stroke-1" aria-hidden="true" />
+                        <Package
+                          className="size-8 stroke-1"
+                          aria-hidden="true"
+                        />
                       </div>
                     )}
                   </Link>
@@ -138,11 +178,20 @@ export function CartDrawer() {
                       )}
 
                       {/* Warning badges */}
-                      {isUnavailable && (
-                        <div className="mt-1 flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 font-medium">
-                          <AlertCircle className="size-3.5 shrink-0" aria-hidden="true" />
-                          <span>Tạm hết hàng</span>
-                        </div>
+                      <p
+                        role="status"
+                        className="mt-1 text-xs text-muted-foreground"
+                      >
+                        {cartItemStatus(item)}
+                      </p>
+                      {item.verification === 'selection-required' && (
+                        <Link
+                          href={`/products/${item.productSlug}`}
+                          onClick={closeDrawer}
+                          className="text-xs text-primary underline"
+                        >
+                          Chọn lại quy cách (sau đó xóa dòng cũ)
+                        </Link>
                       )}
 
                       {item.isPriceChanged && (
@@ -170,7 +219,9 @@ export function CartDrawer() {
                         <button
                           type="button"
                           disabled={item.quantity <= 1}
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          onClick={() =>
+                            updateQuantity(item.id, item.quantity - 1)
+                          }
                           aria-label={`Giảm số lượng ${item.productName}`}
                           className="size-7 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                         >
@@ -188,7 +239,9 @@ export function CartDrawer() {
                             item.purchaseLimit !== undefined &&
                             item.quantity >= item.purchaseLimit
                           }
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          onClick={() =>
+                            updateQuantity(item.id, item.quantity + 1)
+                          }
                           aria-label={`Tăng số lượng ${item.productName}`}
                           className="size-7 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                         >
@@ -204,18 +257,18 @@ export function CartDrawer() {
         )}
 
         {/* Footer */}
-        {items.length > 0 && (
+        {isHydrated && items.length > 0 && (
           <div className="border-t border-[#ede6dc] dark:border-border/80 p-6 bg-[#fdfbf7] dark:bg-card/50 flex flex-col gap-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground font-medium">Tạm tính:</span>
+              <span className="text-sm text-muted-foreground font-medium">
+                Tạm tính:
+              </span>
               <span className="font-serif text-xl font-bold text-[#2d241e] dark:text-foreground">
-                {formatVndCurrency(subtotal)}
+                {formatVndCurrency(subtotal) ?? 'Chưa xác định'}
               </span>
             </div>
 
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Phí vận chuyển và ưu đãi sẽ được tính khi tiến hành đặt hàng.
-            </p>
+            <CartVerificationNote />
 
             <div className="flex flex-col gap-2 pt-2">
               <Link

@@ -1,18 +1,17 @@
 'use client';
 
 import * as React from 'react';
-import type { StorefrontProductDetail } from '../../products/types/product';
 import { getProductStore } from '../../products/api/product.api';
-import type { AddToCartInput, CartContextValue, CartItem } from '../types/cart';
+import type { AddToCartInput, CartContextValue } from '../types/cart';
 import {
-  addItemToCart,
   calculateCartTotals,
   CART_STORAGE_KEY,
+  cartReducer,
+  initialCartState,
   deserializeCart,
-  reconcileItemWithDetail,
-  removeCartItem,
+  isValidCartInput,
   serializeCart,
-  updateCartItemQuantity,
+  type CartCatalogResult,
 } from '../components/cart.logic';
 
 const CartContext = React.createContext<CartContextValue | null>(null);
@@ -22,11 +21,14 @@ export interface CartProviderProps {
 }
 
 export function CartProvider({ children }: CartProviderProps) {
-  const [items, setItems] = React.useState<CartItem[]>([]);
-  const [isHydrated, setIsHydrated] = React.useState(false);
+  const [{ items, isHydrated, lastAddedItem }, dispatch] = React.useReducer(
+    cartReducer,
+    initialCartState,
+  );
+  const reconciliation = React.useRef(0);
+  const storageReadable = React.useRef(false);
   const [isReconciling, setIsReconciling] = React.useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
-  const [lastAddedItem, setLastAddedItem] = React.useState<CartItem | null>(null);
 
   // 1. Safe Client Hydration: Read from localStorage only after mount
   React.useEffect(() => {
@@ -36,15 +38,14 @@ export function CartProvider({ children }: CartProviderProps) {
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           const raw = window.localStorage.getItem(CART_STORAGE_KEY);
+          storageReadable.current = true;
           const restored = deserializeCart(raw);
-          if (restored.length > 0) {
-            setItems(restored);
-          }
+          dispatch({ type: 'restore', items: restored });
         }
       } catch (err) {
         console.warn('[Cart] Failed to restore cart from storage:', err);
       } finally {
-        setIsHydrated(true);
+        dispatch({ type: 'restore', items: [] });
       }
     });
 
@@ -55,7 +56,7 @@ export function CartProvider({ children }: CartProviderProps) {
 
   // 2. Persistence: Save to localStorage only after initial hydration completes
   React.useEffect(() => {
-    if (!isHydrated) return;
+    if (!isHydrated || !storageReadable.current) return;
 
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -67,43 +68,28 @@ export function CartProvider({ children }: CartProviderProps) {
     }
   }, [items, isHydrated]);
 
-  // 3. Reconcile with live catalog
+  // Catalog fields apply to current lines, never to a captured cart snapshot.
   const reconcileCart = React.useCallback(async () => {
-    if (items.length === 0) return;
-
+    if (!isHydrated || items.length === 0) return;
+    const request = ++reconciliation.current;
+    const slugs = [...new Set(items.map((item) => item.productSlug))];
+    dispatch({ type: 'pending', slugs });
     setIsReconciling(true);
-    try {
-      const uniqueSlugs = Array.from(new Set(items.map((i) => i.productSlug)));
-      const detailMap = new Map<string, StorefrontProductDetail | null>();
-
-      await Promise.all(
-        uniqueSlugs.map(async (slug) => {
-          try {
-            const res = await getProductStore(slug);
-            detailMap.set(slug, res ? res.data : null);
-          } catch (fetchErr) {
-            // Keep line intact if network/server is down
-            console.warn(`[Cart] Reconciliation network error for "${slug}":`, fetchErr);
-          }
-        }),
-      );
-
-      setItems((prev) => {
-        return prev.map((item) => {
-          if (!detailMap.has(item.productSlug)) {
-            // Network error occurred during reconciliation; preserve current snapshot
-            return item;
-          }
-          const detail = detailMap.get(item.productSlug)!;
-          return reconcileItemWithDetail(item, detail);
-        });
-      });
-    } catch (err) {
-      console.warn('[Cart] Reconciliation failed:', err);
-    } finally {
-      setIsReconciling(false);
-    }
-  }, [items]);
+    const catalog = new Map<string, CartCatalogResult>();
+    await Promise.all(
+      slugs.map(async (slug) => {
+        try {
+          const result = await getProductStore(slug);
+          catalog.set(slug, result ? result.data : null);
+        } catch {
+          catalog.set(slug, 'error');
+        }
+      }),
+    );
+    if (request !== reconciliation.current) return;
+    dispatch({ type: 'catalog', catalog });
+    setIsReconciling(false);
+  }, [isHydrated, items]);
 
   // Reconcile once upon initial hydration if there are items
   React.useEffect(() => {
@@ -117,35 +103,23 @@ export function CartProvider({ children }: CartProviderProps) {
 
   // 4. Cart actions using functional state updates
   const addItem = React.useCallback((input: AddToCartInput): boolean => {
-    if (!input.productId || !input.productSlug || !input.productName) {
-      return false;
-    }
-
-    let added: CartItem | null = null;
-    setItems((prev) => {
-      const result = addItemToCart(prev, input);
-      added = result.addedItem;
-      return result.items;
-    });
-
-    if (added) {
-      setLastAddedItem(added);
-      setIsDrawerOpen(true);
-    }
+    if (!isValidCartInput(input)) return false;
+    dispatch({ type: 'add', input });
+    setIsDrawerOpen(true);
 
     return true;
   }, []);
 
   const updateQuantity = React.useCallback((id: string, quantity: number) => {
-    setItems((prev) => updateCartItemQuantity(prev, id, quantity));
+    dispatch({ type: 'quantity', id, quantity });
   }, []);
 
   const removeItem = React.useCallback((id: string) => {
-    setItems((prev) => removeCartItem(prev, id));
+    dispatch({ type: 'remove', id });
   }, []);
 
   const clearCart = React.useCallback(() => {
-    setItems([]);
+    dispatch({ type: 'clear' });
   }, []);
 
   const openDrawer = React.useCallback(() => {

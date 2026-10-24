@@ -11,7 +11,6 @@ import {
   Minus,
   ArrowRight,
   ArrowLeft,
-  AlertCircle,
   ShieldCheck,
   Truck,
   RotateCcw,
@@ -19,6 +18,8 @@ import {
 import { Button } from '@/shared/components/ui/button';
 import { formatVndCurrency } from '@/shared/lib/currency';
 import { useCart } from '../hooks/use-cart';
+import { cartItemStatus, isValidCartPrice } from './cart.logic';
+import { CartVerificationNote } from './cart-verification-note';
 
 export function CartPageContent() {
   const {
@@ -54,7 +55,10 @@ export function CartPageContent() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
       {/* Breadcrumb */}
-      <nav aria-label="Đường dẫn trang" className="mb-6 flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+      <nav
+        aria-label="Đường dẫn trang"
+        className="mb-6 flex items-center gap-2 text-xs sm:text-sm text-muted-foreground"
+      >
         <Link href="/" className="hover:text-primary transition-colors">
           Trang chủ
         </Link>
@@ -84,7 +88,8 @@ export function CartPageContent() {
             Giỏ hàng của bạn đang trống
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto mb-8 leading-relaxed">
-            Bạn chưa chọn sản phẩm nào. Hãy khám phá danh mục mật ong thiên nhiên và thiết bị nuôi ong từ Mộc Ong nhé.
+            Bạn chưa chọn sản phẩm nào. Hãy khám phá danh mục mật ong thiên
+            nhiên và thiết bị nuôi ong từ Mộc Ong nhé.
           </p>
           <Link
             href="/products"
@@ -111,9 +116,13 @@ export function CartPageContent() {
               {/* Danh sách các dòng sản phẩm */}
               <div className="divide-y divide-[#ede6dc] dark:divide-border/60">
                 {items.map((item) => {
-                  const formattedLineTotal = formatVndCurrency(item.unitPrice * item.quantity);
-                  const formattedUnitPrice = formatVndCurrency(item.unitPrice);
-                  const isUnavailable = !item.inStock || item.isUnavailable;
+                  const formattedLineTotal =
+                    isValidCartPrice(item.unitPrice) &&
+                    Number.isSafeInteger(item.unitPrice * item.quantity)
+                      ? formatVndCurrency(item.unitPrice * item.quantity)
+                      : 'Chưa có giá';
+                  const formattedUnitPrice =
+                    formatVndCurrency(item.unitPrice) ?? 'Chưa có giá';
 
                   return (
                     <div
@@ -138,7 +147,10 @@ export function CartPageContent() {
                             />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center text-muted-foreground/40">
-                              <Package className="size-8 stroke-1" aria-hidden="true" />
+                              <Package
+                                className="size-8 stroke-1"
+                                aria-hidden="true"
+                              />
                             </div>
                           )}
                         </Link>
@@ -157,11 +169,19 @@ export function CartPageContent() {
                             </p>
                           )}
 
-                          {isUnavailable && (
-                            <div className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 font-medium">
-                              <AlertCircle className="size-3.5 shrink-0" aria-hidden="true" />
-                              <span>Tạm hết hàng</span>
-                            </div>
+                          <p
+                            role="status"
+                            className="mt-1 text-xs text-muted-foreground"
+                          >
+                            {cartItemStatus(item)}
+                          </p>
+                          {item.verification === 'selection-required' && (
+                            <Link
+                              href={`/products/${item.productSlug}`}
+                              className="text-xs text-primary underline"
+                            >
+                              Chọn lại quy cách (sau đó xóa dòng cũ)
+                            </Link>
                           )}
 
                           {item.isPriceChanged && (
@@ -183,7 +203,9 @@ export function CartPageContent() {
 
                       {/* Cột 2: Đơn giá */}
                       <div className="sm:col-span-2 sm:text-right flex items-baseline justify-between sm:block">
-                        <span className="sm:hidden text-xs text-muted-foreground">Đơn giá:</span>
+                        <span className="sm:hidden text-xs text-muted-foreground">
+                          Đơn giá:
+                        </span>
                         <span className="text-sm font-medium text-[#453c35] dark:text-muted-foreground">
                           {formattedUnitPrice}
                         </span>
@@ -191,12 +213,16 @@ export function CartPageContent() {
 
                       {/* Cột 3: Bộ điều chỉnh số lượng */}
                       <div className="sm:col-span-2 flex items-center justify-between sm:justify-center">
-                        <span className="sm:hidden text-xs text-muted-foreground">Số lượng:</span>
+                        <span className="sm:hidden text-xs text-muted-foreground">
+                          Số lượng:
+                        </span>
                         <div className="flex items-center rounded-lg border border-[#e5dcd1] dark:border-border bg-background">
                           <button
                             type="button"
                             disabled={item.quantity <= 1}
-                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            onClick={() =>
+                              updateQuantity(item.id, item.quantity - 1)
+                            }
                             aria-label={`Giảm số lượng ${item.productName}`}
                             className="size-8 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                           >
@@ -214,7 +240,9 @@ export function CartPageContent() {
                               item.purchaseLimit !== undefined &&
                               item.quantity >= item.purchaseLimit
                             }
-                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            onClick={() =>
+                              updateQuantity(item.id, item.quantity + 1)
+                            }
                             aria-label={`Tăng số lượng ${item.productName}`}
                             className="size-8 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                           >
@@ -225,7 +253,9 @@ export function CartPageContent() {
 
                       {/* Cột 4: Thành tiền & Nút xóa desktop */}
                       <div className="sm:col-span-2 sm:text-right flex items-center justify-between sm:justify-end gap-3">
-                        <span className="sm:hidden text-xs text-muted-foreground">Thành tiền:</span>
+                        <span className="sm:hidden text-xs text-muted-foreground">
+                          Thành tiền:
+                        </span>
                         <div className="flex items-center gap-3">
                           <span className="font-semibold text-sm sm:text-base text-[#2d241e] dark:text-foreground">
                             {formattedLineTotal}
@@ -271,15 +301,24 @@ export function CartPageContent() {
             {/* Cam kết dịch vụ */}
             <div className="mt-4 rounded-2xl border border-[#ede6dc] dark:border-border/80 bg-card p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs sm:text-sm text-muted-foreground">
               <div className="flex items-center gap-3">
-                <Truck className="size-5 text-primary shrink-0" aria-hidden="true" />
+                <Truck
+                  className="size-5 text-primary shrink-0"
+                  aria-hidden="true"
+                />
                 <span>Giao hàng toàn quốc an toàn</span>
               </div>
               <div className="flex items-center gap-3">
-                <ShieldCheck className="size-5 text-primary shrink-0" aria-hidden="true" />
+                <ShieldCheck
+                  className="size-5 text-primary shrink-0"
+                  aria-hidden="true"
+                />
                 <span>100% sản phẩm chính hãng</span>
               </div>
               <div className="flex items-center gap-3">
-                <RotateCcw className="size-5 text-primary shrink-0" aria-hidden="true" />
+                <RotateCcw
+                  className="size-5 text-primary shrink-0"
+                  aria-hidden="true"
+                />
                 <span>Hỗ trợ đổi trả trong 7 ngày</span>
               </div>
             </div>
@@ -295,26 +334,30 @@ export function CartPageContent() {
               <div className="space-y-3 border-b border-[#ede6dc] dark:border-border/80 pb-4 text-sm">
                 <div className="flex justify-between items-center text-muted-foreground">
                   <span>Số lượng:</span>
-                  <span className="font-medium text-foreground">{totalUnits} sản phẩm</span>
+                  <span className="font-medium text-foreground">
+                    {totalUnits} sản phẩm
+                  </span>
                 </div>
 
                 <div className="flex justify-between items-center text-muted-foreground">
                   <span>Phí vận chuyển:</span>
-                  <span className="font-medium text-foreground">Tính khi thanh toán</span>
+                  <span className="font-medium text-foreground">
+                    Tính khi thanh toán
+                  </span>
                 </div>
               </div>
 
               {/* Tạm tính */}
               <div className="py-4 border-b border-[#ede6dc] dark:border-border/80">
                 <div className="flex justify-between items-baseline">
-                  <span className="text-base font-medium text-foreground">Tạm tính:</span>
+                  <span className="text-base font-medium text-foreground">
+                    Tạm tính:
+                  </span>
                   <span className="font-serif text-2xl font-bold text-[#2d241e] dark:text-foreground">
-                    {formatVndCurrency(subtotal)}
+                    {formatVndCurrency(subtotal) ?? 'Chưa xác định'}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-                  (Giá đã bao gồm VAT. Phí vận chuyển và mã ưu đãi sẽ được áp dụng ở bước thanh toán)
-                </p>
+                <CartVerificationNote />
               </div>
 
               {/* Nút hành động */}
@@ -331,7 +374,8 @@ export function CartPageContent() {
                 </Button>
 
                 <p className="text-center text-xs text-muted-foreground">
-                  Hệ thống thanh toán và tạo đơn hàng sẽ được kích hoạt ở giai đoạn tiếp theo.
+                  Hệ thống thanh toán và tạo đơn hàng sẽ được kích hoạt ở giai
+                  đoạn tiếp theo.
                 </p>
               </div>
             </div>

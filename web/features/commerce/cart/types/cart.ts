@@ -9,13 +9,14 @@ export interface CartItem {
   variantId?: string;
   variantName?: string;
   /** Display snapshot price in VND */
-  unitPrice: number;
+  unitPrice: number | null;
   originalPrice?: number;
   image?: StorefrontProductImage;
   /** Safe positive integer >= 1 */
   quantity: number;
   purchaseLimit?: number;
   inStock: boolean;
+  verification: 'pending' | 'verified' | 'missing' | 'error' | 'selection-required';
   /** True when catalog price reconciliation indicates price differed from saved snapshot */
   isPriceChanged?: boolean;
   /** True if product or variant is no longer found in catalog */
@@ -29,7 +30,7 @@ export interface StoredCartItemV1 {
   productName: string;
   variantId?: string;
   variantName?: string;
-  unitPrice: number;
+  unitPrice: number | null;
   originalPrice?: number;
   image?: {
     src: string;
@@ -50,7 +51,7 @@ export interface AddToCartInput {
   productId: string;
   productSlug: string;
   productName: string;
-  variantId?: string;
+  variantId: string;
   variantName?: string;
   unitPrice: number;
   originalPrice?: number;
@@ -63,7 +64,7 @@ export interface AddToCartInput {
 export interface CartTotals {
   totalUnits: number;
   distinctLines: number;
-  subtotal: number;
+  subtotal: number | null;
 }
 
 export interface CartContextValue extends CartTotals {
