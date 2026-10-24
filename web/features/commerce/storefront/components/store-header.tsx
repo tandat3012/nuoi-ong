@@ -1,10 +1,11 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { User, ShoppingBag } from 'lucide-react';
+import { User } from 'lucide-react';
 import { StoreBrand } from './store-brand';
 import { StoreSearchBar } from './store-search-bar';
 import { StoreDesktopNav } from './store-desktop-nav';
 import { StoreMobileNav } from './store-mobile-nav';
+import { StoreCartButton } from '@/features/commerce/cart/components/store-cart-button';
 
 export function StoreHeader() {
   return (
@@ -20,7 +21,7 @@ export function StoreHeader() {
 
           {/* Vùng ở giữa: Ô tìm kiếm desktop */}
           <div className="hidden md:flex flex-1 max-w-xl lg:max-w-2xl mx-3 lg:mx-8">
-            <StoreSearchBar />
+            <StoreSearchBar idSuffix="desktop" />
           </div>
 
           {/* Vùng bên phải: Tài khoản & Giỏ hàng */}
@@ -35,24 +36,14 @@ export function StoreHeader() {
               <span className="hidden sm:inline">Đăng nhập</span>
             </Link>
 
-            {/* Giỏ hàng (chưa triển khai -> hiển thị vô hiệu hóa trực quan, không giả số lượng) */}
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-medium text-muted-foreground/60 cursor-not-allowed opacity-75 select-none"
-              aria-label="Giỏ hàng (tính năng đang chuẩn bị)"
-              title="Giỏ hàng đang chuẩn bị"
-            >
-              <ShoppingBag className="size-5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-              <span className="hidden sm:inline">Giỏ hàng</span>
-            </button>
+            {/* Giỏ hàng */}
+            <StoreCartButton />
           </div>
         </div>
 
         {/* Thanh tìm kiếm trên thiết bị di động */}
         <div className="mt-3 md:hidden">
-          <StoreSearchBar />
+          <StoreSearchBar idSuffix="mobile" />
         </div>
       </div>
 

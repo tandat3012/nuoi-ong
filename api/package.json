@@ -24,6 +24,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:pull": "drizzle-kit pull",
     "db:seed": "ts-node --transpile-only scripts/seed.ts",
+    "db:seed:storefront": "ts-node --transpile-only scripts/seed-storefront.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
@@ -34,6 +35,7 @@
     "@nestjs/swagger": "11.4.7",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "cloudinary": "^2.11.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.23.0",

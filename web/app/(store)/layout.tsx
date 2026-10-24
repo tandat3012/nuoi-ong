@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { StoreTopBar } from '@/features/commerce/storefront/components/store-topbar';
 import { StoreHeader } from '@/features/commerce/storefront/components/store-header';
 import { StoreFooter } from '@/features/commerce/storefront/components/store-footer';
+import { CartProvider } from '@/features/commerce/cart/context/cart-context';
+import { CartDrawer } from '@/features/commerce/cart/components/cart-drawer';
 
 export const metadata: Metadata = {
   title: {
@@ -17,13 +19,16 @@ export default function StoreLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="storefront flex min-h-screen flex-col bg-background text-foreground antialiased">
-      <StoreTopBar />
-      <StoreHeader />
-      <div className="flex-1">
-        {children}
+    <CartProvider>
+      <div className="storefront flex min-h-screen flex-col bg-background text-foreground antialiased">
+        <StoreTopBar />
+        <StoreHeader />
+        <div className="flex-1">
+          {children}
+        </div>
+        <StoreFooter />
+        <CartDrawer />
       </div>
-      <StoreFooter />
-    </div>
+    </CartProvider>
   );
 }

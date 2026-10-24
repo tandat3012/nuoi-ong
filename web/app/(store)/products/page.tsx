@@ -1,9 +1,11 @@
-import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
-import { Suspense } from 'react';
-import { ProductsPage } from '@/features/commerce/products/components/products-page';
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { Suspense } from "react";
+import { ProductsLoading } from "@/features/commerce/products/components/products-loading";
+import { ProductsPage } from "@/features/commerce/products/components/products-page";
+import { parseAndValidateProductsQuery } from "@/features/commerce/products/components/products-page.logic";
 
-export const metadata: Metadata = { title: 'Sản phẩm' };
+export const metadata: Metadata = { title: "Sản phẩm" };
 
 export default async function StoreProductsPage({
   searchParams,
@@ -11,10 +13,14 @@ export default async function StoreProductsPage({
   searchParams: Promise<{
     page?: string | string[];
     category?: string | string[];
+    q?: string | string[];
+    minPrice?: string | string[];
+    maxPrice?: string | string[];
+    sort?: string | string[];
   }>;
 }) {
   const query = await searchParams;
-  const page = Number(query.page ?? '1');
+  const page = Number(query.page ?? "1");
   const category = query.category || undefined;
 
   if (
@@ -23,23 +29,30 @@ export default async function StoreProductsPage({
     !Number.isInteger(page) ||
     page < 1 ||
     (category !== undefined &&
-      (typeof category !== 'string' ||
+      (typeof category !== "string" ||
         category.length > 100 ||
         !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(category)))
   ) {
     notFound();
   }
 
+  const validation = parseAndValidateProductsQuery(query);
+
+  const criteria = validation.criteria;
+  criteria.page = page;
+  if (category) {
+    criteria.category = category;
+  }
+
   return (
     <Suspense
-      key={`${page}:${category ?? ''}`}
-      fallback={
-        <p role="status" className="px-4 py-12 text-center">
-          Đang tải sản phẩm…
-        </p>
-      }
+      key={`${page}:${category ?? ""}:${query.q ?? ""}:${query.minPrice ?? ""}:${query.maxPrice ?? ""}:${query.sort ?? ""}`}
+      fallback={<ProductsLoading />}
     >
-      <ProductsPage page={page} category={category} />
+      <ProductsPage
+        criteria={criteria}
+        validationError={!validation.isValid ? validation.error : undefined}
+      />
     </Suspense>
   );
 }

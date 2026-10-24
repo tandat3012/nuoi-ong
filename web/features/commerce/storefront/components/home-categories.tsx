@@ -2,11 +2,9 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Sprout, Package, Wrench, Droplets, ChevronRight } from 'lucide-react';
 import { STOREFRONT_CONFIG } from '../config/storefront-config';
-import type { StorefrontCategorySectionConfig } from '../config/storefront-config';
-import { getCategoriesStore } from '../../categories/api/category.api';
+import { getAllCategoriesStore } from '../../categories/api/category.api';
 import type { StorefrontCategory } from '../../categories/types/category';
-import { ErrorAlert } from '@/shared/components/ui/error-alert';
-import { cn } from '@/shared/lib/utils';
+import { StoreLoadError } from './store-load-error';
 
 const ICON_MAP = {
   sprout: Sprout,
@@ -16,17 +14,14 @@ const ICON_MAP = {
 } as const;
 
 export async function HomeCategories() {
-  const categories: StorefrontCategorySectionConfig = STOREFRONT_CONFIG.categories;
-  let items: StorefrontCategory[];
+  const { categories } = STOREFRONT_CONFIG;
+  let items: StorefrontCategory[] = [];
+  let failed = false;
 
   try {
-    items = (await getCategoriesStore(1, 4)).data;
+    items = await getAllCategoriesStore();
   } catch {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-12">
-        <ErrorAlert message="Không tải được danh mục. Vui lòng tải lại trang." />
-      </div>
-    );
+    failed = true;
   }
 
   return (
@@ -45,62 +40,58 @@ export async function HomeCategories() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-          {items.length === 0 && (
-            <p className="col-span-full text-muted-foreground">Chưa có danh mục.</p>
-          )}
-          {items.map((item) => {
-            const presentation = categories.presentationBySlug[item.slug];
-            const IconComponent = ICON_MAP[presentation?.icon ?? 'package'];
+        {failed ? (
+          <StoreLoadError>Không tải được danh mục.</StoreLoadError>
+        ) : items.length === 0 ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            Chưa có danh mục sản phẩm.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            {items.map((item) => {
+              const presentation = categories.presentationBySlug[item.slug];
+              const IconComponent = ICON_MAP[presentation?.icon ?? 'package'];
 
-            const cardContent = (
-              <>
-                {/* Khối bên trái: Icon trong hình tròn màu trắng */}
-                <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                  <div
-                    aria-hidden="true"
-                    className="size-12 shrink-0 rounded-full bg-white flex items-center justify-center shadow-xs border border-amber-100/70"
-                  >
-                    <IconComponent className="size-6 text-amber-600" aria-hidden="true" />
-                  </div>
-                  {/* Tên danh mục và diễn giải phụ */}
-                  <div className="flex flex-col text-left min-w-0 flex-1">
-                    <h3 className="font-bold text-base text-[#2d241e] dark:text-foreground leading-snug truncate">
-                      {item.name}
-                    </h3>
-                    {presentation?.subtitle && (
-                      <p className="text-[0.6875rem] text-[#786f66] dark:text-muted-foreground mt-0.5 leading-snug line-clamp-1">
-                        {presentation.subtitle}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Mũi tên điều hướng bên phải */}
-                <ChevronRight
-                  className="size-4 text-[#8c827a] shrink-0 ml-2"
-                  aria-hidden="true"
-                />
-              </>
-            );
-
-            const cardClassName = cn(
-              'w-full h-24 rounded-2xl border border-[#e8dbcc]  bg-[#f5ede1]  px-4 py-3 flex items-center justify-between shadow-2xs transition-colors',
-              'hover:bg-[#efe4d5] hover:border-amber-300 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 cursor-pointer',
-            );
-
-            return (
-              <div key={item.id} className="h-full">
+              return (
                 <Link
+                  key={item.id}
                   href={`/products?category=${encodeURIComponent(item.slug)}`}
-                  className={cardClassName}
+                  className="w-full h-24 rounded-2xl border border-[#e8dbcc] dark:border-border/80 bg-[#f5ede1] dark:bg-card px-4 py-3 flex items-center justify-between shadow-2xs transition-colors hover:bg-[#efe4d5] dark:hover:bg-muted/70 hover:border-amber-300 dark:hover:border-primary/50 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 cursor-pointer"
                 >
-                  {cardContent}
+                  {/* Khối bên trái: Icon trong hình tròn màu trắng */}
+                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                    <div
+                      aria-hidden="true"
+                      className="size-12 shrink-0 rounded-full bg-white dark:bg-background flex items-center justify-center shadow-xs border border-amber-100/70 dark:border-border"
+                    >
+                      <IconComponent
+                        className="size-6 text-amber-600 dark:text-amber-400"
+                        aria-hidden="true"
+                      />
+                    </div>
+                    {/* Tên danh mục và diễn giải phụ */}
+                    <div className="flex flex-col text-left min-w-0 flex-1">
+                      <h3 className="font-bold text-base text-[#2d241e] dark:text-foreground leading-snug truncate">
+                        {item.name}
+                      </h3>
+                      {presentation?.subtitle && (
+                        <p className="text-[0.6875rem] text-[#786f66] dark:text-muted-foreground mt-0.5 leading-snug line-clamp-1">
+                          {presentation.subtitle}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Mũi tên điều hướng bên phải */}
+                  <ChevronRight
+                    className="size-4 text-[#8c827a] shrink-0 ml-2"
+                    aria-hidden="true"
+                  />
                 </Link>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </section>
   );

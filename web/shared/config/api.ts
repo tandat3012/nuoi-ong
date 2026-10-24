@@ -1,5 +1,5 @@
 export const API_CONFIG = {
-  BASE_URL: process.env.API_URL ?? 'http://localhost:5050',
+  BASE_URL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5050',
   VERSION: '/api/v1',
 } as const;
 
