@@ -5,7 +5,7 @@ import {
   initialWarehouseFilters,
   useWarehouseFilters,
 } from "./use-warehouse-filters";
-import { useWarehousePermissions } from "./use-warehouse-permissions";
+import { useFarmPermissions } from "@/features/materials/hooks/use-farm-permissions";
 import { useWarehouseList } from "./use-warehouse-list";
 import { useWarehouseDetail } from "./use-warehouse-detail";
 import { useWarehouseMutations } from "./use-warehouse-mutations";
@@ -13,7 +13,7 @@ import { useState } from "react";
 
 export function useWarehouses() {
   const request = useAuthenticatedRequest();
-  const { selectedFarmId, farmName, canWrite } = useWarehousePermissions();
+  const { selectedFarmId, farmName, canWrite } = useFarmPermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {

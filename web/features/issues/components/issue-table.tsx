@@ -3,6 +3,7 @@ import {
   ISSUE_TYPE_LABELS,
   type Issue,
 } from "../types/issue";
+import { Button } from '@/shared/components/ui/button';
 
 export function IssueTable({
   issues,
@@ -50,14 +51,12 @@ export function IssueTable({
                 {ISSUE_STATUS_LABELS[issue.status]}
               </td>
               <td className="px-4 py-3">
-                <button
-                  type="button"
+                <Button variant="outline"
                   onClick={() => onOpen(issue.id)}
                   aria-label={`Chi tiết phiếu ${issue.issueCode}`}
-                  className="rounded-lg border px-3 py-1 hover:bg-muted"
                 >
                   Chi tiết
-                </button>
+                </Button>
               </td>
             </tr>
           ))}

@@ -18,6 +18,10 @@ import {
   inventoryUnitLabel,
   isValidInventoryAdjustmentQuantity,
 } from "../inventory.logic";
+import { Textarea } from "@/shared/components/ui/textarea";
+import { Select } from "@/shared/components/ui/select";
+import { Input } from "@/shared/components/ui/input";
+import { Button } from "@/shared/components/ui/button";
 
 type StockLookup = {
   key: string;
@@ -272,20 +276,18 @@ export function InventoryAdjustmentDialog({
               Ghi nhận chênh lệch kiểm kê bằng một giao dịch kho.
             </p>
           </div>
-          <button
-            type="button"
+          <Button variant="outline"
             aria-label="Đóng điều chỉnh tồn kho"
             onClick={closeDialog}
             disabled={submitting}
-            className="rounded-lg border px-3 py-1 text-sm disabled:opacity-50"
           >
             Đóng
-          </button>
+          </Button>
         </header>
 
         <label className="grid gap-1.5 text-sm font-medium">
           Kho đang hoạt động
-          <select
+          <Select
             required
             value={warehouseId}
             onChange={(event) => {
@@ -296,7 +298,7 @@ export function InventoryAdjustmentDialog({
             disabled={
               submitting || references.isLoading || Boolean(references.error)
             }
-            className="rounded-lg border bg-background p-2 font-normal"
+            className="font-normal"
           >
             <option value="">Chọn kho</option>
             {references.warehouses
@@ -306,12 +308,12 @@ export function InventoryAdjustmentDialog({
                   {warehouse.code} · {warehouse.name}
                 </option>
               ))}
-          </select>
+          </Select>
         </label>
 
         <label className="grid gap-1.5 text-sm font-medium">
           Vật tư
-          <select
+          <Select
             required
             value={itemId}
             onChange={(event) => {
@@ -323,7 +325,7 @@ export function InventoryAdjustmentDialog({
             disabled={
               submitting || references.isLoading || Boolean(references.error)
             }
-            className="rounded-lg border bg-background p-2 font-normal"
+            className="font-normal"
           >
             <option value="">Chọn vật tư</option>
             {references.items.map(({ item }) => (
@@ -332,13 +334,13 @@ export function InventoryAdjustmentDialog({
                 {item.status === "INACTIVE" ? " (Ngừng hoạt động)" : ""}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
 
         {trackingMode === "LOT" && (
           <label className="grid gap-1.5 text-sm font-medium">
             Lô
-            <select
+            <Select
               required
               value={lotId}
               onChange={(event) => {
@@ -351,7 +353,7 @@ export function InventoryAdjustmentDialog({
                 references.lotsLoading ||
                 Boolean(references.lotsError)
               }
-              className="rounded-lg border bg-background p-2 font-normal disabled:opacity-60"
+              className="font-normal"
             >
               <option value="">
                 {references.lotsLoading
@@ -365,7 +367,7 @@ export function InventoryAdjustmentDialog({
                   {lot.lotNumber} · HSD {formatInventoryExpiry(lot.expiryDate)}
                 </option>
               ))}
-            </select>
+            </Select>
             {!references.lotsLoading &&
               !references.lotsError &&
               references.lots.length === 0 && (
@@ -382,7 +384,7 @@ export function InventoryAdjustmentDialog({
         {references.error && (
           <div
             role="alert"
-            className="rounded-lg bg-red-50 p-3 text-sm text-red-800"
+            className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
           >
             <p>{references.error}</p>
             <button
@@ -402,7 +404,7 @@ export function InventoryAdjustmentDialog({
         {references.lotsError && (
           <div
             role="alert"
-            className="rounded-lg bg-red-50 p-3 text-sm text-red-800"
+            className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
           >
             <p>{references.lotsError}</p>
             <button
@@ -416,7 +418,7 @@ export function InventoryAdjustmentDialog({
         )}
 
         {trackingMode === "ASSET" ? (
-          <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
             Vật tư theo dõi tài sản không thể điều chỉnh bằng số lượng tổng hợp.
           </p>
         ) : (
@@ -431,7 +433,7 @@ export function InventoryAdjustmentDialog({
                 Đang kiểm tra tồn hiện tại...
               </p>
             ) : stockError ? (
-              <div role="alert" className="mt-1 text-sm text-red-700">
+              <div role="alert" className="mt-1 text-sm text-destructive">
                 <p>{stockError}</p>
                 <button
                   type="button"
@@ -456,7 +458,7 @@ export function InventoryAdjustmentDialog({
 
         <label className="grid gap-1.5 text-sm font-medium">
           Mức điều chỉnh
-          <input
+          <Input
             required
             type="text"
             inputMode="decimal"
@@ -467,7 +469,7 @@ export function InventoryAdjustmentDialog({
             }}
             disabled={submitting}
             aria-describedby="inventory-adjustment-quantity-help"
-            className="rounded-lg border bg-background p-2 font-normal"
+            className="font-normal"
           />
           <span
             id="inventory-adjustment-quantity-help"
@@ -477,7 +479,7 @@ export function InventoryAdjustmentDialog({
             tối đa 15 chữ số nguyên và 3 chữ số thập phân.
           </span>
           {quantityInvalid && (
-            <span className="font-normal text-red-700">
+            <span className="font-normal text-destructive">
               Nhập một mức khác 0, không dùng dấu phẩy hoặc ký hiệu khoa học.
             </span>
           )}
@@ -485,7 +487,7 @@ export function InventoryAdjustmentDialog({
 
         <label className="grid gap-1.5 text-sm font-medium">
           Lý do
-          <textarea
+          <Textarea
             required
             maxLength={4000}
             rows={3}
@@ -495,7 +497,7 @@ export function InventoryAdjustmentDialog({
               setSubmitMessage(null);
             }}
             disabled={submitting}
-            className="resize-y rounded-lg border bg-background p-2 font-normal"
+            className="resize-y font-normal"
           />
           <span className="font-normal text-muted-foreground">
             {reasonLength}/4000 ký tự sau khi bỏ khoảng trắng đầu cuối.
@@ -506,14 +508,14 @@ export function InventoryAdjustmentDialog({
             </span>
           )}
           {reasonOnlyWhitespace && (
-            <span className="font-normal text-red-700">
+            <span className="font-normal text-destructive">
               Vui lòng nhập lý do không chỉ gồm khoảng trắng.
             </span>
           )}
         </label>
 
         {hasAmbiguousOutcome && (
-          <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <label className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
             <input
               type="checkbox"
               checked={checkedLedger}
@@ -529,28 +531,25 @@ export function InventoryAdjustmentDialog({
         {submitMessage && (
           <p
             role="alert"
-            className="rounded-lg bg-red-50 p-3 text-sm text-red-800"
+            className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
           >
             {submitMessage}
           </p>
         )}
 
         <footer className="flex justify-end gap-2">
-          <button
-            type="button"
+          <Button variant="outline"
             onClick={closeDialog}
             disabled={submitting}
-            className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50"
           >
             Hủy
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
             disabled={!canSubmit}
-            className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
           >
             {submitting ? "Đang lưu..." : "Lưu điều chỉnh"}
-          </button>
+          </Button>
         </footer>
       </form>
     </dialog>

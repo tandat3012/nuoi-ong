@@ -8,6 +8,10 @@ import {
   type DraftChoice,
   type DraftPickerKind,
 } from './receipt-draft-picker';
+import { PageHeader } from '@/shared/components/ui/page-header';
+import { Button } from '@/shared/components/ui/button';
+import { Textarea } from '@/shared/components/ui/textarea';
+import { Input } from '@/shared/components/ui/input';
 
 type DraftLine = DraftChoice & {
   rowKey: string;
@@ -99,7 +103,6 @@ export function ReceiptDraftForm({
     initial?.detail.receipt.id,
     onSaved,
   );
-  const inputClass = 'w-full rounded-lg border bg-background p-2';
   function select(choice: DraftChoice) {
     if (picker?.kind === 'warehouse') {
       if (warehouse?.id !== choice.id)
@@ -191,14 +194,10 @@ export function ReceiptDraftForm({
       }}
       className="space-y-4"
     >
-      <h1 className="text-2xl font-bold">
-        {initial ? 'Sửa phiếu nhập nháp' : 'Tạo phiếu nhập nháp'}
-      </h1>
-      <p className="text-sm text-muted-foreground">
-        Nhập vật tư theo số lượng/lô hoặc thiết bị theo từng tài sản. Lưu nháp
-        chưa làm thay đổi tồn kho. Để trống ngày nhập để dùng ngày hiện tại của
-        hệ thống.
-      </p>
+      <PageHeader
+        title={initial ? 'Sửa phiếu nhập nháp' : 'Tạo phiếu nhập nháp'}
+        description="Nhập vật tư theo số lượng/lô hoặc thiết bị theo từng tài sản. Lưu nháp chưa làm thay đổi tồn kho. Để trống ngày nhập để dùng ngày hiện tại của hệ thống."
+      />
       {error && (
         <div
           role="alert"
@@ -212,21 +211,21 @@ export function ReceiptDraftForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1">
             Mã phiếu *
-            <input
+            <Input
               required
               maxLength={50}
               value={code}
               onChange={(event) => setCode(event.target.value)}
-              className={inputClass}
+              className="w-full"
             />
           </label>
           <label className="space-y-1">
             Ngày nhập
-            <input
+            <Input
               type="date"
               value={date}
               onChange={(event) => setDate(event.target.value)}
-              className={inputClass}
+              className="w-full"
             />
           </label>
         </div>
@@ -263,11 +262,11 @@ export function ReceiptDraftForm({
         </div>
         <label className="block">
           Ghi chú
-          <textarea
+          <Textarea
             maxLength={4000}
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            className={inputClass}
+            className="w-full"
           />
         </label>
         <h2 className="font-semibold">Hàng hóa nhập</h2>
@@ -281,7 +280,7 @@ export function ReceiptDraftForm({
               ) : (
                 <label>
                   Số lượng *
-                  <input
+                  <Input
                     aria-label={`Số lượng ${line.label}`}
                     required
                     inputMode="decimal"
@@ -295,13 +294,13 @@ export function ReceiptDraftForm({
                         ),
                       )
                     }
-                    className={inputClass}
+                    className="w-full"
                   />
                 </label>
               )}
               <label>
                 Đơn giá
-                <input
+                <Input
                   aria-label={`Đơn giá ${line.label}`}
                   inputMode="decimal"
                   value={line.unitPrice}
@@ -314,7 +313,7 @@ export function ReceiptDraftForm({
                       ),
                     )
                   }
-                  className={inputClass}
+                  className="w-full"
                 />
               </label>
             </div>
@@ -322,7 +321,7 @@ export function ReceiptDraftForm({
               <div className="grid gap-3 sm:grid-cols-3">
                 <label>
                   Số lô *
-                  <input
+                  <Input
                     required
                     maxLength={100}
                     value={line.lotNumber}
@@ -335,12 +334,12 @@ export function ReceiptDraftForm({
                         ),
                       )
                     }
-                    className={inputClass}
+                    className="w-full"
                   />
                 </label>
                 <label>
                   Ngày sản xuất
-                  <input
+                  <Input
                     type="date"
                     value={line.manufacturedDate}
                     onChange={(event) =>
@@ -352,12 +351,12 @@ export function ReceiptDraftForm({
                         ),
                       )
                     }
-                    className={inputClass}
+                    className="w-full"
                   />
                 </label>
                 <label>
                   Hạn sử dụng
-                  <input
+                  <Input
                     type="date"
                     value={line.expiryDate}
                     onChange={(event) =>
@@ -369,7 +368,7 @@ export function ReceiptDraftForm({
                         ),
                       )
                     }
-                    className={inputClass}
+                    className="w-full"
                   />
                 </label>
               </div>
@@ -378,7 +377,7 @@ export function ReceiptDraftForm({
               <div className="grid gap-3 sm:grid-cols-2">
                 <label>
                   Mã tài sản *
-                  <input
+                  <Input
                     required
                     maxLength={100}
                     value={line.assetCode}
@@ -391,12 +390,12 @@ export function ReceiptDraftForm({
                         ),
                       )
                     }
-                    className={inputClass}
+                    className="w-full"
                   />
                 </label>
                 <label>
                   Số serial
-                  <input
+                  <Input
                     maxLength={255}
                     value={line.serialNumber}
                     onChange={(event) =>
@@ -408,7 +407,7 @@ export function ReceiptDraftForm({
                         ),
                       )
                     }
-                    className={inputClass}
+                    className="w-full"
                   />
                 </label>
                 <div className="sm:col-span-2">
@@ -449,7 +448,7 @@ export function ReceiptDraftForm({
             )}
             <label className="block">
               Ghi chú dòng
-              <textarea
+              <Textarea
                 maxLength={4000}
                 value={line.note}
                 onChange={(event) =>
@@ -461,7 +460,7 @@ export function ReceiptDraftForm({
                     ),
                   )
                 }
-                className={inputClass}
+                className="w-full"
               />
             </label>
             <button
@@ -479,20 +478,16 @@ export function ReceiptDraftForm({
           </div>
         ))}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
+          <Button variant="outline"
             onClick={() => setPicker({ kind: 'material' })}
-            className="rounded-lg border px-3 py-2"
           >
             Thêm vật tư
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button variant="outline"
             onClick={() => setPicker({ kind: 'asset' })}
-            className="rounded-lg border px-3 py-2"
           >
             Thêm thiết bị/tài sản
-          </button>
+          </Button>
         </div>
         {picker && (
           <ReceiptDraftPicker
@@ -505,20 +500,17 @@ export function ReceiptDraftForm({
           />
         )}
         <div className="flex gap-3">
-          <button
+          <Button
             type="submit"
             disabled={Boolean(picker)}
-            className="rounded-xl bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50"
           >
             {isSaving ? 'Đang lưu...' : initial ? 'Lưu thay đổi' : 'Lưu nháp'}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button variant="outline"
             onClick={onCancel}
-            className="rounded-xl border px-4 py-2"
           >
             Quay lại danh sách
-          </button>
+          </Button>
         </div>
       </fieldset>
     </form>

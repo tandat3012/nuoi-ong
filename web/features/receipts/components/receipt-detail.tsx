@@ -9,6 +9,8 @@ import {
 } from "./receipt-draft.logic";
 import { RECEIPT_STATUS_LABELS } from "../types/receipt";
 import type { ReceiptDraftInitial } from "../types/receipt";
+import { PageHeader } from "@/shared/components/ui/page-header";
+import { Button } from "@/shared/components/ui/button";
 
 const date = (value: string | null) =>
   value ? value.split("-").reverse().join("/") : "—";
@@ -65,20 +67,19 @@ export function ReceiptDetail({
 
   return (
     <section className="space-y-5" aria-label="Chi tiết phiếu nhập">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Chi tiết phiếu nhập</h1>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
+      <PageHeader
+        title="Chi tiết phiếu nhập"
+        actions={
+          <>
+          <Button
             onClick={onBack}
             disabled={isCancelling || isConfirming}
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+            variant="outline"
           >
             Quay lại danh sách
-          </button>
+          </Button>
           {canWrite && detail?.receipt.status === "DRAFT" && canEdit && (
-            <button
-              type="button"
+            <Button
               onClick={() => {
                 if (!detail) return;
                 onEdit({
@@ -90,27 +91,26 @@ export function ReceiptDetail({
                 });
               }}
               disabled={isCancelling || isConfirming}
-              className="rounded-xl border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+              variant="outline"
             >
               Sửa nháp
-            </button>
+            </Button>
           )}
           {canWrite && detail?.receipt.status === "DRAFT" && (
-            <button
-              type="button"
+            <Button
               onClick={() => {
                 if (window.confirm("Bạn có chắc muốn hủy phiếu nhập nháp này?"))
                   void cancel();
               }}
               disabled={isCancelling || isConfirming}
-              className="rounded-xl border border-destructive/40 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              variant="outline"
+              className="border-destructive/40 text-destructive hover:bg-destructive/10"
             >
               {isCancelling ? "Đang hủy..." : "Hủy phiếu nháp"}
-            </button>
+            </Button>
           )}
           {canWrite && detail?.receipt.status === "DRAFT" && canConfirm && (
-            <button
-              type="button"
+            <Button
               onClick={() => {
                 if (
                   window.confirm(
@@ -120,13 +120,13 @@ export function ReceiptDetail({
                   void confirm();
               }}
               disabled={isCancelling || isConfirming}
-              className="rounded-xl bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {isConfirming ? "Đang xác nhận..." : "Xác nhận nhập kho"}
-            </button>
+            </Button>
           )}
-        </div>
-      </header>
+          </>
+        }
+      />
       {isLoading ? (
         <p role="status">Đang tải chi tiết phiếu nhập...</p>
       ) : error ? (

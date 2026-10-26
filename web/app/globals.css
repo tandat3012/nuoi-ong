@@ -4,28 +4,28 @@
 
 :root {
   /* Surfaces & Canvas */
-  --background: #f8faf7;
-  --foreground: #172018;
+  --background: #fdfbfd;
+  --foreground: #2d241e;
   --card: #ffffff;
-  --card-foreground: #172018;
+  --card-foreground: #2d241e;
   --popover: #ffffff;
-  --popover-foreground: #172018;
+  --popover-foreground: #2d241e;
 
-  /* Primary Brand (Agricultural Green) */
-  --primary: #166534;
+  /* Primary Brand (Honey — storefront palette, deepened for AA text contrast on white) */
+  --primary: #a16207;
   --primary-foreground: #ffffff;
 
   /* Secondary Surface */
-  --secondary: #edf5ed;
-  --secondary-foreground: #24502e;
+  --secondary: #fef3c7;
+  --secondary-foreground: #78350f;
 
   /* Muted / Neutral */
-  --muted: #f1f5f0;
-  --muted-foreground: #657268;
+  --muted: #f7f3ed;
+  --muted-foreground: #786f66;
 
   /* Interactive Accent */
-  --accent: #e2ede2;
-  --accent-foreground: #1b4324;
+  --accent: #fefce8;
+  --accent-foreground: #92400e;
 
   /* Semantic Feedback Tokens */
   --destructive: #dc2626;
@@ -38,9 +38,9 @@
   --info-foreground: #ffffff;
 
   /* Borders, Inputs & Ring */
-  --border: #dce5dc;
-  --input: #dce5dc;
-  --ring: #22c55e;
+  --border: #ede6dc;
+  --input: #ede6dc;
+  --ring: #d97706;
 
   /* Geometry */
   --radius: 0.625rem;
@@ -48,28 +48,28 @@
 
 .dark {
   /* Dark Surfaces & Canvas */
-  --background: #0d130f;
-  --foreground: #f1f5f2;
-  --card: #131b15;
-  --card-foreground: #f1f5f2;
-  --popover: #131b15;
-  --popover-foreground: #f1f5f2;
+  --background: #14110e;
+  --foreground: #f5efe6;
+  --card: #1c1814;
+  --card-foreground: #f5efe6;
+  --popover: #1c1814;
+  --popover-foreground: #f5efe6;
 
-  /* Primary Brand (Lighter Emerald in Dark mode for contrast) */
-  --primary: #22c55e;
-  --primary-foreground: #052e16;
+  /* Primary Brand (Honey amber, matches storefront dark) */
+  --primary: #f59e0b;
+  --primary-foreground: #1c140e;
 
   /* Secondary Surface */
-  --secondary: #1a261c;
-  --secondary-foreground: #86efac;
+  --secondary: #26201a;
+  --secondary-foreground: #fcd34d;
 
   /* Muted / Neutral */
-  --muted: #18221a;
-  --muted-foreground: #8c9e90;
+  --muted: #201b16;
+  --muted-foreground: #a39688;
 
   /* Interactive Accent */
-  --accent: #1e2e21;
-  --accent-foreground: #bbf7d0;
+  --accent: #2c241c;
+  --accent-foreground: #fde68a;
 
   /* Semantic Feedback Tokens */
   --destructive: #ef4444;
@@ -82,9 +82,9 @@
   --info-foreground: #000000;
 
   /* Borders, Inputs & Ring */
-  --border: #223225;
-  --input: #223225;
-  --ring: #22c55e;
+  --border: #2e261f;
+  --input: #2e261f;
+  --ring: #f59e0b;
 }
 
 @theme inline {

@@ -14,6 +14,11 @@ import { IssueDraftPicker, type IssueChoice } from "./issue-draft-picker";
 import { IssueLotPicker, type IssueLotChoice } from "./issue-lot-picker";
 import { IssueAssetPicker, type IssueAssetChoice } from "./issue-asset-picker";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
+import { PageHeader } from "@/shared/components/ui/page-header";
+import { Button } from "@/shared/components/ui/button";
+import { Textarea } from "@/shared/components/ui/textarea";
+import { Select } from "@/shared/components/ui/select";
+import { Input } from "@/shared/components/ui/input";
 
 type DraftLine = IssueChoice & {
   rowKey: string;
@@ -90,9 +95,6 @@ export function IssueDraftForm({
     initial?.issue.id,
     onSaved,
   );
-  const inputClass = "w-full rounded-lg border bg-background p-2";
-  const buttonClass =
-    "rounded-lg border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50";
 
   function select(choice: IssueChoice) {
     if (picker === "warehouse") {
@@ -142,9 +144,9 @@ export function IssueDraftForm({
             ? "Bạn không có quyền lưu phiếu xuất."
             : "Phiếu có dữ liệu không tương thích nên chỉ có thể xem."}
         </p>
-        <button type="button" onClick={onCancel} className={buttonClass}>
+        <Button variant="outline" onClick={onCancel}>
           Quay lại
-        </button>
+        </Button>
       </div>
     );
   return (
@@ -181,16 +183,14 @@ export function IssueDraftForm({
         );
       }}
     >
-      <header>
-        <h1 className="text-2xl font-bold">
-          {initial
+      <PageHeader
+        title={
+          initial
             ? `Sửa phiếu xuất ${initial.issue.issueCode}`
-            : "Tạo phiếu xuất nháp"}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho.
-        </p>
-      </header>
+            : "Tạo phiếu xuất nháp"
+        }
+        description="Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho."
+      />
       <fieldset disabled={isSaving} className="space-y-6 disabled:opacity-70">
         <legend className="sr-only">Thông tin phiếu xuất</legend>
         <div className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2">
@@ -201,13 +201,13 @@ export function IssueDraftForm({
             >
               Mã phiếu *
             </label>
-            <input
+            <Input
               id="issue-code"
               value={code}
               onChange={(event) => setCode(event.target.value)}
               maxLength={50}
               required
-              className={inputClass}
+              className="w-full"
             />
           </div>
           <div>
@@ -217,12 +217,12 @@ export function IssueDraftForm({
             >
               Ngày xuất
             </label>
-            <input
+            <Input
               id="issue-date"
               type="date"
               value={date}
               onChange={(event) => setDate(event.target.value)}
-              className={inputClass}
+              className="w-full"
             />
             <p className="mt-1 text-xs text-muted-foreground">
               Để trống để dùng ngày hiện tại khi tạo phiếu.
@@ -231,13 +231,11 @@ export function IssueDraftForm({
           <div>
             <p className="mb-1 text-sm font-medium">Kho xuất *</p>
             <p className="mb-2">{warehouse?.label ?? "Chưa chọn kho"}</p>
-            <button
-              type="button"
+            <Button variant="outline"
               onClick={() => setPicker("warehouse")}
-              className={buttonClass}
             >
               Chọn kho xuất
-            </button>
+            </Button>
           </div>
           <div>
             <label
@@ -246,7 +244,7 @@ export function IssueDraftForm({
             >
               Loại phiếu
             </label>
-            <select
+            <Select
               id="issue-type"
               value={issueType}
               onChange={(event) => {
@@ -255,14 +253,14 @@ export function IssueDraftForm({
                 setIssueType(next);
                 if (next !== "MAINTENANCE") setMaintenanceRecordId(null);
               }}
-              className={inputClass}
+              className="w-full"
             >
               {Object.entries(ISSUE_TYPE_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
             {(issueType === "DAMAGE" || issueType === "MAINTENANCE") && (
               <p className="mt-2 text-sm text-muted-foreground">
                 Phiếu này chỉ xuất vật tư theo số lượng hoặc lô. Để báo hỏng hoặc
@@ -280,13 +278,13 @@ export function IssueDraftForm({
             >
               Lý do xuất
             </label>
-            <textarea
+            <Textarea
               id="issue-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               maxLength={4000}
               rows={3}
-              className={inputClass}
+              className="w-full"
             />
           </div>
           <div>
@@ -296,13 +294,13 @@ export function IssueDraftForm({
             >
               Ghi chú phiếu
             </label>
-            <textarea
+            <Textarea
               id="issue-note"
               value={note}
               onChange={(event) => setNote(event.target.value)}
               maxLength={4000}
               rows={3}
-              className={inputClass}
+              className="w-full"
             />
           </div>
         </div>
@@ -325,13 +323,11 @@ export function IssueDraftForm({
         <section aria-label="Các dòng vật tư" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Vật tư trong phiếu xuất</h2>
-            <button
-              type="button"
+            <Button variant="outline"
               onClick={() => setPicker("item")}
-              className={buttonClass}
             >
               Thêm vật tư
-            </button>
+            </Button>
           </div>
           {lines.length === 0 && (
             <p role="status">Chưa có vật tư. Vui lòng thêm ít nhất một dòng.</p>
@@ -356,18 +352,16 @@ export function IssueDraftForm({
                         : "số lượng"}
                   </p>
                 </div>
-                <button
-                  type="button"
+                <Button variant="outline"
                   aria-label={`Xóa dòng ${index + 1}`}
                   onClick={() =>
                     setLines((previous) =>
                       previous.filter((row) => row.rowKey !== line.rowKey),
                     )
                   }
-                  className={buttonClass}
                 >
                   Xóa
-                </button>
+                </Button>
               </div>
               {line.trackingMode === "LOT" && (
                 <IssueLotPicker
@@ -400,7 +394,7 @@ export function IssueDraftForm({
                   >
                     Số lượng *
                   </label>
-                  <input
+                  <Input
                     id={`quantity-${line.rowKey}`}
                     type="text"
                     inputMode="decimal"
@@ -412,7 +406,7 @@ export function IssueDraftForm({
                       updateLine(line.rowKey, { quantity: event.target.value })
                     }
                     aria-describedby="issue-quantity-help"
-                    className={inputClass}
+                    className="w-full"
                   />
                 </div>
                 <div>
@@ -422,14 +416,14 @@ export function IssueDraftForm({
                   >
                     Ghi chú dòng
                   </label>
-                  <input
+                  <Input
                     id={`note-${line.rowKey}`}
                     value={line.note}
                     onChange={(event) =>
                       updateLine(line.rowKey, { note: event.target.value })
                     }
                     maxLength={4000}
-                    className={inputClass}
+                    className="w-full"
                   />
                 </div>
               </div>
@@ -451,21 +445,18 @@ export function IssueDraftForm({
       )}
       {isSaving && <p role="status">Đang lưu phiếu xuất...</p>}
       <div className="flex flex-wrap gap-3">
-        <button
+        <Button
           type="submit"
           disabled={isSaving || !!picker}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
           {isSaving ? "Đang lưu..." : "Lưu phiếu nháp"}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button variant="outline"
           disabled={isSaving}
           onClick={onCancel}
-          className={buttonClass}
         >
           {initial ? "Quay lại chi tiết" : "Quay lại danh sách"}
-        </button>
+        </Button>
       </div>
     </form>
   );

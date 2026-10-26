@@ -9,6 +9,7 @@ import {
   getIssueMaintenanceRecords,
 } from "../api/issues.api";
 import type { IssueMaintenanceReference } from "../types/issue";
+import { Button } from "@/shared/components/ui/button";
 
 const TYPE_LABELS = {
   INSPECTION: "Kiểm tra",
@@ -143,9 +144,7 @@ export function IssueMaintenancePicker({
       {onSelect && (
         <>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="rounded-lg border px-3 py-2 text-sm"
+            <Button variant="outline"
               onClick={() => {
                 setOpen((value) => !value);
                 setAttempt((value) => value + 1);
@@ -156,18 +155,16 @@ export function IssueMaintenancePicker({
                 : selectedId
                   ? "Thay hồ sơ bảo trì"
                   : "Chọn hồ sơ bảo trì"}
-            </button>
+            </Button>
             {selectedId && (
-              <button
-                type="button"
+              <Button variant="outline"
                 onClick={() => {
                   onSelect(null);
                   setOpen(false);
                 }}
-                className="rounded-lg border px-3 py-2 text-sm"
               >
                 Bỏ chọn hồ sơ
-              </button>
+              </Button>
             )}
           </div>
           <p className="text-xs text-muted-foreground">

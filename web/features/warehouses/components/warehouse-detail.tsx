@@ -127,7 +127,7 @@ export function WarehouseDetail({
         </Card>
 
         <Card className="p-4 flex items-center gap-3.5">
-          <div className={`grid size-10 place-items-center rounded-xl ${active ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
+          <div className={`grid size-10 place-items-center rounded-xl ${active ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>
             <Boxes className="size-5" />
           </div>
           <div>
@@ -141,7 +141,7 @@ export function WarehouseDetail({
         </Card>
 
         <Card className="p-4 flex items-center gap-3.5">
-          <div className="grid size-10 place-items-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+          <div className="grid size-10 place-items-center rounded-xl bg-info/10 text-info">
             <MapPin className="size-5" />
           </div>
           <div className="min-w-0 flex-1">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuthContext } from '@/features/auth/context/auth-context';
+import { useFarmMembership } from '@/features/auth/hooks/use-farm-membership';
 import { useState } from 'react';
 import { ReceiptDetail } from './receipt-detail';
 import { ReceiptDraftForm } from './receipt-draft-form';
@@ -12,6 +13,9 @@ import {
 } from '../types/receipt';
 import { ReceiptTable } from './receipt-table';
 import { ReceiptDraftPicker, type DraftChoice } from './receipt-draft-picker';
+import { PageHeader } from '@/shared/components/ui/page-header';
+import { Button } from '@/shared/components/ui/button';
+import { Select } from '@/shared/components/ui/select';
 
 export function ReceiptsPage() {
   const { selectedFarmId } = useAuthContext();
@@ -23,18 +27,13 @@ export function ReceiptsPage() {
 }
 
 function FarmReceiptsPage({ farmId }: { farmId: string }) {
-  const { data } = useAuthContext();
+  const { canManageFarm: canWrite } = useFarmMembership();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ReceiptDraftInitial | null>(null);
   const [warehouseFilter, setWarehouseFilter] =
     useState<DraftChoice | null>(null);
   const [selectingWarehouse, setSelectingWarehouse] = useState(false);
-  const canWrite =
-    data.memberships
-      .find(({ farm }) => farm.id === farmId)
-      ?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER') ??
-    false;
 
   const {
     filters,
@@ -48,8 +47,6 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
     reload,
   } = useReceiptList(farmId);
 
-  const buttonClass =
-    'rounded-xl border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50';
   if (creating || editing) {
     return (
       <ReceiptDraftForm
@@ -88,36 +85,25 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
     );
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Phiếu nhập kho</h1>
-        <div className="flex flex-wrap gap-2">
-          {canWrite && (
-            <button
-              type="button"
-              className={buttonClass}
-              onClick={() => setCreating(true)}
-            >
-              Tạo phiếu nháp
-            </button>
-          )}
-          <button
-            type="button"
-            className={buttonClass}
-            onClick={reload}
-            disabled={isLoading}
-          >
-            Tải lại
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title="Phiếu nhập kho"
+        description="Lập phiếu nháp, xác nhận để cập nhật tồn kho, lô hoặc tài sản."
+        actions={
+          <>
+            {canWrite && <Button onClick={() => setCreating(true)}>Tạo phiếu nháp</Button>}
+            <Button variant="outline" onClick={reload} disabled={isLoading}>
+              Tải lại
+            </Button>
+          </>
+        }
+      />
       <div className="space-y-3 rounded-xl border bg-card p-4">
         <div className="flex flex-wrap items-center gap-3">
           <label htmlFor="receipt-status" className="text-sm font-medium">
             Trạng thái
           </label>
-          <select
+          <div className="w-44"><Select
             id="receipt-status"
-            className="rounded-lg border bg-background p-2 text-sm"
             value={filters.status ?? ''}
             onChange={(event) =>
               changeStatus(
@@ -131,17 +117,15 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
                 {label}
               </option>
             ))}
-          </select>
+          </Select></div>
           <span className="text-sm font-medium">
             Kho: {warehouseFilter?.label ?? 'Tất cả kho'}
           </span>
-          <button
-            type="button"
+          <Button variant="outline"
             onClick={() => setSelectingWarehouse(true)}
-            className="rounded-lg border px-3 py-2 text-sm"
           >
             Lọc theo kho
-          </button>
+          </Button>
           {warehouseFilter && (
             <button
               type="button"
@@ -202,22 +186,18 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
               : `Trang ${pageInfo.number} / ${pageInfo.totalPages} (${pageInfo.totalItems} phiếu nhập)`}
           </p>
           <div className="flex gap-2">
-            <button
-              type="button"
-              className={buttonClass}
+            <Button variant="outline"
               disabled={pageInfo.number <= 1}
               onClick={() => changePage(pageInfo.number - 1)}
             >
               Trang trước
-            </button>
-            <button
-              type="button"
-              className={buttonClass}
+            </Button>
+            <Button variant="outline"
               disabled={pageInfo.number >= pageInfo.totalPages}
               onClick={() => changePage(pageInfo.number + 1)}
             >
               Trang sau
-            </button>
+            </Button>
           </div>
         </nav>
       )}
