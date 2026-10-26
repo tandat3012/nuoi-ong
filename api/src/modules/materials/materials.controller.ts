@@ -20,8 +20,8 @@ import { CreateMaterialDto } from './dto/create-material.dto';
 import { materialTrackingModes } from './dto/material-validation';
 import { UpdateMaterialDto } from './dto/update-material.dto';
 import { MaterialsService } from './materials.service';
-import { FarmAccessGuard } from '../auth/farm-access.guard';
-import { FarmRoles } from '../auth/farm-access.decorator';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import {
   ApiBearerAuth,
   ApiBadRequestResponse,

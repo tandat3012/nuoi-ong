@@ -1,10 +1,21 @@
 'use client';
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { AuthContextResponse } from '../types/auth-context';
 import { SignOutButton, useAuth } from '@clerk/nextjs';
 import { useAuthenticatedRequest } from '../hooks/use-authenticated-request';
 import { useRouter } from 'next/navigation';
-import { API_UNAUTHORIZED_EVENT, ApiError } from '@/shared/api/client';
+import {
+  API_ACCESS_CHANGED_EVENT,
+  API_UNAUTHORIZED_EVENT,
+  ApiError,
+} from '@/shared/api/client';
 
 type AuthContextValue = {
   data: AuthContextResponse;
@@ -12,12 +23,15 @@ type AuthContextValue = {
   selectFarm: (farmId: string) => void;
   isLoading: boolean;
   error: ApiError | null;
+  refresh: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthContextProvider({ children,
-}: { children: React.ReactNode;
+export function AuthContextProvider({
+  children,
+}: {
+  children: React.ReactNode;
 }) {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
   if (!isLoaded) return <p>Đang tải...</p>;
@@ -44,12 +58,23 @@ function SessionContextProvider({
   const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const refresh = useCallback(() => setAttempt((previous) => previous + 1), []);
+
+  useEffect(() => {
+    window.addEventListener('focus', refresh);
+    window.addEventListener(API_ACCESS_CHANGED_EVENT, refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener(API_ACCESS_CHANGED_EVENT, refresh);
+    };
+  }, [refresh]);
 
   useEffect(() => {
     const onUnauthorized = () => router.replace('/sign-in');
     window.addEventListener(API_UNAUTHORIZED_EVENT, onUnauthorized);
 
-    return () => window.removeEventListener(API_UNAUTHORIZED_EVENT, onUnauthorized);
+    return () =>
+      window.removeEventListener(API_UNAUTHORIZED_EVENT, onUnauthorized);
   }, [router]);
 
   useEffect(() => {
@@ -70,9 +95,12 @@ function SessionContextProvider({
           savedFarmId = localStorage.getItem(strorageKey);
         } catch {}
         const savedFarmIsValid =
-          savedFarmId && res.memberships.some(({ farm }) => farm.id === savedFarmId);
+          savedFarmId &&
+          res.memberships.some(({ farm }) => farm.id === savedFarmId);
 
         setData(res);
+        if (res.user.mustChangePassword)
+          router.replace('/account/change-password');
         const defaultFarmId = res.memberships.some(
           ({ farm }) => farm.id === res.defaultFarmId,
         )
@@ -94,7 +122,7 @@ function SessionContextProvider({
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, isLoaded, request, userId, attempt]);
+  }, [isSignedIn, isLoaded, request, userId, attempt, router]);
 
   const value = useMemo(() => {
     if (!data) return null;
@@ -104,19 +132,23 @@ function SessionContextProvider({
       selectedFarmId,
       isLoading: false,
       error,
+      refresh,
       selectFarm(farmId: string) {
-        const isAllowed = data.memberships.some(({ farm }) => farm.id === farmId,
+        const isAllowed = data.memberships.some(
+          ({ farm }) => farm.id === farmId,
         );
         if (!isAllowed) throw new Error('Farm is not available to this user');
 
         try {
-          window.localStorage.setItem(`farm:selected-farm:${data.user.id}`, farmId,
+          window.localStorage.setItem(
+            `farm:selected-farm:${data.user.id}`,
+            farmId,
           );
         } catch {}
         setSelectedFarmId(farmId);
       },
     };
-  }, [data, selectedFarmId, error]);
+  }, [data, selectedFarmId, error, refresh]);
   if (!isLoaded || (isSignedIn && !data && !error)) return <p>Đang tải...</p>;
   if (!isSignedIn) return null;
   const retry = () => {
@@ -140,6 +172,8 @@ function SessionContextProvider({
       </section>
     );
   if (!value) return null;
+  if (data?.user.mustChangePassword)
+    return <p role="status">Vui lòng đổi mật khẩu ban đầu…</p>;
   if (!selectedFarmId)
     return (
       <section>
@@ -159,7 +193,8 @@ export function useAuthContext() {
   const context = useContext(AuthContext);
 
   if (!context) {
-    throw new Error('useAuthContext must be used within an AuthContextProvider',
+    throw new Error(
+      'useAuthContext must be used within an AuthContextProvider',
     );
   }
 

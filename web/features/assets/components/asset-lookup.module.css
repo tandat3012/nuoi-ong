@@ -1,0 +1,21 @@
+.popover {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(24rem, calc(100vw - 2rem));
+  height: fit-content;
+  max-height: min(28rem, 70dvh);
+  overflow-y: auto;
+}
+
+@supports (position-area: bottom) {
+  .popover {
+    inset: auto;
+    margin: 0.5rem 0;
+    position-area: bottom span-right;
+    position-try-fallbacks: flip-block, flip-inline;
+    justify-self: start;
+    width: max(18rem, anchor-size(width));
+    max-width: min(26rem, calc(100vw - 2rem));
+  }
+}

@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
+  Users,
   PackageSearch,
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -66,6 +67,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
   {
     title: 'Quản lý nguồn lực',
     items: [
+      { href: '/personnel', label: 'Nhân sự', icon: Users },
       {
         href: '/materials',
         label: 'Vật tư',
@@ -87,6 +89,7 @@ export const operationalNavigation: readonly NavigationItem[] = primaryNavigatio
 
 // Route labels for breadcrumbs (including hidden placeholder routes)
 export const routeLabels: Record<string, string> = {
+  '/personnel': 'Nhân sự',
   '/dashboard': 'Tổng quan',
   '/inventory': 'Tồn kho',
   '/receipts': 'Phiếu nhập',

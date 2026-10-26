@@ -17,6 +17,7 @@ export type AuthContextResponse = {
     email: string;
     fullName: string | null;
     avatarUrl: string | null;
+    mustChangePassword: boolean;
   };
   memberships: FarmMembership[];
   defaultFarmId: string | null;

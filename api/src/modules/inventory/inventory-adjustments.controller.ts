@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Query } from '@nestjs/common';
 import { requireUuid } from '../../common/query-params';
-import { CurrentAuth } from '../auth/current-auth.decorator';
+import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { CreateInventoryAdjustmentDto } from './dto/create-adjustment.dto';
 import { InventoryAdjustmentsService } from './inventory-adjustments.service';
 import {

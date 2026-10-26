@@ -5,6 +5,7 @@ import { useCallback } from 'react';
 
 import {
   API_UNAUTHORIZED_EVENT,
+  API_ACCESS_CHANGED_EVENT,
   ApiError,
   apiRequest,
   ApiRequestOptions,
@@ -27,10 +28,17 @@ export function useAuthenticatedRequest() {
         throw new ApiError('Authentication is required', 401);
       }
 
-      return apiRequest<T>(path, {
-        ...options,
-        accessToken,
-      });
+      try {
+        return await apiRequest<T>(path, { ...options, accessToken });
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.status === 403 &&
+          path !== '/auth/me'
+        )
+          window.dispatchEvent(new Event(API_ACCESS_CHANGED_EVENT));
+        throw error;
+      }
     },
     [getToken],
   );

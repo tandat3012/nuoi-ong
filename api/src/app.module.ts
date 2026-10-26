@@ -12,6 +12,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { CommerceModule } from './modules/commerce/commerce.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { PersonnelModule } from './modules/personnel/personnel.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
     MaintenanceModule,
     CommerceModule,
     CloudinaryModule,
+    PersonnelModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

@@ -14,7 +14,7 @@ import {
   parsePagination,
   requireUuid,
 } from '../../common/query-params';
-import { CurrentAuth } from '../auth/current-auth.decorator';
+import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { WarehousesService } from './warehouses.service';
