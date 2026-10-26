@@ -30,11 +30,11 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
     >
       <body className="min-h-full bg-background text-foreground">
         <ClerkProvider
-          afterSignOutUrl="/sign-in"
+          afterSignOutUrl="/"
           signUpUrl="/sign-up"
           signInUrl="/sign-in"
-          signInFallbackRedirectUrl="/dashboard"
-          signUpFallbackRedirectUrl="/dashboard"
+          signInFallbackRedirectUrl="/auth/continue"
+          signUpFallbackRedirectUrl="/auth/continue"
         >
           {children}
         </ClerkProvider>

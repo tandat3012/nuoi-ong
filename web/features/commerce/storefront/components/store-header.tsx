@@ -1,5 +1,5 @@
 import * as React from 'react';
-import Link from 'next/link';
+import { Show, SignInButton, UserButton } from '@clerk/nextjs';
 import { User } from 'lucide-react';
 import { StoreBrand } from './store-brand';
 import { StoreSearchBar } from './store-search-bar';
@@ -27,14 +27,21 @@ export function StoreHeader() {
           {/* Vùng bên phải: Tài khoản & Giỏ hàng */}
           <div className="flex items-center gap-1.5 sm:gap-3">
             {/* Đăng nhập */}
-            <Link
-              href="/sign-in"
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-muted/70 hover:text-primary transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
-              aria-label="Đăng nhập tài khoản"
-            >
-              <User className="size-5 shrink-0 text-primary" aria-hidden="true" />
-              <span className="hidden sm:inline">Đăng nhập</span>
-            </Link>
+            <Show when="signed-out">
+              <SignInButton>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-muted/70 hover:text-primary transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                  aria-label="Đăng nhập tài khoản"
+                >
+                  <User className="size-5 shrink-0 text-primary" aria-hidden="true" />
+                  <span className="hidden sm:inline">Đăng nhập</span>
+                </button>
+              </SignInButton>
+            </Show>
+            <Show when="signed-in">
+              <UserButton />
+            </Show>
 
             {/* Giỏ hàng */}
             <StoreCartButton />
