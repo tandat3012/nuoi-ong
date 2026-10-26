@@ -7,6 +7,9 @@ import { ApiError } from "@/shared/api/client";
 import type { PageInfo } from "@/shared/api/contracts";
 import { getIssueCatalogItems } from "../api/issues.api";
 import type { IssueDraftTrackingMode } from "../types/issue";
+import { Select } from "@/shared/components/ui/select";
+import { Input } from "@/shared/components/ui/input";
+import { Button } from "@/shared/components/ui/button";
 
 export type IssueChoice = {
   id: string;
@@ -124,7 +127,7 @@ export function IssueDraftPicker({
         {kind === "item" && (
           <label className="flex items-center gap-2 text-sm">
             <span>Theo dõi vật tư</span>
-            <select
+            <Select
               aria-label="Theo dõi vật tư"
               value={trackingMode}
               onChange={(event) => {
@@ -132,15 +135,14 @@ export function IssueDraftPicker({
                 setQuery({ search: "", page: 1 });
                 setTrackingMode(event.target.value as IssueDraftTrackingMode);
               }}
-              className="rounded-lg border bg-background p-2"
             >
               <option value="QUANTITY">Số lượng</option>
               <option value="LOT">Theo lô</option>
               <option value="ASSET">Tài sản</option>
-            </select>
+            </Select>
           </label>
         )}
-        <input
+        <Input
           aria-label="Từ khóa lựa chọn"
           value={search}
           maxLength={100}
@@ -152,22 +154,17 @@ export function IssueDraftPicker({
             }
           }}
           placeholder="Mã hoặc tên..."
-          className="rounded-lg border bg-background p-2"
         />
-        <button
-          type="button"
+        <Button variant="outline"
           onClick={() => setQuery({ search: search.trim(), page: 1 })}
-          className="rounded-lg border px-3 py-2"
         >
           Tìm
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button variant="outline"
           onClick={onClose}
-          className="rounded-lg border px-3 py-2"
         >
           Đóng lựa chọn
-        </button>
+        </Button>
       </div>
       {!current ? (
         <p role="status">Đang tải...</p>

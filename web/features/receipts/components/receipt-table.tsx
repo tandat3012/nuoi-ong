@@ -1,4 +1,5 @@
 import { RECEIPT_STATUS_LABELS, type Receipt } from '../types/receipt';
+import { Button } from '@/shared/components/ui/button';
 
 export function ReceiptTable({
   receipts,
@@ -54,14 +55,12 @@ export function ReceiptTable({
                 {receipt.note || '—'}
               </td>
               <td className="px-4 py-3">
-                <button
-                  type="button"
+                <Button variant="outline"
                   onClick={() => onOpen(receipt.id)}
                   aria-label={`Chi tiết phiếu ${receipt.receiptCode}`}
-                  className="rounded-lg border px-3 py-1 hover:bg-muted"
                 >
                   Chi tiết
-                </button>
+                </Button>
               </td>
             </tr>
           ))}

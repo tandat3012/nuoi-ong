@@ -1,22 +1,13 @@
 "use client";
 
-import { useAuthContext } from "@/features/auth/context/auth-context";
+import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 
 export function useFarmPermissions() {
-  const { data: authData, selectedFarmId } = useAuthContext();
-
-  const membership = authData.memberships.find(
-    ({ farm }) => farm.id === selectedFarmId,
-  );
-
-  const canWrite =
-    membership?.roles.some(
-      (role) => role === "ADMIN" || role === "FARM_OWNER",
-    ) ?? false;
+  const { selectedFarmId, membership, canManageFarm } = useFarmMembership();
 
   return {
     selectedFarmId,
     farmName: membership?.farm.name ?? "Chưa chọn trang trại",
-    canWrite,
+    canWrite: canManageFarm,
   };
 }
