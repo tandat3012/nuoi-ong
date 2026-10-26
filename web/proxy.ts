@@ -1,19 +1,10 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { backOfficeRoutes } from '@/shared/config/protected-routes';
 
 const isProtectedRoute = createRouteMatcher([
-  '/dashboard(.*)',
-  '/warehouses(.*)',
-  '/catalog(.*)',
-  '/inventory(.*)',
-  '/receipts(.*)',
-  '/issues(.*)',
-  '/counts(.*)',
-  '/transfers(.*)',
-  '/assets(.*)',
-  '/maintenance(.*)',
-  '/scan(.*)',
-  '/personnel(.*)',
+  ...backOfficeRoutes.map((route) => `${route}(.*)`),
   '/account/change-password(.*)',
+  '/auth/continue(.*)',
 ]);
 export default clerkMiddleware(async (auth, req) => {
   if (isProtectedRoute(req)) {
