@@ -108,6 +108,8 @@ export const storeProductImages = pgTable(
       .notNull()
       .references(() => storeProducts.id, { onDelete: 'restrict' }),
     url: text().notNull(),
+    // Cloudinary public ID; null for images not hosted on Cloudinary (seed).
+    publicId: text('public_id'),
     alt: text().default('').notNull(),
     position: integer().default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })

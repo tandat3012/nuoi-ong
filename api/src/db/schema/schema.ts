@@ -64,6 +64,14 @@ export const inventoryTransactionType = pgEnum('inventory_transaction_type', [
   'RETURN_IN',
   'MAINTENANCE_ISSUE',
 ]);
+export const adjustmentReason = pgEnum('adjustment_reason', [
+  'STOCK_COUNT',
+  'SHRINKAGE',
+  'DAMAGE',
+  'EXPIRED',
+  'DATA_ENTRY_ERROR',
+  'OTHER',
+]);
 export const issueType = pgEnum('issue_type', [
   'CONSUMPTION',
   'DAMAGE',
@@ -1518,6 +1526,94 @@ export const assetIncidents = pgTable(
     check(
       'ck_incident_status_fields',
       sql`((status = 'RESOLVED'::incident_status) AND (resolved_at IS NOT NULL)) OR ((status <> 'RESOLVED'::incident_status) AND (resolved_at IS NULL))`,
+    ),
+  ],
+);
+
+export const inventoryAdjustments = pgTable(
+  'inventory_adjustments',
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    farmId: uuid('farm_id').notNull(),
+    warehouseId: uuid('warehouse_id').notNull(),
+    itemId: uuid('item_id').notNull(),
+    lotId: uuid('lot_id'),
+    quantityChange: numeric('quantity_change', {
+      precision: 18,
+      scale: 3,
+    }).notNull(),
+    reasonCode: adjustmentReason('reason_code').notNull(),
+    note: text(),
+    status: documentStatus().notNull(),
+    idempotencyKey: uuid('idempotency_key').notNull(),
+    requestedByMemberId: uuid('requested_by_member_id').notNull(),
+    reviewedByMemberId: uuid('reviewed_by_member_id'),
+    reviewedAt: timestamp('reviewed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    rejectionReason: text('rejection_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('ux_inventory_adjustment_idempotency').using(
+      'btree',
+      table.farmId.asc().nullsLast(),
+      table.idempotencyKey.asc().nullsLast(),
+    ),
+    index('idx_inventory_adjustments_farm_status').using(
+      'btree',
+      table.farmId.asc().nullsLast(),
+      table.status.asc().nullsLast(),
+      table.createdAt.desc().nullsFirst(),
+    ),
+    foreignKey({
+      columns: [table.farmId],
+      foreignColumns: [farms.id],
+      name: 'inventory_adjustments_farm_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.warehouseId],
+      foreignColumns: [warehouses.id],
+      name: 'inventory_adjustments_warehouse_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.itemId],
+      foreignColumns: [items.id],
+      name: 'inventory_adjustments_item_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.lotId],
+      foreignColumns: [inventoryLots.id],
+      name: 'inventory_adjustments_lot_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'inventory_adjustments_requested_by_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.reviewedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'inventory_adjustments_reviewed_by_member_id_fkey',
+    }),
+    check(
+      'ck_inventory_adjustment_nonzero',
+      sql`quantity_change <> (0)::numeric`,
+    ),
+    check(
+      'ck_inventory_adjustment_other_note',
+      sql`reason_code <> 'OTHER'::adjustment_reason OR coalesce(length(btrim(note)), 0) > 0`,
+    ),
+    check(
+      'ck_inventory_adjustment_status',
+      sql`status IN ('PENDING_APPROVAL'::document_status, 'CONFIRMED'::document_status, 'REJECTED'::document_status)`,
+    ),
+    check(
+      'ck_inventory_adjustment_review',
+      sql`(status = 'PENDING_APPROVAL'::document_status) = (reviewed_at IS NULL)`,
     ),
   ],
 );

@@ -1,0 +1,1 @@
+ALTER TABLE "store_product_images" ADD COLUMN "public_id" text;

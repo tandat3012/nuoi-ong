@@ -83,13 +83,48 @@ export interface InventoryItemOption {
   unitSymbol: string | null;
 }
 
+export type InventoryAdjustmentReasonCode =
+  | "STOCK_COUNT"
+  | "SHRINKAGE"
+  | "DAMAGE"
+  | "EXPIRED"
+  | "DATA_ENTRY_ERROR"
+  | "OTHER";
+
+export type InventoryAdjustmentStatus =
+  | "PENDING_APPROVAL"
+  | "CONFIRMED"
+  | "REJECTED";
+
 export interface CreateInventoryAdjustmentInput {
+  idempotencyKey: string;
   warehouseId: string;
   itemId: string;
   lotId?: string;
   quantityChange: string;
-  reason: string;
+  reasonCode: InventoryAdjustmentReasonCode;
+  note?: string;
 }
+
+export interface InventoryAdjustmentListItem {
+  id: string;
+  status: InventoryAdjustmentStatus;
+  quantityChange: string;
+  reasonCode: InventoryAdjustmentReasonCode;
+  note: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  item: { id: string; code: string; name: string };
+  unit: { name: string; symbol: string | null };
+  warehouse: { id: string; code: string; name: string };
+  lot: { id: string; lotNumber: string | null } | null;
+  requester: { id: string; displayName: string | null };
+  reviewer: { id: string; displayName: string | null } | null;
+}
+
+export type InventoryAdjustmentListResponse =
+  PaginatedResponse<InventoryAdjustmentListItem>;
 
 export interface InventoryAdjustmentRecord {
   id: string;
@@ -109,7 +144,9 @@ export interface InventoryAdjustmentRecord {
 }
 
 export interface InventoryAdjustmentResponse {
-  transaction: InventoryAdjustmentRecord;
+  adjustment: { id: string; status: InventoryAdjustmentStatus };
+  /** null while the adjustment waits for approval or after rejection. */
+  transaction: InventoryAdjustmentRecord | null;
 }
 
 export interface InventoryLotOption {

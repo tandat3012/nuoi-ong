@@ -9,17 +9,23 @@ import {
 } from "../api/inventory.api";
 import { useInventoryReferences } from "../hooks/use-inventory-references";
 import type {
+  InventoryAdjustmentReasonCode,
+  InventoryBalance,
   InventoryListResponse,
   InventoryTrackingMode,
 } from "../types/inventory";
 import {
+  INVENTORY_ADJUSTMENT_REASONS,
+  adjustmentIncreaseBlocked,
   formatInventoryExpiry,
   formatInventoryQuantity,
   inventoryUnitLabel,
   isValidInventoryAdjustmentQuantity,
+  sumInventoryByItem,
 } from "../inventory.logic";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { Select } from "@/shared/components/ui/select";
+import { Combobox } from "@/shared/components/ui/combobox";
 import { Input } from "@/shared/components/ui/input";
 import { Button } from "@/shared/components/ui/button";
 
@@ -42,7 +48,8 @@ function submitError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 400)
       return {
-        message: "Dữ liệu chưa hợp lệ. Kiểm tra số lượng và lý do điều chỉnh.",
+        message:
+          "Dữ liệu chưa hợp lệ. Kiểm tra số lượng, lý do và ghi chú điều chỉnh.",
         uncertain: false,
       };
     if (error.status === 401)
@@ -79,38 +86,48 @@ function submitError(error: unknown) {
           message: "Mức tồn sau điều chỉnh vượt quá độ chính xác được hỗ trợ.",
           uncertain: false,
         };
+      if (message.includes("inactive"))
+        return {
+          message: "Vật tư đã ngừng hoạt động chỉ được điều chỉnh giảm.",
+          uncertain: false,
+        };
+      if (message.includes("expired"))
+        return {
+          message: "Lô đã hết hạn chỉ được điều chỉnh giảm.",
+          uncertain: false,
+        };
+      if (message.includes("idempotency"))
+        return {
+          message:
+            "Lần gửi này trùng với một điều chỉnh khác. Đóng biểu mẫu và thử lại.",
+          uncertain: false,
+        };
       return {
         message:
           "Tồn kho đã thay đổi hoặc không đủ cho mức giảm này. Vui lòng kiểm tra lại số tồn hiện tại.",
         uncertain: false,
       };
     }
-    if (error.status === 0 || error.status >= 500)
-      return {
-        message:
-          "Chưa xác nhận được kết quả điều chỉnh. Hãy kiểm tra Lịch sử biến động trước khi gửi lại.",
-        uncertain: true,
-      };
   }
+  // Retrying the same form reuses its idempotency key, so a second POST cannot double-apply.
   return {
     message:
-      "Chưa xác nhận được kết quả điều chỉnh. Hãy kiểm tra Lịch sử biến động trước khi gửi lại.",
+      "Chưa xác nhận được kết quả. Bấm gửi lại để thử tiếp; hệ thống sẽ không ghi trùng lần điều chỉnh này.",
     uncertain: true,
   };
 }
 
 export function InventoryAdjustmentDialog({
   farmId,
-  hasAmbiguousOutcome,
-  onAmbiguousOutcome,
+  requiresApproval,
   onClose,
   onSuccess,
 }: {
   farmId: string;
-  hasAmbiguousOutcome: boolean;
-  onAmbiguousOutcome: () => void;
+  /** Employees submit a request that an owner must approve before stock changes. */
+  requiresApproval: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (pending: boolean) => void;
 }) {
   const request = useAuthenticatedRequest();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -120,13 +137,67 @@ export function InventoryAdjustmentDialog({
   const [itemId, setItemId] = useState("");
   const [lotId, setLotId] = useState("");
   const [quantityChange, setQuantityChange] = useState("");
-  const [reason, setReason] = useState("");
+  const [reasonCode, setReasonCode] = useState<
+    InventoryAdjustmentReasonCode | ""
+  >("");
+  const [note, setNote] = useState("");
   const [stockAttempt, setStockAttempt] = useState(0);
   const [stockLookup, setStockLookup] = useState<StockLookup | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
-  const [checkedLedger, setCheckedLedger] = useState(false);
+  // One key per distinct payload: an unchanged retry replays, an edited form is a new adjustment.
+  const attemptRef = useRef<{ payload: string; key: string } | null>(null);
   const references = useInventoryReferences(farmId, itemId || undefined);
+  // Whole-warehouse stock, only to label picker rows; the "Tồn hiện tại" box stays the source of truth.
+  const [warehouseStock, setWarehouseStock] = useState<{
+    warehouseId: string;
+    balances?: InventoryBalance[];
+    error?: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!warehouseId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const balances: InventoryBalance[] = [];
+        // shortcut: pages through every balance of the warehouse; switch to a per-item stock endpoint if warehouses hold thousands of rows.
+        for (let page = 1, totalPages = 1; page <= totalPages; page += 1) {
+          const response = await getInventoryBalances(request, farmId, {
+            warehouseId,
+            page,
+            pageSize: 100,
+          });
+          if (cancelled) return;
+          balances.push(...response.data);
+          totalPages = response.page.totalPages;
+        }
+        setWarehouseStock({ warehouseId, balances });
+      } catch {
+        if (!cancelled) setWarehouseStock({ warehouseId, error: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [farmId, request, warehouseId]);
+
+  const stockRows =
+    warehouseStock?.warehouseId === warehouseId ? warehouseStock : null;
+  const stockByItem = stockRows?.balances
+    ? sumInventoryByItem(stockRows.balances)
+    : null;
+  function stockHint(
+    trackingMode: InventoryTrackingMode,
+    unit: string,
+    quantity: string | undefined,
+  ) {
+    if (!warehouseId) return `Đơn vị: ${unit}`;
+    if (trackingMode === "ASSET") return "Theo dõi tài sản";
+    if (stockRows?.error) return "Không tải được tồn";
+    if (!stockByItem) return "Đang tải tồn...";
+    return `Tồn: ${quantity ?? "0"} ${unit}`;
+  }
 
   useEffect(() => {
     mountedRef.current = true;
@@ -197,20 +268,31 @@ export function InventoryAdjustmentDialog({
   const stockError = currentLookup?.error;
   const currentQuantity =
     currentLookup?.response?.data[0]?.quantityOnHand ?? "0";
-  const reasonLength = reason.trim().length;
+  const noteLength = note.trim().length;
+  const noteRequired = reasonCode === "OTHER";
   const quantityInvalid =
     quantityChange.length > 0 &&
     !isValidInventoryAdjustmentQuantity(quantityChange);
-  const reasonOnlyWhitespace = reason.length > 0 && reasonLength === 0;
+  const increaseBlocked = selectedItem
+    ? adjustmentIncreaseBlocked(
+        quantityChange,
+        {
+          itemInactive: selectedItem.item.status === "INACTIVE",
+          lotExpiryDate: trackingMode === "LOT" ? selectedLot?.expiryDate : null,
+        },
+        new Date().toLocaleDateString("sv-SE"),
+      )
+    : null;
   const canSubmit =
     validSelection &&
     !stockIsLoading &&
     !stockError &&
     isValidInventoryAdjustmentQuantity(quantityChange) &&
-    reasonLength > 0 &&
-    reason.trim().length <= 4000 &&
-    !submitting &&
-    (!hasAmbiguousOutcome || checkedLedger);
+    !increaseBlocked &&
+    reasonCode !== "" &&
+    (!noteRequired || noteLength > 0) &&
+    noteLength <= 4000 &&
+    !submitting;
 
   function closeDialog() {
     if (submittingRef.current) return;
@@ -224,24 +306,29 @@ export function InventoryAdjustmentDialog({
     setSubmitting(true);
     setSubmitMessage(null);
 
+    const payload = {
+      warehouseId,
+      itemId,
+      ...(trackingMode === "LOT" ? { lotId } : {}),
+      quantityChange,
+      reasonCode,
+      ...(noteLength > 0 ? { note: note.trim() } : {}),
+    };
+    const payloadKey = JSON.stringify(payload);
+    if (attemptRef.current?.payload !== payloadKey)
+      attemptRef.current = { payload: payloadKey, key: crypto.randomUUID() };
+
     try {
-      await createInventoryAdjustment(request, farmId, {
-        warehouseId,
-        itemId,
-        ...(trackingMode === "LOT" ? { lotId } : {}),
-        quantityChange,
-        reason: reason.trim(),
+      const { data } = await createInventoryAdjustment(request, farmId, {
+        ...payload,
+        idempotencyKey: attemptRef.current.key,
       });
-      if (mountedRef.current) onSuccess();
+      if (mountedRef.current)
+        onSuccess(data.adjustment.status === "PENDING_APPROVAL");
     } catch (error: unknown) {
       if (!mountedRef.current) return;
       const result = submitError(error);
       setSubmitMessage(result.message);
-      if (result.uncertain) {
-        // ponytail: no idempotency key; verify the ledger before a new POST until replay protection exists.
-        setCheckedLedger(false);
-        onAmbiguousOutcome();
-      }
       if (
         result.uncertain ||
         (error instanceof ApiError && error.status === 409)
@@ -270,10 +357,12 @@ export function InventoryAdjustmentDialog({
         <header className="flex items-start justify-between gap-4">
           <div>
             <h2 id="inventory-adjustment-title" className="text-xl font-bold">
-              Điều chỉnh tồn kho
+              {requiresApproval ? "Đề xuất điều chỉnh tồn" : "Điều chỉnh tồn kho"}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Ghi nhận chênh lệch kiểm kê bằng một giao dịch kho.
+              {requiresApproval
+                ? "Đề xuất sẽ chờ chủ trại duyệt; tồn kho chỉ thay đổi sau khi được duyệt."
+                : "Ghi nhận chênh lệch kiểm kê bằng một giao dịch kho."}
             </p>
           </div>
           <Button variant="outline"
@@ -313,11 +402,11 @@ export function InventoryAdjustmentDialog({
 
         <label className="grid gap-1.5 text-sm font-medium">
           Vật tư
-          <Select
+          <Combobox
             required
             value={itemId}
-            onChange={(event) => {
-              setItemId(event.target.value);
+            onChange={(value) => {
+              setItemId(value);
               setLotId("");
               setStockAttempt((previous) => previous + 1);
               setSubmitMessage(null);
@@ -325,16 +414,21 @@ export function InventoryAdjustmentDialog({
             disabled={
               submitting || references.isLoading || Boolean(references.error)
             }
+            placeholder="Tìm theo mã hoặc tên vật tư"
+            emptyText="Không có vật tư khớp từ khóa."
+            options={references.items.map(({ item, unitName, unitSymbol }) => ({
+              value: item.id,
+              label: `${item.code} · ${item.name}${
+                item.status === "INACTIVE" ? " (Ngừng hoạt động)" : ""
+              }`,
+              hint: stockHint(
+                item.trackingMode,
+                inventoryUnitLabel(unitSymbol, unitName),
+                stockByItem?.get(item.id),
+              ),
+            }))}
             className="font-normal"
-          >
-            <option value="">Chọn vật tư</option>
-            {references.items.map(({ item }) => (
-              <option key={item.id} value={item.id}>
-                {item.code} · {item.name}
-                {item.status === "INACTIVE" ? " (Ngừng hoạt động)" : ""}
-              </option>
-            ))}
-          </Select>
+          />
         </label>
 
         {trackingMode === "LOT" && (
@@ -365,6 +459,16 @@ export function InventoryAdjustmentDialog({
               {references.lots.map((lot) => (
                 <option key={lot.id} value={lot.id}>
                   {lot.lotNumber} · HSD {formatInventoryExpiry(lot.expiryDate)}
+                  {stockRows?.balances && selectedItem
+                    ? ` · Tồn ${formatInventoryQuantity(
+                        stockRows.balances.find(
+                          (balance) => balance.lot?.id === lot.id,
+                        )?.quantityOnHand ?? "0",
+                      )} ${inventoryUnitLabel(
+                        selectedItem.unitSymbol,
+                        selectedItem.unitName,
+                      )}`
+                    : ""}
                 </option>
               ))}
             </Select>
@@ -483,50 +587,60 @@ export function InventoryAdjustmentDialog({
               Nhập một mức khác 0, không dùng dấu phẩy hoặc ký hiệu khoa học.
             </span>
           )}
+          {!quantityInvalid && increaseBlocked && (
+            <span role="alert" className="font-normal text-destructive">
+              {increaseBlocked}
+            </span>
+          )}
         </label>
 
         <label className="grid gap-1.5 text-sm font-medium">
           Lý do
-          <Textarea
+          <Select
             required
+            value={reasonCode}
+            onChange={(event) => {
+              setReasonCode(
+                event.target.value as InventoryAdjustmentReasonCode | "",
+              );
+              setSubmitMessage(null);
+            }}
+            disabled={submitting}
+            className="font-normal"
+          >
+            <option value="">Chọn lý do</option>
+            {INVENTORY_ADJUSTMENT_REASONS.map((reason) => (
+              <option key={reason.value} value={reason.value}>
+                {reason.label}
+              </option>
+            ))}
+          </Select>
+        </label>
+
+        <label className="grid gap-1.5 text-sm font-medium">
+          Ghi chú{noteRequired ? "" : " (không bắt buộc)"}
+          <Textarea
+            required={noteRequired}
             maxLength={4000}
             rows={3}
-            value={reason}
+            value={note}
             onChange={(event) => {
-              setReason(event.target.value);
+              setNote(event.target.value);
               setSubmitMessage(null);
             }}
             disabled={submitting}
             className="resize-y font-normal"
           />
           <span className="font-normal text-muted-foreground">
-            {reasonLength}/4000 ký tự sau khi bỏ khoảng trắng đầu cuối.
+            {noteLength}/4000 ký tự
+            {noteRequired ? ". Bắt buộc khi chọn lý do Khác." : "."}
           </span>
-          {reasonLength === 0 && (
-            <span className="font-normal text-muted-foreground">
-              Lý do bắt buộc, từ 1 đến 4000 ký tự.
-            </span>
-          )}
-          {reasonOnlyWhitespace && (
+          {noteRequired && note.length > 0 && noteLength === 0 && (
             <span className="font-normal text-destructive">
-              Vui lòng nhập lý do không chỉ gồm khoảng trắng.
+              Vui lòng nhập ghi chú không chỉ gồm khoảng trắng.
             </span>
           )}
         </label>
-
-        {hasAmbiguousOutcome && (
-          <label className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
-            <input
-              type="checkbox"
-              checked={checkedLedger}
-              onChange={(event) => setCheckedLedger(event.target.checked)}
-              disabled={submitting}
-              className="mt-0.5"
-            />
-            Tôi đã kiểm tra Lịch sử biến động và xác nhận lần gửi trước chưa
-            được ghi nhận.
-          </label>
-        )}
 
         {submitMessage && (
           <p
@@ -548,7 +662,11 @@ export function InventoryAdjustmentDialog({
             type="submit"
             disabled={!canSubmit}
           >
-            {submitting ? "Đang lưu..." : "Lưu điều chỉnh"}
+            {submitting
+              ? "Đang gửi..."
+              : requiresApproval
+                ? "Gửi đề xuất"
+                : "Lưu điều chỉnh"}
           </Button>
         </footer>
       </form>
