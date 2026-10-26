@@ -11,6 +11,7 @@ import { AuthContextResponse } from '../types/auth-context';
 import { SignOutButton, useAuth } from '@clerk/nextjs';
 import { useAuthenticatedRequest } from '../hooks/use-authenticated-request';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   API_ACCESS_CHANGED_EVENT,
   API_UNAUTHORIZED_EVENT,
@@ -178,6 +179,7 @@ function SessionContextProvider({
     return (
       <section>
         <p>Bạn chưa được cấp quyền vào trại. Vui lòng liên hệ chủ trại.</p>
+        <Link href="/">Về cửa hàng</Link>
         <button type="button" onClick={retry}>
           Kiểm tra lại
         </button>

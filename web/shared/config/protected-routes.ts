@@ -1,0 +1,21 @@
+export const backOfficeRoutes = [
+  '/dashboard',
+  '/warehouses',
+  '/materials',
+  '/catalog',
+  '/inventory',
+  '/receipts',
+  '/issues',
+  '/counts',
+  '/transfers',
+  '/assets',
+  '/maintenance',
+  '/scan',
+  '/personnel',
+] as const;
+
+export function isBackOfficePath(pathname: string) {
+  return backOfficeRoutes.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
+}

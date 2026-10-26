@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { Show, SignInButton, UserButton } from '@clerk/nextjs';
 import { usePathname } from 'next/navigation';
 import { Menu, User, ShoppingBag } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
@@ -110,14 +111,21 @@ export function StoreMobileNav() {
 
           {/* Tài khoản & Giỏ hàng */}
           <div className="border-t border-border pt-4 flex flex-col gap-2">
-            <Link
-              href="/sign-in"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-foreground hover:bg-muted/70 transition-colors focus-visible:outline-2 focus-visible:outline-primary"
-            >
-              <User className="size-4.5 text-primary" aria-hidden="true" />
-              <span>Đăng nhập tài khoản</span>
-            </Link>
+            <Show when="signed-out">
+              <SignInButton>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-foreground hover:bg-muted/70 transition-colors focus-visible:outline-2 focus-visible:outline-primary"
+                >
+                  <User className="size-4.5 text-primary" aria-hidden="true" />
+                  <span>Đăng nhập tài khoản</span>
+                </button>
+              </SignInButton>
+            </Show>
+            <Show when="signed-in">
+              <UserButton />
+            </Show>
 
             <button
               type="button"
