@@ -1,4 +1,5 @@
 import type {
+  InventoryAdjustmentReasonCode,
   InventoryFilters,
   InventoryLedgerFilters,
   InventoryTransactionType,
@@ -120,6 +121,63 @@ export function formatInventoryDateTime(value: string) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+export const INVENTORY_ADJUSTMENT_REASONS: {
+  value: InventoryAdjustmentReasonCode;
+  label: string;
+}[] = [
+  { value: "STOCK_COUNT", label: "Chênh lệch kiểm kê" },
+  { value: "SHRINKAGE", label: "Hao hụt" },
+  { value: "DAMAGE", label: "Hư hỏng" },
+  { value: "EXPIRED", label: "Hết hạn" },
+  { value: "DATA_ENTRY_ERROR", label: "Nhập/xuất sai" },
+  { value: "OTHER", label: "Khác" },
+];
+
+export function inventoryAdjustmentReasonLabel(
+  code: InventoryAdjustmentReasonCode,
+) {
+  return (
+    INVENTORY_ADJUSTMENT_REASONS.find(({ value }) => value === code)?.label ??
+    code
+  );
+}
+
+/** Mirrors the API rule: inactive items and expired lots may only be decreased. */
+export function adjustmentIncreaseBlocked(
+  quantityChange: string,
+  target: { itemInactive: boolean; lotExpiryDate?: string | null },
+  today: string,
+) {
+  if (quantityChange.startsWith("-")) return null;
+  if (target.itemInactive)
+    return "Vật tư đã ngừng hoạt động chỉ được điều chỉnh giảm.";
+  if (target.lotExpiryDate && target.lotExpiryDate < today)
+    return "Lô đã hết hạn chỉ được điều chỉnh giảm.";
+  return null;
+}
+
+/** Sums quantityOnHand per item (all lots) in exact thousandths, avoiding float drift. */
+export function sumInventoryByItem(
+  balances: { quantityOnHand: string; item: { id: string } }[],
+) {
+  const zero = BigInt(0);
+  const scale = BigInt(1000);
+  const totals = new Map<string, bigint>();
+  for (const { quantityOnHand, item } of balances) {
+    const [whole, fraction = ""] = quantityOnHand.replace("-", "").split(".");
+    const thousandths = BigInt(whole + fraction.padEnd(3, "0").slice(0, 3));
+    const signed = quantityOnHand.startsWith("-") ? -thousandths : thousandths;
+    totals.set(item.id, (totals.get(item.id) ?? zero) + signed);
+  }
+  return new Map(
+    [...totals].map(([id, total]) => {
+      const abs = total < zero ? -total : total;
+      const text = `${abs / scale}.${String(abs % scale).padStart(3, "0")}`;
+      return [id, formatInventoryQuantity(total < zero ? `-${text}` : text)];
+    }),
+  );
 }
 
 export function inventoryUnitLabel(symbol: string | null, name: string) {

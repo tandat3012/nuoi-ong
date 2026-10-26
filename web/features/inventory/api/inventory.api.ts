@@ -5,7 +5,9 @@ import {
 } from "@/features/warehouses/api/warehouses.api";
 import type {
   CreateInventoryAdjustmentInput,
+  InventoryAdjustmentListResponse,
   InventoryAdjustmentResponse,
+  InventoryAdjustmentStatus,
   InventoryFilters,
   InventoryItemOption,
   InventoryLedgerFilters,
@@ -35,6 +37,39 @@ export function createInventoryAdjustment(
       method: "POST",
       params: { farmId },
       data: input,
+    },
+  );
+}
+
+export function getInventoryAdjustments(
+  request: AuthenticatedRequest,
+  farmId: string,
+  filters: {
+    status?: InventoryAdjustmentStatus;
+    warehouseId?: string;
+    itemId?: string;
+    mine?: boolean;
+    page: number;
+    pageSize?: number;
+  },
+) {
+  return request<InventoryAdjustmentListResponse>("/inventory/adjustments", {
+    params: { farmId, pageSize: 20, ...filters },
+  });
+}
+
+export function reviewInventoryAdjustment(
+  request: AuthenticatedRequest,
+  farmId: string,
+  id: string,
+  decision: { action: "approve" } | { action: "reject"; reason: string },
+) {
+  return request<{ data: InventoryAdjustmentResponse }>(
+    `/inventory/adjustments/${id}/${decision.action}`,
+    {
+      method: "POST",
+      params: { farmId },
+      data: decision.action === "reject" ? { reason: decision.reason } : {},
     },
   );
 }

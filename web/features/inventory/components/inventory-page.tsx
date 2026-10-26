@@ -9,6 +9,11 @@ import type { Warehouse } from "@/features/warehouses/types/warehouse";
 import { InventoryTable } from "./inventory-table";
 import { InventoryLedgerPage } from "./inventory-ledger-page";
 import { InventoryAdjustmentDialog } from "./inventory-adjustment-dialog";
+import { InventoryAdjustmentsView } from "./inventory-adjustments-view";
+import { usePendingAdjustmentCount } from "../hooks/use-pending-adjustment-count";
+import { Badge } from "@/shared/components/ui/badge";
+import { Combobox } from "@/shared/components/ui/combobox";
+import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Select } from "@/shared/components/ui/select";
@@ -19,7 +24,8 @@ export function InventoryPage({
   initialFilters: Pick<InventoryFilters, "warehouseId" | "itemId">;
 }) {
   const { selectedFarmId, canWrite } = useFarmPermissions();
-  const [view, setView] = useState<"balances" | "ledger">("balances");
+  const { membership } = useFarmMembership();
+  const [view, setView] = useState<InventoryView>("balances");
   if (!selectedFarmId)
     return <p role="status">Vui lòng chọn trang trại để xem tồn kho.</p>;
   return (
@@ -28,28 +34,41 @@ export function InventoryPage({
       farmId={selectedFarmId}
       initialFilters={initialFilters}
       canWrite={canWrite}
+      canRequest={canWrite || (membership?.roles.includes("EMPLOYEE") ?? false)}
       view={view}
       onChangeView={setView}
     />
   );
 }
 
+type InventoryView = "balances" | "ledger" | "adjustments";
+
 function FarmInventoryPage({
   farmId,
   initialFilters,
   canWrite,
+  canRequest,
   view,
   onChangeView,
 }: {
   farmId: string;
   initialFilters: Pick<InventoryFilters, "warehouseId" | "itemId">;
+  /** ADMIN / FARM_OWNER: adjust directly and approve requests. */
   canWrite: boolean;
-  view: "balances" | "ledger";
-  onChangeView: (view: "balances" | "ledger") => void;
+  /** Also true for EMPLOYEE, whose adjustments wait for approval. */
+  canRequest: boolean;
+  view: InventoryView;
+  onChangeView: (view: InventoryView) => void;
 }) {
   const [refreshToken, setRefreshToken] = useState(0);
   const [adjustmentOpen, setAdjustmentOpen] = useState(false);
-  const [hasAmbiguousOutcome, setHasAmbiguousOutcome] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Only approvers act on the count, so only they get the badge.
+  const pendingCount = usePendingAdjustmentCount(
+    farmId,
+    refreshToken,
+    canWrite,
+  );
 
   return (
     <div className="space-y-4">
@@ -69,30 +88,45 @@ function FarmInventoryPage({
           >
             Lịch sử biến động
           </Button>
+          {canRequest && (
+            <Button variant="outline"
+              aria-pressed={view === "adjustments"}
+              onClick={() => onChangeView("adjustments")}
+              className="aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+            >
+              Đề xuất điều chỉnh
+              {pendingCount ? (
+                <Badge variant="warning" className="ml-1.5 tabular-nums">
+                  {pendingCount}
+                  <span className="sr-only"> đang chờ duyệt</span>
+                </Badge>
+              ) : null}
+            </Button>
+          )}
         </nav>
-        {canWrite && (
+        {canRequest && (
           <Button
-            onClick={() => setAdjustmentOpen(true)}
+            onClick={() => {
+              setNotice(null);
+              setAdjustmentOpen(true);
+            }}
           >
-            Điều chỉnh tồn kho
+            {canWrite ? "Điều chỉnh tồn kho" : "Đề xuất điều chỉnh"}
           </Button>
         )}
       </div>
-      {hasAmbiguousOutcome && (
+      {notice && (
         <div
-          role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning"
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success"
         >
-          <p>
-            Chưa xác nhận được lần điều chỉnh gần nhất. Hãy kiểm tra Lịch sử
-            biến động trước khi gửi lại.
-          </p>
+          <p>{notice}</p>
           <button
             type="button"
-            onClick={() => onChangeView("ledger")}
+            onClick={() => onChangeView("adjustments")}
             className="underline"
           >
-            Mở lịch sử biến động
+            Xem đề xuất
           </button>
         </div>
       )}
@@ -102,25 +136,31 @@ function FarmInventoryPage({
           initialFilters={initialFilters}
           refreshToken={refreshToken}
         />
-      ) : (
+      ) : view === "ledger" ? (
         <InventoryLedgerPage
           farmId={farmId}
           initialFilters={initialFilters}
           refreshToken={refreshToken}
         />
+      ) : (
+        <InventoryAdjustmentsView
+          farmId={farmId}
+          canApprove={canWrite}
+          refreshToken={refreshToken}
+          onReviewed={() => setRefreshToken((previous) => previous + 1)}
+        />
       )}
-      {canWrite && adjustmentOpen && (
+      {canRequest && adjustmentOpen && (
         <InventoryAdjustmentDialog
           farmId={farmId}
-          hasAmbiguousOutcome={hasAmbiguousOutcome}
-          onAmbiguousOutcome={() => {
-            setHasAmbiguousOutcome(true);
-            setRefreshToken((previous) => previous + 1);
-          }}
+          requiresApproval={!canWrite}
           onClose={() => setAdjustmentOpen(false)}
-          onSuccess={() => {
+          onSuccess={(pending) => {
             setAdjustmentOpen(false);
-            setHasAmbiguousOutcome(false);
+            if (pending)
+              setNotice(
+                "Đã gửi đề xuất điều chỉnh. Tồn kho sẽ cập nhật sau khi chủ trại duyệt.",
+              );
             setRefreshToken((previous) => previous + 1);
           }}
         />
@@ -191,27 +231,31 @@ function CurrentBalancesView({
 
         <label className="grid gap-1.5 text-sm font-medium">
           Vật tư
-          <Select
+          <Combobox
             value={filters.itemId ?? ""}
-            onChange={(event) =>
-              inventory.changeItem(event.target.value || undefined)
-            }
+            onChange={(itemId) => inventory.changeItem(itemId || undefined)}
             disabled={references.isLoading || Boolean(references.error)}
+            placeholder="Tìm theo mã hoặc tên vật tư"
+            emptyText="Không có vật tư khớp từ khóa."
+            options={[
+              { value: "", label: "Tất cả vật tư" },
+              ...(filters.itemId && !itemKnown
+                ? [
+                    {
+                      value: filters.itemId,
+                      label: "Vật tư đã chọn không có trong trang trại này",
+                    },
+                  ]
+                : []),
+              ...references.items.map(({ item }) => ({
+                value: item.id,
+                label: `${item.code} · ${item.name}${
+                  item.status === "INACTIVE" ? " (Ngừng hoạt động)" : ""
+                }`,
+              })),
+            ]}
             className="font-normal"
-          >
-            <option value="">Tất cả vật tư</option>
-            {filters.itemId && !itemKnown && (
-              <option value={filters.itemId}>
-                Vật tư đã chọn không có trong trang trại này
-              </option>
-            )}
-            {references.items.map(({ item }) => (
-              <option key={item.id} value={item.id}>
-                {item.code} · {item.name}
-                {item.status === "INACTIVE" ? " (Ngừng hoạt động)" : ""}
-              </option>
-            ))}
-          </Select>
+          />
         </label>
 
         <label className="grid gap-1.5 text-sm font-medium">
