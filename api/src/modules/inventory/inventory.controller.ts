@@ -5,7 +5,7 @@ import {
   requireUuid,
 } from '../../common/query-params';
 import { inventoryTransactionType } from '../../db/schema';
-import { CurrentAuth } from '../auth/current-auth.decorator';
+import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { InventoryService } from './inventory.service';
 import {
   ApiBearerAuth,

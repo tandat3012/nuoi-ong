@@ -146,6 +146,9 @@ export const users = pgTable(
     fullName: varchar('full_name', { length: 255 }),
     avatarUrl: text('avatar_url'),
     systemRoleId: uuid('system_role_id'),
+    mustChangePassword: boolean('must_change_password')
+      .default(false)
+      .notNull(),
     status: recordStatus().default('ACTIVE').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -192,6 +195,10 @@ export const farmMembers = pgTable(
     id: uuid().defaultRandom().primaryKey().notNull(),
     farmId: uuid('farm_id').notNull(),
     userId: uuid('user_id').notNull(),
+    employeeCode: varchar('employee_code', { length: 50 }),
+    jobTitle: varchar('job_title', { length: 100 }),
+    phone: varchar({ length: 50 }),
+    note: text(),
     status: memberStatus().default('ACTIVE').notNull(),
     joinedAt: timestamp('joined_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -219,6 +226,9 @@ export const farmMembers = pgTable(
       name: 'farm_members_user_id_fkey',
     }),
     unique('uq_farm_member').on(table.farmId, table.userId),
+    uniqueIndex('ux_farm_member_employee_code')
+      .on(table.farmId, sql`lower(${table.employeeCode})`)
+      .where(sql`${table.employeeCode} IS NOT NULL`),
   ],
 );
 
@@ -284,6 +294,90 @@ export const warehouses = pgTable(
     }),
     unique('uq_warehouse_code_per_farm').on(table.code, table.farmId),
   ],
+);
+
+export const farmMemberWarehouses = pgTable(
+  'farm_member_warehouses',
+  {
+    farmMemberId: uuid('farm_member_id')
+      .notNull()
+      .references(() => farmMembers.id, { onDelete: 'cascade' }),
+    warehouseId: uuid('warehouse_id')
+      .notNull()
+      .references(() => warehouses.id),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.farmMemberId, table.warehouseId] }),
+    index('idx_member_warehouses_warehouse').on(table.warehouseId),
+  ],
+);
+
+export type PersonnelProvisionPayload = {
+  fullName: string;
+  email: string;
+  roleCodes: string[];
+  warehouseIds: string[];
+  employeeCode: string | null;
+  jobTitle: string | null;
+  phone: string | null;
+  note: string | null;
+};
+
+export const personnelAccountProvisions = pgTable(
+  'personnel_account_provisions',
+  {
+    id: uuid().primaryKey(),
+    farmId: uuid('farm_id')
+      .notNull()
+      .references(() => farms.id),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => users.id),
+    email: varchar({ length: 255 }).notNull(),
+    payloadHash: varchar('payload_hash', { length: 64 }).notNull(),
+    payload: jsonb().$type<PersonnelProvisionPayload>().notNull(),
+    clerkUserId: varchar('clerk_user_id', { length: 255 }),
+    memberId: uuid('member_id').references(() => farmMembers.id),
+    status: varchar({ length: 30 })
+      .$type<
+        | 'PENDING'
+        | 'IDENTITY_CREATED'
+        | 'MEMBERSHIP_CREATED'
+        | 'COMPLETED'
+        | 'FAILED'
+      >()
+      .default('PENDING')
+      .notNull(),
+    errorCode: varchar('error_code', { length: 100 }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+);
+
+// Shared PostgreSQL buckets keep credential throttling consistent across API instances.
+export const credentialActionLimits = pgTable(
+  'credential_action_limits',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    action: varchar({ length: 50 }).notNull(),
+    windowStartedAt: timestamp('window_started_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .defaultNow()
+      .notNull(),
+    attempts: integer().default(1).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.action] })],
 );
 
 export const locations = pgTable(

@@ -6,7 +6,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { DatabaseService } from './db/database.service';
-import { Public } from './modules/auth/public.decorator';
+import { Public } from './modules/auth/clerk/public.decorator';
 
 @Public()
 @Controller('health')

@@ -276,6 +276,42 @@ async function seed(client: PoolClient) {
   }
 
   const locationIds: Record<string, string> = {};
+  for (const [key, employeeCode, jobTitle] of [
+    ['owner', 'NV-OWNER', 'Chủ trại'],
+    ['employee', 'NV-001', 'Nhân viên kho'],
+  ]) {
+    await client.query(
+      'UPDATE farm_members SET employee_code=$2,job_title=$3 WHERE id=$1',
+      [memberIds[key], employeeCode, jobTitle],
+    );
+  }
+  await client.query(
+    `INSERT INTO farm_member_warehouses (farm_member_id,warehouse_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+    [memberIds.employee, warehouseIds.main],
+  );
+  const provisionPayload = {
+    fullName: 'Demo chưa tạo tài khoản',
+    email: 'uncreated@nuoi-ong.local',
+    roleCodes: ['EMPLOYEE'],
+    warehouseIds: [],
+    employeeCode: null,
+    jobTitle: null,
+    phone: null,
+    note: null,
+  };
+  await client.query(
+    `INSERT INTO personnel_account_provisions (id,farm_id,actor_user_id,email,payload_hash,payload,status,error_code) VALUES ($1,$2,$3,$4,$5,$6,'FAILED','DEMO_ONLY') ON CONFLICT (id) DO NOTHING`,
+    [
+      uuid('personnel:demo-failed-provision'),
+      farmId,
+      userIds.owner,
+      provisionPayload.email,
+      createHash('sha256')
+        .update(JSON.stringify(provisionPayload))
+        .digest('hex'),
+      JSON.stringify(provisionPayload),
+    ],
+  );
   const locations = [
     [
       'main',
