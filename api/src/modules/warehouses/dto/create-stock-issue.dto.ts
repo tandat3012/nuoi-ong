@@ -45,7 +45,8 @@ export class CreateStockIssueItemDto {
   @ApiPropertyOptional({
     format: 'uuid',
     nullable: true,
-    description: 'Bắt buộc với trackingMode ASSET; số lượng mỗi tài sản là 1.',
+    description:
+      'Bắt buộc với trackingMode ASSET; số lượng mỗi tài sản là 1. ASSET chỉ dùng cho CONSUMPTION, OTHER hoặc DISPOSAL; báo hỏng và bảo trì dùng nghiệp vụ tại hồ sơ tài sản.',
   })
   @IsOptional()
   @IsUUID()

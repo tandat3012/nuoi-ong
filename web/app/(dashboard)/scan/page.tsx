@@ -1,10 +1,9 @@
-import type { Metadata } from 'next';
+import type { Metadata } from "next";
 
-import { qrModule } from '@/features/qr';
-import { ModuleOverview } from '@/shared/components/module-overview';
+import { QrScanner } from "@/features/qr";
 
-export const metadata: Metadata = { title: 'Tra cứu QR' };
+export const metadata: Metadata = { title: "Tra cứu QR" };
 
 export default function ScanPage() {
-  return <ModuleOverview module={qrModule} />;
+  return <QrScanner />;
 }

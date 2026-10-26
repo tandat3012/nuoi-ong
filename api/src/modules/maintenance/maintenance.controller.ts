@@ -36,6 +36,7 @@ import {
 import { maintenanceStatus } from '../../db/schema';
 import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import {
+  CompleteMaintenanceRecordDto,
   CreateMaintenanceRecordDto,
   UpdateMaintenanceRecordDto,
 } from './dto/maintenance.dto';
@@ -293,6 +294,7 @@ export class MaintenanceController {
   @ApiOperation({ summary: 'Hoàn tất bảo trì' })
   @ApiUuidParam('id', 'ID hồ sơ cần hoàn tất.')
   @ApiFarmIdQuery()
+  @ApiBody({ type: CompleteMaintenanceRecordDto, required: false })
   @ApiCreatedResponse({
     description: 'Hồ sơ raw sau khi chuyển sang COMPLETED.',
     schema: { type: 'object', properties: { data: recordSchema } },
@@ -314,12 +316,14 @@ export class MaintenanceController {
     @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Query('farmId') farmId?: string,
+    @Body() input?: CompleteMaintenanceRecordDto,
   ) {
     return {
       data: await this.service.complete(
         requireUuid(id, 'id'),
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
+        input,
       ),
     };
   }

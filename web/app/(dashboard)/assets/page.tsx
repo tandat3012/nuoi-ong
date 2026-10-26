@@ -1,10 +1,9 @@
-import type { Metadata } from 'next';
+import type { Metadata } from "next";
 
-import { assetsModule } from '@/features/assets';
-import { ModuleOverview } from '@/shared/components/module-overview';
+import { AssetsScreen } from "@/features/assets";
 
-export const metadata: Metadata = { title: 'Tài sản' };
+export const metadata: Metadata = { title: "Tài sản" };
 
 export default function AssetsPage() {
-  return <ModuleOverview module={assetsModule} />;
+  return <AssetsScreen />;
 }
