@@ -154,6 +154,21 @@ export class WarehousesService {
   }
 
   async assertFarmAccess(farmId: string, clerkUserId: string, write: boolean) {
+    const { memberId, roleCodes } = await this.getActiveMembership(
+      farmId,
+      clerkUserId,
+    );
+    if (
+      write &&
+      !roleCodes.some((code) => ['ADMIN', 'FARM_OWNER'].includes(code))
+    ) {
+      throw new ForbiddenException('Warehouse write permission is required');
+    }
+    return memberId;
+  }
+
+  /** Active member id plus every role code it holds; throws 403 when not an active member. */
+  async getActiveMembership(farmId: string, clerkUserId: string) {
     const memberships = await this.databaseService.db
       .select({
         memberId: farmMembers.id,
@@ -186,15 +201,12 @@ export class WarehousesService {
     if (activeMemberships.length === 0) {
       throw new ForbiddenException('Active farm membership is required');
     }
-    if (
-      write &&
-      !activeMemberships.some(({ roleCode }) =>
-        ['ADMIN', 'FARM_OWNER'].includes(roleCode ?? ''),
-      )
-    ) {
-      throw new ForbiddenException('Warehouse write permission is required');
-    }
-    return activeMemberships[0].memberId;
+    return {
+      memberId: activeMemberships[0].memberId,
+      roleCodes: activeMemberships.flatMap(({ roleCode }) =>
+        roleCode ? [roleCode] : [],
+      ),
+    };
   }
 
   private async findWarehouse(id: string, farmId: string) {

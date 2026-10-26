@@ -127,6 +127,13 @@
       "when": 1793009510475,
       "tag": "0017_storefront-image-public-id",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793025991840,
+      "tag": "0018_inventory-adjustment-approval",
+      "breakpoints": true
     }
   ]
 }
