@@ -30,12 +30,14 @@ import {
 export function PersonnelCreate({
   farmId,
   canAssignOwner,
+  initialEmail,
   onClose,
   onCloseFocus,
   onCreated,
 }: {
   farmId: string;
   canAssignOwner: boolean;
+  initialEmail?: string;
   onClose: () => void;
   onCloseFocus: () => void;
   onCreated: (member: PersonnelDetail) => void;
@@ -48,9 +50,9 @@ export function PersonnelCreate({
       alive.current = false;
     };
   }, []);
-  const [mode, setMode] = useState("new");
+  const [mode, setMode] = useState(initialEmail ? "existing" : "new");
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail ?? "");
   const [password, setPassword] = useState("");
   const [visible, setVisible] = useState(false);
   const [handover, setHandover] = useState(false);

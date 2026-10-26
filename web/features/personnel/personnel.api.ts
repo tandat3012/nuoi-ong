@@ -2,6 +2,7 @@ import type { AuthenticatedRequest } from "@/features/warehouses/api/warehouses.
 import type { PaginatedResponse } from "@/shared/api/contracts";
 import type {
   CreatePersonnelInput,
+  CustomerAccount,
   PersonnelDetail,
   PersonnelFilters,
   PersonnelSummary,
@@ -13,6 +14,16 @@ export function getPersonnel(
   filters: PersonnelFilters,
 ) {
   return request<PaginatedResponse<PersonnelSummary>>("/personnel", {
+    params: { ...filters, search: filters.search?.trim() || undefined, farmId },
+  });
+}
+
+export function getCustomers(
+  request: AuthenticatedRequest,
+  farmId: string,
+  filters: { page: number; pageSize: number; search?: string },
+) {
+  return request<PaginatedResponse<CustomerAccount>>("/personnel/customers", {
     params: { ...filters, search: filters.search?.trim() || undefined, farmId },
   });
 }

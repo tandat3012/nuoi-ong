@@ -196,6 +196,47 @@ export class PersonnelService {
     };
   }
 
+  // Signed-in accounts that belong to no farm are storefront customers.
+  async customers(
+    farmId: string,
+    clerkUserId: string,
+    filters: PaginationParams & { search?: string },
+  ) {
+    await this.assertManager(farmId, clerkUserId);
+    const conditions = [
+      sql`not exists (select 1 from ${farmMembers} where ${farmMembers.userId} = ${users.id})`,
+    ];
+    if (filters.search) {
+      const pattern = `%${filters.search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      conditions.push(
+        or(ilike(users.fullName, pattern), ilike(users.email, pattern))!,
+      );
+    }
+    const [data, totals] = await Promise.all([
+      this.database.db
+        .select({
+          id: users.id,
+          fullName: users.fullName,
+          email: users.email,
+          accountStatus: users.status,
+          createdAt: users.createdAt,
+        })
+        .from(users)
+        .where(and(...conditions))
+        .orderBy(desc(users.createdAt), asc(users.id))
+        .limit(filters.pageSize)
+        .offset(filters.offset),
+      this.database.db
+        .select({ value: count() })
+        .from(users)
+        .where(and(...conditions)),
+    ]);
+    return {
+      data,
+      page: this.page(filters, Number(totals[0]?.value ?? 0)),
+    };
+  }
+
   async detail(memberId: string, farmId: string, clerkUserId: string) {
     await this.assertManager(farmId, clerkUserId);
     return this.readDetail(this.database.db, memberId, farmId);
