@@ -86,6 +86,24 @@ export class PersonnelController {
     );
   }
 
+  @Get('customers')
+  @ApiOperation({ summary: 'List signed-in accounts that belong to no farm' })
+  @ApiPageQueries()
+  @ApiSearchQuery()
+  customers(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.personnel.customers(
+      requireUuid(farmId, 'farmId'),
+      auth.clerkUserId,
+      { ...parsePagination(page, pageSize), search: normalizeSearch(search) },
+    );
+  }
+
   @Post('accounts')
   @ApiOperation({
     summary: 'Create or resume an employee account with an initial password',
