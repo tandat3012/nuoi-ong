@@ -1,5 +1,4 @@
 export { WarehousesPage } from './components/warehouses-page';
-export { WarehouseDetailScreen } from './components/warehouse-detail-screen';
 export { WarehouseDetail } from './components/warehouse-detail';
 export { WarehouseForm } from './components/warehouse-form';
 export { useWarehouses } from './hooks/use-warehouses';

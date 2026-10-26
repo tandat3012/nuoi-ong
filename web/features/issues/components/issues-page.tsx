@@ -11,6 +11,9 @@ import {
 import { IssueDetail } from "./issue-detail";
 import { IssueTable } from "./issue-table";
 import { IssueDraftForm } from "./issue-draft-form";
+import { PageHeader } from "@/shared/components/ui/page-header";
+import { Button } from "@/shared/components/ui/button";
+import { Select } from "@/shared/components/ui/select";
 
 export function IssuesPage() {
   const { selectedFarmId } = useAuthContext();
@@ -76,38 +79,23 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
     );
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Phiếu xuất kho</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Theo dõi phiếu xuất và các dòng vật tư, lô, tài sản của trang trại.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {canWrite && (
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-            >
-              Tạo phiếu nháp
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={reload}
-            disabled={isLoading}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
-          >
-            Tải lại
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title="Phiếu xuất kho"
+        description="Theo dõi phiếu xuất và các dòng vật tư, lô, tài sản của trang trại."
+        actions={
+          <>
+            {canWrite && <Button onClick={() => setCreating(true)}>Tạo phiếu nháp</Button>}
+            <Button variant="outline" onClick={reload} disabled={isLoading}>
+              Tải lại
+            </Button>
+          </>
+        }
+      />
       <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
         <label htmlFor="issue-status" className="text-sm font-medium">
           Trạng thái
         </label>
-        <select
+        <div className="w-44"><Select
           id="issue-status"
           value={filters.status ?? ""}
           onChange={(event) =>
@@ -115,7 +103,6 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
               (event.target.value || undefined) as IssueStatus | undefined,
             )
           }
-          className="rounded-lg border bg-background p-2 text-sm"
         >
           <option value="">Tất cả trạng thái</option>
           {Object.entries(ISSUE_STATUS_LABELS).map(([value, label]) => (
@@ -123,7 +110,7 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
               {label}
             </option>
           ))}
-        </select>
+        </Select></div>
       </div>
       {isLoading ? (
         <p role="status">Đang tải danh sách phiếu xuất...</p>
@@ -157,22 +144,18 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
               : `Trang ${pageInfo.number} / ${pageInfo.totalPages} (${pageInfo.totalItems} phiếu xuất)`}
           </p>
           <div className="flex gap-2">
-            <button
-              type="button"
+            <Button variant="outline"
               disabled={pageInfo.number <= 1}
               onClick={() => changePage(pageInfo.number - 1)}
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
             >
               Trang trước
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button variant="outline"
               disabled={pageInfo.number >= pageInfo.totalPages}
               onClick={() => changePage(pageInfo.number + 1)}
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
             >
               Trang sau
-            </button>
+            </Button>
           </div>
         </nav>
       )}

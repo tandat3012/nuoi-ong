@@ -9,6 +9,9 @@ import type { Warehouse } from "@/features/warehouses/types/warehouse";
 import { InventoryTable } from "./inventory-table";
 import { InventoryLedgerPage } from "./inventory-ledger-page";
 import { InventoryAdjustmentDialog } from "./inventory-adjustment-dialog";
+import { PageHeader } from "@/shared/components/ui/page-header";
+import { Button } from "@/shared/components/ui/button";
+import { Select } from "@/shared/components/ui/select";
 
 export function InventoryPage({
   initialFilters,
@@ -52,37 +55,33 @@ function FarmInventoryPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Chế độ xem kho" className="flex gap-2">
-          <button
-            type="button"
+          <Button variant="outline"
             aria-pressed={view === "balances"}
             onClick={() => onChangeView("balances")}
-            className="rounded-lg border px-4 py-2 text-sm aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+            className="aria-pressed:bg-primary aria-pressed:text-primary-foreground"
           >
             Tồn hiện tại
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button variant="outline"
             aria-pressed={view === "ledger"}
             onClick={() => onChangeView("ledger")}
-            className="rounded-lg border px-4 py-2 text-sm aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+            className="aria-pressed:bg-primary aria-pressed:text-primary-foreground"
           >
             Lịch sử biến động
-          </button>
+          </Button>
         </nav>
         {canWrite && (
-          <button
-            type="button"
+          <Button
             onClick={() => setAdjustmentOpen(true)}
-            className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground"
           >
             Điều chỉnh tồn kho
-          </button>
+          </Button>
         )}
       </div>
       {hasAmbiguousOutcome && (
         <div
           role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning"
         >
           <p>
             Chưa xác nhận được lần điều chỉnh gần nhất. Hãy kiểm tra Lịch sử
@@ -152,22 +151,17 @@ function CurrentBalancesView({
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Tồn kho hiện tại</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Xem số lượng hiện có theo vật tư, kho và lô.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={reload}
-          disabled={isLoading}
-          className="rounded-lg border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
-        >
-          Tải lại
-        </button>
-      </header>
+      <PageHeader
+        title="Tồn kho hiện tại"
+        description="Xem số lượng hiện có theo vật tư, kho và lô."
+        actions={
+          <>
+            <Button variant="outline" onClick={reload} disabled={isLoading}>
+              Tải lại
+            </Button>
+          </>
+        }
+      />
 
       <section
         aria-label="Lọc tồn kho"
@@ -175,13 +169,13 @@ function CurrentBalancesView({
       >
         <label className="grid gap-1.5 text-sm font-medium">
           Kho
-          <select
+          <Select
             value={filters.warehouseId ?? ""}
             onChange={(event) =>
               inventory.changeWarehouse(event.target.value || undefined)
             }
             disabled={references.isLoading || Boolean(references.error)}
-            className="rounded-lg border bg-background p-2 font-normal"
+            className="font-normal"
           >
             <option value="">Tất cả kho</option>
             {filters.warehouseId && !warehouseKnown && (
@@ -192,18 +186,18 @@ function CurrentBalancesView({
             {references.warehouses.map((warehouse) => (
               <WarehouseOption key={warehouse.id} warehouse={warehouse} />
             ))}
-          </select>
+          </Select>
         </label>
 
         <label className="grid gap-1.5 text-sm font-medium">
           Vật tư
-          <select
+          <Select
             value={filters.itemId ?? ""}
             onChange={(event) =>
               inventory.changeItem(event.target.value || undefined)
             }
             disabled={references.isLoading || Boolean(references.error)}
-            className="rounded-lg border bg-background p-2 font-normal"
+            className="font-normal"
           >
             <option value="">Tất cả vật tư</option>
             {filters.itemId && !itemKnown && (
@@ -217,12 +211,12 @@ function CurrentBalancesView({
                 {item.status === "INACTIVE" ? " (Ngừng hoạt động)" : ""}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
 
         <label className="grid gap-1.5 text-sm font-medium">
           Lô
-          <select
+          <Select
             value={filters.lotId ?? ""}
             onChange={(event) =>
               inventory.changeLot(event.target.value || undefined)
@@ -232,7 +226,7 @@ function CurrentBalancesView({
               references.lotsLoading ||
               Boolean(references.lotsError)
             }
-            className="rounded-lg border bg-background p-2 font-normal disabled:opacity-60"
+            className="font-normal"
           >
             <option value="">
               {!filters.itemId
@@ -248,14 +242,14 @@ function CurrentBalancesView({
                 {lot.lotNumber} · HSD {lot.expiryDate ?? "không có"}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </section>
 
       {references.error && (
         <div
           role="alert"
-          className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
         >
           <p>{references.error}</p>
           <button
@@ -270,7 +264,7 @@ function CurrentBalancesView({
       {references.lotsError && (
         <div
           role="alert"
-          className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
         >
           <p>{references.lotsError}</p>
           <button
@@ -288,7 +282,7 @@ function CurrentBalancesView({
       ) : error ? (
         <div
           role="alert"
-          className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
         >
           <p>{error}</p>
           <button type="button" onClick={reload} className="mt-2 underline">
@@ -316,25 +310,21 @@ function CurrentBalancesView({
               : `Trang ${pageInfo.number} / ${pageInfo.totalPages} (${pageInfo.totalItems} dòng tồn kho)`}
           </p>
           <div className="flex gap-2">
-            <button
-              type="button"
+            <Button variant="outline"
               disabled={pageInfo.number <= 1}
               onClick={() => inventory.changePage(pageInfo.number - 1)}
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
             >
               Trang trước
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button variant="outline"
               disabled={
                 pageInfo.totalPages === 0 ||
                 pageInfo.number >= pageInfo.totalPages
               }
               onClick={() => inventory.changePage(pageInfo.number + 1)}
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
             >
               Trang sau
-            </button>
+            </Button>
           </div>
         </nav>
       )}

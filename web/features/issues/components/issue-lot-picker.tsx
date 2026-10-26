@@ -6,6 +6,7 @@ import { ApiError } from "@/shared/api/client";
 import { getIssueLotSuggestions } from "../api/issues.api";
 import type { IssueLotSuggestion } from "../types/issue";
 import { selectableIssueLotSuggestions } from "./issue-draft.logic";
+import { Button } from "@/shared/components/ui/button";
 
 export type IssueLotChoice = {
   id: string;
@@ -127,7 +128,7 @@ export function IssueLotPicker({
           </button>
         </div>
       ) : selected && !selectedSuggestion ? (
-        <p role="status" className="text-sm text-amber-700">
+        <p role="status" className="text-sm text-warning">
           Lô {selected.lotNumber || selected.id} đã hết hạn, hết tồn hoặc không
           còn ở kho. Phiếu nháp vẫn giữ lô đã lưu; tình trạng sẽ được kiểm tra
           khi xác nhận.
@@ -138,14 +139,12 @@ export function IssueLotPicker({
           Tồn hiển thị chỉ để tham khảo; tồn được kiểm tra khi xác nhận.
         </p>
       )}
-      <button
-        type="button"
+      <Button variant="outline"
         disabled={!warehouseId}
         onClick={() => setOpen((value) => !value)}
-        className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
       >
         {open ? "Ẩn danh sách lô" : selected ? "Thay lô" : "Chọn lô"}
-      </button>
+      </Button>
       {open && current && !current.error && (
         <>
           {choices.length === 0 ? (

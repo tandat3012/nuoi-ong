@@ -10,6 +10,8 @@ import {
   getReceiptLocations,
   getReceiptSuppliers,
 } from '../api/receipts.api';
+import { Input } from '@/shared/components/ui/input';
+import { Button } from '@/shared/components/ui/button';
 
 export type DraftChoice = {
   id: string;
@@ -144,28 +146,23 @@ export function ReceiptDraftPicker({
       className="space-y-3 rounded-xl border bg-muted/30 p-4"
     >
       <div className="flex flex-wrap gap-2">
-        <input
+        <Input
           aria-label="Từ khóa lựa chọn"
           value={search}
           maxLength={100}
           onChange={(event) => setSearch(event.target.value)}
-          className="rounded-lg border bg-background p-2"
           placeholder="Mã hoặc tên..."
         />
-        <button
-          type="button"
+        <Button variant="outline"
           onClick={() => setQuery({ search: search.trim(), page: 1 })}
-          className="rounded-lg border px-3 py-2"
         >
           Tìm
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button variant="outline"
           onClick={onClose}
-          className="rounded-lg border px-3 py-2"
         >
           Đóng lựa chọn
-        </button>
+        </Button>
       </div>
       {!current ? (
         <p role="status">Đang tải...</p>

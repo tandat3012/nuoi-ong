@@ -2,14 +2,23 @@
 
 import { startTransition, useEffect, useState } from 'react';
 
-import { useAuthenticatedRequest, useAuthContext } from '@/features/auth';
+import { useAuthenticatedRequest, useAuthContext, useFarmMembership } from '@/features/auth';
 import { ApiError } from '@/shared/api/client';
+import { PageHeader } from '@/shared/components/ui/page-header';
+import { Badge } from '@/shared/components/ui/badge';
 import type { PaginatedResponse } from '@/shared/api/contracts';
+import { Select } from '@/shared/components/ui/select';
+import { Input } from '@/shared/components/ui/input';
+import { Button } from '@/shared/components/ui/button';
 
 type Warehouse = { id: string; code: string; name: string };
 type Item = { id: string; code: string; name: string; trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' };
 type Count = { id: string; countCode: string; warehouseId: string; status: 'DRAFT' | 'COUNTING' | 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED'; note: string | null };
 type CountResponse = { count: Count; items: Array<{ id: string; itemId: string; systemQuantity: string; actualQuantity: string }> };
+
+const STATUS_LABELS: Record<Count['status'], string> = { DRAFT: 'Nháp', COUNTING: 'Đang kiểm', PENDING_APPROVAL: 'Chờ duyệt', CONFIRMED: 'Đã xác nhận', REJECTED: 'Đã từ chối', CANCELLED: 'Đã hủy' };
+
+const warehouseName = (warehouses: Warehouse[], id: string) => warehouses.find((warehouse) => warehouse.id === id)?.name ?? id;
 
 function errorMessage(error: unknown) {
   if (!(error instanceof ApiError)) return 'Có lỗi xảy ra, vui lòng thử lại.';
@@ -24,9 +33,8 @@ export function CountsScreen() {
 
 function FarmCountsScreen() {
   const request = useAuthenticatedRequest();
-  const { data: auth, selectedFarmId, isLoading: authLoading, error: authError } = useAuthContext();
-  const membership = auth?.memberships.find(({ farm }) => farm.id === selectedFarmId);
-  const canWrite = membership?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER') ?? false;
+  const { selectedFarmId, isLoading: authLoading, error: authError } = useAuthContext();
+  const { canManageFarm: canWrite } = useFarmMembership();
   const [counts, setCounts] = useState<Count[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -85,17 +93,17 @@ function FarmCountsScreen() {
     try { await request<CountResponse>(`/stock-counts/${id}/${action}`, { method: 'POST', params: { farmId: selectedFarmId } }); setLoadedFarmId(null); setRevision((value) => value + 1); setPage(1); } catch (requestError) { setError(errorMessage(requestError)); }
   }
 
-  if (authLoading) return <p>Đang tải farm...</p>;
+  if (authLoading) return <p>Đang tải trang trại...</p>;
   if (authError) return <p role="alert">{authError.message}</p>;
-  if (!selectedFarmId) return <p>Không có farm hoạt động để xem phiếu kiểm kê.</p>;
+  if (!selectedFarmId) return <p>Vui lòng chọn trang trại để xem phiếu kiểm kê.</p>;
   const visibleCounts = loadedFarmId === selectedFarmId ? counts : [];
 
   return <div className="space-y-6">
-    <section><span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Stock Count</span><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Kiểm kê kho</h1><p className="mt-2 text-sm text-muted-foreground">Nhập số thực tế, đối chiếu snapshot và xác nhận chênh lệch tồn kho.</p></section>
-    {canWrite && <section className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="font-semibold">Tạo phiếu kiểm kê</h2><button type="button" onClick={() => setShowForm((value) => !value)} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">{showForm ? 'Đóng form' : 'Tạo phiếu mới'}</button></div>
-      {showForm && <form onSubmit={createCount} className="mt-4 grid gap-3 md:grid-cols-2"><input required maxLength={50} value={form.countCode} onChange={(event) => setForm({ ...form, countCode: event.target.value })} aria-label="Mã phiếu kiểm kê" placeholder="Mã phiếu kiểm kê" className="min-h-11 rounded-xl border bg-background px-3 text-sm" /><select aria-label="Kho" required value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value })} className="min-h-11 rounded-xl border bg-background px-3 text-sm"><option value="">Chọn kho</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} - {warehouse.name}</option>)}</select><select aria-label="Mặt hàng" required value={form.itemId} onChange={(event) => setForm({ ...form, itemId: event.target.value })} className="min-h-11 rounded-xl border bg-background px-3 text-sm"><option value="">Chọn item</option>{items.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name} ({item.trackingMode})</option>)}</select><input required min="0" pattern="^(0|[1-9][0-9]{0,14})([.][0-9]{1,3})?$" value={form.actualQuantity} onChange={(event) => setForm({ ...form, actualQuantity: event.target.value })} aria-label="Số lượng thực tế" placeholder="Số lượng thực tế" className="min-h-11 rounded-xl border bg-background px-3 text-sm" /><input value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} aria-label="Ghi chú chênh lệch" placeholder="Ghi chú chênh lệch" className="min-h-11 rounded-xl border bg-background px-3 text-sm md:col-span-2" /><button disabled={saving} type="submit" className="min-h-11 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50 md:col-span-2">{saving ? 'Đang tạo...' : 'Tạo DRAFT'}</button></form>}
+    <PageHeader title="Kiểm kê kho" description="Nhập số thực tế, đối chiếu snapshot và xác nhận chênh lệch tồn kho." />
+    {canWrite && <section className="rounded-xl border bg-card p-5"><div className="flex items-center justify-between"><h2 className="font-semibold">Tạo phiếu kiểm kê</h2><Button onClick={() => setShowForm((value) => !value)}>{showForm ? 'Đóng form' : 'Tạo phiếu mới'}</Button></div>
+      {showForm && <form onSubmit={createCount} className="mt-4 grid gap-3 md:grid-cols-2"><Input required maxLength={50} value={form.countCode} onChange={(event) => setForm({ ...form, countCode: event.target.value })} aria-label="Mã phiếu kiểm kê" placeholder="Mã phiếu kiểm kê" /><Select aria-label="Kho" required value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value })}><option value="">Chọn kho</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} - {warehouse.name}</option>)}</Select><Select aria-label="Mặt hàng" required value={form.itemId} onChange={(event) => setForm({ ...form, itemId: event.target.value })}><option value="">Chọn vật tư</option>{items.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name} ({item.trackingMode})</option>)}</Select><Input required min="0" pattern="^(0|[1-9][0-9]{0,14})([.][0-9]{1,3})?$" value={form.actualQuantity} onChange={(event) => setForm({ ...form, actualQuantity: event.target.value })} aria-label="Số lượng thực tế" placeholder="Số lượng thực tế" /><Input value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} aria-label="Ghi chú chênh lệch" placeholder="Ghi chú chênh lệch" className="md:col-span-2" /><Button disabled={saving} type="submit" className="md:col-span-2">{saving ? 'Đang tạo...' : 'Tạo phiếu nháp'}</Button></form>}
     </section>}
     {error && <p role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">{error}</p>}
-    <section className="overflow-hidden rounded-2xl border bg-card shadow-sm"><div className="flex items-center justify-between border-b p-5"><h2 className="font-semibold">Danh sách phiếu</h2><div className="flex items-center gap-3"><span className="text-sm text-muted-foreground">{totalItems} phiếu</span><select aria-label="Trạng thái phiếu" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value as typeof status); }} className="rounded-lg border bg-background px-2 py-1 text-sm"><option value="ALL">Tất cả</option><option value="DRAFT">DRAFT</option><option value="COUNTING">COUNTING</option><option value="PENDING_APPROVAL">Chờ duyệt</option><option value="CONFIRMED">CONFIRMED</option><option value="REJECTED">Đã từ chối</option><option value="CANCELLED">CANCELLED</option></select></div></div>{loading || (!error && loadedFarmId !== selectedFarmId) ? <p className="p-5 text-sm text-muted-foreground">Đang tải phiếu...</p> : visibleCounts.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Chưa có phiếu kiểm kê.</p> : <div className="divide-y">{visibleCounts.map((count) => <article key={count.id} className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between"><div><p className="font-semibold">{count.countCode}</p><p className="mt-1 text-sm text-muted-foreground">Kho {count.warehouseId} · {count.note || 'Không có ghi chú'}</p></div><div className="flex items-center gap-3"><span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold">{count.status}</span>{canWrite && ['DRAFT', 'COUNTING'].includes(count.status) && <><button type="button" onClick={() => void changeCount(count.id, 'confirm')} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground">Xác nhận</button><button type="button" onClick={() => void changeCount(count.id, 'cancel')} className="rounded-lg border px-3 py-2 text-sm">Hủy</button></>}</div></article>)}</div>}<div className="flex items-center justify-between border-t p-5 text-sm"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">Trang trước</button><span>Trang {page}/{totalPages}</span><button type="button" disabled={page >= totalPages || loading} onClick={() => setPage((value) => value + 1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">Trang sau</button></div></section>
+    <section className="overflow-hidden rounded-xl border bg-card"><div className="flex items-center justify-between border-b p-5"><h2 className="font-semibold">Danh sách phiếu</h2><div className="flex items-center gap-3"><span className="text-sm text-muted-foreground">{totalItems} phiếu</span><div className="w-44"><Select aria-label="Trạng thái phiếu" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value as typeof status); }}><option value="ALL">Tất cả</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></div></div></div>{loading || (!error && loadedFarmId !== selectedFarmId) ? <p className="p-5 text-sm text-muted-foreground">Đang tải phiếu...</p> : visibleCounts.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Chưa có phiếu kiểm kê.</p> : <div className="divide-y">{visibleCounts.map((count) => <article key={count.id} className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between"><div><p className="font-semibold">{count.countCode}</p><p className="mt-1 text-sm text-muted-foreground">Kho {warehouseName(warehouses, count.warehouseId)} · {count.note || 'Không có ghi chú'}</p></div><div className="flex items-center gap-3"><Badge variant="outline">{STATUS_LABELS[count.status]}</Badge>{canWrite && ['DRAFT', 'COUNTING'].includes(count.status) && <><Button onClick={() => void changeCount(count.id, 'confirm')}>Xác nhận</Button><Button variant="outline" onClick={() => void changeCount(count.id, 'cancel')}>Hủy</Button></>}</div></article>)}</div>}<div className="flex items-center justify-between border-t p-5 text-sm"><Button variant="outline" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Trang trước</Button><span>Trang {page}/{totalPages}</span><Button variant="outline" disabled={page >= totalPages || loading} onClick={() => setPage((value) => value + 1)}>Trang sau</Button></div></section>
   </div>;
 }

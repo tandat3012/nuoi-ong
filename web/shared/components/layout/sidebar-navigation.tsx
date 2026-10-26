@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { primaryNavigationSections } from '@/shared/config/navigation';
 import { cn } from '@/shared/lib/utils';
-import { useAuthContext } from '@/features/auth';
+import { useFarmMembership } from '@/features/auth';
 
 function isCurrentRoute(pathname: string, href: string) {
   if (href === '/dashboard') {
@@ -15,24 +15,21 @@ function isCurrentRoute(pathname: string, href: string) {
 
 export function SidebarNavigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { data, selectedFarmId } = useAuthContext();
-  const canManagePersonnel = data.memberships
-    .find(({ farm }) => farm.id === selectedFarmId)
-    ?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER');
+  const { canManageFarm } = useFarmMembership();
 
   return (
-    <nav aria-label="Điều hướng chính" className="flex flex-col space-y-6">
-      {primaryNavigationSections.map((section) => (
-        <div key={section.title} className="space-y-1.5">
-          <h2 className="px-3 text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
-            {section.title}
-          </h2>
-          <div className="space-y-0.5">
-            {section.items
-              .filter(
-                (item) => item.href !== '/personnel' || canManagePersonnel,
-              )
-              .map((item) => {
+    <nav aria-label="Điều hướng chính" className="flex flex-col space-y-5">
+      {primaryNavigationSections.map((section) => {
+        const items = section.items.filter((item) => !item.adminOnly || canManageFarm);
+        if (items.length === 0) return null;
+
+        return (
+          <div key={section.title} className="space-y-1">
+            <h2 className="px-3 text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
+              {section.title}
+            </h2>
+            <div className="space-y-0.5">
+              {items.map((item) => {
                 const isCurrent = isCurrentRoute(pathname, item.href);
                 const Icon = item.icon;
 
@@ -43,28 +40,24 @@ export function SidebarNavigation({ onNavigate }: { onNavigate?: () => void }) {
                     onClick={onNavigate}
                     aria-current={isCurrent ? 'page' : undefined}
                     className={cn(
-                      'flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors',
+                      'relative flex min-h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors',
                       isCurrent
-                        ? 'bg-primary text-primary-foreground font-semibold shadow-2xs'
-                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                        ? 'bg-secondary font-semibold text-secondary-foreground before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                     )}
                   >
                     <Icon
-                      className={cn(
-                        'size-4 shrink-0',
-                        isCurrent
-                          ? 'text-primary-foreground'
-                          : 'text-muted-foreground',
-                      )}
+                      className={cn('size-4 shrink-0', isCurrent ? 'text-primary' : 'text-muted-foreground')}
                       aria-hidden="true"
                     />
                     <span className="truncate">{item.label}</span>
                   </Link>
                 );
               })}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }

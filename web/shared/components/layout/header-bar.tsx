@@ -8,6 +8,7 @@ import { FarmSwitcher } from '@/features/auth/components/farm-switcher';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/shared/components/ui/sheet';
 import { Button } from '@/shared/components/ui/button';
 import { Breadcrumbs } from './breadcrumbs';
+import { BrandMark } from './brand-mark';
 import { SidebarNavigation } from './sidebar-navigation';
 
 export function HeaderBar() {
@@ -31,23 +32,7 @@ export function HeaderBar() {
           <SheetContent side="left" className="w-72 p-0 flex flex-col">
             <SheetHeader className="border-b border-border p-4 text-left">
               <SheetTitle className="flex items-center gap-2.5">
-                <div
-                  aria-hidden="true"
-                  className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground shadow-2xs"
-                >
-                  <svg
-                    className="size-4.5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 2l7.5 4.3v8.6L12 22l-7.5-4.3V6.3L12 2z" />
-                    <path d="M12 7l4 2.3v4.6L12 16.2l-4-2.3V9.3L12 7z" fill="currentColor" fillOpacity="0.3" />
-                  </svg>
-                </div>
+                <BrandMark />
                 <div>
                   <p className="font-semibold text-sm leading-tight text-foreground">Nuôi Ong</p>
                   <p className="text-[0.65rem] text-muted-foreground font-normal">Quản lý nông trại</p>
@@ -61,20 +46,7 @@ export function HeaderBar() {
         </Sheet>
 
         <Link href="/dashboard" className="flex items-center gap-2 font-semibold text-sm tracking-tight">
-          <span className="grid size-7 place-items-center rounded-md bg-primary text-primary-foreground">
-            <svg
-              className="size-3.5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 2l7.5 4.3v8.6L12 22l-7.5-4.3V6.3L12 2z" />
-              <path d="M12 7l4 2.3v4.6L12 16.2l-4-2.3V9.3L12 7z" fill="currentColor" fillOpacity="0.3" />
-            </svg>
-          </span>
+          <BrandMark className="size-7 rounded-md" />
           <span className="font-semibold">Nuôi Ong</span>
         </Link>
       </div>

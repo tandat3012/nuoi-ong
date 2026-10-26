@@ -7,6 +7,8 @@ import type { PaginatedResponse } from "@/shared/api/contracts";
 import { getIssueAsset, getIssueAssets } from "../api/issues.api";
 import type { IssueAssetReference } from "../types/issue";
 import { isIssueAssetAvailable } from "./issue-draft.logic";
+import { Input } from "@/shared/components/ui/input";
+import { Button } from "@/shared/components/ui/button";
 
 export type IssueAssetChoice = {
   id: string;
@@ -139,7 +141,7 @@ export function IssueAssetPicker({
             </button>
           </div>
         ) : !checked.available ? (
-          <p role="status" className="text-sm text-amber-700">
+          <p role="status" className="text-sm text-warning">
             Tài sản đã lưu không còn khả dụng tại kho xuất hoặc không còn tồn
             tại. Phiếu nháp vẫn giữ tham chiếu; tài sản được kiểm tra lại khi
             xác nhận.
@@ -150,10 +152,8 @@ export function IssueAssetPicker({
           </p>
         ))
       )}
-      <button
-        type="button"
+      <Button variant="outline"
         disabled={!warehouseId}
-        className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
         onClick={() => {
           setOpen((value) => !value);
           setAttempt((value) => value + 1);
@@ -164,11 +164,11 @@ export function IssueAssetPicker({
           : selected
             ? "Thay tài sản"
             : "Chọn tài sản"}
-      </button>
+      </Button>
       {open && warehouseId && (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <input
+            <Input
               aria-label="Từ khóa tài sản"
               value={search}
               maxLength={100}
@@ -180,15 +180,12 @@ export function IssueAssetPicker({
                   setQuery({ page: 1, search: search.trim() });
                 }
               }}
-              className="rounded-lg border bg-background p-2"
             />
-            <button
-              type="button"
+            <Button variant="outline"
               onClick={() => setQuery({ page: 1, search: search.trim() })}
-              className="rounded-lg border px-3 py-2"
             >
               Tìm tài sản
-            </button>
+            </Button>
           </div>
           {!current ? (
             <p role="status">Đang tải tài sản...</p>

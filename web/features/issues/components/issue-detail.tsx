@@ -11,6 +11,9 @@ import {
 } from "../types/issue";
 import { supportsIssueDraftEdit } from "./issue-draft.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
+import { PageHeader } from "@/shared/components/ui/page-header";
+import { Button } from "@/shared/components/ui/button";
+import { Badge } from "@/shared/components/ui/badge";
 
 export function IssueDetail({
   farmId,
@@ -61,26 +64,22 @@ export function IssueDetail({
   return (
     <section className="space-y-6" aria-label="Chi tiết phiếu xuất">
       <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
+        <Button variant="outline"
           onClick={() => {
             if (!actionPending.current) onBack();
           }}
           disabled={isProcessing}
-          className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
         >
           Quay lại danh sách
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button variant="outline"
           onClick={() => {
             if (!actionPending.current) reload();
           }}
           disabled={isLoading || isProcessing}
-          className="rounded-lg border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
         >
           Tải lại chi tiết
-        </button>
+        </Button>
       </div>
       {isCancelling && <p role="status">Đang hủy phiếu xuất...</p>}
       {isConfirming && <p role="status">Đang xác nhận phiếu xuất...</p>}
@@ -115,56 +114,57 @@ export function IssueDetail({
       ) : (
         detail && (
           <>
-            <header className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold">
-                Phiếu xuất {detail.issue.issueCode}
-              </h1>
-              <span className="rounded-full border px-3 py-1 text-sm">
-                {ISSUE_STATUS_LABELS[detail.issue.status]}
-              </span>
-              {canWrite && supportsIssueDraftEdit(detail) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!actionPending.current) onEdit(detail);
-                  }}
-                  disabled={isProcessing}
-                  className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
-                >
-                  Sửa phiếu nháp
-                </button>
-              )}
-              {canWrite && detail.issue.status === "DRAFT" && (
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() =>
-                    void runAction(
-                      confirm,
-                      `Xác nhận phiếu xuất ${detail.issue.issueCode} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
-                    )
-                  }
-                  className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
-                >
-                  Xác nhận phiếu xuất
-                </button>
-              )}
-              {canWrite && detail.issue.status === "DRAFT" && (
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() =>
-                    void runAction(
-                      cancel,
-                      `Hủy phiếu xuất nháp ${detail.issue.issueCode}? Thao tác này không thay đổi tồn kho.`,
-                    )
-                  }
-                  className="rounded-lg border border-destructive/40 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                >
-                  Hủy phiếu nháp
-                </button>
-              )}
-            </header>
+            <PageHeader
+              title={`Phiếu xuất ${detail.issue.issueCode}`}
+              badge={
+                <Badge variant="outline">
+                  {ISSUE_STATUS_LABELS[detail.issue.status]}
+                </Badge>
+              }
+              actions={
+                <>
+                  {canWrite && supportsIssueDraftEdit(detail) && (
+                    <Button
+                      onClick={() => {
+                        if (!actionPending.current) onEdit(detail);
+                      }}
+                      disabled={isProcessing}
+                      variant="outline"
+                    >
+                      Sửa phiếu nháp
+                    </Button>
+                  )}
+                  {canWrite && detail.issue.status === "DRAFT" && (
+                    <Button
+                      disabled={isProcessing}
+                      onClick={() =>
+                        void runAction(
+                          confirm,
+                          `Xác nhận phiếu xuất ${detail.issue.issueCode} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
+                        )
+                      }
+                    >
+                      Xác nhận phiếu xuất
+                    </Button>
+                  )}
+                  {canWrite && detail.issue.status === "DRAFT" && (
+                    <Button
+                      disabled={isProcessing}
+                      onClick={() =>
+                        void runAction(
+                          cancel,
+                          `Hủy phiếu xuất nháp ${detail.issue.issueCode}? Thao tác này không thay đổi tồn kho.`,
+                        )
+                      }
+                      variant="outline"
+                      className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                    >
+                      Hủy phiếu nháp
+                    </Button>
+                  )}
+                </>
+              }
+            />
             {canWrite &&
               detail.issue.status === "DRAFT" &&
               !supportsIssueDraftEdit(detail) && (
