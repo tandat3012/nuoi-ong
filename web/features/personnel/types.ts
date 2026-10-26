@@ -15,6 +15,13 @@ export type PersonnelSummary = {
   accountStatus: "ACTIVE" | "INACTIVE";
   warehouses: Workplace[];
 };
+export type CustomerAccount = {
+  id: string;
+  fullName: string | null;
+  email: string;
+  accountStatus: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+};
 export type WorkProfile = {
   employeeCode: string | null;
   jobTitle: string | null;
