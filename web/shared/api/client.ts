@@ -6,6 +6,7 @@ import axios, {
 import { FULL_API_URL } from '../config/api';
 
 export const API_UNAUTHORIZED_EVENT = 'api:unauthorized';
+export const API_ACCESS_CHANGED_EVENT = 'api:access-changed';
 
 export class ApiError extends Error {
   constructor(
@@ -61,7 +62,7 @@ function toApiError(error: unknown): ApiError {
   }
 
   const status = error.response?.status ?? 0;
-  const details = error.response?.data ?? error.request;
+  const details = error.response?.data;
   const message = getErrorMessage(details, error.message);
 
   if (status === 401 && typeof window !== 'undefined') {

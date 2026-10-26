@@ -27,6 +27,7 @@ import {
   inventoryTransactions,
   auditLogs,
   farmMemberRoles,
+  farmMemberWarehouses,
   materialProfiles,
 } from './schema';
 
@@ -87,6 +88,7 @@ export const farmMembersRelations = relations(farmMembers, ({ one, many }) => ({
   maintenanceRecords: many(maintenanceRecords),
   inventoryTransactions: many(inventoryTransactions),
   farmMemberRoles: many(farmMemberRoles),
+  workplaces: many(farmMemberWarehouses),
 }));
 
 export const farmsRelations = relations(farms, ({ many }) => ({
@@ -120,6 +122,7 @@ export const suppliersRelations = relations(suppliers, ({ one, many }) => ({
 }));
 
 export const warehousesRelations = relations(warehouses, ({ one, many }) => ({
+  members: many(farmMemberWarehouses),
   farm: one(farms, {
     fields: [warehouses.farmId],
     references: [farms.id],
@@ -137,6 +140,20 @@ export const warehousesRelations = relations(warehouses, ({ one, many }) => ({
   stockCounts: many(stockCounts),
   inventoryTransactions: many(inventoryTransactions),
 }));
+
+export const farmMemberWarehousesRelations = relations(
+  farmMemberWarehouses,
+  ({ one }) => ({
+    member: one(farmMembers, {
+      fields: [farmMemberWarehouses.farmMemberId],
+      references: [farmMembers.id],
+    }),
+    warehouse: one(warehouses, {
+      fields: [farmMemberWarehouses.warehouseId],
+      references: [warehouses.id],
+    }),
+  }),
+);
 
 export const locationsRelations = relations(locations, ({ one, many }) => ({
   farm: one(farms, {

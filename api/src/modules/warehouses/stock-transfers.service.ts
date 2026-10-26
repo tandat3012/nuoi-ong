@@ -15,7 +15,6 @@ import {
   stockTransferItems,
   stockTransfers,
   warehouses,
-  assets,
 } from '../../db/schema';
 import {
   CreateStockTransferDto,
@@ -118,21 +117,27 @@ export class StockTransfersService {
     input: UpdateStockTransferDto,
   ) {
     await this.warehousesService.assertFarmAccess(farmId, user, true);
-    const cur = await this.only(id, farmId);
-    if (cur.status !== 'DRAFT')
-      throw new ConflictException('Only DRAFT transfers can be edited');
-    const from = input.fromWarehouseId ?? cur.fromWarehouseId;
-    const to = input.toWarehouseId ?? cur.toWarehouseId;
-    if (from === to)
-      throw new BadRequestException(
-        'Source and destination warehouses must differ',
-      );
     await this.databaseService.db.transaction(async (tx) => {
+      const cur = await this.only(id, farmId, tx, true);
+      if (cur.status !== 'DRAFT')
+        throw new ConflictException('Only DRAFT transfers can be edited');
+      const from = input.fromWarehouseId ?? cur.fromWarehouseId;
+      const to = input.toWarehouseId ?? cur.toWarehouseId;
+      if (from === to)
+        throw new BadRequestException(
+          'Source and destination warehouses must differ',
+        );
       await this.assertWarehouse(tx, farmId, from);
       await this.assertWarehouse(tx, farmId, to);
+      const currentItems = input.items
+        ? undefined
+        : await tx
+            .select()
+            .from(stockTransferItems)
+            .where(eq(stockTransferItems.stockTransferId, id));
+      const lines = input.items ?? currentItems ?? [];
       if (input.items) {
         this.validateItems(input.items);
-        await this.validateLines(tx, farmId, input.items);
         await tx
           .delete(stockTransferItems)
           .where(eq(stockTransferItems.stockTransferId, id));
@@ -147,6 +152,7 @@ export class StockTransfersService {
           })),
         );
       }
+      await this.validateLines(tx, farmId, lines);
       const changes: Partial<typeof stockTransfers.$inferInsert> = {};
       for (const k of [
         'fromWarehouseId',
@@ -200,6 +206,7 @@ export class StockTransfersService {
         throw new BadRequestException(
           'Transfer must contain at least one item',
         );
+      await this.validateLines(tx, farmId, lines, true);
       for (const line of lines) {
         const [source] = await tx
           .select()
@@ -343,13 +350,22 @@ export class StockTransfersService {
     db: Pick<DatabaseService['db'], 'select'>,
     farmId: string,
     lines: CreateStockTransferDto['items'],
+    confirming = false,
   ) {
     for (const line of lines) {
       const [item] = await db
-        .select({ id: items.id })
+        .select({ id: items.id, trackingMode: items.trackingMode })
         .from(items)
-        .where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
+        .where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)))
+        .for('share')
+        .limit(1);
       if (!item) throw new NotFoundException('Transfer item not found');
+      if (line.assetId || item.trackingMode === 'ASSET') {
+        const Exception = confirming ? ConflictException : BadRequestException;
+        throw new Exception(
+          'ASSET items must be moved using the asset transfer endpoint',
+        );
+      }
       if (line.lotId) {
         const [lot] = await db
           .select({ id: inventoryLots.id })
@@ -362,19 +378,6 @@ export class StockTransfersService {
             ),
           );
         if (!lot) throw new NotFoundException('LOT not found');
-      }
-      if (line.assetId) {
-        const [asset] = await db
-          .select({ id: assets.id })
-          .from(assets)
-          .where(
-            and(
-              eq(assets.id, line.assetId),
-              eq(assets.farmId, farmId),
-              eq(assets.itemId, line.itemId),
-            ),
-          );
-        if (!asset) throw new NotFoundException('ASSET not found');
       }
     }
   }

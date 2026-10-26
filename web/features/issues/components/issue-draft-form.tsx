@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useSaveIssueDraft } from "../hooks/use-save-issue-draft";
 import {
   ISSUE_TYPE_LABELS,
@@ -262,6 +263,15 @@ export function IssueDraftForm({
                 </option>
               ))}
             </select>
+            {(issueType === "DAMAGE" || issueType === "MAINTENANCE") && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Phiếu này chỉ xuất vật tư theo số lượng hoặc lô. Để báo hỏng hoặc
+                đưa tài sản đi bảo trì, mở{" "}
+                <Link href="/assets" className="text-primary underline">
+                  hồ sơ tài sản
+                </Link>.
+              </p>
+            )}
           </div>
           <div>
             <label

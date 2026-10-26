@@ -12,6 +12,7 @@ import {
   assets,
   farmMemberRoles,
   farmMembers,
+  farms,
   inventoryBalances,
   locations,
   recordStatus,
@@ -158,10 +159,12 @@ export class WarehousesService {
         memberId: farmMembers.id,
         userStatus: users.status,
         memberStatus: farmMembers.status,
+        farmStatus: farms.status,
         roleCode: roles.code,
       })
       .from(farmMembers)
       .innerJoin(users, eq(users.id, farmMembers.userId))
+      .innerJoin(farms, eq(farms.id, farmMembers.farmId))
       .leftJoin(
         farmMemberRoles,
         eq(farmMemberRoles.farmMemberId, farmMembers.id),
@@ -177,7 +180,8 @@ export class WarehousesService {
     const activeMemberships = memberships.filter(
       (membership) =>
         membership.userStatus === 'ACTIVE' &&
-        membership.memberStatus === 'ACTIVE',
+        membership.memberStatus === 'ACTIVE' &&
+        membership.farmStatus === 'ACTIVE',
     );
     if (activeMemberships.length === 0) {
       throw new ForbiddenException('Active farm membership is required');

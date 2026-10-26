@@ -7,7 +7,7 @@ import {
 } from '../../common/query-params';
 import { itemType, recordStatus, trackingMode } from '../../db/schema';
 import { CatalogService } from './catalog.service';
-import { FarmAccessGuard } from '../auth/farm-access.guard';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import {
   ApiBearerAuth,
   ApiBadRequestResponse,

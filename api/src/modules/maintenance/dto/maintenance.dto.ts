@@ -66,3 +66,23 @@ export class UpdateMaintenanceRecordDto {
   @Matches(COST)
   otherCost?: string;
 }
+
+export class CompleteMaintenanceRecordDto {
+  @ApiPropertyOptional({ maxLength: 4000, nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  resultNote?: string | null;
+  @ApiPropertyOptional({ example: '500000.00', pattern: COST.source })
+  @IsOptional()
+  @Matches(COST)
+  laborCost?: string;
+  @ApiPropertyOptional({ example: '125000.00', pattern: COST.source })
+  @IsOptional()
+  @Matches(COST)
+  materialCost?: string;
+  @ApiPropertyOptional({ example: '0.00', pattern: COST.source })
+  @IsOptional()
+  @Matches(COST)
+  otherCost?: string;
+}

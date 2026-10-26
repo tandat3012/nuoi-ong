@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
@@ -8,7 +8,9 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { CurrentAuth } from './current-auth.decorator';
+import { CurrentAuth } from '../clerk/current-auth.decorator';
+import { AllowInitialPassword } from './initial-password.decorator';
+import { ChangeInitialPasswordDto } from './dto/change-initial-password.dto';
 
 @Controller('auth')
 @ApiTags('Tài khoản')
@@ -17,6 +19,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Get('me')
+  @AllowInitialPassword()
   @ApiOperation({
     summary: 'Lấy tài khoản và các trang trại được truy cập',
     description:
@@ -40,6 +43,7 @@ export class AuthController {
             },
             fullName: { type: 'string', nullable: true, example: 'Nguyen An' },
             avatarUrl: { type: 'string', nullable: true, format: 'uri' },
+            mustChangePassword: { type: 'boolean' },
           },
         },
         memberships: {
@@ -76,5 +80,18 @@ export class AuthController {
   })
   getMe(@CurrentAuth() auth: { clerkUserId: string }) {
     return this.authService.getAuthContext(auth.clerkUserId);
+  }
+
+  @Post('change-initial-password')
+  @HttpCode(200)
+  @AllowInitialPassword()
+  @ApiOperation({
+    summary: 'Change the initial password and require sign-in again',
+  })
+  changeInitialPassword(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Body() input: ChangeInitialPasswordDto,
+  ) {
+    return this.authService.changeInitialPassword(auth.clerkUserId, input);
   }
 }

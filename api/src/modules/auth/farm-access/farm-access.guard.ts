@@ -6,11 +6,17 @@ import {
 } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { Reflector } from '@nestjs/core';
-import { requireUuid } from '../../common/query-params';
-import { DatabaseService } from '../../db/database.service';
-import { farmMemberRoles, farmMembers, roles, users } from '../../db/schema';
+import { requireUuid } from '../../../common/query-params';
+import { DatabaseService } from '../../../db/database.service';
+import {
+  farmMemberRoles,
+  farmMembers,
+  farms,
+  roles,
+  users,
+} from '../../../db/schema';
 import { FARM_ROLES_KEY } from './farm-access.decorator';
-import type { AuthRequest } from './types/auth-request.type';
+import type { AuthRequest } from '../clerk/types/auth-request.type';
 
 @Injectable()
 export class FarmAccessGuard implements CanActivate {
@@ -36,6 +42,7 @@ export class FarmAccessGuard implements CanActivate {
     const membershipRows = await this.databaseService.db
       .select({
         memberStatus: farmMembers.status,
+        farmStatus: farms.status,
         userStatus: users.status,
         roleCode: roles.code,
       })
@@ -44,6 +51,7 @@ export class FarmAccessGuard implements CanActivate {
         farmMembers,
         and(eq(farmMembers.userId, users.id), eq(farmMembers.farmId, farmId)),
       )
+      .innerJoin(farms, eq(farms.id, farmMembers.farmId))
       .leftJoin(
         farmMemberRoles,
         eq(farmMemberRoles.farmMemberId, farmMembers.id),
@@ -53,7 +61,10 @@ export class FarmAccessGuard implements CanActivate {
 
     const activeRoles = membershipRows
       .filter(
-        (row) => row.userStatus === 'ACTIVE' && row.memberStatus === 'ACTIVE',
+        (row) =>
+          row.userStatus === 'ACTIVE' &&
+          row.memberStatus === 'ACTIVE' &&
+          row.farmStatus === 'ACTIVE',
       )
       .map((row) => row.roleCode)
       .filter((roleCode): roleCode is string => roleCode !== null);

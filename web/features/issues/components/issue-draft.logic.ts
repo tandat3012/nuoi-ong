@@ -53,6 +53,8 @@ export function validateIssueDraft(
       if (line.assetId)
         return `Dòng ${index + 1}: vật tư theo lô không được có tài sản.`;
     } else if (mode === "ASSET") {
+      if (input.issueType === "DAMAGE" || input.issueType === "MAINTENANCE")
+        return `Dòng ${index + 1}: báo hỏng và bảo trì tài sản tại hồ sơ tài sản. Phiếu xuất loại này chỉ dùng vật tư theo số lượng hoặc lô.`;
       if (typeof line.assetId !== "string" || !line.assetId.trim())
         return `Dòng ${index + 1}: vui lòng chọn tài sản.`;
       if (line.lotId || !/^1(?:\.0{1,3})?$/.test(line.quantity))

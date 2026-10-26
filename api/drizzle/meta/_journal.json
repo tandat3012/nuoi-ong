@@ -113,6 +113,13 @@
       "when": 1792656716261,
       "tag": "0015_storefront-serial-step",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792912623826,
+      "tag": "0016_personnel-management",
+      "breakpoints": true
     }
   ]
 }

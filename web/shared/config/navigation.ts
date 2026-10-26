@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
+  Package,
   PackageSearch,
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -8,6 +9,9 @@ import {
   Warehouse,
   ClipboardCheck,
   ArrowRightLeft,
+  Wrench,
+  ScanLine,
+  Users,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -66,6 +70,22 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
   {
     title: 'Quản lý nguồn lực',
     items: [
+      { href: '/personnel', label: 'Nhân sự', icon: Users },
+      {
+        href: '/assets',
+        label: 'Tài sản',
+        icon: Package,
+      },
+      {
+        href: '/maintenance',
+        label: 'Bảo trì',
+        icon: Wrench,
+      },
+      {
+        href: '/scan',
+        label: 'Tra cứu QR',
+        icon: ScanLine,
+      },
       {
         href: '/materials',
         label: 'Vật tư',
@@ -87,6 +107,7 @@ export const operationalNavigation: readonly NavigationItem[] = primaryNavigatio
 
 // Route labels for breadcrumbs (including hidden placeholder routes)
 export const routeLabels: Record<string, string> = {
+  '/personnel': 'Nhân sự',
   '/dashboard': 'Tổng quan',
   '/inventory': 'Tồn kho',
   '/receipts': 'Phiếu nhập',

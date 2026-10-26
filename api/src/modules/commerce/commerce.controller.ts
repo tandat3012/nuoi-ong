@@ -16,7 +16,7 @@ import {
 } from '@nestjs/swagger';
 import { parsePagination } from '../../common/query-params';
 import { ApiPageQueries } from '../../common/swagger-docs';
-import { Public } from '../auth/public.decorator';
+import { Public } from '../auth/clerk/public.decorator';
 import { CommerceService } from './commerce.service';
 
 function parsePrice(value: string | undefined, field: string) {
