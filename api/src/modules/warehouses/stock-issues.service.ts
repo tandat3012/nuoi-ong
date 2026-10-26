@@ -12,6 +12,7 @@ import {
   eq,
   getTableColumns,
   gte,
+  inArray,
   isNull,
   sql,
   SQL,
@@ -126,7 +127,7 @@ export class StockIssuesService {
     const id = await this.databaseService.db
       .transaction(async (tx) => {
         await this.assertWarehouse(tx, farmId, input.warehouseId);
-        await this.validateLines(tx, farmId, input.items);
+        await this.validateLines(tx, farmId, input.items, issueType);
         const [issue] = await tx
           .insert(stockIssues)
           .values({
@@ -178,9 +179,15 @@ export class StockIssuesService {
             : input.maintenanceRecordId,
           tx,
         );
+        const lines =
+          input.items ??
+          (await tx
+            .select()
+            .from(stockIssueItems)
+            .where(eq(stockIssueItems.stockIssueId, id)));
+        await this.validateLines(tx, farmId, lines, issueType);
         if (input.items) {
           this.validateItems(input.items);
-          await this.validateLines(tx, farmId, input.items);
           await tx
             .delete(stockIssueItems)
             .where(eq(stockIssueItems.stockIssueId, id));
@@ -277,6 +284,8 @@ export class StockIssuesService {
         );
       if (!lines.length)
         throw new BadRequestException('Issue must contain at least one item');
+      if (lines.some((line) => line.assetId))
+        this.assertAssetIssueType(issue.issueType, true);
       for (const line of lines) {
         const [item] = await tx
           .select({ trackingMode: items.trackingMode })
@@ -337,6 +346,24 @@ export class StockIssuesService {
             .for('update');
           if (!asset || asset.status !== 'AVAILABLE')
             throw new ConflictException('ASSET is missing or unavailable');
+          const [maintenance] = await tx
+            .select({ id: maintenanceRecords.id })
+            .from(maintenanceRecords)
+            .where(
+              and(
+                eq(maintenanceRecords.farmId, farmId),
+                eq(maintenanceRecords.assetId, asset.id),
+                inArray(maintenanceRecords.status, [
+                  'SCHEDULED',
+                  'IN_PROGRESS',
+                ]),
+              ),
+            )
+            .limit(1);
+          if (maintenance)
+            throw new ConflictException(
+              'Asset has active maintenance; use the asset maintenance workflow',
+            );
           const [location] = asset.currentLocationId
             ? await tx
                 .select({ id: locations.id })
@@ -346,6 +373,7 @@ export class StockIssuesService {
                     eq(locations.id, asset.currentLocationId),
                     eq(locations.farmId, farmId),
                     eq(locations.warehouseId, issue.warehouseId),
+                    eq(locations.status, 'ACTIVE'),
                   ),
                 )
                 .for('share')
@@ -357,12 +385,7 @@ export class StockIssuesService {
           await tx
             .update(assets)
             .set({
-              status:
-                issue.issueType === 'DISPOSAL'
-                  ? 'RETIRED'
-                  : issue.issueType === 'DAMAGE'
-                    ? 'MAINTENANCE'
-                    : 'IN_USE',
+              status: issue.issueType === 'DISPOSAL' ? 'RETIRED' : 'IN_USE',
               updatedAt: new Date().toISOString(),
             })
             .where(eq(assets.id, line.assetId));
@@ -562,6 +585,7 @@ export class StockIssuesService {
     db: Db | Transaction,
     farmId: string,
     lines: CreateStockIssueDto['items'],
+    issueType: string,
   ) {
     for (const line of lines) {
       const [item] = await db
@@ -570,6 +594,7 @@ export class StockIssuesService {
         .where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
       if (!item) throw new NotFoundException('Issue item not found');
       this.validateTracking(item.trackingMode, line);
+      if (item.trackingMode === 'ASSET') this.assertAssetIssueType(issueType);
       if (line.lotId) {
         const [lot] = await db
           .select({ id: inventoryLots.id })
@@ -597,6 +622,15 @@ export class StockIssuesService {
           );
         if (!asset) throw new NotFoundException('ASSET not found');
       }
+    }
+  }
+
+  private assertAssetIssueType(issueType: string, confirming = false) {
+    if (issueType === 'DAMAGE' || issueType === 'MAINTENANCE') {
+      const Exception = confirming ? ConflictException : BadRequestException;
+      throw new Exception(
+        'ASSET damage and maintenance must use the asset lifecycle workflow; issue only QUANTITY or LOT materials',
+      );
     }
   }
 }
