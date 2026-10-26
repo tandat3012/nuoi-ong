@@ -120,6 +120,13 @@
       "when": 1792912623826,
       "tag": "0016_personnel-management",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793009510475,
+      "tag": "0017_storefront-image-public-id",
+      "breakpoints": true
     }
   ]
 }
