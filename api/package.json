@@ -25,6 +25,7 @@
     "db:pull": "drizzle-kit pull",
     "db:seed": "ts-node --transpile-only scripts/seed.ts",
     "db:seed:storefront": "ts-node --transpile-only scripts/seed-storefront.ts",
+    "db:seed:demo-inventory": "ts-node --transpile-only scripts/seed-demo-inventory.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
