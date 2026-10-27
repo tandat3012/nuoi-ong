@@ -14,6 +14,9 @@ import {
   inventoryLots,
   items,
   locations,
+  maintenanceRecords,
+  stockIssueItems,
+  stockIssues,
   storeCategories,
   storeProductImages,
   storeProducts,
@@ -43,7 +46,10 @@ export interface ProductListFilters {
   sort?: 'price_asc' | 'price_desc';
 }
 
-type StoreWarehouse = {
+type Db = DatabaseService['db'];
+type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+export type StoreWarehouse = {
   warehouseId: string;
   farmId: string;
 };
@@ -148,6 +154,12 @@ export class CommerceService {
     if (!row) throw new NotFoundException('Product not found');
 
     const extras = await this.loadProductExtras([row.id], warehouse);
+
+    const images = await this.databaseService.db
+      .select({ src: storeProductImages.url, alt: storeProductImages.alt })
+      .from(storeProductImages)
+      .where(eq(storeProductImages.productId, row.id))
+      .orderBy(asc(storeProductImages.position));
     const variants = await this.databaseService.db
       .select({
         id: storeProductVariants.id,
@@ -168,6 +180,7 @@ export class CommerceService {
 
     return {
       ...this.toProduct(row, extras.get(row.id)),
+      images,
       variants: variants.map((variant) => ({
         ...variant,
         price: this.toPrice(variant.price),
@@ -195,8 +208,10 @@ export class CommerceService {
     return { data, page: this.pageInfo(pagination, total.value) };
   }
 
-  private async getStoreWarehouse(): Promise<StoreWarehouse> {
-    const [warehouse] = await this.databaseService.db
+  async getStoreWarehouse(
+    db: Db | Transaction = this.databaseService.db,
+  ): Promise<StoreWarehouse> {
+    const [warehouse] = await db
       .select({ warehouseId: warehouses.id, farmId: warehouses.farmId })
       .from(storeSettings)
       .innerJoin(warehouses, eq(warehouses.id, storeSettings.warehouseId))
@@ -218,14 +233,17 @@ export class CommerceService {
     return warehouse;
   }
 
-  private variantInStock({ warehouseId, farmId }: StoreWarehouse) {
+  variantInStock(
+    { warehouseId, farmId }: StoreWarehouse,
+    required: SQL = sql`${storeProductVariants.quantityStep}`,
+  ) {
     const today = new Date().toISOString().slice(0, 10);
 
     return sql<boolean>`
     CASE ${items.trackingMode}
       WHEN 'QUANTITY' THEN (
         SELECT COALESCE(SUM(b.quantity_on_hand), 0)
-               >= ${storeProductVariants.quantityStep}
+               >= ${required}
         FROM ${inventoryBalances} b
         WHERE b.item_id = ${items.id}
           AND b.farm_id = ${farmId}
@@ -235,7 +253,7 @@ export class CommerceService {
 
       WHEN 'LOT' THEN (
         SELECT COALESCE(SUM(b.quantity_on_hand), 0)
-               >= ${storeProductVariants.quantityStep}
+               >= ${required}
         FROM ${inventoryBalances} b
         JOIN ${inventoryLots} l
           ON l.id = b.lot_id
@@ -258,25 +276,44 @@ export class CommerceService {
             AND b.farm_id = ${farmId}
             AND b.warehouse_id = ${warehouseId}
             AND b.lot_id IS NULL
-            AND b.quantity_on_hand >= ${storeProductVariants.quantityStep}
+            AND b.quantity_on_hand >= ${required}
         )
-        AND EXISTS (
-          SELECT 1
-          FROM ${assets} a
-          JOIN ${locations} l ON l.id = a.current_location_id
-          WHERE a.item_id = ${items.id}
-            AND a.farm_id = ${farmId}
-            AND a.status = 'AVAILABLE'
-            AND l.farm_id = ${farmId}
-            AND l.warehouse_id = ${warehouseId}
-        )
+        AND (
+          SELECT COUNT(*) FROM ${assets}
+          JOIN ${locations} ON ${locations.id} = ${assets.currentLocationId}
+          WHERE ${assets.itemId} = ${items.id}
+            AND ${this.saleableAssetConditions({ warehouseId, farmId })}
+        ) >= ${required}
 
       ELSE FALSE
     END
   `;
   }
 
-  private eligibleVariantConditions(farmId: string) {
+  saleableAssetConditions({ warehouseId, farmId }: StoreWarehouse) {
+    return and(
+      eq(assets.farmId, farmId),
+      eq(assets.status, 'AVAILABLE'),
+      eq(locations.farmId, farmId),
+      eq(locations.warehouseId, warehouseId),
+      eq(locations.status, 'ACTIVE'),
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${maintenanceRecords}
+        WHERE ${maintenanceRecords.assetId} = ${assets.id}
+          AND ${maintenanceRecords.farmId} = ${farmId}
+          AND ${maintenanceRecords.status} IN ('SCHEDULED', 'IN_PROGRESS')
+      )`,
+      // Already picked by another unapproved issue (e.g. a confirmed order).
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${stockIssueItems}
+        JOIN ${stockIssues} ON ${stockIssues.id} = ${stockIssueItems.stockIssueId}
+        WHERE ${stockIssueItems.assetId} = ${assets.id}
+          AND ${stockIssues.status} IN ('DRAFT', 'PENDING_APPROVAL')
+      )`,
+    );
+  }
+
+  eligibleVariantConditions(farmId: string) {
     return and(
       eq(storeProductVariants.active, true),
       eq(items.farmId, farmId),

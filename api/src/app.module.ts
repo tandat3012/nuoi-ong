@@ -13,6 +13,8 @@ import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { CommerceModule } from './modules/commerce/commerce.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { PersonnelModule } from './modules/personnel/personnel.module';
+import { StoreAdminModule } from './modules/store-admin/store-admin.module';
+import { StoreOrdersModule } from './modules/store-orders/store-orders.module';
 
 @Module({
   imports: [
@@ -27,6 +29,8 @@ import { PersonnelModule } from './modules/personnel/personnel.module';
     CommerceModule,
     CloudinaryModule,
     PersonnelModule,
+    StoreAdminModule,
+    StoreOrdersModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
