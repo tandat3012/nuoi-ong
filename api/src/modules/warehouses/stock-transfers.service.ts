@@ -366,6 +366,11 @@ export class StockTransfersService {
           'ASSET items must be moved using the asset transfer endpoint',
         );
       }
+      const Invalid = confirming ? ConflictException : BadRequestException;
+      if (item.trackingMode === 'LOT' && !line.lotId)
+        throw new Invalid('LOT items require a lotId');
+      if (item.trackingMode !== 'LOT' && line.lotId)
+        throw new Invalid('Only LOT items accept a lotId');
       if (line.lotId) {
         const [lot] = await db
           .select({ id: inventoryLots.id })

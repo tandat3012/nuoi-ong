@@ -8,6 +8,7 @@ import { and, asc, count, desc, eq, isNull, SQL } from 'drizzle-orm';
 import { DatabaseService } from '../../db/database.service';
 import {
   inventoryBalances,
+  inventoryLots,
   inventoryTransactions,
   items,
   stockCountItems,
@@ -94,7 +95,7 @@ export class StockCountsService {
       await this.assertWarehouse(tx, farmId, input.warehouseId);
       const rows: SnapshotLine[] = [];
       for (const line of input.items) {
-        await this.assertItem(tx, farmId, line.itemId);
+        await this.assertLine(tx, farmId, line);
         const [balance] = await this.findBalance(
           tx,
           farmId,
@@ -144,7 +145,7 @@ export class StockCountsService {
         this.validateItems(input.items);
         const rows: SnapshotLine[] = [];
         for (const line of input.items) {
-          await this.assertItem(tx, farmId, line.itemId);
+          await this.assertLine(tx, farmId, line);
           const [balance] = await this.findBalance(
             tx,
             farmId,
@@ -210,6 +211,7 @@ export class StockCountsService {
       if (!lines.length)
         throw new BadRequestException('Count must contain at least one item');
       for (const line of lines) {
+        await this.assertLine(tx, farmId, line, true);
         const [balance] = await this.findBalance(
           tx,
           farmId,
@@ -312,16 +314,39 @@ export class StockCountsService {
       );
     if (!row) throw new ConflictException('Warehouse must exist and be ACTIVE');
   }
-  private async assertItem(
+  /** Counts adjust quantity balances only; assets are reconciled through asset records. */
+  private async assertLine(
     db: Pick<DatabaseService['db'], 'select'>,
     farmId: string,
-    id: string,
+    line: { itemId: string; lotId?: string | null; assetId?: string | null },
+    confirming = false,
   ) {
-    const [row] = await db
-      .select({ id: items.id })
+    const Invalid = confirming ? ConflictException : BadRequestException;
+    const [item] = await db
+      .select({ id: items.id, trackingMode: items.trackingMode })
       .from(items)
-      .where(and(eq(items.id, id), eq(items.farmId, farmId)));
-    if (!row) throw new NotFoundException('Count item not found');
+      .where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
+    if (!item) throw new NotFoundException('Count item not found');
+    if (line.assetId || item.trackingMode === 'ASSET')
+      throw new Invalid(
+        'ASSET items cannot be counted; check them through asset records',
+      );
+    if (item.trackingMode === 'LOT' && !line.lotId)
+      throw new Invalid('LOT items require a lotId');
+    if (item.trackingMode !== 'LOT' && line.lotId)
+      throw new Invalid('Only LOT items accept a lotId');
+    if (!line.lotId) return;
+    const [lot] = await db
+      .select({ id: inventoryLots.id })
+      .from(inventoryLots)
+      .where(
+        and(
+          eq(inventoryLots.id, line.lotId),
+          eq(inventoryLots.farmId, farmId),
+          eq(inventoryLots.itemId, line.itemId),
+        ),
+      );
+    if (!lot) throw new NotFoundException('LOT not found');
   }
   private findBalance(
     db: Pick<DatabaseService['db'], 'select'>,
