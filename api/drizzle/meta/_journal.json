@@ -92,6 +92,20 @@
       "when": 1792153470496,
       "tag": "0012_notifications_table",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792996524402,
+      "tag": "0013_device_push_tokens_and_push_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793100284189,
+      "tag": "0014_maintenance_requests_approval",
+      "breakpoints": true
     }
   ]
 }

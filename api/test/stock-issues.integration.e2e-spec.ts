@@ -65,6 +65,8 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   };
   const confirm = (id: string) =>
     http().post(`/stock-issues/${id}/confirm`).query({ farmId: farm });
+  const submit = (id: string) =>
+    http().post(`/stock-issues/${id}/submit`).query({ farmId: farm });
   const balance = async (itemId = quantityItem) => {
     const result = await pool.query<{ quantity: string }>(
       'SELECT quantity_on_hand::text AS quantity FROM inventory_balances WHERE farm_id=$1 AND item_id=$2',
@@ -223,6 +225,8 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       try {
         await client.query('BEGIN');
         for (const table of [
+          'audit_logs',
+          'notifications',
           'inventory_transactions',
           'stock_issues',
           'inventory_balances',
@@ -257,6 +261,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
 
   it('confirms QUANTITY once and rejects repeat confirmation, editing, and cancellation', async () => {
     const draft = await create([line('1.250')]);
+    await submit(draft.issue.id).expect(201);
     await confirm(draft.issue.id).expect(201);
     expect(await balance()).toBe('8.750');
     expect(await state(draft.issue.id)).toMatchObject({
@@ -280,6 +285,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     const draft = await create([
       { itemId: lotItem, lotId: lot, quantity: '0.001' },
     ]);
+    await submit(draft.issue.id).expect(201);
     await confirm(draft.issue.id).expect(201);
     expect(await balance(lotItem)).toBe('9.999');
     const result = await pool.query<{ initial_quantity: string }>(
@@ -296,6 +302,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       '1.000',
       '1.000',
     ]);
+    await submit(draft.issue.id).expect(201);
     await confirm(draft.issue.id).expect(201);
     expect(await balance(assetItem)).toBe('0.000');
     const result = await pool.query<{ status: string }>(
@@ -322,6 +329,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     ['OTHER', 'IN_USE'],
   ])('maps ASSET %s issues to %s', async (issueType, status) => {
     const draft = await create([assetLine()], { issueType });
+    await submit(draft.issue.id).expect(201);
     await confirm(draft.issue.id).expect(201);
     const result = await pool.query<{ status: string }>(
       'SELECT status FROM assets WHERE id=$1',
@@ -333,6 +341,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
 
   it('returns insufficient stock when no balance exists', async () => {
     const draft = await create([line()]);
+    await submit(draft.issue.id).expect(201);
     await pool.query(
       'DELETE FROM inventory_balances WHERE farm_id=$1 AND item_id=$2',
       [farm, quantityItem],
@@ -342,7 +351,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       'Insufficient inventory',
     );
     expect(await state(draft.issue.id)).toMatchObject({
-      status: 'DRAFT',
+      status: 'PENDING_APPROVAL',
       transactions: 0,
     });
   });
@@ -351,13 +360,14 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     'returns insufficient stock without mutations for quantity %s',
     async (quantity) => {
       const draft = await create([line(quantity)]);
+      await submit(draft.issue.id).expect(201);
       const result = await confirm(draft.issue.id).expect(409);
       expect((result.body as { message: string }).message).toBe(
         'Insufficient inventory',
       );
       expect(await balance()).toBe('10.000');
       expect(await state(draft.issue.id)).toEqual({
-        status: 'DRAFT',
+        status: 'PENDING_APPROVAL',
         transactions: 0,
         confirmed_at: null,
       });
@@ -427,10 +437,11 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       await db
         .insert(schema.stockIssueItems)
         .values({ stockIssueId: draft.issue.id, ...invalid() });
+      await submit(draft.issue.id).expect(201);
       await confirm(draft.issue.id).expect(400);
       expect(await balance()).toBe('10.000');
       expect(await state(draft.issue.id)).toMatchObject({
-        status: 'DRAFT',
+        status: 'PENDING_APPROVAL',
         transactions: 0,
       });
     },
@@ -440,6 +451,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     'rejects an asset outside the source warehouse (location %s)',
     async (currentLocation) => {
       const draft = await create([assetLine()]);
+      await submit(draft.issue.id).expect(201);
       await pool.query('UPDATE assets SET current_location_id=$2 WHERE id=$1', [
         assetIds[0],
         currentLocation,
@@ -447,7 +459,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       await confirm(draft.issue.id).expect(409);
       expect(await balance(assetItem)).toBe('3.000');
       expect(await state(draft.issue.id)).toMatchObject({
-        status: 'DRAFT',
+        status: 'PENDING_APPROVAL',
         transactions: 0,
       });
     },
@@ -457,6 +469,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     'rejects unavailable ASSET status %s',
     async (status) => {
       const draft = await create([assetLine()]);
+      await submit(draft.issue.id).expect(201);
       await pool.query('UPDATE assets SET status=$2 WHERE id=$1', [
         assetIds[0],
         status,
@@ -468,10 +481,11 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
 
   it('rolls back previous lines when one physical asset is listed twice', async () => {
     const draft = await create([assetLine(), assetLine()]);
+    await submit(draft.issue.id).expect(201);
     await confirm(draft.issue.id).expect(409);
     expect(await balance(assetItem)).toBe('3.000');
     expect(await state(draft.issue.id)).toMatchObject({
-      status: 'DRAFT',
+      status: 'PENDING_APPROVAL',
       transactions: 0,
     });
     const result = await pool.query<{ status: string }>(
@@ -485,6 +499,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     const draft = await create([
       { itemId: lotItem, lotId: lot, quantity: '1' },
     ]);
+    await submit(draft.issue.id).expect(201);
     await pool.query(
       "UPDATE inventory_lots SET expiry_date='2000-01-01' WHERE id=$1",
       [lot],
@@ -495,6 +510,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
 
   it('rolls back balance and asset changes when transaction creation fails', async () => {
     const draft = await create([assetLine()]);
+    await submit(draft.issue.id).expect(201);
     const actualDb = drizzle(pool, { schema });
     const spy = jest
       .spyOn(db, 'transaction')
@@ -513,7 +529,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     }
     expect(await balance(assetItem)).toBe('3.000');
     expect(await state(draft.issue.id)).toEqual({
-      status: 'DRAFT',
+      status: 'PENDING_APPROVAL',
       transactions: 0,
       confirmed_at: null,
     });
@@ -535,6 +551,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       { itemId: lotItem, lotId: lot, quantity: '1' },
       assetLine(),
     ]);
+    await submit(draft.issue.id).expect(201);
     const actualDb = drizzle(pool, { schema });
     const spy = jest
       .spyOn(db, 'transaction')
@@ -553,7 +570,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     expect(await balance(lotItem)).toBe('10.000');
     expect(await balance(assetItem)).toBe('3.000');
     expect(await state(draft.issue.id)).toEqual({
-      status: 'DRAFT',
+      status: 'PENDING_APPROVAL',
       transactions: 0,
       confirmed_at: null,
     });
@@ -601,6 +618,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
 
   it('allows exactly one of two concurrent confirmations of the same issue', async () => {
     const draft = await create([line('7')]);
+    await submit(draft.issue.id).expect(201);
     const results = await race(
       'SELECT id FROM stock_issues WHERE id=$1 FOR UPDATE',
       [draft.issue.id],
@@ -617,6 +635,10 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   it('returns insufficient stock when two issues compete for 10 units with requests of 7 and 6', async () => {
     const a = await create([line('7')]),
       b = await create([line('6')]);
+    await Promise.all([
+      submit(a.issue.id).expect(201),
+      submit(b.issue.id).expect(201),
+    ]);
     const results = await race(
       'SELECT id FROM inventory_balances WHERE farm_id=$1 AND item_id=$2 FOR UPDATE',
       [farm, quantityItem],
@@ -634,7 +656,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     const states = await Promise.all([state(a.issue.id), state(b.issue.id)]);
     expect(states.map((result) => result.status).sort()).toEqual([
       'CONFIRMED',
-      'DRAFT',
+      'PENDING_APPROVAL',
     ]);
     expect(states.reduce((sum, result) => sum + result.transactions, 0)).toBe(
       1,
@@ -644,6 +666,10 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   it('prevents two different issues from consuming the same asset', async () => {
     const a = await create([assetLine()]),
       b = await create([assetLine()]);
+    await Promise.all([
+      submit(a.issue.id).expect(201),
+      submit(b.issue.id).expect(201),
+    ]);
     const results = await race(
       'SELECT id FROM assets WHERE id=$1 FOR UPDATE',
       [assetIds[0]],
@@ -660,6 +686,10 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   it('serializes overlapping multi-asset issues without a deadlock or partial issue', async () => {
     const a = await create(assetIds.map(assetLine));
     const b = await create([assetLine([...assetIds].sort()[2])]);
+    await Promise.all([
+      submit(a.issue.id).expect(201),
+      submit(b.issue.id).expect(201),
+    ]);
     const results = await race(
       'SELECT id FROM inventory_balances WHERE farm_id=$1 AND item_id=$2 FOR UPDATE',
       [farm, assetItem],
@@ -672,7 +702,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     const states = await Promise.all([state(a.issue.id), state(b.issue.id)]);
     expect(states.map((result) => result.status).sort()).toEqual([
       'CONFIRMED',
-      'DRAFT',
+      'PENDING_APPROVAL',
     ]);
     expect(states.reduce((sum, result) => sum + result.transactions, 0)).toBe(
       results[0].status === 201 ? 3 : 1,
@@ -683,6 +713,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     'serializes confirmation against a concurrent %s',
     async (operation) => {
       const draft = await create([line('2')]);
+      await submit(draft.issue.id).expect(201);
       const results = await race(
         'SELECT id FROM stock_issues WHERE id=$1 FOR UPDATE',
         [draft.issue.id],
@@ -700,22 +731,16 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
         ],
       );
       if (operation === 'cancel') {
-        expect(results.map((result) => result.status).sort()).toEqual([
-          201, 409,
-        ]);
-        expect(await balance()).toBe(
-          results[0].status === 201 ? '8.000' : '10.000',
-        );
+        expect(results.map((result) => result.status)).toEqual([201, 409]);
+        expect(await balance()).toBe('8.000');
         expect(await state(draft.issue.id)).toMatchObject({
-          status: results[0].status === 201 ? 'CONFIRMED' : 'CANCELLED',
-          transactions: results[0].status === 201 ? 1 : 0,
+          status: 'CONFIRMED',
+          transactions: 1,
         });
       } else {
         expect(results[0].status).toBe(201);
-        expect([200, 409]).toContain(results[1].status);
-        expect(await balance()).toBe(
-          results[1].status === 200 ? '6.000' : '8.000',
-        );
+        expect(results[1].status).toBe(409);
+        expect(await balance()).toBe('8.000');
         expect(await state(draft.issue.id)).toMatchObject({
           status: 'CONFIRMED',
           transactions: 1,
@@ -723,4 +748,15 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       }
     },
   );
+
+  it('does not confirm a DRAFT and leaves inventory and ledger unchanged', async () => {
+    const draft = await create([line('2')]);
+    await confirm(draft.issue.id).expect(409);
+    expect(await balance()).toBe('10.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+      confirmed_at: null,
+    });
+  });
 });

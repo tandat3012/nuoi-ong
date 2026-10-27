@@ -164,6 +164,7 @@ export class MaterialsController {
   @ApiEnumQuery('trackingMode', materialTrackingModes, 'Cách theo dõi tồn kho.')
   @ApiEnumQuery('status', recordStatus.enumValues, 'Trạng thái vật tư.')
   @ApiUuidQuery('categoryId', 'Lọc theo danh mục.')
+  @ApiUuidQuery('warehouseId', 'Tính tồn trong kho thuộc farm đang chọn.')
   @ApiOkResponse({
     description:
       'Trang vật tư kèm thông tin danh mục, đơn vị, hồ sơ và tồn hiện tại.',
@@ -202,6 +203,7 @@ export class MaterialsController {
     @Query('trackingMode') trackingModeValue?: string,
     @Query('status') statusValue?: string,
     @Query('categoryId') categoryIdValue?: string,
+    @Query('warehouseId') warehouseIdValue?: string,
   ) {
     return this.materialsService.listMaterials({
       farmId: requireUuid(farmIdValue, 'farmId'),
@@ -217,7 +219,22 @@ export class MaterialsController {
       categoryId: categoryIdValue
         ? requireUuid(categoryIdValue, 'categoryId')
         : undefined,
+      warehouseId: warehouseIdValue
+        ? requireUuid(warehouseIdValue, 'warehouseId')
+        : undefined,
     });
+  }
+
+  @Get('categories')
+  @ApiOperation({ summary: 'Danh mục đang được dùng bởi vật tư trong farm' })
+  @ApiFarmIdQuery()
+  @ApiOkResponse({ description: 'Chỉ trả về danh mục có ít nhất một vật tư trong farm.' })
+  async listMaterialCategories(@Query('farmId') farmIdValue?: string) {
+    return {
+      data: await this.materialsService.listMaterialCategories(
+        requireUuid(farmIdValue, 'farmId'),
+      ),
+    };
   }
 
   @Get('expiring')

@@ -1,40 +1,15 @@
-# Nuoi Ong
+# Nuôi Ong
 
-Nuoi Ong is a web application with a Next.js frontend and a NestJS API.
+Hệ thống quản lý trại ong, gồm Web Next.js, API NestJS và ứng dụng Mobile Expo.
 
-## Project structure
+**[Mở mục lục tài liệu dự án](docs/README.md)**
 
-- `web/` — Next.js frontend.
-- `api/` — NestJS API.
-- `compose.yaml` — local container environment, including PostgreSQL.
+- [Thiết lập dự án](docs/setup/project.md)
+- [Web](docs/setup/web.md) · [API](docs/setup/api.md) · [Đặc tả Mobile](docs/mobile/mobile-app-spec.md)
+- [Kho và dữ liệu](docs/inventory/api-and-database.md)
+- [Tài khoản và phiên đăng nhập](docs/auth/account-and-session.md)
+- [Thông báo: API token → Mobile → outbox → worker](docs/README.md#thong-bao)
 
-## Local setup
+Tài liệu nghiệp vụ được lưu tập trung tại `docs/<nhom-nghiep-vu>/`. Khi bổ sung tài liệu, làm theo [quy ước tài liệu](docs/CONVENTIONS.md) và cập nhật mục lục.
 
-1. Copy the environment template:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Set a secure local value for `POSTGRES_PASSWORD` in `.env`.
-
-3. Start the local environment:
-
-   ```bash
-   docker compose up --build
-   ```
-
-The frontend is available at `http://localhost:3000` and the API at `http://localhost:5050`.
-
-## Development commands
-
-Install dependencies and run each application from its own directory:
-
-```bash
-cd web && pnpm install && pnpm dev
-cd api && pnpm install && pnpm start:dev
-```
-
-## Git workflow
-
-Read [GIT_WORKFLOW.md](GIT_WORKFLOW.md) before performing Git-related work.
+Đọc [GIT_WORKFLOW.md](GIT_WORKFLOW.md) trước khi thực hiện công việc liên quan Git. Hướng dẫn dành cho agent nằm tại [AGENTS.md](AGENTS.md).

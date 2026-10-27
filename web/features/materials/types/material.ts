@@ -105,6 +105,7 @@ export interface MaterialFilterParams {
   kind?: MaterialKind;
   trackingMode?: MaterialTrackingMode;
   categoryId?: string;
+  warehouseId?: string;
   page: number;
   pageSize: number;
 }

@@ -39,12 +39,12 @@ export function MaterialsPage() {
           giữ. Yêu cầu lưu đã gửi (nếu có) vẫn được xử lý ở trang trại trước.
         </div>
       )}
-      <FarmMaterialsPage key={selectedFarmId} />
+      <FarmMaterialsPage key={selectedFarmId} farmId={selectedFarmId} />
     </>
   );
 }
 
-function FarmMaterialsPage() {
+function FarmMaterialsPage({ farmId }: { farmId: string }) {
   const {
     farmName,
     canWrite,
@@ -54,6 +54,11 @@ function FarmMaterialsPage() {
     pageInfo,
     materials,
     categories,
+    filterCategories,
+    filterCategoriesLoading,
+    filterCategoriesError,
+    warehouses,
+    warehousesLoading,
     units,
     isLoading,
     isDetailLoading,
@@ -69,6 +74,7 @@ function FarmMaterialsPage() {
     onKindChange,
     onTrackingModeChange,
     onCategoryChange,
+    onWarehouseChange,
     onResetFilters,
     onPageChange,
     onViewDetail,
@@ -79,6 +85,7 @@ function FarmMaterialsPage() {
     onReload,
     onRetryDetail,
     onReloadReferences,
+    onReloadFilterCategories,
   } = useMaterials();
 
   return (
@@ -91,7 +98,7 @@ function FarmMaterialsPage() {
               {farmName}
             </Badge>
           }
-          description="Theo dõi, định mức tồn kho và hồ sơ quản lý hạn sử dụng vật tư nông trại."
+          description="Theo dõi vật tư theo farm đang chọn; số tồn thay đổi theo kho được chọn trong bộ lọc."
           actions={
             <>
               <Button
@@ -133,6 +140,14 @@ function FarmMaterialsPage() {
           message={referencesError}
           onRetry={onReloadReferences}
           retryLabel="Tải lại danh mục"
+        />
+      )}
+      {filterCategoriesError && (
+        <ErrorAlert
+          title="Không thể tải danh mục vật tư của farm:"
+          message={filterCategoriesError}
+          onRetry={onReloadFilterCategories}
+          retryLabel="Tải lại danh mục lọc"
         />
       )}
 
@@ -182,6 +197,7 @@ function FarmMaterialsPage() {
       ) : viewMode === "detail" && selectedMaterial ? (
         <MaterialDetailView
           material={selectedMaterial}
+          farmId={farmId}
           canWrite={canWrite}
           onBack={onBackToList}
           onEdit={() => onStartEdit(selectedMaterial)}
@@ -226,14 +242,16 @@ function FarmMaterialsPage() {
           )}
           <MaterialFilterToolbar
             filters={filters}
-            categories={categories}
-            referencesLoading={referencesLoading}
-            referencesError={referencesError}
+            categories={filterCategories}
+            filterCategoriesLoading={filterCategoriesLoading}
+            warehouses={warehouses}
+            warehousesLoading={warehousesLoading}
             onSearchChange={onSearchChange}
             onStatusChange={onStatusChange}
             onKindChange={onKindChange}
             onTrackingModeChange={onTrackingModeChange}
             onCategoryChange={onCategoryChange}
+            onWarehouseChange={onWarehouseChange}
             onResetFilters={onResetFilters}
           />
           <Card className="overflow-hidden">

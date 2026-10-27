@@ -45,7 +45,8 @@ export function MaterialTable({
       filters.status ||
       filters.kind ||
       filters.trackingMode ||
-      filters.categoryId,
+      filters.categoryId ||
+      filters.warehouseId,
   );
 
   return (
@@ -68,7 +69,7 @@ export function MaterialTable({
             Theo dõi
           </TableHead>
           <TableHead className="w-32 text-right font-semibold uppercase tracking-wider text-[0.7rem]">
-            Tồn hiện tại
+            Tồn theo farm / kho
           </TableHead>
           <TableHead className="w-28 text-center font-semibold uppercase tracking-wider text-[0.7rem]">
             Trạng thái

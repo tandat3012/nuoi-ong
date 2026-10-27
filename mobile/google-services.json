@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "247213442444",
+    "project_id": "nuoi-ong-mobile-a27fb",
+    "storage_bucket": "nuoi-ong-mobile-a27fb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:247213442444:android:09393ae397c3c5a2b182a9",
+        "android_client_info": {
+          "package_name": "com.nuoi.ong.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAg7UeyvFIUnNPAVseSTBZPe_1eSRn9Ks4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

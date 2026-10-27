@@ -7,12 +7,21 @@ import { useMaterialReferences } from './use-material-references';
 import { useMaterialList } from './use-material-list';
 import { useMaterialDetail } from './use-material-detail';
 import { useMaterialMutations } from './use-material-mutations';
+import { useMaterialWarehouses } from './use-material-warehouses';
+import { useMaterialFilterCategories } from './use-material-filter-categories';
 
 export type { MaterialsViewMode } from '../types/view-mode';
 
 export function useMaterials() {
   const request = useAuthenticatedRequest();
   const { selectedFarmId, farmName, canWrite } = useFarmPermissions();
+  const { warehouses, warehousesLoading } = useMaterialWarehouses(selectedFarmId);
+  const {
+    filterCategories,
+    filterCategoriesLoading,
+    filterCategoriesError,
+    onReloadFilterCategories,
+  } = useMaterialFilterCategories(request, selectedFarmId);
 
   const {
     filters,
@@ -22,6 +31,7 @@ export function useMaterials() {
     onKindChange,
     onTrackingModeChange,
     onCategoryChange,
+    onWarehouseChange,
     onResetFilters,
     onPageChange,
     onReload,
@@ -89,6 +99,11 @@ export function useMaterials() {
     isLoading,
     errorMessage,
     categories,
+    filterCategories,
+    filterCategoriesLoading,
+    filterCategoriesError,
+    warehouses,
+    warehousesLoading,
     units,
     referencesLoading,
     referencesError,
@@ -102,6 +117,7 @@ export function useMaterials() {
     onKindChange,
     onTrackingModeChange,
     onCategoryChange,
+    onWarehouseChange,
     onResetFilters,
     onPageChange,
     onViewDetail,
@@ -111,6 +127,7 @@ export function useMaterials() {
     onFormSubmit,
     onRetryDetail,
     onReloadReferences,
+    onReloadFilterCategories,
     onReload,
   };
 }

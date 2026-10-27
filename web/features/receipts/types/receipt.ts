@@ -1,8 +1,10 @@
-export type ReceiptStatus = 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+export type ReceiptStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
 
 export const RECEIPT_STATUS_LABELS: Record<ReceiptStatus, string> = {
   DRAFT: 'Nháp',
+  PENDING_APPROVAL: 'Chờ duyệt',
   CONFIRMED: 'Đã xác nhận',
+  REJECTED: 'Từ chối',
   CANCELLED: 'Đã hủy',
 };
 
@@ -14,6 +16,7 @@ export interface Receipt {
   receiptCode: string;
   receiptDate: string;
   status: ReceiptStatus;
+  rejectionReason?: string | null;
   note: string | null;
   createdByMemberId: string;
   confirmedByMemberId: string | null;
@@ -72,6 +75,19 @@ export interface ReceiptLine {
   serialNumber: string | null;
   note: string | null;
   createdAt: string;
+  itemCode: string | null;
+  itemName: string | null;
+  itemType: 'EQUIPMENT' | 'TOOL' | 'MATERIAL' | null;
+  trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' | null;
+  unitId: string | null;
+  unitName: string | null;
+  unitSymbol: string | null;
+  lotNumberFromLot: string | null;
+  lotExpiryDate: string | null;
+  assetCodeFromAsset: string | null;
+  assetSerialNumber: string | null;
+  locationCode: string | null;
+  locationName: string | null;
 }
 
 export interface ReceiptDetail {

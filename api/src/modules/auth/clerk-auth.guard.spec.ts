@@ -17,7 +17,10 @@ describe('ClerkAuthGuard', () => {
     authenticateRequest,
   } as unknown as ClerkClient;
   const request = {
-    headers: { authorization: 'Bearer session-token' },
+    headers: { authorization: 'Bearer session-token' } as Record<
+      string,
+      string | undefined
+    >,
     protocol: 'http',
     method: 'GET',
     originalUrl: '/auth/me',
@@ -33,6 +36,7 @@ describe('ClerkAuthGuard', () => {
 
   beforeEach(() => {
     process.env.CLERK_AUTHORIZED_PARTIES = 'http://localhost:3000';
+    delete request.headers.origin;
     jest.clearAllMocks();
     guard = new ClerkAuthGuard(reflector, clerkClient);
   });
@@ -58,6 +62,28 @@ describe('ClerkAuthGuard', () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request).toMatchObject({
       auth: { clerkUserId: 'user_123', sessionId: 'sess_123' },
+    });
+    expect(authenticateRequest).toHaveBeenCalledWith(expect.any(Request), {
+      acceptsToken: 'session_token',
+    });
+  });
+
+  it('keeps authorized-party validation for browser-origin requests', async () => {
+    getAllAndOverride.mockReturnValue(false);
+    request.headers.origin = 'http://localhost:3000';
+    authenticateRequest.mockResolvedValue({
+      isAuthenticated: true,
+      toAuth: () => ({
+        tokenType: 'session_token',
+        userId: 'user_123',
+        sessionId: 'sess_123',
+      }),
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(authenticateRequest).toHaveBeenCalledWith(expect.any(Request), {
+      acceptsToken: 'session_token',
+      authorizedParties: ['http://localhost:3000'],
     });
   });
 
@@ -110,6 +136,7 @@ describe('ClerkAuthGuard', () => {
 
   it('fails safely when allowed frontend origins are not configured', async () => {
     process.env.CLERK_AUTHORIZED_PARTIES = '';
+    request.headers.origin = 'http://localhost:3000';
     getAllAndOverride.mockReturnValue(false);
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(

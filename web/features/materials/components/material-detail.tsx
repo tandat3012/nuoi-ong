@@ -1,6 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { QrCodeButton } from "@/features/qr/components/qr-code-button";
+import { useAuthenticatedRequest } from "@/features/auth/hooks/use-authenticated-request";
 import Link from "next/link";
 import type { MaterialDetail } from "../types/material";
 import {
@@ -9,6 +11,7 @@ import {
   RECORD_STATUS_LABELS,
 } from "../types/material";
 import { Card, CardHeader, CardTitle, CardContent } from "@/shared/components/ui/card";
+import type { PaginatedResponse } from "@/shared/api/contracts";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -23,8 +26,17 @@ import {
   Calendar,
 } from "lucide-react";
 
+type InventoryRow = {
+  balance?: { farmId: string; itemId: string; warehouseId: string; quantityOnHand: string };
+  quantityOnHand: string;
+  item: { id: string };
+  warehouse: { id: string; code: string; name: string };
+  lot: { lotNumber: string } | null;
+};
+
 interface MaterialDetailViewProps {
   material: MaterialDetail;
+  farmId: string;
   canWrite: boolean;
   onBack: () => void;
   onEdit: () => void;
@@ -44,13 +56,58 @@ function safeHref(value: string | null): string | undefined {
 
 export function MaterialDetailView({
   material,
+  farmId,
   canWrite,
   onBack,
   onEdit,
 }: MaterialDetailViewProps) {
   const { item, profile, categoryName, unitName, unitSymbol } = material;
+  const request = useAuthenticatedRequest();
+  const stockKey = `${farmId}:${item.id}`;
+  const [stockResult, setStockResult] = useState<{
+    key: string;
+    balances: InventoryRow[];
+    error: string | null;
+  } | null>(null);
+  const stockLoading = stockResult?.key !== stockKey;
+  const balances = stockResult?.key === stockKey ? stockResult.balances : [];
+  const stockError = stockResult?.key === stockKey ? stockResult.error : null;
   const imageHref = safeHref(item.imageUrl);
   const sourceHref = safeHref(item.sourceUrl);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const first = await request<PaginatedResponse<InventoryRow>>("/inventory", {
+          params: { farmId, itemId: item.id, page: 1, pageSize: 100 },
+        });
+        const rows = [...first.data];
+        for (let page = 2; page <= first.page.totalPages; page += 1) {
+          const next = await request<PaginatedResponse<InventoryRow>>("/inventory", {
+            params: { farmId, itemId: item.id, page, pageSize: 100 },
+          });
+          rows.push(...next.data);
+        }
+        if (!cancelled) {
+          setStockResult({ key: stockKey, error: null, balances: rows.filter((row) => {
+            const balance = row.balance;
+            return (!balance || (balance.farmId === farmId && balance.itemId === item.id)) &&
+              row.item.id === item.id && Number.isFinite(Number(row.quantityOnHand)) &&
+              Number(row.quantityOnHand) > 0;
+          }) });
+        }
+      } catch {
+        if (!cancelled) setStockResult({ key: stockKey, balances: [], error: "Không tải được số lượng tồn theo kho." });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [farmId, item.id, request, stockKey]);
+
+  const totalOnHand = balances.reduce((total, row) => total + Number(row.quantityOnHand), 0);
+  const formatQuantity = (quantity: number) => new Intl.NumberFormat("vi-VN", {
+    maximumFractionDigits: 3,
+  }).format(quantity);
 
   const formatDate = (isoString?: string | null) => {
     if (!isoString) return "—";
@@ -171,6 +228,31 @@ export function MaterialDetailView({
           </p>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="border-b border-border/60 pb-3">
+          <CardTitle className="text-base font-semibold">Tồn kho theo kho</CardTitle>
+          <p className="text-xs text-muted-foreground">Số dư dương của vật tư trong farm hiện tại.</p>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {stockLoading ? <p role="status" className="text-sm text-muted-foreground">Đang tải tồn kho...</p>
+            : stockError ? <p role="alert" className="text-sm text-destructive">{stockError}</p>
+              : balances.length === 0 ? <p className="text-sm text-muted-foreground">Vật tư chưa có tồn tại kho nào trong farm này.</p>
+                : <>
+                  <p className="mb-3 text-sm">Tổng tồn: <strong>{formatQuantity(totalOnHand)} {unitSymbol ?? ""}</strong></p>
+                  <div className="overflow-x-auto rounded-lg border">
+                    <table className="w-full min-w-[520px] text-sm">
+                      <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className="px-3 py-2">Kho</th><th className="px-3 py-2">LOT</th><th className="px-3 py-2 text-right">Số lượng tồn</th></tr></thead>
+                      <tbody className="divide-y">{balances.map((row, index) => <tr key={row.balance?.warehouseId + (row.lot?.lotNumber ?? "") + index}>
+                        <td className="px-3 py-2 font-medium">{row.warehouse.name} <span className="text-muted-foreground">({row.warehouse.code})</span></td>
+                        <td className="px-3 py-2">{row.lot?.lotNumber ?? "Không theo lô"}</td>
+                        <td className="px-3 py-2 text-right font-semibold">{formatQuantity(Number(row.quantityOnHand))} {unitSymbol ?? ""}</td>
+                      </tr>)}</tbody>
+                    </table>
+                  </div>
+                </>}
+        </CardContent>
+      </Card>
 
       {/* Main Details Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -356,6 +438,16 @@ export function MaterialDetailView({
           </CardContent>
         </Card>
       </div>
+
+      <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-6" aria-labelledby="qr-item-heading">
+        <div className="border-b pb-3">
+          <h3 id="qr-item-heading" className="text-base font-semibold text-foreground">Mã QR vật tư</h3>
+          <p className="text-xs text-muted-foreground">Mã định danh vật tư, không gắn riêng với kho hoặc LOT.</p>
+        </div>
+        <div className="mt-4">
+          <QrCodeButton farmId={farmId} path={`/items/${item.id}/qr`} label="Xem QR vật tư" alt={`Mã QR vật tư ${item.code}`} />
+        </div>
+      </section>
 
       {/* Metadata Audit Card */}
       <Card className="px-5 py-3 text-xs text-muted-foreground bg-muted/20">

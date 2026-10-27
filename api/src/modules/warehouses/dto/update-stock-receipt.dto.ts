@@ -36,6 +36,7 @@ export class UpdateStockReceiptDto {
   @MaxLength(4000)
   note?: string | null;
 
+  @ApiPropertyOptional({ type: () => CreateStockReceiptItemDto, isArray: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

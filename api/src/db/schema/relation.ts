@@ -24,8 +24,12 @@ import {
   assetAssignments,
   assetIncidents,
   maintenanceRecords,
+  maintenanceRequests,
   inventoryTransactions,
   auditLogs,
+  notifications,
+  devicePushTokens,
+  notificationPushOutbox,
   farmMemberRoles,
   materialProfiles,
 } from './schema';
@@ -37,6 +41,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   }),
   farmMembers: many(farmMembers),
   auditLogs: many(auditLogs),
+  notifications: many(notifications),
+  devicePushTokens: many(devicePushTokens),
 }));
 
 export const rolesRelations = relations(roles, ({ many }) => ({
@@ -85,6 +91,8 @@ export const farmMembersRelations = relations(farmMembers, ({ one, many }) => ({
   }),
   assetIncidents: many(assetIncidents),
   maintenanceRecords: many(maintenanceRecords),
+  maintenanceRequests_requestedByMemberId: many(maintenanceRequests, { relationName: 'maintenanceRequests_requestedByMemberId_farmMembers_id' }),
+  maintenanceRequests_reviewedByMemberId: many(maintenanceRequests, { relationName: 'maintenanceRequests_reviewedByMemberId_farmMembers_id' }),
   inventoryTransactions: many(inventoryTransactions),
   farmMemberRoles: many(farmMemberRoles),
 }));
@@ -106,9 +114,51 @@ export const farmsRelations = relations(farms, ({ many }) => ({
   assetAssignments: many(assetAssignments),
   assetIncidents: many(assetIncidents),
   maintenanceRecords: many(maintenanceRecords),
+  maintenanceRequests: many(maintenanceRequests),
   inventoryTransactions: many(inventoryTransactions),
   auditLogs: many(auditLogs),
+  notifications: many(notifications),
 }));
+
+export const notificationsRelations = relations(
+  notifications,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [notifications.userId],
+      references: [users.id],
+    }),
+    farm: one(farms, {
+      fields: [notifications.farmId],
+      references: [farms.id],
+    }),
+    pushOutbox: many(notificationPushOutbox),
+  }),
+);
+
+export const devicePushTokensRelations = relations(
+  devicePushTokens,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [devicePushTokens.userId],
+      references: [users.id],
+    }),
+    pushOutbox: many(notificationPushOutbox),
+  }),
+);
+
+export const notificationPushOutboxRelations = relations(
+  notificationPushOutbox,
+  ({ one }) => ({
+    notification: one(notifications, {
+      fields: [notificationPushOutbox.notificationId],
+      references: [notifications.id],
+    }),
+    devicePushToken: one(devicePushTokens, {
+      fields: [notificationPushOutbox.devicePushTokenId],
+      references: [devicePushTokens.id],
+    }),
+  }),
+);
 
 export const suppliersRelations = relations(suppliers, ({ one, many }) => ({
   farm: one(farms, {
@@ -287,6 +337,7 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
   assetAssignments: many(assetAssignments),
   assetIncidents: many(assetIncidents),
   maintenanceRecords: many(maintenanceRecords),
+  maintenanceRequests: many(maintenanceRequests),
   inventoryTransactions: many(inventoryTransactions),
 }));
 
@@ -526,6 +577,14 @@ export const maintenanceRecordsRelations = relations(
     stockIssues: many(stockIssues),
   }),
 );
+
+export const maintenanceRequestsRelations = relations(maintenanceRequests, ({ one }) => ({
+  asset: one(assets, { fields: [maintenanceRequests.assetId], references: [assets.id] }),
+  farm: one(farms, { fields: [maintenanceRequests.farmId], references: [farms.id] }),
+  requestedBy: one(farmMembers, { fields: [maintenanceRequests.requestedByMemberId], references: [farmMembers.id], relationName: 'maintenanceRequests_requestedByMemberId_farmMembers_id' }),
+  reviewedBy: one(farmMembers, { fields: [maintenanceRequests.reviewedByMemberId], references: [farmMembers.id], relationName: 'maintenanceRequests_reviewedByMemberId_farmMembers_id' }),
+  maintenanceRecord: one(maintenanceRecords, { fields: [maintenanceRequests.maintenanceRecordId], references: [maintenanceRecords.id] }),
+}));
 
 export const inventoryTransactionsRelations = relations(
   inventoryTransactions,

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsOptional,
@@ -29,6 +29,7 @@ export class CreateStockCountDto {
   @IsUUID() warehouseId!: string;
   @IsString() @Length(1, 50) countCode!: string;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+  @ApiProperty({ type: () => StockCountItemDto, isArray: true })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => StockCountItemDto)
@@ -36,6 +37,7 @@ export class CreateStockCountDto {
 }
 export class UpdateStockCountDto {
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+  @ApiPropertyOptional({ type: () => StockCountItemDto, isArray: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

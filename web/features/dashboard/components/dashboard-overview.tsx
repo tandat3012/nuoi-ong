@@ -1,9 +1,10 @@
 import Link from 'next/link';
+import { InventoryInsights } from './inventory-insights';
 
 const summaryCards = [
   { label: 'Tổng item', value: '—', hint: 'Thiết bị, dụng cụ, vật tư' },
   { label: 'Phiếu chờ xử lý', value: '—', hint: 'Phiếu nhập và phiếu xuất' },
-  { label: 'Tồn kho thấp', value: '—', hint: 'Theo mức tồn tối thiểu' },
+  { label: 'Tồn kho thấp', value: 'Xem bên dưới', hint: 'Theo mức tồn tối thiểu' },
   { label: 'Sắp đến hạn bảo trì', value: '—', hint: 'Trong chu kỳ cảnh báo' },
 ] as const;
 
@@ -46,6 +47,16 @@ export function DashboardOverview() {
         ))}
       </section>
 
+      <InventoryInsights />
+
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card p-5 shadow-sm">
+        <div>
+          <h2 className="font-semibold">Lịch sử thao tác</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Tra cứu thay đổi dữ liệu theo farm và quyền tài khoản.</p>
+        </div>
+        <Link href="/history" className="rounded-lg border px-4 py-2 text-sm hover:bg-muted">Mở lịch sử</Link>
+      </section>
+
       <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-7">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -53,7 +64,7 @@ export function DashboardOverview() {
             <p className="mt-1 text-sm text-muted-foreground">Các use case ưu tiên kết nối API trong V1.</p>
           </div>
           <span className="w-fit rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">
-            Chờ backend API
+            Đang kết nối dữ liệu farm
           </span>
         </div>
 

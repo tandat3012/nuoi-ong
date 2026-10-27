@@ -16,6 +16,7 @@ import { documentStatus } from '../../db/schema';
 import { CurrentAuth } from '../auth/current-auth.decorator';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
+import { RejectStockDocumentDto } from './dto/reject-stock-document.dto';
 import { StockIssuesService } from './stock-issues.service';
 import {
   ApiBearerAuth,
@@ -52,7 +53,10 @@ const issueSchema = {
       enum: ['CONSUMPTION', 'DAMAGE', 'DISPOSAL', 'OTHER', 'MAINTENANCE'],
     },
     maintenanceRecordId: { type: 'string', format: 'uuid', nullable: true },
-    status: { type: 'string', enum: ['DRAFT', 'CONFIRMED', 'CANCELLED'] },
+    status: { type: 'string', enum: [...documentStatus.enumValues] },
+    rejectionReason: { type: 'string', nullable: true },
+    rejectedByMemberId: { type: 'string', format: 'uuid', nullable: true },
+    rejectedAt: { type: 'string', format: 'date-time', nullable: true },
     reason: { type: 'string', nullable: true },
     note: { type: 'string', nullable: true },
     createdByMemberId: { type: 'string', format: 'uuid' },
@@ -322,7 +326,7 @@ export class StockIssuesController {
   })
   @ApiConflictResponse({
     description:
-      'Kho không hoạt động, phiếu không còn DRAFT hoặc tồn kho không đủ.',
+      'Phiếu không ở trạng thái PENDING_APPROVAL, kho không hoạt động, tài sản không khả dụng hoặc tồn kho không đủ.',
   })
   @ApiUnauthorizedResponse({
     description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
@@ -341,6 +345,43 @@ export class StockIssuesController {
         requireUuid(id, 'id'),
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
+      ),
+    };
+  }
+
+  @Post(':id/submit')
+  @ApiOperation({ summary: 'Gửi phiếu xuất để chờ duyệt' })
+  @ApiFarmIdQuery()
+  async submit(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    return {
+      data: await this.service.submit(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+      ),
+    };
+  }
+
+  @Post(':id/reject')
+  @ApiOperation({ summary: 'Từ chối phiếu xuất đang chờ duyệt' })
+  @ApiFarmIdQuery()
+  @ApiBody({ type: RejectStockDocumentDto })
+  async reject(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: RejectStockDocumentDto,
+  ) {
+    return {
+      data: await this.service.reject(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input.rejectionReason,
       ),
     };
   }

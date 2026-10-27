@@ -8,6 +8,7 @@ import type {
   CategoryReference,
   RecordStatus,
 } from "../types/material";
+import type { Warehouse } from "@/features/warehouses/types/warehouse";
 import {
   MATERIAL_KIND_LABELS,
   MATERIAL_TRACKING_MODE_LABELS,
@@ -24,13 +25,15 @@ import { Search, X, RotateCcw, Filter } from "lucide-react";
 interface MaterialFilterToolbarProps {
   filters: MaterialFilterParams;
   categories: CategoryReference[];
-  referencesLoading: boolean;
-  referencesError: string | null;
+  filterCategoriesLoading: boolean;
+  warehouses: Warehouse[];
+  warehousesLoading: boolean;
   onSearchChange: (search: string) => void;
   onStatusChange: (status?: RecordStatus) => void;
   onKindChange: (kind?: MaterialKind) => void;
   onTrackingModeChange: (trackingMode?: MaterialTrackingMode) => void;
   onCategoryChange: (categoryId?: string) => void;
+  onWarehouseChange: (warehouseId?: string) => void;
   onResetFilters: () => void;
 }
 
@@ -41,13 +44,15 @@ function normalizeSearch(value: string) {
 export function MaterialFilterToolbar({
   filters,
   categories,
-  referencesLoading,
-  referencesError,
+  filterCategoriesLoading,
+  warehouses,
+  warehousesLoading,
   onSearchChange,
   onStatusChange,
   onKindChange,
   onTrackingModeChange,
   onCategoryChange,
+  onWarehouseChange,
   onResetFilters,
 }: MaterialFilterToolbarProps) {
   const [searchInput, setSearchInput] = useState(filters.search ?? "");
@@ -57,6 +62,15 @@ export function MaterialFilterToolbar({
   );
 
   useEffect(() => () => debouncedSearch.cancel(), [debouncedSearch]);
+  useEffect(() => {
+    setSearchInput(filters.search ?? "");
+  }, [filters.search]);
+
+  const settleSearchBeforeFilter = () => {
+    const normalized = normalizeSearch(searchInput);
+    if (normalized !== (filters.search ?? "")) debouncedSearch.flush(normalized);
+    else debouncedSearch.cancel();
+  };
 
   const handleSearchInputChange = useCallback(
     (value: string) => {
@@ -88,7 +102,8 @@ export function MaterialFilterToolbar({
       filters.status ||
       filters.kind ||
       filters.trackingMode ||
-      filters.categoryId,
+      filters.categoryId ||
+      filters.warehouseId,
   );
 
   const selectedCategoryName = categories.find(
@@ -146,7 +161,7 @@ export function MaterialFilterToolbar({
         </div>
 
         {/* Dropdown Filters Grid */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <div>
             <label
               htmlFor="filter-status"
@@ -157,13 +172,14 @@ export function MaterialFilterToolbar({
             <Select
               id="filter-status"
               value={filters.status ?? ""}
-              onChange={(event) =>
+              onChange={(event) => {
+                settleSearchBeforeFilter();
                 onStatusChange(
                   event.target.value
                     ? (event.target.value as RecordStatus)
                     : undefined,
-                )
-              }
+                );
+              }}
             >
               <option value="">Tất cả trạng thái</option>
               {(Object.keys(RECORD_STATUS_LABELS) as RecordStatus[]).map(
@@ -173,6 +189,22 @@ export function MaterialFilterToolbar({
                   </option>
                 ),
               )}
+            </Select>
+          </div>
+          <div>
+            <label htmlFor="filter-warehouse" className="mb-1 block text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
+              Kho tính tồn
+            </label>
+            <Select
+              id="filter-warehouse"
+              value={filters.warehouseId ?? ""}
+              disabled={warehousesLoading}
+              onChange={(event) => { settleSearchBeforeFilter(); onWarehouseChange(event.target.value || undefined); }}
+            >
+              <option value="">Tất cả kho trong farm</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>{warehouse.code} · {warehouse.name}</option>
+              ))}
             </Select>
           </div>
 
@@ -186,13 +218,14 @@ export function MaterialFilterToolbar({
             <Select
               id="filter-kind"
               value={filters.kind ?? ""}
-              onChange={(event) =>
+              onChange={(event) => {
+                settleSearchBeforeFilter();
                 onKindChange(
                   event.target.value
                     ? (event.target.value as MaterialKind)
                     : undefined,
-                )
-              }
+                );
+              }}
             >
               <option value="">Tất cả phân loại</option>
               {(Object.keys(MATERIAL_KIND_LABELS) as MaterialKind[]).map(
@@ -215,13 +248,14 @@ export function MaterialFilterToolbar({
             <Select
               id="filter-tracking"
               value={filters.trackingMode ?? ""}
-              onChange={(event) =>
+              onChange={(event) => {
+                settleSearchBeforeFilter();
                 onTrackingModeChange(
                   event.target.value
                     ? (event.target.value as MaterialTrackingMode)
                     : undefined,
-                )
-              }
+                );
+              }}
             >
               <option value="">Tất cả phương thức</option>
               {(
@@ -245,11 +279,9 @@ export function MaterialFilterToolbar({
             </label>
             <Select
               id="filter-category"
-              disabled={referencesLoading || Boolean(referencesError)}
+              disabled={filterCategoriesLoading}
               value={filters.categoryId ?? ""}
-              onChange={(event) =>
-                onCategoryChange(event.target.value || undefined)
-              }
+              onChange={(event) => { settleSearchBeforeFilter(); onCategoryChange(event.target.value || undefined); }}
             >
               <option value="">Tất cả danh mục</option>
               {categories.map((category) => (
@@ -285,7 +317,7 @@ export function MaterialFilterToolbar({
                 <span>Trạng thái: {RECORD_STATUS_LABELS[filters.status]}</span>
                 <button
                   type="button"
-                  onClick={() => onStatusChange(undefined)}
+                  onClick={() => { settleSearchBeforeFilter(); onStatusChange(undefined); }}
                   className="hover:text-destructive cursor-pointer"
                 >
                   <X className="size-3" />
@@ -297,7 +329,7 @@ export function MaterialFilterToolbar({
                 <span>Loại: {MATERIAL_KIND_LABELS[filters.kind]}</span>
                 <button
                   type="button"
-                  onClick={() => onKindChange(undefined)}
+                  onClick={() => { settleSearchBeforeFilter(); onKindChange(undefined); }}
                   className="hover:text-destructive cursor-pointer"
                 >
                   <X className="size-3" />
@@ -309,7 +341,7 @@ export function MaterialFilterToolbar({
                 <span>Theo dõi: {MATERIAL_TRACKING_MODE_LABELS[filters.trackingMode]}</span>
                 <button
                   type="button"
-                  onClick={() => onTrackingModeChange(undefined)}
+                  onClick={() => { settleSearchBeforeFilter(); onTrackingModeChange(undefined); }}
                   className="hover:text-destructive cursor-pointer"
                 >
                   <X className="size-3" />
@@ -321,11 +353,17 @@ export function MaterialFilterToolbar({
                 <span>Danh mục: {selectedCategoryName || filters.categoryId}</span>
                 <button
                   type="button"
-                  onClick={() => onCategoryChange(undefined)}
+                  onClick={() => { settleSearchBeforeFilter(); onCategoryChange(undefined); }}
                   className="hover:text-destructive cursor-pointer"
                 >
                   <X className="size-3" />
                 </button>
+              </Badge>
+            )}
+            {filters.warehouseId && (
+              <Badge variant="outline" className="gap-1 bg-background text-xs py-0.5">
+                <span>Kho: {warehouses.find(({ id }) => id === filters.warehouseId)?.name ?? filters.warehouseId}</span>
+                <button type="button" onClick={() => { settleSearchBeforeFilter(); onWarehouseChange(undefined); }} className="hover:text-destructive cursor-pointer" aria-label="Bỏ lọc kho"><X className="size-3" /></button>
               </Badge>
             )}
           </div>

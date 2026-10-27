@@ -6,6 +6,9 @@ import {
   ArrowUpFromLine,
   Boxes,
   Warehouse,
+  ArrowLeftRight,
+  History,
+  Fingerprint,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -49,6 +52,16 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
         label: 'Phiếu xuất',
         icon: ArrowUpFromLine,
       },
+      {
+        href: '/transfers',
+        label: 'Điều chuyển kho',
+        icon: ArrowLeftRight,
+      },
+      {
+        href: '/history',
+        label: 'Lịch sử thao tác',
+        icon: History,
+      },
     ],
   },
   {
@@ -63,6 +76,11 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
         href: '/warehouses',
         label: 'Kho',
         icon: Warehouse,
+      },
+      {
+        href: '/assets',
+        label: 'Tài sản định danh',
+        icon: Fingerprint,
       },
     ],
   },
@@ -79,10 +97,12 @@ export const routeLabels: Record<string, string> = {
   '/inventory': 'Tồn kho',
   '/receipts': 'Phiếu nhập',
   '/issues': 'Phiếu xuất',
+  '/history': 'Lịch sử thao tác',
+  '/transfers': 'Điều chuyển kho',
   '/materials': 'Vật tư',
   '/warehouses': 'Kho',
+  '/assets': 'Tài sản định danh',
   '/catalog': 'Danh mục',
-  '/assets': 'Tài sản',
   '/maintenance': 'Bảo trì',
   '/scan': 'Tra cứu QR',
 };

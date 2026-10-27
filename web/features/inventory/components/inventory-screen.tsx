@@ -47,7 +47,7 @@ export function InventoryScreen() {
       setError(null);
     });
 
-    void request<WarehouseList>('/api/v1/warehouses', {
+    void request<WarehouseList>('/warehouses', {
       params: { farmId: selectedFarmId, page: 1, pageSize: 100, status: 'ACTIVE' },
     })
       .then((response) => {
@@ -70,7 +70,7 @@ export function InventoryScreen() {
       setError(null);
     });
 
-    void request<{ data: InventoryRow[] }>('/api/v1/inventory', {
+    void request<{ data: InventoryRow[] }>('/inventory', {
       params: {
         farmId: selectedFarmId,
         warehouseId: warehouseId || undefined,

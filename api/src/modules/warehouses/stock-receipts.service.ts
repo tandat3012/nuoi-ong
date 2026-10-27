@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, getTableColumns, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -17,16 +17,19 @@ import {
   stockReceiptItems,
   stockReceipts,
   suppliers,
+  units,
   warehouses,
 } from '../../db/schema';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { WarehousesService } from './warehouses.service';
+import { auditedDocumentTransaction } from '../audit-logs/audited-document-transaction';
+import { notifyDocumentCreator, notifyFarmApprovers } from '../notifications/notification-events';
 
 export interface StockReceiptListFilters extends PaginationParams {
   farmId: string;
   clerkUserId: string;
-  status?: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  status?: 'DRAFT' | 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
   warehouseId?: string;
 }
 
@@ -105,10 +108,15 @@ export class StockReceiptsService {
     const memberId = await this.warehousesService.assertFarmAccess(
       farmId,
       clerkUserId,
-      true,
+      'document',
     );
     this.validateItems(input.items);
-    const transaction = this.databaseService.db.transaction(async (tx) => {
+    const transaction = auditedDocumentTransaction(this.databaseService.db, {
+      farmId,
+      clerkUserId,
+      entityType: 'STOCK_RECEIPT',
+      action: 'CREATE',
+    }, async (tx) => {
       await this.assertActiveWarehouse(tx, input.warehouseId, farmId);
       await this.assertReferences(tx, farmId, input);
       const [receipt] = await tx
@@ -130,6 +138,7 @@ export class StockReceiptsService {
           itemId: item.itemId,
           quantity: item.quantity,
           unitPrice: item.unitPrice ?? '0',
+          lotId: item.lotId ?? null,
           lotNumber: item.lotNumber,
           locationId: item.locationId,
           manufacturedDate: item.manufacturedDate,
@@ -157,9 +166,15 @@ export class StockReceiptsService {
     clerkUserId: string,
     input: UpdateStockReceiptDto,
   ) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, 'document');
     if (input.items) this.validateItems(input.items);
-    const transaction = this.databaseService.db.transaction(async (tx) => {
+    const transaction = auditedDocumentTransaction(this.databaseService.db, {
+      farmId,
+      clerkUserId,
+      entityType: 'STOCK_RECEIPT',
+      entityId: id,
+      action: 'UPDATE',
+    }, async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       if (receipt.status !== 'DRAFT') {
         throw new ConflictException('Only DRAFT receipts can be edited');
@@ -191,6 +206,7 @@ export class StockReceiptsService {
             itemId: item.itemId,
             quantity: item.quantity,
             unitPrice: item.unitPrice ?? '0',
+            lotId: item.lotId ?? null,
             lotNumber: item.lotNumber,
             locationId: item.locationId,
             manufacturedDate: item.manufacturedDate,
@@ -213,8 +229,14 @@ export class StockReceiptsService {
   }
 
   async cancelReceipt(id: string, farmId: string, clerkUserId: string) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
-    await this.databaseService.db.transaction(async (tx) => {
+    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, 'document');
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId,
+      clerkUserId,
+      entityType: 'STOCK_RECEIPT',
+      entityId: id,
+      action: 'CANCEL',
+    }, async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       if (receipt.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT receipts can be cancelled');
@@ -232,12 +254,55 @@ export class StockReceiptsService {
     return this.getReceiptWithItems(id, farmId);
   }
 
+  async submitReceipt(id: string, farmId: string, clerkUserId: string) {
+    const memberId = await this.warehousesService.assertFarmAccess(farmId, clerkUserId, 'document');
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_RECEIPT', entityId: id, action: 'SUBMIT',
+    }, async (tx) => {
+      const receipt = await this.getReceiptOnly(id, farmId, tx, true);
+      if (receipt.status !== 'DRAFT') throw new ConflictException('Only DRAFT receipts can be submitted');
+      const [item] = await tx.select({ id: stockReceiptItems.id }).from(stockReceiptItems)
+        .where(eq(stockReceiptItems.stockReceiptId, id)).limit(1);
+      if (!item) throw new BadRequestException('Receipt must contain at least one item');
+      await tx.update(stockReceipts).set({ status: 'PENDING_APPROVAL', updatedAt: new Date().toISOString() })
+        .where(eq(stockReceipts.id, id));
+      await notifyFarmApprovers(tx, {
+        farmId, entityType: 'STOCK_RECEIPT', entityId: id,
+        documentCode: receipt.receiptCode, documentKind: 'Phiếu nhập kho', status: 'PENDING_APPROVAL',
+      }, memberId);
+    });
+    return this.getReceiptWithItems(id, farmId);
+  }
+
+  async rejectReceipt(id: string, farmId: string, clerkUserId: string, rejectionReason: string) {
+    const memberId = await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    const reason = rejectionReason.trim();
+    if (!reason) throw new BadRequestException('Rejection reason is required');
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_RECEIPT', entityId: id, action: 'REJECT',
+    }, async (tx) => {
+      const receipt = await this.getReceiptOnly(id, farmId, tx, true);
+      if (receipt.status !== 'PENDING_APPROVAL') throw new ConflictException('Only PENDING_APPROVAL receipts can be rejected');
+      await tx.update(stockReceipts).set({
+        status: 'REJECTED', rejectionReason: reason, rejectedByMemberId: memberId,
+        rejectedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }).where(eq(stockReceipts.id, id));
+      await notifyDocumentCreator(tx, {
+        farmId, entityType: 'STOCK_RECEIPT', entityId: id,
+        documentCode: receipt.receiptCode, documentKind: 'Phiếu nhập kho', status: 'REJECTED', rejectionReason: reason,
+      }, receipt.createdByMemberId);
+    });
+    return this.getReceiptWithItems(id, farmId);
+  }
+
   async confirmReceipt(id: string, farmId: string, clerkUserId: string) {
     const memberId = await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
-    await this.databaseService.db.transaction(async (tx) => {
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_RECEIPT', entityId: id, action: 'CONFIRM',
+    }, async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       if (receipt.status === 'CONFIRMED') return;
-      if (receipt.status !== 'DRAFT') throw new ConflictException('Only DRAFT receipts can be confirmed');
+      if (receipt.status !== 'PENDING_APPROVAL') throw new ConflictException('Only PENDING_APPROVAL receipts can be confirmed');
       await this.assertActiveWarehouse(tx, receipt.warehouseId, farmId);
       const lines = await tx.select().from(stockReceiptItems).where(eq(stockReceiptItems.stockReceiptId, id));
       if (lines.length === 0) throw new BadRequestException('Receipt must contain at least one item');
@@ -256,11 +321,14 @@ export class StockReceiptsService {
             receipt.warehouseId,
           );
         }
-        if (item.trackingMode === 'LOT' && !line.lotNumber) {
-          throw new BadRequestException('LOT receipt lines require lotNumber');
+        if (item.trackingMode === 'LOT' && !line.lotId && !line.lotNumber) {
+          throw new BadRequestException('LOT receipt lines require an existing lot or lotNumber');
         }
         if (item.trackingMode === 'LOT' && (line.assetCode || line.serialNumber)) {
           throw new BadRequestException('LOT receipt lines cannot contain asset metadata');
+        }
+        if (item.trackingMode === 'LOT' && line.lotId && (line.lotNumber || line.manufacturedDate || line.expiryDate)) {
+          throw new BadRequestException('Existing LOT receipt lines cannot override lot metadata');
         }
         if (
           item.trackingMode === 'ASSET' &&
@@ -268,16 +336,32 @@ export class StockReceiptsService {
         ) {
           throw new BadRequestException('ASSET receipt lines require assetCode and quantity 1');
         }
-        if (item.trackingMode === 'ASSET' && (line.lotNumber || line.manufacturedDate || line.expiryDate)) {
+        if (item.trackingMode === 'ASSET' && (line.lotId || line.lotNumber || line.manufacturedDate || line.expiryDate)) {
           throw new BadRequestException('ASSET receipt lines cannot contain LOT metadata');
         }
-        if (item.trackingMode === 'QUANTITY' && (line.lotNumber || line.manufacturedDate || line.expiryDate || line.assetCode || line.serialNumber)) {
+        if (item.trackingMode === 'QUANTITY' && (line.lotId || line.lotNumber || line.manufacturedDate || line.expiryDate || line.assetCode || line.serialNumber)) {
           throw new BadRequestException('QUANTITY receipt lines cannot contain LOT or ASSET metadata');
         }
 
         let lotId = line.lotId;
         let assetId = line.assetId;
+        if (item.trackingMode === 'LOT' && lotId) {
+          const [existingLot] = await tx
+            .select({ id: inventoryLots.id })
+            .from(inventoryLots)
+            .where(and(
+              eq(inventoryLots.id, lotId),
+              eq(inventoryLots.farmId, farmId),
+              eq(inventoryLots.itemId, line.itemId),
+            ))
+            .for('update')
+            .limit(1);
+          if (!existingLot) throw new NotFoundException('Selected lot not found for this farm and item');
+        }
         if (item.trackingMode === 'LOT' && !lotId) {
+          if (line.manufacturedDate && line.expiryDate && line.expiryDate < line.manufacturedDate) {
+            throw new BadRequestException('Expiry date cannot be earlier than manufactured date');
+          }
           let createdLotId: string;
           try {
             const [lot] = await tx.insert(inventoryLots).values({
@@ -360,6 +444,10 @@ export class StockReceiptsService {
         await tx.insert(inventoryTransactions).values({ farmId, warehouseId: receipt.warehouseId, itemId: line.itemId, lotId, assetId, transactionType: 'RECEIPT', quantityChange: line.quantity, sourceType: 'STOCK_RECEIPT', sourceId: id, performedByMemberId: memberId });
       }
       await tx.update(stockReceipts).set({ status: 'CONFIRMED', confirmedByMemberId: memberId, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).where(eq(stockReceipts.id, id));
+      await notifyDocumentCreator(tx, {
+        farmId, entityType: 'STOCK_RECEIPT', entityId: id,
+        documentCode: receipt.receiptCode, documentKind: 'Phiếu nhập kho', status: 'CONFIRMED',
+      }, receipt.createdByMemberId);
     });
     return this.getReceiptWithItems(id, farmId);
   }
@@ -383,8 +471,56 @@ export class StockReceiptsService {
 
   private async getReceiptWithItems(id: string, farmId: string) {
     const receipt = await this.getReceiptOnly(id, farmId);
-    const items = await this.databaseService.db.select().from(stockReceiptItems).where(eq(stockReceiptItems.stockReceiptId, id));
-    return { receipt, items };
+    const lineItems = await this.databaseService.db
+      .select({
+        ...getTableColumns(stockReceiptItems),
+        itemCode: items.code,
+        itemName: items.name,
+        itemType: items.itemType,
+        trackingMode: items.trackingMode,
+        unitId: units.id,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+        lotNumberFromLot: inventoryLots.lotNumber,
+        lotManufacturedDate: inventoryLots.manufacturedDate,
+        lotExpiryDate: inventoryLots.expiryDate,
+        assetCodeFromAsset: assets.assetCode,
+        assetSerialNumber: assets.serialNumber,
+        locationCode: locations.code,
+        locationName: locations.name,
+      })
+      .from(stockReceiptItems)
+      .leftJoin(
+        items,
+        and(eq(items.id, stockReceiptItems.itemId), eq(items.farmId, farmId)),
+      )
+      .leftJoin(units, eq(units.id, items.unitId))
+      .leftJoin(
+        inventoryLots,
+        and(
+          eq(inventoryLots.id, stockReceiptItems.lotId),
+          eq(inventoryLots.farmId, farmId),
+          eq(inventoryLots.itemId, stockReceiptItems.itemId),
+        ),
+      )
+      .leftJoin(
+        assets,
+        and(
+          eq(assets.id, stockReceiptItems.assetId),
+          eq(assets.farmId, farmId),
+          eq(assets.itemId, stockReceiptItems.itemId),
+        ),
+      )
+      .leftJoin(
+        locations,
+        and(
+          eq(locations.id, stockReceiptItems.locationId),
+          eq(locations.farmId, farmId),
+        ),
+      )
+      .where(eq(stockReceiptItems.stockReceiptId, id))
+      .orderBy(asc(stockReceiptItems.createdAt), asc(stockReceiptItems.id));
+    return { receipt, items: lineItems };
   }
 
   private validateItems(items: CreateStockReceiptDto['items']) {
@@ -404,6 +540,23 @@ export class StockReceiptsService {
     for (const line of input.items ?? []) {
       const [item] = await db.select({ id: items.id, trackingMode: items.trackingMode }).from(items).where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
       if (!item) throw new NotFoundException('Receipt item not found');
+      if (line.lotId) {
+        if (item.trackingMode !== 'LOT' || line.lotNumber || line.manufacturedDate || line.expiryDate) {
+          throw new BadRequestException('lotId can only select an existing LOT without new lot metadata');
+        }
+        const [lot] = await db
+          .select({ id: inventoryLots.id })
+          .from(inventoryLots)
+          .where(and(
+            eq(inventoryLots.id, line.lotId),
+            eq(inventoryLots.farmId, farmId),
+            eq(inventoryLots.itemId, line.itemId),
+          ))
+          .limit(1);
+        if (!lot) throw new NotFoundException('Selected lot not found for this farm and item');
+      } else if (item.trackingMode !== 'LOT' && (line.lotNumber || line.manufacturedDate || line.expiryDate)) {
+        throw new BadRequestException('Lot metadata can only be used with LOT items');
+      }
       if (line.locationId) {
         if (item.trackingMode !== 'ASSET')
           throw new BadRequestException('Only ASSET receipt lines can select a location');

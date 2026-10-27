@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, eq, ilike, or, SQL } from 'drizzle-orm';
+import QRCode from 'qrcode';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -229,5 +230,28 @@ export class CatalogService {
     }
 
     return item;
+  }
+
+  async getItemQr(id: string, farmId: string) {
+    const result = await this.getItem(id, farmId);
+    const qrUrl = `${this.webAppUrl()}/scan/item/${result.item.id}`;
+    const svg = await QRCode.toString(qrUrl, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 2,
+    });
+    return {
+      itemId: result.item.id,
+      itemCode: result.item.code,
+      itemName: result.item.name,
+      qrUrl,
+      format: 'svg',
+      imageDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`,
+    };
+  }
+
+  private webAppUrl() {
+    return (process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000')
+      .replace(/\/+$/, '');
   }
 }

@@ -29,6 +29,7 @@ export function useMaterialFilters() {
     onTrackingModeChange: (trackingMode?: MaterialFilterParams['trackingMode']) =>
       changeFilter({ trackingMode }),
     onCategoryChange: (categoryId?: string) => changeFilter({ categoryId }),
+    onWarehouseChange: (warehouseId?: string) => changeFilter({ warehouseId }),
     onResetFilters: () => {
       setFilters({ ...initialFilters });
     },

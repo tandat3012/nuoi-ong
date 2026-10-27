@@ -53,10 +53,12 @@ POST -> DRAFT -> PATCH -> CONFIRM -> tăng tồn kho
 Khi tạo phiếu, hệ thống lưu chứng từ và dòng hàng nhưng chưa tăng tồn. Validation metadata LOT/ASSET được kiểm tra khi confirm.
 
 - `QUANTITY`: chỉ cần `itemId` và `quantity`.
-- `LOT`: cần `lotNumber`; confirm sẽ tạo `inventory_lots` nếu chưa có `lotId`.
+- `LOT`: có thể chọn lô hiện có cùng farm/vật tư bằng `lotId`, hoặc tạo lô mới bằng `lotNumber` và ngày sản xuất/hạn dùng. Confirm dùng lại lô hiện có hoặc tạo bản ghi lô mới trong cùng transaction với cập nhật tồn. Mobile cảnh báo và yêu cầu xác nhận trước khi chọn lô đã hết hạn; ngày sản xuất và hạn dùng của lô mới được chọn bằng lịch.
 - `ASSET`: cần `assetCode`, `quantity` phải bằng `1`; confirm sẽ tạo `assets` nếu chưa có `assetId`.
 - Confirm thành công cập nhật `inventory_balances` và tạo transaction `RECEIPT`.
 - Phiếu đã `CONFIRMED` không được cộng tồn lần hai.
+
+Khi xuất vật tư LOT, bộ chọn chỉ liệt kê từng lô có số dư dương trong đúng farm/kho đang chọn. Tình trạng hạn dùng hiện ngay trên từng lựa chọn; lô hết hạn yêu cầu xác nhận trước khi thêm vào phiếu, nhưng vẫn có thể được chọn để hỗ trợ nghiệp vụ cần xử lý lô đó.
 
 ## 4. Stock Issue API
 

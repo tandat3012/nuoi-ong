@@ -155,7 +155,7 @@ export class WarehousesService {
   async assertFarmAccess(
     farmId: string,
     clerkUserId: string,
-    write: boolean,
+    write: boolean | 'document',
   ) {
     const memberships = await this.databaseService.db
       .select({
@@ -184,12 +184,20 @@ export class WarehousesService {
       throw new ForbiddenException('Active farm membership is required');
     }
     if (
-      write &&
+      write === true &&
       !activeMemberships.some(({ roleCode }) =>
         ['ADMIN', 'FARM_OWNER'].includes(roleCode ?? ''),
       )
     ) {
       throw new ForbiddenException('Warehouse write permission is required');
+    }
+    if (
+      write === 'document' &&
+      !activeMemberships.some(({ roleCode }) =>
+        ['ADMIN', 'FARM_OWNER', 'EMPLOYEE', 'GUEST'].includes(roleCode ?? ''),
+      )
+    ) {
+      throw new ForbiddenException('Stock document permission is required');
     }
     return activeMemberships[0].memberId;
   }

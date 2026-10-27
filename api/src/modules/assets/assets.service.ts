@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, asc, count, eq, ilike, isNull, or, sql, SQL } from 'drizzle-orm';
+import QRCode from 'qrcode';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -167,6 +168,8 @@ export class AssetsService {
           locationCode: locations.code,
           locationName: locations.name,
           locationWarehouseId: locations.warehouseId,
+          warehouseCode: warehouses.code,
+          warehouseName: warehouses.name,
         })
         .from(assets)
         .innerJoin(items, eq(assets.itemId, items.id))
@@ -177,6 +180,7 @@ export class AssetsService {
             eq(locations.farmId, assets.farmId),
           ),
         )
+        .leftJoin(warehouses, eq(locations.warehouseId, warehouses.id))
         .where(where)
         .orderBy(asc(assets.assetCode))
         .limit(filters.pageSize)
@@ -224,6 +228,27 @@ export class AssetsService {
     );
   }
 
+  async getAssetQr(id: string, farmId: string) {
+    const result = await this.getAsset(id, farmId);
+    const qrUrl = `${this.webAppUrl()}/scan/${result.asset.qrToken}`;
+    const svg = await QRCode.toString(qrUrl, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 2,
+    });
+    return {
+      qrToken: result.asset.qrToken,
+      qrUrl,
+      format: 'svg',
+      imageDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`,
+    };
+  }
+
+  private webAppUrl() {
+    return (process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000')
+      .replace(/\/+$/, '');
+  }
+
   private async findOne(where: SQL | undefined) {
     const [asset] = await this.databaseService.db
       .select({
@@ -233,6 +258,8 @@ export class AssetsService {
         locationCode: locations.code,
         locationName: locations.name,
         locationWarehouseId: locations.warehouseId,
+        warehouseCode: warehouses.code,
+        warehouseName: warehouses.name,
       })
       .from(assets)
       .innerJoin(items, eq(assets.itemId, items.id))
@@ -243,6 +270,7 @@ export class AssetsService {
           eq(locations.farmId, assets.farmId),
         ),
       )
+      .leftJoin(warehouses, eq(locations.warehouseId, warehouses.id))
       .where(where)
       .limit(1);
 

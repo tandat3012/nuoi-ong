@@ -34,11 +34,13 @@ import {
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { WarehousesService } from './warehouses.service';
+import { auditedDocumentTransaction } from '../audit-logs/audited-document-transaction';
+import { notifyDocumentCreator, notifyFarmApprovers } from '../notifications/notification-events';
 
 type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
-  status?: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  status?: 'DRAFT' | 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
 };
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -112,7 +114,7 @@ export class StockIssuesService {
     const memberId = await this.warehousesService.assertFarmAccess(
       farmId,
       clerkUserId,
-      true,
+      'document',
     );
     this.validateItems(input.items);
     const issueType = input.issueType ?? 'CONSUMPTION';
@@ -123,8 +125,9 @@ export class StockIssuesService {
       input.maintenanceRecordId,
     );
 
-    const id = await this.databaseService.db
-      .transaction(async (tx) => {
+    const id = await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_ISSUE', action: 'CREATE',
+    }, async (tx) => {
         await this.assertWarehouse(tx, farmId, input.warehouseId);
         await this.validateLines(tx, farmId, input.items);
         const [issue] = await tx
@@ -163,9 +166,10 @@ export class StockIssuesService {
     clerkUserId: string,
     input: UpdateStockIssueDto,
   ) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
-    await this.databaseService.db
-      .transaction(async (tx) => {
+    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, 'document');
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_ISSUE', entityId: id, action: 'UPDATE',
+    }, async (tx) => {
         const current = await this.getOnly(id, farmId, tx, true);
         if (current.status !== 'DRAFT')
           throw new ConflictException('Only DRAFT issues can be edited');
@@ -220,8 +224,10 @@ export class StockIssuesService {
   }
 
   async cancel(id: string, farmId: string, clerkUserId: string) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
-    await this.databaseService.db.transaction(async (tx) => {
+    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, 'document');
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_ISSUE', entityId: id, action: 'CANCEL',
+    }, async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
       if (issue.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT issues can be cancelled');
@@ -237,16 +243,59 @@ export class StockIssuesService {
     return this.withItems(id, farmId);
   }
 
+  async submit(id: string, farmId: string, clerkUserId: string) {
+    const submittingMemberId = await this.warehousesService.assertFarmAccess(farmId, clerkUserId, 'document');
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_ISSUE', entityId: id, action: 'SUBMIT',
+    }, async (tx) => {
+      const issue = await this.getOnly(id, farmId, tx, true);
+      if (issue.status !== 'DRAFT') throw new ConflictException('Only DRAFT issues can be submitted');
+      const [line] = await tx.select({ id: stockIssueItems.id }).from(stockIssueItems)
+        .where(eq(stockIssueItems.stockIssueId, id)).limit(1);
+      if (!line) throw new BadRequestException('Issue must contain at least one item');
+      await tx.update(stockIssues).set({ status: 'PENDING_APPROVAL', updatedAt: new Date().toISOString() })
+        .where(eq(stockIssues.id, id));
+      await notifyFarmApprovers(tx, {
+        farmId, entityType: 'STOCK_ISSUE', entityId: id,
+        documentCode: issue.issueCode, documentKind: 'Phiếu xuất kho', status: 'PENDING_APPROVAL',
+      }, submittingMemberId);
+    });
+    return this.withItems(id, farmId);
+  }
+
+  async reject(id: string, farmId: string, clerkUserId: string, rejectionReason: string) {
+    const memberId = await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    const reason = rejectionReason.trim();
+    if (!reason) throw new BadRequestException('Rejection reason is required');
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_ISSUE', entityId: id, action: 'REJECT',
+    }, async (tx) => {
+      const issue = await this.getOnly(id, farmId, tx, true);
+      if (issue.status !== 'PENDING_APPROVAL') throw new ConflictException('Only PENDING_APPROVAL issues can be rejected');
+      await tx.update(stockIssues).set({
+        status: 'REJECTED', rejectionReason: reason, rejectedByMemberId: memberId,
+        rejectedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }).where(eq(stockIssues.id, id));
+      await notifyDocumentCreator(tx, {
+        farmId, entityType: 'STOCK_ISSUE', entityId: id,
+        documentCode: issue.issueCode, documentKind: 'Phiếu xuất kho', status: 'REJECTED', rejectionReason: reason,
+      }, issue.createdByMemberId);
+    });
+    return this.withItems(id, farmId);
+  }
+
   async confirm(id: string, farmId: string, clerkUserId: string) {
     const memberId = await this.warehousesService.assertFarmAccess(
       farmId,
       clerkUserId,
       true,
     );
-    await this.databaseService.db.transaction(async (tx) => {
+    await auditedDocumentTransaction(this.databaseService.db, {
+      farmId, clerkUserId, entityType: 'STOCK_ISSUE', entityId: id, action: 'CONFIRM',
+    }, async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
-      if (issue.status !== 'DRAFT')
-        throw new ConflictException('Only DRAFT issues can be confirmed');
+      if (issue.status !== 'PENDING_APPROVAL')
+        throw new ConflictException('Only PENDING_APPROVAL issues can be confirmed');
       await this.assertWarehouse(tx, farmId, issue.warehouseId);
       const lines = await tx
         .select()
@@ -372,6 +421,10 @@ export class StockIssuesService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockIssues.id, id));
+      await notifyDocumentCreator(tx, {
+        farmId, entityType: 'STOCK_ISSUE', entityId: id,
+        documentCode: issue.issueCode, documentKind: 'Phiếu xuất kho', status: 'CONFIRMED',
+      }, issue.createdByMemberId);
     });
     return this.withItems(id, farmId);
   }

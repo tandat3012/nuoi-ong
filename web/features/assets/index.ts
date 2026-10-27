@@ -1,4 +1,5 @@
 import type { ModuleDefinition } from '@/shared/types/module';
+export { AssetsScreen } from './components/assets-screen';
 
 export const assetsModule: ModuleDefinition = {
   title: 'Tài sản định danh',

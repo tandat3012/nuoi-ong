@@ -11,6 +11,8 @@ import {
 } from "../types/issue";
 import { supportsIssueDraftEdit } from "./issue-draft.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
+import { DocumentApprovalActions } from "@/features/warehouses/components/document-approval-actions";
+import { formatQuantity } from "@/shared/lib/format-quantity";
 
 export function IssueDetail({
   farmId,
@@ -134,36 +136,16 @@ export function IssueDetail({
                   Sửa phiếu nháp
                 </button>
               )}
-              {canWrite && detail.issue.status === "DRAFT" && (
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() =>
-                    void runAction(
-                      confirm,
-                      `Xác nhận phiếu xuất ${detail.issue.issueCode} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
-                    )
-                  }
-                  className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
-                >
-                  Xác nhận phiếu xuất
-                </button>
-              )}
-              {canWrite && detail.issue.status === "DRAFT" && (
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() =>
-                    void runAction(
-                      cancel,
-                      `Hủy phiếu xuất nháp ${detail.issue.issueCode}? Thao tác này không thay đổi tồn kho.`,
-                    )
-                  }
-                  className="rounded-lg border border-destructive/40 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                >
-                  Hủy phiếu nháp
-                </button>
-              )}
+              <DocumentApprovalActions
+                basePath="/stock-issues"
+                farmId={farmId}
+                id={id}
+                status={detail.issue.status}
+                rejectionReason={detail.issue.rejectionReason}
+                canSubmit={canWrite}
+                canApprove={canWrite}
+                onChanged={refresh}
+              />
             </header>
             {canWrite &&
               detail.issue.status === "DRAFT" &&
@@ -297,7 +279,7 @@ export function IssueDetail({
                           {!line.lotId && !line.assetId && "—"}
                         </td>
                         <td className="px-4 py-3 text-right font-mono tabular-nums">
-                          {line.quantity}
+                          {formatQuantity(line.quantity)}
                         </td>
                         <td className="px-4 py-3">
                           {line.unitSymbol || line.unitName || "—"}

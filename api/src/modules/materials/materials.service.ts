@@ -48,6 +48,7 @@ export interface MaterialListFilters extends PaginationParams {
   trackingMode?: MaterialTrackingMode;
   status?: RecordStatus;
   categoryId?: string;
+  warehouseId?: string;
 }
 
 @Injectable()
@@ -280,6 +281,7 @@ export class MaterialsService {
       FROM ${inventoryBalances}
       WHERE ${inventoryBalances.itemId} = ${items.id}
         AND ${inventoryBalances.farmId} = ${items.farmId}
+        ${filters.warehouseId ? sql`AND ${inventoryBalances.warehouseId} = ${filters.warehouseId}` : sql``}
     ), 0)::text`;
     const [data, totalRows] = await Promise.all([
       this.databaseService.db
@@ -317,6 +319,21 @@ export class MaterialsService {
         totalPages: Math.ceil(totalItems / filters.pageSize),
       },
     };
+  }
+
+  async listMaterialCategories(farmId: string) {
+    return this.databaseService.db
+      .select({
+        id: categories.id,
+        code: categories.code,
+        name: categories.name,
+        status: categories.status,
+      })
+      .from(categories)
+      .innerJoin(items, eq(items.categoryId, categories.id))
+      .where(and(eq(items.farmId, farmId), eq(items.itemType, 'MATERIAL')))
+      .groupBy(categories.id, categories.code, categories.name, categories.status)
+      .orderBy(asc(categories.name));
   }
 
   async getMaterial(id: string, farmId: string) {

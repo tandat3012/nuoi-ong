@@ -49,6 +49,7 @@ export class CreateStockTransferDto {
   @IsDateString()
   transferDate?: string;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+  @ApiProperty({ type: () => StockTransferItemDto, isArray: true })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => StockTransferItemDto)
@@ -63,6 +64,7 @@ export class UpdateStockTransferDto {
   @IsDateString()
   transferDate?: string;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+  @ApiPropertyOptional({ type: () => StockTransferItemDto, isArray: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

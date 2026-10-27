@@ -22,9 +22,18 @@ export function EmptyState({
     if (!icon) {
       return <Inbox className="size-8 text-muted-foreground/70" aria-hidden="true" />;
     }
-    if (typeof icon === 'function') {
-      const IconComponent = icon as LucideIcon;
-      return <IconComponent className="size-8 text-muted-foreground/70" aria-hidden="true" />;
+    if (React.isValidElement(icon)) return icon;
+
+    // lucide-react icons are forwardRef objects in current React versions,
+    // not plain functions. Treat both component shapes as renderable types.
+    const isComponent =
+      typeof icon === 'function' ||
+      (typeof icon === 'object' && icon !== null && '$$typeof' in icon && 'render' in icon);
+    if (isComponent) {
+      return React.createElement(icon as LucideIcon, {
+        className: 'size-8 text-muted-foreground/70',
+        'aria-hidden': true,
+      });
     }
     return icon;
   };

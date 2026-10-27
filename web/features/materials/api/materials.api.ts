@@ -64,6 +64,15 @@ export function getCategories(request: AuthenticatedRequest) {
   return request<{ data: CategoryReference[] }>('/categories');
 }
 
+export function getMaterialFilterCategories(
+  request: AuthenticatedRequest,
+  farmId: string,
+) {
+  return request<{ data: CategoryReference[] }>('/materials/categories', {
+    params: { farmId },
+  });
+}
+
 export function getUnits(request: AuthenticatedRequest) {
   return request<{ data: UnitReference[] }>('/units');
 }

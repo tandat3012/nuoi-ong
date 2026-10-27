@@ -40,6 +40,7 @@ import {
   UpdateStockCountDto,
 } from './dto/stock-count.dto';
 import { StockCountsService } from './stock-counts.service';
+import { RejectStockDocumentDto } from './dto/reject-stock-document.dto';
 
 const countSchema = {
   type: 'object',
@@ -53,6 +54,9 @@ const countSchema = {
     createdByMemberId: { type: 'string', format: 'uuid' },
     confirmedByMemberId: { type: 'string', format: 'uuid', nullable: true },
     confirmedAt: { type: 'string', format: 'date-time', nullable: true },
+    rejectionReason: { type: 'string', nullable: true },
+    rejectedByMemberId: { type: 'string', format: 'uuid', nullable: true },
+    rejectedAt: { type: 'string', format: 'date-time', nullable: true },
     note: { type: 'string', nullable: true },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -338,5 +342,29 @@ export class StockCountsController {
         auth.clerkUserId,
       ),
     };
+  }
+
+  @Post(':id/submit')
+  @ApiOperation({ summary: 'Gửi phiếu kiểm kê để chờ duyệt' })
+  @ApiFarmIdQuery()
+  async submit(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    return { data: await this.service.submit(requireUuid(id, 'id'), requireUuid(farmId, 'farmId'), auth.clerkUserId) };
+  }
+
+  @Post(':id/reject')
+  @ApiOperation({ summary: 'Từ chối phiếu kiểm kê đang chờ duyệt' })
+  @ApiFarmIdQuery()
+  @ApiBody({ type: RejectStockDocumentDto })
+  async reject(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: RejectStockDocumentDto,
+  ) {
+    return { data: await this.service.reject(requireUuid(id, 'id'), requireUuid(farmId, 'farmId'), auth.clerkUserId, input.rejectionReason) };
   }
 }

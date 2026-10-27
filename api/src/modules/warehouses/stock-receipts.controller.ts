@@ -16,6 +16,7 @@ import { documentStatus } from '../../db/schema';
 import { CurrentAuth } from '../auth/current-auth.decorator';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
+import { RejectStockDocumentDto } from './dto/reject-stock-document.dto';
 import { StockReceiptsService } from './stock-receipts.service';
 import {
   ApiBearerAuth,
@@ -49,7 +50,10 @@ const receiptSchema = {
     supplierId: { type: 'string', format: 'uuid', nullable: true },
     receiptCode: { type: 'string', example: 'RCV-2026-001' },
     receiptDate: { type: 'string', format: 'date' },
-    status: { type: 'string', enum: ['DRAFT', 'CONFIRMED', 'CANCELLED'] },
+    status: { type: 'string', enum: [...documentStatus.enumValues] },
+    rejectionReason: { type: 'string', nullable: true },
+    rejectedByMemberId: { type: 'string', format: 'uuid', nullable: true },
+    rejectedAt: { type: 'string', format: 'date-time', nullable: true },
     note: { type: 'string', nullable: true },
     createdByMemberId: { type: 'string', format: 'uuid' },
     confirmedByMemberId: { type: 'string', format: 'uuid', nullable: true },
@@ -78,6 +82,28 @@ const receiptItemSchema = {
     serialNumber: { type: 'string', nullable: true },
     note: { type: 'string', nullable: true },
     createdAt: { type: 'string', format: 'date-time' },
+    itemCode: { type: 'string', nullable: true, example: 'MAT-SUGAR-01' },
+    itemName: { type: 'string', nullable: true, example: 'Đường tinh luyện' },
+    itemType: {
+      type: 'string',
+      enum: ['EQUIPMENT', 'TOOL', 'MATERIAL'],
+      nullable: true,
+    },
+    trackingMode: {
+      type: 'string',
+      enum: ['QUANTITY', 'LOT', 'ASSET'],
+      nullable: true,
+    },
+    unitId: { type: 'string', format: 'uuid', nullable: true },
+    unitName: { type: 'string', nullable: true, example: 'Kilogram' },
+    unitSymbol: { type: 'string', nullable: true, example: 'kg' },
+    lotNumberFromLot: { type: 'string', nullable: true },
+    lotManufacturedDate: { type: 'string', format: 'date', nullable: true },
+    lotExpiryDate: { type: 'string', format: 'date', nullable: true },
+    assetCodeFromAsset: { type: 'string', nullable: true },
+    assetSerialNumber: { type: 'string', nullable: true },
+    locationCode: { type: 'string', nullable: true },
+    locationName: { type: 'string', nullable: true },
   },
 };
 
@@ -364,5 +390,29 @@ export class StockReceiptsController {
         auth.clerkUserId,
       ),
     };
+  }
+
+  @Post(':id/submit')
+  @ApiOperation({ summary: 'Gửi phiếu nhập để chờ duyệt' })
+  @ApiFarmIdQuery()
+  async submit(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    return { data: await this.stockReceiptsService.submitReceipt(requireUuid(id, 'id'), requireUuid(farmId, 'farmId'), auth.clerkUserId) };
+  }
+
+  @Post(':id/reject')
+  @ApiOperation({ summary: 'Từ chối phiếu nhập đang chờ duyệt' })
+  @ApiFarmIdQuery()
+  @ApiBody({ type: RejectStockDocumentDto })
+  async reject(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: RejectStockDocumentDto,
+  ) {
+    return { data: await this.stockReceiptsService.rejectReceipt(requireUuid(id, 'id'), requireUuid(farmId, 'farmId'), auth.clerkUserId, input.rejectionReason) };
   }
 }

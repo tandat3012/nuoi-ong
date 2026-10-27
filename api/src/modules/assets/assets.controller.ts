@@ -74,6 +74,8 @@ const assetWithLocationSchema = {
     locationCode: { type: 'string', nullable: true },
     locationName: { type: 'string', nullable: true },
     locationWarehouseId: { type: 'string', format: 'uuid', nullable: true },
+    warehouseCode: { type: 'string', nullable: true },
+    warehouseName: { type: 'string', nullable: true },
   },
 };
 
@@ -113,6 +115,8 @@ export class AssetsController {
                 format: 'uuid',
                 nullable: true,
               },
+              warehouseCode: { type: 'string', nullable: true },
+              warehouseName: { type: 'string', nullable: true },
             },
           },
         },
@@ -217,6 +221,19 @@ export class AssetsController {
     return {
       data: await this.assetsService.getAssetByQr(
         requireUuid(qrTokenValue, 'qrToken'),
+        requireUuid(farmIdValue, 'farmId'),
+      ),
+    };
+  }
+
+  @Get(':id/qr')
+  async getAssetQr(
+    @Param('id') idValue: string,
+    @Query('farmId') farmIdValue?: string,
+  ) {
+    return {
+      data: await this.assetsService.getAssetQr(
+        requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
       ),
     };

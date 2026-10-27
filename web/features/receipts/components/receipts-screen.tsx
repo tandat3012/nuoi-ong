@@ -5,10 +5,11 @@ import { startTransition, useEffect, useState } from 'react';
 import { useAuthenticatedRequest, useAuthContext } from '@/features/auth';
 import { ApiError } from '@/shared/api/client';
 import type { PaginatedResponse } from '@/shared/api/contracts';
+import { DocumentApprovalActions } from '@/features/warehouses/components/document-approval-actions';
 
 type Warehouse = { id: string; code: string; name: string };
 type Item = { id: string; code: string; name: string; trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' };
-type Receipt = { id: string; receiptCode: string; warehouseId: string; receiptDate: string; status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED'; note: string | null };
+type Receipt = { id: string; receiptCode: string; warehouseId: string; receiptDate: string; status: 'DRAFT' | 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED'; note: string | null; rejectionReason?: string | null };
 type ReceiptResponse = { receipt: Receipt; items: Array<{ id: string; itemId: string; quantity: string }> };
 
 function errorMessage(error: unknown) {
@@ -19,14 +20,17 @@ function errorMessage(error: unknown) {
 
 export function ReceiptsScreen() {
   const request = useAuthenticatedRequest();
-  const { selectedFarmId, isLoading: authLoading, error: authError } = useAuthContext();
+  const { data: auth, selectedFarmId, isLoading: authLoading, error: authError } = useAuthContext();
+  const membership = auth?.memberships.find(({ farm }) => farm.id === selectedFarmId);
+  const canWrite = membership?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER') ?? false;
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [status, setStatus] = useState<'ALL' | 'DRAFT' | 'CONFIRMED' | 'CANCELLED'>('ALL');
+  const [status, setStatus] = useState<'ALL' | Receipt['status']>('ALL');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [loadedFarmId, setLoadedFarmId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -44,8 +48,8 @@ export function ReceiptsScreen() {
     });
     let cancelled = false;
     void Promise.all([
-      request<{ data: Warehouse[] }>('/api/v1/warehouses', { params: { farmId: selectedFarmId, page: 1, pageSize: 100, status: 'ACTIVE' } }),
-      request<PaginatedResponse<Item>>('/api/v1/items', { params: { farmId: selectedFarmId, page: 1, pageSize: 100, status: 'ACTIVE' } }),
+      request<{ data: Warehouse[] }>('/warehouses', { params: { farmId: selectedFarmId, page: 1, pageSize: 100, status: 'ACTIVE' } }),
+      request<PaginatedResponse<Item>>('/items', { params: { farmId: selectedFarmId, page: 1, pageSize: 100, status: 'ACTIVE' } }),
     ]).then(([warehouseResponse, itemResponse]) => {
       if (cancelled) return;
       setWarehouses(warehouseResponse.data);
@@ -59,7 +63,7 @@ export function ReceiptsScreen() {
     if (!selectedFarmId) return;
     let cancelled = false;
     startTransition(() => { setLoading(true); setError(null); });
-    void request<PaginatedResponse<Receipt>>('/api/v1/stock-receipts', {
+    void request<PaginatedResponse<Receipt>>('/stock-receipts', {
       params: { farmId: selectedFarmId, page, pageSize: 20, status: status === 'ALL' ? undefined : status },
     }).then((response) => {
       if (cancelled) return;
@@ -69,7 +73,7 @@ export function ReceiptsScreen() {
       setTotalItems(response.page.totalItems);
     }).catch((requestError: unknown) => { if (!cancelled) setError(errorMessage(requestError)); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, request, selectedFarmId, status]);
+  }, [page, request, selectedFarmId, status, refreshKey]);
 
   async function createReceipt(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -77,7 +81,7 @@ export function ReceiptsScreen() {
     setSaving(true);
     setError(null);
     try {
-      await request<ReceiptResponse>('/api/v1/stock-receipts', {
+      await request<ReceiptResponse>('/stock-receipts', {
         method: 'POST',
         params: { farmId: selectedFarmId },
         data: {
@@ -91,16 +95,8 @@ export function ReceiptsScreen() {
       setForm((current) => ({ ...current, receiptCode: '', quantity: '1', note: '' }));
       setPage(1);
       setLoadedFarmId(null);
+      setRefreshKey((value) => value + 1);
     } catch (requestError) { setError(errorMessage(requestError)); } finally { setSaving(false); }
-  }
-
-  async function changeReceipt(id: string, action: 'confirm' | 'cancel') {
-    if (!selectedFarmId) return;
-    try {
-      await request<ReceiptResponse>(`/api/v1/stock-receipts/${id}/${action}`, { method: 'POST', params: { farmId: selectedFarmId } });
-      setLoadedFarmId(null);
-      setPage(1);
-    } catch (requestError) { setError(errorMessage(requestError)); }
   }
 
   if (authLoading) return <p>Đang tải farm...</p>;
@@ -114,6 +110,6 @@ export function ReceiptsScreen() {
       {showForm && <form onSubmit={createReceipt} className="mt-4 grid gap-3 md:grid-cols-2"><input required maxLength={50} value={form.receiptCode} onChange={(event) => setForm({ ...form, receiptCode: event.target.value })} placeholder="Mã phiếu nhập" className="min-h-11 rounded-xl border bg-background px-3 text-sm" /><select required value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value })} className="min-h-11 rounded-xl border bg-background px-3 text-sm"><option value="">Chọn kho</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} - {warehouse.name}</option>)}</select><select required value={form.itemId} onChange={(event) => setForm({ ...form, itemId: event.target.value })} className="min-h-11 rounded-xl border bg-background px-3 text-sm"><option value="">Chọn item</option>{items.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name} ({item.trackingMode})</option>)}</select><input required pattern="^(0|[1-9]\\d{0,14})(\\.\\d{1,3})?$" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} placeholder="Số lượng" className="min-h-11 rounded-xl border bg-background px-3 text-sm" /><input value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} placeholder="Ghi chú" className="min-h-11 rounded-xl border bg-background px-3 text-sm md:col-span-2" /><button disabled={saving} type="submit" className="min-h-11 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50 md:col-span-2">{saving ? 'Đang tạo...' : 'Tạo DRAFT'}</button></form>}
     </section>
     {error && <p role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">{error}</p>}
-    <section className="overflow-hidden rounded-2xl border bg-card shadow-sm"><div className="flex items-center justify-between border-b p-5"><h2 className="font-semibold">Danh sách phiếu</h2><div className="flex items-center gap-3"><span className="text-sm text-muted-foreground">{totalItems} phiếu</span><select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value as typeof status); }} className="rounded-lg border bg-background px-2 py-1 text-sm"><option value="ALL">Tất cả</option><option value="DRAFT">DRAFT</option><option value="CONFIRMED">CONFIRMED</option><option value="CANCELLED">CANCELLED</option></select></div></div>{loading || loadedFarmId !== selectedFarmId ? <p className="p-5 text-sm text-muted-foreground">Đang tải phiếu...</p> : visibleReceipts.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Chưa có phiếu nhập.</p> : <div className="divide-y">{visibleReceipts.map((receipt) => <article key={receipt.id} className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between"><div><p className="font-semibold">{receipt.receiptCode}</p><p className="mt-1 text-sm text-muted-foreground">Ngày {receipt.receiptDate} · Kho {receipt.warehouseId}</p></div><div className="flex items-center gap-3"><span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold">{receipt.status}</span>{receipt.status === 'DRAFT' && <><button type="button" onClick={() => void changeReceipt(receipt.id, 'confirm')} className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground">Xác nhận</button><button type="button" onClick={() => void changeReceipt(receipt.id, 'cancel')} className="rounded-lg border px-3 py-2 text-sm">Hủy</button></>}</div></article>)}</div>}<div className="flex items-center justify-between border-t p-5 text-sm"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">Trang trước</button><span>Trang {page}/{totalPages}</span><button type="button" disabled={page >= totalPages || loading} onClick={() => setPage((value) => value + 1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">Trang sau</button></div></section>
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-sm"><div className="flex items-center justify-between border-b p-5"><h2 className="font-semibold">Danh sách phiếu</h2><div className="flex items-center gap-3"><span className="text-sm text-muted-foreground">{totalItems} phiếu</span><select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value as typeof status); }} className="rounded-lg border bg-background px-2 py-1 text-sm"><option value="ALL">Tất cả</option>{(['DRAFT', 'PENDING_APPROVAL', 'CONFIRMED', 'REJECTED', 'CANCELLED'] as const).map((value) => <option key={value} value={value}>{value === 'PENDING_APPROVAL' ? 'Chờ duyệt' : value}</option>)}</select></div></div>{loading || loadedFarmId !== selectedFarmId ? <p className="p-5 text-sm text-muted-foreground">Đang tải phiếu...</p> : visibleReceipts.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Chưa có phiếu nhập.</p> : <div className="divide-y">{visibleReceipts.map((receipt) => <article key={receipt.id} className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between"><div><p className="font-semibold">{receipt.receiptCode}</p><p className="mt-1 text-sm text-muted-foreground">Ngày {receipt.receiptDate} · Kho {receipt.warehouseId}</p><p className="mt-1 text-sm">Trạng thái: {receipt.status === 'PENDING_APPROVAL' ? 'Chờ duyệt' : receipt.status}</p></div><DocumentApprovalActions basePath="/stock-receipts" farmId={selectedFarmId} id={receipt.id} status={receipt.status} rejectionReason={receipt.rejectionReason} canSubmit={canWrite} canApprove={canWrite} onChanged={() => { setLoadedFarmId(null); setRefreshKey((value) => value + 1); }} /></article>)}</div>}<div className="flex items-center justify-between border-t p-5 text-sm"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">Trang trước</button><span>Trang {page}/{totalPages}</span><button type="button" disabled={page >= totalPages || loading} onClick={() => setPage((value) => value + 1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">Trang sau</button></div></section>
   </div>;
 }

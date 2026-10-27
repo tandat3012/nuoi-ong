@@ -26,6 +26,7 @@ export class UpdateStockIssueDto {
   @IsOptional() @IsUUID() maintenanceRecordId?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) reason?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+  @ApiPropertyOptional({ type: () => CreateStockIssueItemDto, isArray: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

@@ -203,6 +203,20 @@ export class CatalogController {
     });
   }
 
+  @Get('items/:id/qr')
+  @UseGuards(FarmAccessGuard)
+  async getItemQr(
+    @Param('id') idValue: string,
+    @Query('farmId') farmIdValue?: string,
+  ) {
+    return {
+      data: await this.catalogService.getItemQr(
+        requireUuid(idValue, 'id'),
+        requireUuid(farmIdValue, 'farmId'),
+      ),
+    };
+  }
+
   @Get('items/:id')
   @UseGuards(FarmAccessGuard)
   @ApiOperation({ summary: 'Chi tiết mặt hàng' })

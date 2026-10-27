@@ -9,6 +9,8 @@ import {
 } from './receipt-draft.logic';
 import { RECEIPT_STATUS_LABELS } from '../types/receipt';
 import type { ReceiptDraftInitial } from '../types/receipt';
+import { DocumentApprovalActions } from '@/features/warehouses/components/document-approval-actions';
+import { formatQuantity } from '@/shared/lib/format-quantity';
 
 const date = (value: string | null) =>
   value ? value.split('-').reverse().join('/') : '—';
@@ -95,35 +97,20 @@ export function ReceiptDetail({
               Sửa nháp
             </button>
           )}
-          {canWrite && detail?.receipt.status === 'DRAFT' && (
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm('Bạn có chắc muốn hủy phiếu nhập nháp này?'))
-                  void cancel();
+          {detail && (
+            <DocumentApprovalActions
+              basePath="/stock-receipts"
+              farmId={farmId}
+              id={id}
+              status={detail.receipt.status}
+              rejectionReason={detail.receipt.rejectionReason}
+              canSubmit={canWrite}
+              canApprove={canWrite}
+              onChanged={() => {
+                reload();
+                onConfirmed();
               }}
-              disabled={isCancelling || isConfirming}
-              className="rounded-xl border border-destructive/40 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
-            >
-              {isCancelling ? 'Đang hủy...' : 'Hủy phiếu nháp'}
-            </button>
-          )}
-          {canWrite && detail?.receipt.status === 'DRAFT' && canConfirm && (
-            <button
-              type="button"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Xác nhận phiếu nhập này? Sau khi xác nhận, hệ thống sẽ cập nhật tồn kho và không thể sửa hoặc hủy phiếu.',
-                  )
-                )
-                  void confirm();
-              }}
-              disabled={isCancelling || isConfirming}
-              className="rounded-xl bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              {isConfirming ? 'Đang xác nhận...' : 'Xác nhận nhập kho'}
-            </button>
+            />
           )}
         </div>
       </header>
@@ -249,31 +236,62 @@ export function ReceiptDetail({
                   <tbody className="divide-y">
                     {detail.items.map((line) => {
                       const reference = references?.[line.itemId];
+                      const itemCode = line.itemCode ?? reference?.item.code;
+                      const itemName = line.itemName ?? reference?.item.name;
+                      const unit =
+                        line.unitSymbol ||
+                        line.unitName ||
+                        reference?.unitSymbol ||
+                        reference?.unitName;
+                      const lotNumber =
+                        line.lotNumber || line.lotNumberFromLot;
+                      const assetCode =
+                        line.assetCode || line.assetCodeFromAsset;
+                      const trackingMode =
+                        line.trackingMode ?? reference?.item.trackingMode;
                       return (
                         <tr key={line.id}>
                           <td className="px-4 py-3">
-                            {reference ? (
+                            {itemCode || itemName ? (
                               <>
-                                <p className="font-mono">
-                                  {reference.item.code}
+                                <p className="font-medium">
+                                  {itemName || 'Tên vật tư chưa có'}
                                 </p>
-                                <p>{reference.item.name}</p>
+                                <p className="font-mono text-xs text-muted-foreground">
+                                  {itemCode || line.itemId}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {line.itemType === 'EQUIPMENT'
+                                    ? 'Thiết bị'
+                                    : line.itemType === 'TOOL'
+                                      ? 'Dụng cụ'
+                                      : line.itemType === 'MATERIAL'
+                                        ? 'Vật tư'
+                                        : 'Loại chưa xác định'}
+                                  {trackingMode &&
+                                    ` · ${
+                                      {
+                                        QUANTITY: 'Theo số lượng',
+                                        LOT: 'Theo lô',
+                                        ASSET: 'Tài sản định danh',
+                                      }[trackingMode]
+                                    }`}
+                                </p>
                               </>
                             ) : (
                               <span className="break-all">
-                                Không tải được thông tin hàng ({line.itemId})
+                                Không có thông tin vật tư ({line.itemId})
                               </span>
                             )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
-                            {line.quantity}{' '}
-                            {reference?.unitSymbol || reference?.unitName}
+                            {formatQuantity(line.quantity)} {unit || '—'}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {line.unitPrice}
                           </td>
                           <td className="px-4 py-3">
-                            {line.lotNumber && <p>Lô: {line.lotNumber}</p>}
+                            {lotNumber && <p>Lô: {lotNumber}</p>}
                             {line.lotId && (
                               <p className="break-all">ID lô: {line.lotId}</p>
                             )}
@@ -285,29 +303,33 @@ export function ReceiptDetail({
                             {line.expiryDate && (
                               <p>Hạn sử dụng: {date(line.expiryDate)}</p>
                             )}
-                            {line.assetCode && (
-                              <p>Mã tài sản: {line.assetCode}</p>
+                            {assetCode && (
+                              <p>Mã tài sản: {assetCode}</p>
                             )}
                             {line.assetId && (
                               <p className="break-all">
                                 ID tài sản: {line.assetId}
                               </p>
                             )}
-                            {line.serialNumber && (
-                              <p>Serial: {line.serialNumber}</p>
+                            {(line.serialNumber || line.assetSerialNumber) && (
+                              <p>
+                                Serial: {line.serialNumber || line.assetSerialNumber}
+                              </p>
                             )}
                             {line.locationId && (
                               <p>
                                 Vị trí:{' '}
                                 {locationLabels?.[line.locationId] ??
-                                  `Không tải được thông tin vị trí (${line.locationId})`}
+                                  (line.locationCode && line.locationName
+                                    ? `${line.locationCode} — ${line.locationName}`
+                                    : `Không tải được thông tin vị trí (${line.locationId})`)}
                               </p>
                             )}
-                            {!line.lotNumber &&
+                            {!lotNumber &&
                               !line.lotId &&
                               !line.manufacturedDate &&
                               !line.expiryDate &&
-                              !line.assetCode &&
+                              !assetCode &&
                               !line.assetId &&
                               !line.serialNumber &&
                               !line.locationId &&

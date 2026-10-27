@@ -17,7 +17,7 @@ import { WarehousesService } from '../src/modules/warehouses/warehouses.service'
 
 type Receipt = {
   id: string;
-  status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  status: 'DRAFT' | 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
   receiptCode: string;
 };
 type ReceiptItem = {
@@ -48,6 +48,8 @@ async function removeConcurrentReceiptFixtures(
   const cleanup = await pool.connect();
   try {
     await cleanup.query('BEGIN');
+    await cleanup.query('DELETE FROM audit_logs WHERE farm_id=$1', [farmId]);
+    await cleanup.query('DELETE FROM notifications WHERE farm_id=$1', [farmId]);
     await cleanup.query('DELETE FROM inventory_transactions WHERE farm_id=$1', [
       farmId,
     ]);
@@ -539,6 +541,10 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     expect(before.rows[0].count).toBe(0);
 
     await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/submit`)
+      .query({ farmId: farmA })
+      .expect(201);
+    await post()
       .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
       .query({ farmId: farmA })
       .expect(201);
@@ -575,6 +581,10 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
         ],
       }),
     );
+    await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/submit`)
+      .query({ farmId: farmA })
+      .expect(201);
     const confirmed = await post()
       .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
       .query({ farmId: farmA })
@@ -624,7 +634,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .expect(409);
   });
 
-  it('allows member reads, denies guest writes, and does not reveal another farm receipt', async () => {
+  it('allows configured document authors to edit drafts, reserves approval for managers, and isolates farms', async () => {
     const local = await createReceipt(farmA, receiptInput(`${tag}-LOCAL`));
     const remote = await createReceipt(farmB, {
       warehouseId: warehouseB,
@@ -641,12 +651,12 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .post('/api/v1/stock-receipts')
       .query({ farmId: farmA })
       .send(receiptInput(`${tag}-GUEST`))
-      .expect(403);
+      .expect(201);
     await post()
       .patch(`/api/v1/stock-receipts/${local.receipt.id}`)
       .query({ farmId: farmA })
-      .send({ note: 'not allowed' })
-      .expect(403);
+      .send({ note: 'Draft edit by a configured document author' })
+      .expect(200);
     await post()
       .post(`/api/v1/stock-receipts/${local.receipt.id}/confirm`)
       .query({ farmId: farmA })
@@ -690,6 +700,10 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       'INSERT INTO inventory_lots (farm_id,item_id,lot_number,initial_quantity) VALUES ($1,$2,$3,1)',
       [farmA, lotItemId, `${tag}-EXISTING-LOT`],
     );
+    await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/submit`)
+      .query({ farmId: farmA })
+      .expect(201);
     const response = await post()
       .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
       .query({ farmId: farmA });
@@ -698,7 +712,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .query({ farmId: farmA })
       .expect(200);
     expect((persisted.body as ReceiptResponse).data.receipt.status).toBe(
-      'DRAFT',
+      'PENDING_APPROVAL',
     );
     const transactions = await client!.query<{ count: number }>(
       'SELECT count(*)::int AS count FROM inventory_transactions WHERE source_id=$1',
@@ -729,6 +743,10 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       }),
     );
     expect(draft.items[0].quantity).toBe('1.000');
+    await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/submit`)
+      .query({ farmId: farmA })
+      .expect(201);
     const confirmed = await post()
       .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
       .query({ farmId: farmA });
@@ -763,6 +781,10 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       }),
     );
     await post()
+      .post(`/api/v1/stock-receipts/${duplicateCodeDraft.receipt.id}/submit`)
+      .query({ farmId: farmA })
+      .expect(201);
+    await post()
       .post(`/api/v1/stock-receipts/${duplicateCodeDraft.receipt.id}/confirm`)
       .query({ farmId: farmA })
       .expect(409);
@@ -785,6 +807,10 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
         ],
       }),
     );
+    await post()
+      .post(`/api/v1/stock-receipts/${duplicateSerialDraft.receipt.id}/submit`)
+      .query({ farmId: farmA })
+      .expect(201);
     await post()
       .post(`/api/v1/stock-receipts/${duplicateSerialDraft.receipt.id}/confirm`)
       .query({ farmId: farmA })
@@ -835,13 +861,17 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     );
   });
 
-  it('requires LOT metadata at confirmation and leaves an invalid draft unchanged', async () => {
+  it('requires LOT metadata at confirmation and leaves the pending receipt unchanged on failure', async () => {
     const draft = await createReceipt(
       farmA,
       receiptInput(`${tag}-LOT-NO-NUMBER`, {
         items: [{ itemId: lotItemId, quantity: '1.000' }],
       }),
     );
+    await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/submit`)
+      .query({ farmId: farmA })
+      .expect(201);
     const response = await post()
       .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
       .query({ farmId: farmA });
@@ -849,7 +879,9 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .get(`/api/v1/stock-receipts/${draft.receipt.id}`)
       .query({ farmId: farmA })
       .expect(200);
-    expect((detail.body as ReceiptResponse).data.receipt.status).toBe('DRAFT');
+    expect((detail.body as ReceiptResponse).data.receipt.status).toBe(
+      'PENDING_APPROVAL',
+    );
     expect(response.status).toBe(400);
   });
 
@@ -857,7 +889,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     'confirms different receipts and retries atomically (existing balance: %s)',
     async (hasBalance) => {
       const concurrentFarm = randomUUID();
-      const concurrentUser = `${tag}-concurrent-owner`;
+      const concurrentUser = `${tag}-concurrent-${concurrentFarm.slice(0, 8)}`;
       const concurrentCategory = randomUUID();
       const concurrentUnit = randomUUID();
       const concurrentWarehouse = randomUUID();
@@ -979,6 +1011,12 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
           })
           .expect(201);
         const secondId = (second.body as ReceiptResponse).data.receipt.id;
+        for (const id of [receiptId, secondId]) {
+          await concurrentPost()
+            .post(`/api/v1/stock-receipts/${id}/submit`)
+            .query({ farmId: concurrentFarm })
+            .expect(201);
+        }
         const confirmations = await Promise.all([
           concurrentPost()
             .post(`/api/v1/stock-receipts/${secondId}/confirm`)

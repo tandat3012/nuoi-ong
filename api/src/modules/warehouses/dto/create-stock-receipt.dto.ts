@@ -30,6 +30,14 @@ export class CreateStockReceiptItemDto {
   quantity!: string;
 
   @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Chọn lô đã tồn tại trong cùng farm và cùng vật tư.',
+  })
+  @IsOptional()
+  @IsUUID()
+  lotId?: string | null;
+
+  @ApiPropertyOptional({
     example: '25000.00',
     pattern: '^(0|[1-9]\\d{0,15})(\\.\\d{1,2})?$',
   })
@@ -110,6 +118,7 @@ export class CreateStockReceiptDto {
   @MaxLength(4000)
   note?: string | null;
 
+  @ApiProperty({ type: () => CreateStockReceiptItemDto, isArray: true })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateStockReceiptItemDto)
