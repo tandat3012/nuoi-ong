@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { imageLoader } from '@/shared/lib/cloudinary-image';
 import {
   ShoppingBag,
   Package,
@@ -27,6 +28,7 @@ export function CartPageContent() {
     totalUnits,
     subtotal,
     isHydrated,
+    isCheckoutSubmitting,
     updateQuantity,
     removeItem,
     clearCart,
@@ -140,6 +142,7 @@ export function CartPageContent() {
                           {item.image?.src ? (
                             <Image
                               src={item.image.src}
+                              loader={imageLoader(item.image.src)}
                               alt={item.image.alt || item.productName}
                               fill
                               sizes="80px"
@@ -192,6 +195,7 @@ export function CartPageContent() {
 
                           <button
                             type="button"
+                            disabled={isCheckoutSubmitting}
                             onClick={() => removeItem(item.id)}
                             className="mt-2 text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1 sm:hidden"
                           >
@@ -219,7 +223,7 @@ export function CartPageContent() {
                         <div className="flex items-center rounded-lg border border-[#e5dcd1] dark:border-border bg-background">
                           <button
                             type="button"
-                            disabled={item.quantity <= 1}
+                            disabled={isCheckoutSubmitting || item.quantity <= 1}
                             onClick={() =>
                               updateQuantity(item.id, item.quantity - 1)
                             }
@@ -237,8 +241,9 @@ export function CartPageContent() {
                           <button
                             type="button"
                             disabled={
-                              item.purchaseLimit !== undefined &&
-                              item.quantity >= item.purchaseLimit
+                              isCheckoutSubmitting ||
+                              (item.purchaseLimit !== undefined &&
+                                item.quantity >= item.purchaseLimit)
                             }
                             onClick={() =>
                               updateQuantity(item.id, item.quantity + 1)
@@ -262,6 +267,7 @@ export function CartPageContent() {
                           </span>
                           <button
                             type="button"
+                            disabled={isCheckoutSubmitting}
                             onClick={() => removeItem(item.id)}
                             aria-label={`Xóa ${item.productName} khỏi giỏ hàng`}
                             className="hidden sm:inline-flex text-muted-foreground/50 hover:text-destructive transition-colors p-1 rounded-md"
@@ -289,6 +295,7 @@ export function CartPageContent() {
                   type="button"
                   variant="ghost"
                   size="sm"
+                  disabled={isCheckoutSubmitting}
                   onClick={clearCart}
                   className="text-xs sm:text-sm text-muted-foreground/80 hover:text-destructive gap-1.5"
                 >
@@ -342,7 +349,7 @@ export function CartPageContent() {
                 <div className="flex justify-between items-center text-muted-foreground">
                   <span>Phí vận chuyển:</span>
                   <span className="font-medium text-foreground">
-                    Tính khi thanh toán
+                    Cửa hàng xác nhận khi xử lý đơn
                   </span>
                 </div>
               </div>
@@ -362,21 +369,19 @@ export function CartPageContent() {
 
               {/* Nút hành động */}
               <div className="pt-6 flex flex-col gap-3">
-                <Button
-                  type="button"
-                  disabled
-                  aria-disabled="true"
-                  aria-label="Tiến hành thanh toán (Chức năng đặt hàng đang chuẩn bị)"
-                  className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold text-base flex items-center justify-center gap-2 cursor-not-allowed opacity-75 shadow-xs"
-                >
-                  <span>Thanh toán (Đang chuẩn bị)</span>
-                  <ArrowRight className="size-4" aria-hidden="true" />
-                </Button>
-
-                <p className="text-center text-xs text-muted-foreground">
-                  Hệ thống thanh toán và tạo đơn hàng sẽ được kích hoạt ở giai
-                  đoạn tiếp theo.
-                </p>
+                {isCheckoutSubmitting ? (
+                  <Button type="button" disabled className="w-full">
+                    Đang gửi đơn hàng…
+                  </Button>
+                ) : (
+                  <Link
+                    href="/checkout"
+                    className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold text-base flex items-center justify-center gap-2 hover:bg-primary/90"
+                  >
+                    <span>Tiến hành đặt hàng</span>
+                    <ArrowRight className="size-4" aria-hidden="true" />
+                  </Link>
+                )}
               </div>
             </div>
           </div>

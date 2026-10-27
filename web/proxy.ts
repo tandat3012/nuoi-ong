@@ -3,6 +3,8 @@ import { backOfficeRoutes } from '@/shared/config/protected-routes';
 
 const isProtectedRoute = createRouteMatcher([
   ...backOfficeRoutes.map((route) => `${route}(.*)`),
+  '/checkout(.*)',
+  '/orders(.*)',
   '/account/change-password(.*)',
   '/auth/continue(.*)',
 ]);

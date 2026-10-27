@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { imageLoader } from '@/shared/lib/cloudinary-image';
 import {
   ShoppingBag,
   Package,
@@ -30,6 +31,7 @@ export function CartDrawer() {
     totalUnits,
     subtotal,
     isHydrated,
+    isCheckoutSubmitting,
     isDrawerOpen,
     closeDrawer,
     updateQuantity,
@@ -50,17 +52,18 @@ export function CartDrawer() {
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           const target = returnFocus.current;
+          // preventScroll: the header cart button is not sticky, so focusing it would jump to the top.
           if (
             target?.isConnected &&
             target !== document.body &&
             !target.closest('[role="dialog"]') &&
             !target.matches(':disabled')
           )
-            target.focus();
+            target.focus({ preventScroll: true });
           else
             document
               .querySelector<HTMLElement>('[data-store-cart-trigger]')
-              ?.focus();
+              ?.focus({ preventScroll: true });
         }}
         side="right"
         theme="storefront"
@@ -134,6 +137,7 @@ export function CartDrawer() {
                     {item.image?.src ? (
                       <Image
                         src={item.image.src}
+                        loader={imageLoader(item.image.src)}
                         alt={item.image.alt || item.productName}
                         fill
                         sizes="80px"
@@ -162,6 +166,7 @@ export function CartDrawer() {
                         </Link>
                         <button
                           type="button"
+                          disabled={isCheckoutSubmitting}
                           onClick={() => removeItem(item.id)}
                           aria-label={`Xóa ${item.productName} khỏi giỏ`}
                           className="text-muted-foreground/60 hover:text-destructive transition-colors p-1 -mr-1 rounded-md"
@@ -218,7 +223,7 @@ export function CartDrawer() {
                       <div className="flex items-center rounded-lg border border-[#e5dcd1] dark:border-border bg-background">
                         <button
                           type="button"
-                          disabled={item.quantity <= 1}
+                          disabled={isCheckoutSubmitting || item.quantity <= 1}
                           onClick={() =>
                             updateQuantity(item.id, item.quantity - 1)
                           }
@@ -236,8 +241,9 @@ export function CartDrawer() {
                         <button
                           type="button"
                           disabled={
-                            item.purchaseLimit !== undefined &&
-                            item.quantity >= item.purchaseLimit
+                            isCheckoutSubmitting ||
+                            (item.purchaseLimit !== undefined &&
+                              item.quantity >= item.purchaseLimit)
                           }
                           onClick={() =>
                             updateQuantity(item.id, item.quantity + 1)
@@ -279,16 +285,20 @@ export function CartDrawer() {
                 Xem chi tiết giỏ hàng
               </Link>
 
-              <Button
-                type="button"
-                disabled
-                aria-disabled="true"
-                aria-label="Thanh toán (Chức năng đặt hàng đang chuẩn bị)"
-                className="w-full h-11 rounded-xl bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 cursor-not-allowed opacity-75 shadow-2xs"
-              >
-                <span>Thanh toán (Đang chuẩn bị)</span>
-                <ArrowRight className="size-4" aria-hidden="true" />
-              </Button>
+              {isCheckoutSubmitting ? (
+                <Button type="button" disabled className="w-full">
+                  Đang gửi đơn hàng…
+                </Button>
+              ) : (
+                <Link
+                  href="/checkout"
+                  onClick={closeDrawer}
+                  className="w-full h-11 rounded-xl bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90"
+                >
+                  <span>Tiến hành đặt hàng</span>
+                  <ArrowRight className="size-4" aria-hidden="true" />
+                </Link>
+              )}
             </div>
           </div>
         )}

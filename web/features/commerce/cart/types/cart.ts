@@ -71,6 +71,7 @@ export interface CartContextValue extends CartTotals {
   items: CartItem[];
   isHydrated: boolean;
   isReconciling: boolean;
+  isCheckoutSubmitting: boolean;
   isDrawerOpen: boolean;
   lastAddedItem: CartItem | null;
   setIsDrawerOpen: (open: boolean) => void;
@@ -80,5 +81,6 @@ export interface CartContextValue extends CartTotals {
   updateQuantity: (id: string, quantity: number) => void;
   removeItem: (id: string) => void;
   clearCart: () => void;
-  reconcileCart: () => Promise<void>;
+  setCheckoutSubmitting: (submitting: boolean) => void;
+  reconcileCart: () => Promise<CartItem[]>;
 }

@@ -176,7 +176,7 @@ export const STOREFRONT_CONFIG = {
   },
   announcement: {
     companionMessage: 'Đồng hành cùng người nuôi ong Việt',
-    shippingMessage: 'Miễn phí vận chuyển đơn từ 1.000.000₫',
+    shippingMessage: 'Phí giao hàng được xác nhận khi xử lý đơn',
   },
   hero: {
     eyebrow: 'ĐỒNG HÀNH CÙNG NGƯỜI NUÔI ONG VIỆT',
@@ -431,11 +431,6 @@ export const STOREFRONT_CONFIG = {
         href: 'https://youtube.com/@mocong',
       },
     ] as const satisfies readonly StorefrontSocialLink[],
-    paymentMethods: [
-      'COD (Tiền mặt)',
-      'Chuyển khoản ngân hàng',
-      'Ví điện tử',
-    ] as const,
     copyright: '© 2026 Mộc Ong. Bản quyền thuộc về Trại Ong Mộc Ong. Tất cả các quyền được bảo lưu.',
   },
 } as const;

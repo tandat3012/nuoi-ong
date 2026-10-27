@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Show, SignInButton, UserButton } from '@clerk/nextjs';
-import { User } from 'lucide-react';
+import Link from 'next/link';
+import { ClipboardList, User } from 'lucide-react';
 import { StoreBrand } from './store-brand';
 import { StoreSearchBar } from './store-search-bar';
 import { StoreDesktopNav } from './store-desktop-nav';
@@ -40,6 +41,13 @@ export function StoreHeader() {
               </SignInButton>
             </Show>
             <Show when="signed-in">
+              <Link
+                href="/orders"
+                className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-foreground hover:bg-muted/70 hover:text-primary"
+              >
+                <ClipboardList className="size-5 shrink-0 text-primary" aria-hidden="true" />
+                <span className="hidden lg:inline">Đơn hàng</span>
+              </Link>
               <UserButton />
             </Show>
 
