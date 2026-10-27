@@ -12,6 +12,9 @@ export const backOfficeRoutes = [
   '/maintenance',
   '/scan',
   '/personnel',
+  '/store-products',
+  '/store-orders',
+  '/store-reports',
 ] as const;
 
 export function isBackOfficePath(pathname: string) {

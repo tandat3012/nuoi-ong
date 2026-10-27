@@ -9,16 +9,20 @@ import type {
 export function validateIssueDraft(
   input: CreateIssueInput,
   trackingModes?: readonly IssueDraftTrackingMode[],
+  linkedSale = false,
 ): string | null {
   if (!input.warehouseId) return "Vui lòng chọn kho xuất.";
   if (!input.issueCode.trim() || input.issueCode.trim().length > 50)
     return "Mã phiếu phải có từ 1 đến 50 ký tự.";
+  if (input.issueType === "SALE" && !linkedSale)
+    return "Phiếu bán hàng chỉ được chỉnh sửa từ đơn hàng liên kết.";
   if (
-    !["CONSUMPTION", "DAMAGE", "DISPOSAL", "OTHER", "MAINTENANCE"].includes(
-      input.issueType,
-    )
+    !["CONSUMPTION", "DAMAGE", "DISPOSAL", "OTHER", "MAINTENANCE"].includes(input.issueType) &&
+    !(linkedSale && input.issueType === "SALE")
   )
     return "Loại phiếu chưa được hỗ trợ trong form này.";
+  if (linkedSale !== (input.issueType === "SALE"))
+    return "Phiếu bán hàng chỉ được chỉnh sửa từ đơn hàng liên kết.";
   if (input.issueType === "MAINTENANCE") {
     if (
       typeof input.maintenanceRecordId !== "string" ||
@@ -73,8 +77,10 @@ export function validateIssueDraft(
 
 export function supportsIssueDraftEdit(detail: IssueDetail): boolean {
   const assetIds = new Set<string>();
+  const linkedSale = detail.issue.issueType === "SALE" && Boolean(detail.issue.orderId);
   return (
     detail.issue.status === "DRAFT" &&
+    (detail.issue.issueType === "SALE" ? linkedSale : detail.issue.orderId == null) &&
     (detail.issue.issueType === "MAINTENANCE"
       ? Boolean(detail.issue.maintenanceRecordId?.trim())
       : detail.issue.maintenanceRecordId == null) &&
@@ -91,21 +97,66 @@ export function supportsIssueDraftEdit(detail: IssueDetail): boolean {
           line.lotNumber == null &&
           line.lotExpiryDate == null
         );
-      if (line.trackingMode === "LOT") return noAsset && Boolean(line.lotId);
+      if (line.trackingMode === "LOT") return noAsset && (linkedSale || Boolean(line.lotId));
       if (
         line.trackingMode !== "ASSET" ||
-        !line.assetId ||
         line.lotId != null ||
         line.lotNumber != null ||
         line.lotExpiryDate != null ||
         !/^1(?:\.0{1,3})?$/.test(line.quantity) ||
-        assetIds.has(line.assetId)
+        (line.assetId != null && assetIds.has(line.assetId)) ||
+        (!linkedSale && !line.assetId)
       )
         return false;
-      assetIds.add(line.assetId);
+      if (line.assetId) assetIds.add(line.assetId);
       return true;
     })
   );
+}
+
+export function splitIssueQuantity(total: string, split: string): [string, string] | null {
+  const totalUnits = issueQuantityUnits(total);
+  const splitUnits = issueQuantityUnits(split);
+  if (
+    totalUnits === null ||
+    splitUnits === null ||
+    splitUnits <= BigInt(0) ||
+    splitUnits >= totalUnits
+  )
+    return null;
+  return [formatIssueQuantity(totalUnits - splitUnits), formatIssueQuantity(splitUnits)];
+}
+
+export function preservesIssueItemTotals(
+  original: readonly { itemId: string; quantity: string }[],
+  updated: readonly { itemId: string; quantity: string }[],
+) {
+  const totals = (lines: readonly { itemId: string; quantity: string }[]) => {
+    const result = new Map<string, bigint>();
+    for (const line of lines) {
+      const quantity = issueQuantityUnits(line.quantity);
+      if (!line.itemId || quantity === null) return null;
+      result.set(line.itemId, (result.get(line.itemId) ?? BigInt(0)) + quantity);
+    }
+    return result;
+  };
+  const before = totals(original);
+  const after = totals(updated);
+  if (!before || !after || before.size !== after.size) return false;
+  return [...before].every(([itemId, quantity]) => after.get(itemId) === quantity);
+}
+
+function issueQuantityUnits(value: string) {
+  if (!/^(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole) * BigInt(1000) + BigInt(fraction.padEnd(3, "0"));
+}
+
+function formatIssueQuantity(units: bigint) {
+  const scale = BigInt(1000);
+  const whole = units / scale;
+  const fraction = String(units % scale).padStart(3, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : String(whole);
 }
 
 export function isIssueAssetAvailable(

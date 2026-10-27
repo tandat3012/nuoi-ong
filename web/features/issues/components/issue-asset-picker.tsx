@@ -152,7 +152,7 @@ export function IssueAssetPicker({
           </p>
         ))
       )}
-      <Button variant="outline"
+      <Button type="button" variant="outline"
         disabled={!warehouseId}
         onClick={() => {
           setOpen((value) => !value);
@@ -181,7 +181,7 @@ export function IssueAssetPicker({
                 }
               }}
             />
-            <Button variant="outline"
+            <Button type="button" variant="outline"
               onClick={() => setQuery({ page: 1, search: search.trim() })}
             >
               Tìm tài sản

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import Link from "next/link";
 import { useIssueDetail } from "../hooks/use-issue-detail";
 import { useCancelIssue } from "../hooks/use-cancel-issue";
 import { useConfirmIssue } from "../hooks/use-confirm-issue";
@@ -10,6 +11,7 @@ import {
   type IssueDetail as IssueDetailData,
 } from "../types/issue";
 import { supportsIssueDraftEdit } from "./issue-draft.logic";
+import { formatIssueQuantity } from "./issue-detail.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
@@ -147,7 +149,7 @@ export function IssueDetail({
                       Xác nhận phiếu xuất
                     </Button>
                   )}
-                  {canWrite && detail.issue.status === "DRAFT" && (
+                  {canWrite && detail.issue.status === "DRAFT" && !detail.issue.orderId && (
                     <Button
                       disabled={isProcessing}
                       onClick={() =>
@@ -178,6 +180,20 @@ export function IssueDetail({
                 farmId={farmId}
                 selectedId={detail.issue.maintenanceRecordId}
               />
+            )}
+            {detail.issue.orderId && (
+              <p className="rounded-xl border bg-card p-4 text-sm">
+                Phiếu xuất liên kết với đơn hàng. {" "}
+                <Link
+                  className="text-primary underline"
+                  href={`/store-orders/${encodeURIComponent(detail.issue.orderId)}`}
+                >
+                  Mở đơn hàng
+                </Link>
+                {canWrite && detail.issue.status === "DRAFT" && (
+                  <span> · Hãy hủy đơn hàng từ màn hình đơn để hủy phiếu này.</span>
+                )}
+              </p>
             )}
             <dl className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2">
               <div>
@@ -231,7 +247,11 @@ export function IssueDetail({
                         "Đơn vị",
                         "Ghi chú",
                       ].map((label) => (
-                        <th key={label} scope="col" className="px-4 py-3">
+                        <th
+                          key={label}
+                          scope="col"
+                          className={`px-4 py-3${label === "Số lượng" ? " text-right" : ""}`}
+                        >
                           {label}
                         </th>
                       ))}
@@ -296,8 +316,8 @@ export function IssueDetail({
                           )}
                           {!line.lotId && !line.assetId && "—"}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono tabular-nums">
-                          {line.quantity}
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {formatIssueQuantity(line.quantity)}
                         </td>
                         <td className="px-4 py-3">
                           {line.unitSymbol || line.unitName || "—"}
