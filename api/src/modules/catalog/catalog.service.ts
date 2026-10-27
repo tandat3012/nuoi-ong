@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, asc, count, eq, ilike, or, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
@@ -11,7 +16,18 @@ import {
   suppliers,
   trackingMode,
   units,
+  warehouses,
 } from '../../db/schema';
+import type {
+  CreateCategoryDto,
+  CreateLocationDto,
+  CreateSupplierDto,
+  CreateUnitDto,
+  UpdateCategoryDto,
+  UpdateLocationDto,
+  UpdateSupplierDto,
+  UpdateUnitDto,
+} from './dto/catalog.dto';
 
 type ItemType = (typeof itemType.enumValues)[number];
 type TrackingMode = (typeof trackingMode.enumValues)[number];
@@ -229,5 +245,137 @@ export class CatalogService {
     }
 
     return item;
+  }
+
+  createCategory(input: CreateCategoryDto) {
+    return this.unique('Category code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(categories)
+        .values(input)
+        .returning();
+      return row;
+    });
+  }
+
+  updateCategory(id: string, input: UpdateCategoryDto) {
+    this.assertChanges(input);
+    return this.unique('Category code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .update(categories)
+        .set({ ...input, updatedAt: new Date().toISOString() })
+        .where(eq(categories.id, id))
+        .returning();
+      if (!row) throw new NotFoundException('Category not found');
+      return row;
+    });
+  }
+
+  createUnit(input: CreateUnitDto) {
+    return this.unique('Unit code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(units)
+        .values(input)
+        .returning();
+      return row;
+    });
+  }
+
+  updateUnit(id: string, input: UpdateUnitDto) {
+    this.assertChanges(input);
+    return this.unique('Unit code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .update(units)
+        .set({ ...input, updatedAt: new Date().toISOString() })
+        .where(eq(units.id, id))
+        .returning();
+      if (!row) throw new NotFoundException('Unit not found');
+      return row;
+    });
+  }
+
+  createSupplier(farmId: string, input: CreateSupplierDto) {
+    return this.unique('Supplier code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(suppliers)
+        .values({ ...input, farmId })
+        .returning();
+      return row;
+    });
+  }
+
+  updateSupplier(id: string, farmId: string, input: UpdateSupplierDto) {
+    this.assertChanges(input);
+    return this.unique('Supplier code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .update(suppliers)
+        .set({ ...input, updatedAt: new Date().toISOString() })
+        .where(and(eq(suppliers.id, id), eq(suppliers.farmId, farmId)))
+        .returning();
+      if (!row) throw new NotFoundException('Supplier not found');
+      return row;
+    });
+  }
+
+  async createLocation(farmId: string, input: CreateLocationDto) {
+    await this.assertWarehouse(farmId, input.warehouseId);
+    return this.unique('Location code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(locations)
+        .values({ ...input, farmId })
+        .returning();
+      return row;
+    });
+  }
+
+  async updateLocation(id: string, farmId: string, input: UpdateLocationDto) {
+    this.assertChanges(input);
+    await this.assertWarehouse(farmId, input.warehouseId);
+    return this.unique('Location code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .update(locations)
+        .set({ ...input, updatedAt: new Date().toISOString() })
+        .where(and(eq(locations.id, id), eq(locations.farmId, farmId)))
+        .returning();
+      if (!row) throw new NotFoundException('Location not found');
+      return row;
+    });
+  }
+
+  private assertChanges(input: object) {
+    if (!Object.values(input).some((value) => value !== undefined))
+      throw new BadRequestException('At least one field must be provided');
+  }
+
+  private async assertWarehouse(farmId: string, warehouseId?: string | null) {
+    if (!warehouseId) return;
+    const [row] = await this.databaseService.db
+      .select({ id: warehouses.id })
+      .from(warehouses)
+      .where(
+        and(
+          eq(warehouses.id, warehouseId),
+          eq(warehouses.farmId, farmId),
+          eq(warehouses.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    if (!row)
+      throw new BadRequestException(
+        'warehouseId must be an ACTIVE warehouse of this farm',
+      );
+  }
+
+  private async unique<T>(message: string, write: () => Promise<T>) {
+    try {
+      return await write();
+    } catch (error) {
+      const failure = error as { code?: string; cause?: { code?: string } };
+      const code = failure.code ?? failure.cause?.code;
+      if (code === '23505') throw new ConflictException(message);
+      // PATCH DTOs accept null for every field; required columns reject it here.
+      if (code === '23502')
+        throw new BadRequestException('Required fields cannot be empty');
+      throw error;
+    }
   }
 }

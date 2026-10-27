@@ -8,7 +8,7 @@ import { Select } from "@/shared/components/ui/select";
 import { searchStoreItems } from "../api/store-admin.api";
 import { storeAdminError } from "../store-admin.logic";
 import type { StoreVariant, StoreVariantInput } from "../types/store-admin";
-import { StoreFormDialog } from "./store-form-dialog";
+import { FormDialog } from "@/shared/components/ui/form-dialog";
 
 export function StoreVariantForm({
   farmId,
@@ -41,7 +41,8 @@ export function StoreVariantForm({
   }, [request, farmId, search, variant]);
 
   return (
-    <StoreFormDialog
+    <FormDialog
+      errorMessage={storeAdminError}
       title={variant ? "Sửa quy cách bán" : "Thêm quy cách bán"}
       description="Mỗi quy cách gắn một vật tư trong kho; tồn kho của vật tư quyết định còn hàng."
       onClose={onClose}
@@ -135,6 +136,6 @@ export function StoreVariantForm({
         />
         Đang bán
       </label>
-    </StoreFormDialog>
+    </FormDialog>
   );
 }

@@ -15,6 +15,7 @@ import {
   Store,
   ShoppingCart,
   ChartNoAxesCombined,
+  Tags,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -64,6 +65,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
     items: [
       { href: '/materials', label: 'Vật tư', icon: Boxes, description: 'Danh mục vật tư, đơn vị và mức tồn tối thiểu.' },
       { href: '/warehouses', label: 'Kho', icon: Warehouse, description: 'Danh sách kho và vị trí lưu trữ.' },
+      { href: '/catalog', label: 'Danh mục chung', icon: Tags, description: 'Nhà cung cấp, vị trí, nhóm hàng và đơn vị tính.' },
     ],
   },
   {
@@ -101,5 +103,4 @@ export const routeLabels: Record<string, string> = {
   ...Object.fromEntries(
     primaryNavigationSections.flatMap(({ items }) => items.map(({ href, label }) => [href, label])),
   ),
-  '/catalog': 'Danh mục',
 };
