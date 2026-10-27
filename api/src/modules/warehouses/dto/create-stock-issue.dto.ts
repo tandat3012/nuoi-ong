@@ -15,6 +15,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 const ISSUE_TYPES = [
+  'SALE',
   'CONSUMPTION',
   'DAMAGE',
   'DISPOSAL',
@@ -46,7 +47,7 @@ export class CreateStockIssueItemDto {
     format: 'uuid',
     nullable: true,
     description:
-      'Bắt buộc với trackingMode ASSET; số lượng mỗi tài sản là 1. ASSET chỉ dùng cho CONSUMPTION, OTHER hoặc DISPOSAL; báo hỏng và bảo trì dùng nghiệp vụ tại hồ sơ tài sản.',
+      'Bắt buộc với trackingMode ASSET; số lượng mỗi tài sản là 1. ASSET chỉ dùng cho CONSUMPTION, OTHER, DISPOSAL hoặc SALE; báo hỏng và bảo trì dùng nghiệp vụ tại hồ sơ tài sản.',
   })
   @IsOptional()
   @IsUUID()

@@ -139,7 +139,7 @@ export function IssueLotPicker({
           Tồn hiển thị chỉ để tham khảo; tồn được kiểm tra khi xác nhận.
         </p>
       )}
-      <Button variant="outline"
+      <Button type="button" variant="outline"
         disabled={!warehouseId}
         onClick={() => setOpen((value) => !value)}
       >

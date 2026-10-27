@@ -10,6 +10,7 @@ import {
   initialCartState,
   deserializeCart,
   isValidCartInput,
+  reconcileCartItems,
   serializeCart,
   type CartCatalogResult,
 } from '../components/cart.logic';
@@ -21,13 +22,27 @@ export interface CartProviderProps {
 }
 
 export function CartProvider({ children }: CartProviderProps) {
-  const [{ items, isHydrated, lastAddedItem }, dispatch] = React.useReducer(
+  const [state, reactDispatch] = React.useReducer(
     cartReducer,
     initialCartState,
   );
+  const stateRef = React.useRef(state);
+  React.useLayoutEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  const dispatch = React.useCallback(
+    (action: Parameters<typeof cartReducer>[1]) => {
+      stateRef.current = cartReducer(stateRef.current, action);
+      reactDispatch(action);
+    },
+    [],
+  );
+  const { items, isHydrated, lastAddedItem } = state;
   const reconciliation = React.useRef(0);
+  const checkoutSubmittingRef = React.useRef(false);
   const storageReadable = React.useRef(false);
   const [isReconciling, setIsReconciling] = React.useState(false);
+  const [isCheckoutSubmitting, setIsCheckoutSubmitting] = React.useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
 
   // 1. Safe Client Hydration: Read from localStorage only after mount
@@ -52,7 +67,7 @@ export function CartProvider({ children }: CartProviderProps) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [dispatch]);
 
   // 2. Persistence: Save to localStorage only after initial hydration completes
   React.useEffect(() => {
@@ -70,7 +85,7 @@ export function CartProvider({ children }: CartProviderProps) {
 
   // Catalog fields apply to current lines, never to a captured cart snapshot.
   const reconcileCart = React.useCallback(async () => {
-    if (!isHydrated || items.length === 0) return;
+    if (!isHydrated || items.length === 0) return stateRef.current.items;
     const request = ++reconciliation.current;
     const slugs = [...new Set(items.map((item) => item.productSlug))];
     dispatch({ type: 'pending', slugs });
@@ -86,10 +101,12 @@ export function CartProvider({ children }: CartProviderProps) {
         }
       }),
     );
-    if (request !== reconciliation.current) return;
+    if (request !== reconciliation.current) return stateRef.current.items;
+    const snapshot = reconcileCartItems(stateRef.current.items, catalog);
     dispatch({ type: 'catalog', catalog });
     setIsReconciling(false);
-  }, [isHydrated, items]);
+    return snapshot;
+  }, [dispatch, isHydrated, items]);
 
   // Reconcile once upon initial hydration if there are items
   React.useEffect(() => {
@@ -103,23 +120,31 @@ export function CartProvider({ children }: CartProviderProps) {
 
   // 4. Cart actions using functional state updates
   const addItem = React.useCallback((input: AddToCartInput): boolean => {
-    if (!isValidCartInput(input)) return false;
+    if (checkoutSubmittingRef.current || !isValidCartInput(input)) return false;
     dispatch({ type: 'add', input });
     setIsDrawerOpen(true);
 
     return true;
-  }, []);
+  }, [dispatch]);
 
   const updateQuantity = React.useCallback((id: string, quantity: number) => {
+    if (checkoutSubmittingRef.current) return;
     dispatch({ type: 'quantity', id, quantity });
-  }, []);
+  }, [dispatch]);
 
   const removeItem = React.useCallback((id: string) => {
+    if (checkoutSubmittingRef.current) return;
     dispatch({ type: 'remove', id });
-  }, []);
+  }, [dispatch]);
 
   const clearCart = React.useCallback(() => {
+    if (checkoutSubmittingRef.current) return;
     dispatch({ type: 'clear' });
+  }, [dispatch]);
+
+  const setCheckoutLock = React.useCallback((submitting: boolean) => {
+    checkoutSubmittingRef.current = submitting;
+    setIsCheckoutSubmitting(submitting);
   }, []);
 
   const openDrawer = React.useCallback(() => {
@@ -141,6 +166,7 @@ export function CartProvider({ children }: CartProviderProps) {
       subtotal: totals.subtotal,
       isHydrated,
       isReconciling,
+      isCheckoutSubmitting,
       isDrawerOpen,
       lastAddedItem,
       setIsDrawerOpen,
@@ -150,6 +176,7 @@ export function CartProvider({ children }: CartProviderProps) {
       updateQuantity,
       removeItem,
       clearCart,
+      setCheckoutSubmitting: setCheckoutLock,
       reconcileCart,
     }),
     [
@@ -159,6 +186,7 @@ export function CartProvider({ children }: CartProviderProps) {
       totals.subtotal,
       isHydrated,
       isReconciling,
+      isCheckoutSubmitting,
       isDrawerOpen,
       lastAddedItem,
       openDrawer,
@@ -167,6 +195,7 @@ export function CartProvider({ children }: CartProviderProps) {
       updateQuantity,
       removeItem,
       clearCart,
+      setCheckoutLock,
       reconcileCart,
     ],
   );

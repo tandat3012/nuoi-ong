@@ -1,6 +1,7 @@
 import type { ModuleDefinition } from "@/shared/types/module";
 
 export { IssuesPage } from "./components/issues-page";
+export { IssueDetailRoute } from "./components/issue-detail-route";
 
 export const issuesModule: ModuleDefinition = {
   title: "Phiếu xuất kho",

@@ -69,6 +69,15 @@ export class AuthController {
           },
         },
         defaultFarmId: { type: 'string', format: 'uuid', nullable: true },
+        storeFarm: {
+          type: 'object',
+          nullable: true,
+          description: 'Farm owning the store warehouse; null for customers.',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            name: { type: 'string' },
+          },
+        },
       },
     },
   })

@@ -12,6 +12,9 @@ import {
   Wrench,
   ScanLine,
   Users,
+  Store,
+  ShoppingCart,
+  ChartNoAxesCombined,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -21,6 +24,10 @@ export type NavigationItem = {
   description?: string;
   /** Only ADMIN / FARM_OWNER of the selected farm see this item. */
   adminOnly?: boolean;
+  /** ADMIN, FARM_OWNER, and EMPLOYEE of the selected farm see this item. */
+  staffOnly?: boolean;
+  /** Only shown while the selected farm owns the store warehouse. */
+  storeOnly?: boolean;
 };
 
 export type NavigationSection = {
@@ -28,7 +35,7 @@ export type NavigationSection = {
   items: readonly NavigationItem[];
 };
 
-// Grouped by the manager's daily flow: daily stock movements first, then assets, master data, people.
+// Grouped by the manager's daily flow: daily stock movements first, then assets, master data, sales, people.
 export const primaryNavigationSections: readonly NavigationSection[] = [
   {
     title: 'Tổng quan',
@@ -60,12 +67,34 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
     ],
   },
   {
+    title: 'Cửa hàng',
+    items: [
+      { href: '/store-products', label: 'Sản phẩm cửa hàng', icon: Store, adminOnly: true, storeOnly: true, description: 'Sản phẩm, biến thể và hình ảnh bán online.' },
+      { href: '/store-orders', label: 'Đơn hàng', icon: ShoppingCart, staffOnly: true, storeOnly: true, description: 'Xác nhận đơn, theo dõi giao hàng và thanh toán.' },
+      { href: '/store-reports', label: 'Báo cáo bán hàng', icon: ChartNoAxesCombined, adminOnly: true, storeOnly: true, description: 'Doanh thu, sản phẩm và khách hàng.' },
+    ],
+  },
+  {
     title: 'Tổ chức',
     items: [
       { href: '/personnel', label: 'Nhân sự', icon: Users, adminOnly: true, description: 'Tài khoản nhân viên và vai trò.' },
     ],
   },
 ];
+
+export type NavigationAccess = {
+  canManageFarm: boolean;
+  canManageOrders: boolean;
+  isStoreFarm: boolean;
+};
+
+export function isNavigationItemVisible(item: NavigationItem, access: NavigationAccess) {
+  return (
+    (!item.adminOnly || access.canManageFarm) &&
+    (!item.staffOnly || access.canManageOrders) &&
+    (!item.storeOnly || access.isStoreFarm)
+  );
+}
 
 // Route labels for breadcrumbs (including hidden placeholder routes)
 export const routeLabels: Record<string, string> = {

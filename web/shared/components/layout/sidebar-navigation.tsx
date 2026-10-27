@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { primaryNavigationSections } from '@/shared/config/navigation';
+import { isNavigationItemVisible, primaryNavigationSections } from '@/shared/config/navigation';
 import { cn } from '@/shared/lib/utils';
 import { useFarmMembership } from '@/features/auth';
 
@@ -15,12 +15,12 @@ function isCurrentRoute(pathname: string, href: string) {
 
 export function SidebarNavigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { canManageFarm } = useFarmMembership();
+  const access = useFarmMembership();
 
   return (
     <nav aria-label="Điều hướng chính" className="flex flex-col space-y-5">
       {primaryNavigationSections.map((section) => {
-        const items = section.items.filter((item) => !item.adminOnly || canManageFarm);
+        const items = section.items.filter((item) => isNavigationItemVisible(item, access));
         if (items.length === 0) return null;
 
         return (

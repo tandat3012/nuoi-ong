@@ -12,6 +12,7 @@ export function useSaveIssueDraft(
   canWrite: boolean,
   id: string | undefined,
   onSaved: (id: string) => void,
+  linkedSale = false,
 ) {
   const request = useAuthenticatedRequest();
   const alive = useRef(true);
@@ -31,7 +32,7 @@ export function useSaveIssueDraft(
   ) {
     if (submitting.current) return;
     const validation = canWrite
-      ? validateIssueDraft(input, trackingModes)
+      ? validateIssueDraft(input, trackingModes, linkedSale)
       : "Bạn không có quyền lưu phiếu xuất.";
     if (validation) {
       setError(validation);

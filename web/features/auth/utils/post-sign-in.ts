@@ -26,7 +26,10 @@ export function isStaff(me: AuthContextResponse) {
 }
 
 export function resolvePostSignInPath(me: AuthContextResponse, next: string) {
-  const nextIsBackOffice = isBackOfficePath(new URL(next, 'http://x').pathname);
-  if (isStaff(me)) return nextIsBackOffice ? next : '/dashboard';
+  const pathname = new URL(next, 'http://x').pathname;
+  const nextIsBackOffice = isBackOfficePath(pathname);
+  const nextIsCustomerOrder =
+    pathname === '/checkout' || pathname === '/orders' || pathname.startsWith('/orders/');
+  if (isStaff(me)) return nextIsBackOffice || nextIsCustomerOrder ? next : '/dashboard';
   return nextIsBackOffice ? '/' : next;
 }

@@ -21,7 +21,7 @@ export class UpdateStockIssueDto {
   @IsDateString()
   issueDate?: string;
   @IsOptional()
-  @IsIn(['CONSUMPTION', 'DAMAGE', 'DISPOSAL', 'OTHER', 'MAINTENANCE'])
+  @IsIn(['SALE', 'CONSUMPTION', 'DAMAGE', 'DISPOSAL', 'OTHER', 'MAINTENANCE'])
   issueType?: string;
   @IsOptional() @IsUUID() maintenanceRecordId?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) reason?: string | null;

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Star, Truck, ShieldCheck, RotateCcw } from 'lucide-react';
 import type {
   StorefrontProductDetail,
@@ -47,7 +48,8 @@ export function ProductDetailSummary({
   );
   const ratingInfo = getProductCardRating(product.rating);
 
-  const { addItem } = useCart();
+  const { addItem, isCheckoutSubmitting } = useCart();
+  const router = useRouter();
 
   const handleSelectVariant = (variant: StorefrontProductVariant) => {
     setSelectedVariantId(variant.id);
@@ -60,7 +62,7 @@ export function ProductDetailSummary({
     quantity,
   );
   const handleAddToCart = () => {
-    if (purchaseInput) addItem(purchaseInput);
+    return purchaseInput ? addItem(purchaseInput) : false;
   };
 
   return (
@@ -212,7 +214,7 @@ export function ProductDetailSummary({
           quantity={quantity}
           onChange={setQuantity}
           purchaseLimit={product.purchaseLimit}
-          disabled={!purchaseInput}
+          disabled={!purchaseInput || isCheckoutSubmitting}
         />
       </div>
 
@@ -226,8 +228,11 @@ export function ProductDetailSummary({
       )}
       <ProductPurchaseActions
         inStock={snapshot.inStock}
-        canAdd={Boolean(purchaseInput)}
+        canAdd={Boolean(purchaseInput) && !isCheckoutSubmitting}
         onAddToCart={handleAddToCart}
+        onBuyNow={() => {
+          if (handleAddToCart()) router.push('/checkout');
+        }}
       />
 
       {/* 11. Concise service information */}

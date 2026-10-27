@@ -7,5 +7,9 @@ export function useFarmMembership() {
   const { data, selectedFarmId } = useAuthContext();
   const membership = data.memberships.find(({ farm }) => farm.id === selectedFarmId);
   const canManageFarm = membership?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER') ?? false;
-  return { selectedFarmId, membership, canManageFarm };
+  const storeFarm = data.storeFarm;
+  const isStoreFarm = !!storeFarm && storeFarm.id === selectedFarmId;
+  const canManageOrders =
+    membership?.roles.some((role) => ['ADMIN', 'FARM_OWNER', 'EMPLOYEE'].includes(role)) ?? false;
+  return { selectedFarmId, membership, canManageFarm, canManageOrders, storeFarm, isStoreFarm };
 }

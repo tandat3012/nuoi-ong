@@ -73,6 +73,7 @@ export const adjustmentReason = pgEnum('adjustment_reason', [
   'OTHER',
 ]);
 export const issueType = pgEnum('issue_type', [
+  'SALE',
   'CONSUMPTION',
   'DAMAGE',
   'DISPOSAL',

@@ -49,8 +49,16 @@ const issueSchema = {
     issueDate: { type: 'string', format: 'date' },
     issueType: {
       type: 'string',
-      enum: ['CONSUMPTION', 'DAMAGE', 'DISPOSAL', 'OTHER', 'MAINTENANCE'],
+      enum: [
+        'SALE',
+        'CONSUMPTION',
+        'DAMAGE',
+        'DISPOSAL',
+        'OTHER',
+        'MAINTENANCE',
+      ],
     },
+    orderId: { type: 'string', format: 'uuid', nullable: true },
     maintenanceRecordId: { type: 'string', format: 'uuid', nullable: true },
     status: { type: 'string', enum: [...documentStatus.enumValues] },
     reason: { type: 'string', nullable: true },

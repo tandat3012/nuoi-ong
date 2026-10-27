@@ -2,17 +2,18 @@
 
 import Link from 'next/link';
 import { useFarmMembership } from '@/features/auth';
-import { primaryNavigationSections } from '@/shared/config/navigation';
+import { isNavigationItemVisible, primaryNavigationSections } from '@/shared/config/navigation';
 import { PageHeader } from '@/shared/components/ui/page-header';
 
 // shortcut: hub links only, no live KPIs; add metric cards once the API exposes a farm summary endpoint.
 export function DashboardOverview() {
-  const { membership, canManageFarm } = useFarmMembership();
+  const access = useFarmMembership();
+  const { membership } = access;
 
   const sections = primaryNavigationSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => item.href !== '/dashboard' && (!item.adminOnly || canManageFarm)),
+      items: section.items.filter((item) => item.href !== '/dashboard' && isNavigationItemVisible(item, access)),
     }))
     .filter((section) => section.items.length > 0);
 

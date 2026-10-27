@@ -6,6 +6,9 @@ import { usePathname } from 'next/navigation';
 import { ChevronRight, Home } from 'lucide-react';
 import { routeLabels } from '@/shared/config/navigation';
 
+// Record ids in detail routes are meaningless to users.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function Breadcrumbs() {
   const pathname = usePathname();
   if (pathname === '/dashboard' || pathname === '/') {
@@ -15,7 +18,8 @@ export function Breadcrumbs() {
   const segments = pathname.split('/').filter(Boolean);
   const items = segments.map((segment, index) => {
     const href = `/${segments.slice(0, index + 1).join('/')}`;
-    const label = routeLabels[href] || decodeURIComponent(segment);
+    const label =
+      routeLabels[href] || (UUID.test(segment) ? 'Chi tiết' : decodeURIComponent(segment));
     const isLast = index === segments.length - 1;
     return { href, label, isLast };
   });
