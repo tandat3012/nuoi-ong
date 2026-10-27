@@ -15,6 +15,7 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { PersonnelModule } from './modules/personnel/personnel.module';
 import { StoreAdminModule } from './modules/store-admin/store-admin.module';
 import { StoreOrdersModule } from './modules/store-orders/store-orders.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { StoreOrdersModule } from './modules/store-orders/store-orders.module';
     PersonnelModule,
     StoreAdminModule,
     StoreOrdersModule,
+    DashboardModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
