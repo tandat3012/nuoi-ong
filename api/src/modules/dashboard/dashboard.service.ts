@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DatabaseService } from '../../db/database.service';
 
 export type DashboardSummary = {
-  /** Whole VND: on-hand quantity × the item's latest confirmed receipt price. */
+  /** Whole VND: on-hand quantity × the item's latest confirmed receipt price (quantity-weighted across that receipt's lines). */
   stockValue: string;
   /** Items in stock with no priced confirmed receipt, left out of stockValue. */
   unpricedItems: number;
@@ -32,15 +32,24 @@ export class DashboardService {
         FROM inventory_balances
         WHERE farm_id = ${farmId}
         GROUP BY item_id
-      ), latest_price AS (
+      ), latest_receipt AS (
         -- Unit price 0 is the column default, so it means "not priced".
-        SELECT DISTINCT ON (ri.item_id) ri.item_id, ri.unit_price
+        SELECT DISTINCT ON (ri.item_id) ri.item_id, r.id AS receipt_id
         FROM stock_receipt_items ri
         JOIN stock_receipts r ON r.id = ri.stock_receipt_id
         WHERE r.farm_id = ${farmId}
           AND r.status = 'CONFIRMED'
           AND ri.unit_price > 0
         ORDER BY ri.item_id, r.confirmed_at DESC, r.id DESC
+      ), latest_price AS (
+        -- Several priced lines of one item on that receipt: quantity-weighted average.
+        SELECT ri.item_id,
+          SUM(ri.quantity * ri.unit_price) / SUM(ri.quantity) AS unit_price
+        FROM stock_receipt_items ri
+        JOIN latest_receipt lr
+          ON lr.receipt_id = ri.stock_receipt_id AND lr.item_id = ri.item_id
+        WHERE ri.unit_price > 0
+        GROUP BY ri.item_id
       ), lot_stock AS (
         SELECT DISTINCT l.id, l.expiry_date
         FROM inventory_lots l

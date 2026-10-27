@@ -4,10 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, count, eq, ilike, or, SQL } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, notInArray, or, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
+  assets,
   categories,
   itemType,
   items,
@@ -330,15 +331,44 @@ export class CatalogService {
   async updateLocation(id: string, farmId: string, input: UpdateLocationDto) {
     this.assertChanges(input);
     await this.assertWarehouse(farmId, input.warehouseId);
-    return this.unique('Location code already exists', async () => {
-      const [row] = await this.databaseService.db
-        .update(locations)
-        .set({ ...input, updatedAt: new Date().toISOString() })
-        .where(and(eq(locations.id, id), eq(locations.farmId, farmId)))
-        .returning();
-      if (!row) throw new NotFoundException('Location not found');
-      return row;
-    });
+    return this.unique('Location code already exists', () =>
+      this.databaseService.db.transaction(async (tx) => {
+        const where = and(eq(locations.id, id), eq(locations.farmId, farmId));
+        // FOR UPDATE waits for asset moves, which hold the location FOR SHARE.
+        const [current] = await tx
+          .select({ warehouseId: locations.warehouseId })
+          .from(locations)
+          .where(where)
+          .for('update');
+        if (!current) throw new NotFoundException('Location not found');
+        const movesWarehouse =
+          input.warehouseId !== undefined &&
+          input.warehouseId !== current.warehouseId;
+        if (movesWarehouse || input.status === 'INACTIVE') {
+          // Asset stock sits in the location's warehouse; it must move with each asset.
+          const [held] = await tx
+            .select({ id: assets.id })
+            .from(assets)
+            .where(
+              and(
+                eq(assets.currentLocationId, id),
+                notInArray(assets.status, ['LOST', 'RETIRED']),
+              ),
+            )
+            .limit(1);
+          if (held)
+            throw new ConflictException(
+              'Location still holds assets; transfer them to another location first',
+            );
+        }
+        const [row] = await tx
+          .update(locations)
+          .set({ ...input, updatedAt: new Date().toISOString() })
+          .where(where)
+          .returning();
+        return row;
+      }),
+    );
   }
 
   private assertChanges(input: object) {

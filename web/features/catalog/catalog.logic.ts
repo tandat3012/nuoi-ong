@@ -29,7 +29,9 @@ export function catalogError(failure: unknown): string {
     case 401: return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
     case 403: return 'Bạn không có quyền sửa danh mục này.';
     case 404: return 'Bản ghi không tồn tại hoặc thuộc trang trại khác.';
-    case 409: return 'Mã đã tồn tại, vui lòng dùng mã khác.';
+    case 409: return message.includes('holds assets')
+      ? 'Vị trí đang chứa tài sản. Hãy điều chuyển tài sản sang vị trí khác trước khi đổi kho hoặc ngưng vị trí.'
+      : 'Mã đã tồn tại, vui lòng dùng mã khác.';
     case 400: return `Dữ liệu không hợp lệ${message ? `: ${message}` : '.'}`;
     default: return 'Không thể tải dữ liệu. Vui lòng kiểm tra kết nối và thử lại.';
   }
