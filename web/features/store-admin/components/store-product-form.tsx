@@ -4,13 +4,13 @@ import { useState } from "react";
 import { Input } from "@/shared/components/ui/input";
 import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
-import { slugify } from "../store-admin.logic";
+import { slugify, storeAdminError } from "../store-admin.logic";
 import type {
   StoreCategory,
   StoreProduct,
   StoreProductInput,
 } from "../types/store-admin";
-import { StoreFormDialog } from "./store-form-dialog";
+import { FormDialog } from "@/shared/components/ui/form-dialog";
 
 const SLUG_PATTERN = "[a-z0-9]+(-[a-z0-9]+)*";
 
@@ -28,7 +28,8 @@ export function StoreProductForm({
   const [slug, setSlug] = useState(product?.slug ?? "");
   const [slugEdited, setSlugEdited] = useState(Boolean(product));
   return (
-    <StoreFormDialog
+    <FormDialog
+      errorMessage={storeAdminError}
       title={product ? "Sửa sản phẩm" : "Thêm sản phẩm"}
       description={
         product
@@ -98,7 +99,7 @@ export function StoreProductForm({
           defaultValue={product?.description}
         />
       </label>
-    </StoreFormDialog>
+    </FormDialog>
   );
 }
 
@@ -111,7 +112,8 @@ export function StoreCategoryForm({
 }) {
   const [slug, setSlug] = useState("");
   return (
-    <StoreFormDialog
+    <FormDialog
+      errorMessage={storeAdminError}
       title="Thêm danh mục cửa hàng"
       description="Danh mục dùng để nhóm sản phẩm trên cửa hàng."
       onClose={onClose}
@@ -139,6 +141,6 @@ export function StoreCategoryForm({
           onChange={(event) => setSlug(event.target.value)}
         />
       </label>
-    </StoreFormDialog>
+    </FormDialog>
   );
 }

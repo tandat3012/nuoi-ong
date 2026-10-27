@@ -11,14 +11,14 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
-import { storeAdminError } from "../store-admin.logic";
 
-export function StoreFormDialog({
+export function FormDialog({
   title,
   description,
   submitLabel = "Lưu",
   onSubmit,
   onClose,
+  errorMessage,
   children,
 }: {
   title: string;
@@ -26,6 +26,7 @@ export function StoreFormDialog({
   submitLabel?: string;
   onSubmit: (data: FormData) => Promise<unknown>;
   onClose: () => void;
+  errorMessage: (failure: unknown) => string;
   children: ReactNode;
 }) {
   const [pending, setPending] = useState(false);
@@ -57,7 +58,7 @@ export function StoreFormDialog({
               await onSubmit(data);
               onClose();
             } catch (failure) {
-              setError(storeAdminError(failure));
+              setError(errorMessage(failure));
             } finally {
               setPending(false);
             }
