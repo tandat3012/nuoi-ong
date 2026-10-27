@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { startTransition, useEffect, useState } from 'react';
 
 import { useAuthenticatedRequest, useAuthContext, useFarmMembership } from '@/features/auth';
@@ -10,6 +11,7 @@ import type { PaginatedResponse } from '@/shared/api/contracts';
 import { Select } from '@/shared/components/ui/select';
 import { Input } from '@/shared/components/ui/input';
 import { Button } from '@/shared/components/ui/button';
+import { WarehouseLotSelect } from '@/features/inventory';
 
 type Warehouse = { id: string; code: string; name: string };
 type Item = { id: string; code: string; name: string; trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' };
@@ -48,7 +50,7 @@ function FarmCountsScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ countCode: '', warehouseId: '', itemId: '', actualQuantity: '0', note: '' });
+  const [form, setForm] = useState({ countCode: '', warehouseId: '', itemId: '', lotId: '', actualQuantity: '0', note: '' });
 
   useEffect(() => {
     if (!selectedFarmId) return;
@@ -56,13 +58,12 @@ function FarmCountsScreen() {
     let cancelled = false;
     void Promise.all([
       request<{ data: Warehouse[] }>('/warehouses', { params: { farmId: selectedFarmId, page: 1, pageSize: 100, status: 'ACTIVE' } }),
-      // shortcut: this form supports QUANTITY items; add LOT/asset selectors before enabling other tracking modes.
-      request<PaginatedResponse<{ item: Item }>>('/items', { params: { farmId: selectedFarmId, page: 1, pageSize: 100, status: 'ACTIVE', trackingMode: 'QUANTITY' } }),
+      request<PaginatedResponse<{ item: Item }>>('/items', { params: { farmId: selectedFarmId, page: 1, pageSize: 100, status: 'ACTIVE' } }),
     ]).then(([warehouseResponse, itemResponse]) => {
       if (cancelled) return;
       setWarehouses(warehouseResponse.data);
-      setItems(itemResponse.data.map(({ item }) => item).filter((item) => item.trackingMode === 'QUANTITY'));
-      setForm((current) => ({ ...current, warehouseId: '', itemId: '' }));
+      setItems(itemResponse.data.map(({ item }) => item).filter((item) => item.trackingMode !== 'ASSET'));
+      setForm((current) => ({ ...current, warehouseId: '', itemId: '', lotId: '' }));
     }).catch((requestError: unknown) => { if (!cancelled) setError(errorMessage(requestError)); });
     return () => { cancelled = true; };
   }, [request, selectedFarmId]);
@@ -83,7 +84,7 @@ function FarmCountsScreen() {
     if (!selectedFarmId || !canWrite) return;
     setSaving(true); setError(null);
     try {
-      await request<CountResponse>('/stock-counts', { method: 'POST', params: { farmId: selectedFarmId }, data: { countCode: form.countCode.trim(), warehouseId: form.warehouseId, note: form.note.trim() || undefined, items: [{ itemId: form.itemId, actualQuantity: form.actualQuantity.trim() }] } });
+      await request<CountResponse>('/stock-counts', { method: 'POST', params: { farmId: selectedFarmId }, data: { countCode: form.countCode.trim(), warehouseId: form.warehouseId, note: form.note.trim() || undefined, items: [{ itemId: form.itemId, lotId: selectedItem?.trackingMode === 'LOT' ? form.lotId : undefined, actualQuantity: form.actualQuantity.trim() }] } });
       setShowForm(false); setForm((current) => ({ ...current, countCode: '', actualQuantity: '0', note: '' })); setPage(1); setLoadedFarmId(null); setRevision((value) => value + 1);
     } catch (requestError) { setError(errorMessage(requestError)); } finally { setSaving(false); }
   }
@@ -97,11 +98,12 @@ function FarmCountsScreen() {
   if (authError) return <p role="alert">{authError.message}</p>;
   if (!selectedFarmId) return <p>Vui lòng chọn trang trại để xem phiếu kiểm kê.</p>;
   const visibleCounts = loadedFarmId === selectedFarmId ? counts : [];
+  const selectedItem = items.find((item) => item.id === form.itemId);
 
   return <div className="space-y-6">
     <PageHeader title="Kiểm kê kho" description="Nhập số thực tế, đối chiếu snapshot và xác nhận chênh lệch tồn kho." />
     {canWrite && <section className="rounded-xl border bg-card p-5"><div className="flex items-center justify-between"><h2 className="font-semibold">Tạo phiếu kiểm kê</h2><Button onClick={() => setShowForm((value) => !value)}>{showForm ? 'Đóng form' : 'Tạo phiếu mới'}</Button></div>
-      {showForm && <form onSubmit={createCount} className="mt-4 grid gap-3 md:grid-cols-2"><Input required maxLength={50} value={form.countCode} onChange={(event) => setForm({ ...form, countCode: event.target.value })} aria-label="Mã phiếu kiểm kê" placeholder="Mã phiếu kiểm kê" /><Select aria-label="Kho" required value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value })}><option value="">Chọn kho</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} - {warehouse.name}</option>)}</Select><Select aria-label="Mặt hàng" required value={form.itemId} onChange={(event) => setForm({ ...form, itemId: event.target.value })}><option value="">Chọn vật tư</option>{items.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name} ({item.trackingMode})</option>)}</Select><Input required min="0" pattern="^(0|[1-9][0-9]{0,14})([.][0-9]{1,3})?$" value={form.actualQuantity} onChange={(event) => setForm({ ...form, actualQuantity: event.target.value })} aria-label="Số lượng thực tế" placeholder="Số lượng thực tế" /><Input value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} aria-label="Ghi chú chênh lệch" placeholder="Ghi chú chênh lệch" className="md:col-span-2" /><Button disabled={saving} type="submit" className="md:col-span-2">{saving ? 'Đang tạo...' : 'Tạo phiếu nháp'}</Button></form>}
+      {showForm && <form onSubmit={createCount} className="mt-4 grid gap-3 md:grid-cols-2"><Input required maxLength={50} value={form.countCode} onChange={(event) => setForm({ ...form, countCode: event.target.value })} aria-label="Mã phiếu kiểm kê" placeholder="Mã phiếu kiểm kê" /><Select aria-label="Kho" required value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value, lotId: '' })}><option value="">Chọn kho</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} - {warehouse.name}</option>)}</Select><Select aria-label="Mặt hàng" required value={form.itemId} onChange={(event) => setForm({ ...form, itemId: event.target.value, lotId: '' })}><option value="">Chọn vật tư</option>{items.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name} ({item.trackingMode})</option>)}</Select>{selectedItem?.trackingMode === 'LOT' && <WarehouseLotSelect farmId={selectedFarmId} warehouseId={form.warehouseId} itemId={form.itemId} value={form.lotId} onChange={(lotId) => setForm({ ...form, lotId })} />}<Input required min="0" pattern="^(0|[1-9][0-9]{0,14})([.][0-9]{1,3})?$" value={form.actualQuantity} onChange={(event) => setForm({ ...form, actualQuantity: event.target.value })} aria-label="Số lượng thực tế" placeholder="Số lượng thực tế" /><Input value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} aria-label="Ghi chú chênh lệch" placeholder="Ghi chú chênh lệch" className="md:col-span-2" /><p className="text-sm text-muted-foreground md:col-span-2">Tài sản (ASSET) không kiểm kê ở đây; đối chiếu từng tài sản qua hồ sơ, báo mất hoặc hỏng tại đó. <Link href="/assets" className="underline">Mở hồ sơ tài sản</Link>.</p><Button disabled={saving || (selectedItem?.trackingMode === 'LOT' && !form.lotId)} type="submit" className="md:col-span-2">{saving ? 'Đang tạo...' : 'Tạo phiếu nháp'}</Button></form>}
     </section>}
     {error && <p role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">{error}</p>}
     <section className="overflow-hidden rounded-xl border bg-card"><div className="flex items-center justify-between border-b p-5"><h2 className="font-semibold">Danh sách phiếu</h2><div className="flex items-center gap-3"><span className="text-sm text-muted-foreground">{totalItems} phiếu</span><div className="w-44"><Select aria-label="Trạng thái phiếu" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value as typeof status); }}><option value="ALL">Tất cả</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></div></div></div>{loading || (!error && loadedFarmId !== selectedFarmId) ? <p className="p-5 text-sm text-muted-foreground">Đang tải phiếu...</p> : visibleCounts.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Chưa có phiếu kiểm kê.</p> : <div className="divide-y">{visibleCounts.map((count) => <article key={count.id} className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between"><div><p className="font-semibold">{count.countCode}</p><p className="mt-1 text-sm text-muted-foreground">Kho {warehouseName(warehouses, count.warehouseId)} · {count.note || 'Không có ghi chú'}</p></div><div className="flex items-center gap-3"><Badge variant="outline">{STATUS_LABELS[count.status]}</Badge>{canWrite && ['DRAFT', 'COUNTING'].includes(count.status) && <><Button onClick={() => void changeCount(count.id, 'confirm')}>Xác nhận</Button><Button variant="outline" onClick={() => void changeCount(count.id, 'cancel')}>Hủy</Button></>}</div></article>)}</div>}<div className="flex items-center justify-between border-t p-5 text-sm"><Button variant="outline" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Trang trước</Button><span>Trang {page}/{totalPages}</span><Button variant="outline" disabled={page >= totalPages || loading} onClick={() => setPage((value) => value + 1)}>Trang sau</Button></div></section>
