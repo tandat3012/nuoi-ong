@@ -137,10 +137,10 @@ export class StockCountsService {
     input: UpdateStockCountDto,
   ) {
     await this.warehousesService.assertFarmAccess(farmId, user, true);
-    const current = await this.only(id, farmId);
-    if (!['DRAFT', 'COUNTING'].includes(current.status))
-      throw new ConflictException('Only active counts can be edited');
     await this.dbService.db.transaction(async (tx) => {
+      const current = await this.only(id, farmId, tx, true);
+      if (!['DRAFT', 'COUNTING'].includes(current.status))
+        throw new ConflictException('Only active counts can be edited');
       if (input.items) {
         this.validateItems(input.items);
         const rows: SnapshotLine[] = [];
@@ -183,13 +183,15 @@ export class StockCountsService {
 
   async cancel(id: string, farmId: string, user: string) {
     await this.warehousesService.assertFarmAccess(farmId, user, true);
-    const row = await this.only(id, farmId);
-    if (!['DRAFT', 'COUNTING'].includes(row.status))
-      throw new ConflictException('Only active counts can be cancelled');
-    await this.dbService.db
-      .update(stockCounts)
-      .set({ status: 'CANCELLED', updatedAt: new Date().toISOString() })
-      .where(eq(stockCounts.id, id));
+    await this.dbService.db.transaction(async (tx) => {
+      const row = await this.only(id, farmId, tx, true);
+      if (!['DRAFT', 'COUNTING'].includes(row.status))
+        throw new ConflictException('Only active counts can be cancelled');
+      await tx
+        .update(stockCounts)
+        .set({ status: 'CANCELLED', updatedAt: new Date().toISOString() })
+        .where(eq(stockCounts.id, id));
+    });
     return this.withItems(id, farmId);
   }
 

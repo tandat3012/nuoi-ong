@@ -646,7 +646,8 @@ export class StoreOrdersService {
           .from(stockIssues)
           .where(eq(stockIssues.id, order.stockIssueId))
           .for('update');
-        if (issue?.status !== 'DRAFT')
+        // A submitted issue is still only a reservation until it is approved.
+        if (issue?.status !== 'DRAFT' && issue?.status !== 'PENDING_APPROVAL')
           throw new ConflictException(
             'An approved stock issue cannot be cancelled with the order',
           );

@@ -172,17 +172,19 @@ export class StockTransfersService {
   }
   async cancel(id: string, farmId: string, user: string) {
     await this.warehousesService.assertFarmAccess(farmId, user, true);
-    const row = await this.only(id, farmId);
-    if (row.status !== 'DRAFT')
-      throw new ConflictException('Only DRAFT transfers can be cancelled');
-    await this.databaseService.db
-      .update(stockTransfers)
-      .set({
-        status: 'CANCELLED',
-        cancelledAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(stockTransfers.id, id));
+    await this.databaseService.db.transaction(async (tx) => {
+      const row = await this.only(id, farmId, tx, true);
+      if (row.status !== 'DRAFT')
+        throw new ConflictException('Only DRAFT transfers can be cancelled');
+      await tx
+        .update(stockTransfers)
+        .set({
+          status: 'CANCELLED',
+          cancelledAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(stockTransfers.id, id));
+    });
     return this.withItems(id, farmId);
   }
   async confirm(id: string, farmId: string, user: string) {
