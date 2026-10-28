@@ -22,6 +22,23 @@ type ClerkRequestState = {
   };
 };
 
+// Native (Expo) session tokens have no `azp`, and Clerk rejects a missing `azp`
+// whenever authorizedParties is set. Only such header tokens skip the check; a
+// token carrying any `azp`, and every cookie session, is still checked. The header
+// is parsed exactly as Clerk does, so Clerk verifies this same token (signature,
+// expiry, issuer) and never falls back to the cookie.
+function isBearerWithoutAzp(authorization: string | undefined): boolean {
+  const [scheme, token] = (authorization ?? '').split(' ', 2);
+  if (scheme !== 'Bearer' || !token) return false;
+  try {
+    const payload = Buffer.from(token.split('.')[1] ?? '', 'base64url');
+    const claims = JSON.parse(payload.toString('utf8')) as { azp?: unknown };
+    return claims.azp === undefined;
+  } catch {
+    return false;
+  }
+}
+
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {
   constructor(
@@ -76,7 +93,9 @@ export class ClerkAuthGuard implements CanActivate {
     try {
       requestState = (await this.clerkClient.authenticateRequest(clerkRequest, {
         acceptsToken: 'session_token',
-        ...(isDevelopment ? {} : { authorizedParties }),
+        ...(isDevelopment || isBearerWithoutAzp(request.headers.authorization)
+          ? {}
+          : { authorizedParties }),
       })) as unknown as ClerkRequestState;
     } catch {
       throw new UnauthorizedException('Unauthorized');
