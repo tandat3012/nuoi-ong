@@ -19,7 +19,11 @@ import {
   CreateStockCountDto,
   UpdateStockCountDto,
 } from './dto/stock-count.dto';
-import { WarehousesService } from './warehouses.service';
+import { assertOwnDocument, WarehousesService } from './warehouses.service';
+import {
+  notifyDocumentCreator,
+  notifyFarmApprovers,
+} from '../notifications/notification-events';
 
 type Filters = {
   farmId: string;
@@ -85,11 +89,8 @@ export class StockCountsService {
   }
 
   async create(farmId: string, user: string, input: CreateStockCountDto) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-    );
+    const { memberId: member } =
+      await this.warehousesService.assertDocumentWriter(farmId, user);
     this.validateItems(input.items);
     const id = await this.dbService.db.transaction(async (tx) => {
       await this.assertWarehouse(tx, farmId, input.warehouseId);
@@ -136,9 +137,13 @@ export class StockCountsService {
     user: string,
     input: UpdateStockCountDto,
   ) {
-    await this.warehousesService.assertFarmAccess(farmId, user, true);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
     await this.dbService.db.transaction(async (tx) => {
       const current = await this.only(id, farmId, tx, true);
+      assertOwnDocument(writer, current.createdByMemberId);
       if (!['DRAFT', 'COUNTING'].includes(current.status))
         throw new ConflictException('Only active counts can be edited');
       if (input.items) {
@@ -182,15 +187,92 @@ export class StockCountsService {
   }
 
   async cancel(id: string, farmId: string, user: string) {
-    await this.warehousesService.assertFarmAccess(farmId, user, true);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
     await this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
+      assertOwnDocument(writer, row.createdByMemberId);
       if (!['DRAFT', 'COUNTING'].includes(row.status))
         throw new ConflictException('Only active counts can be cancelled');
       await tx
         .update(stockCounts)
         .set({ status: 'CANCELLED', updatedAt: new Date().toISOString() })
         .where(eq(stockCounts.id, id));
+    });
+    return this.withItems(id, farmId);
+  }
+
+  async submit(id: string, farmId: string, user: string) {
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
+    await this.dbService.db.transaction(async (tx) => {
+      const row = await this.only(id, farmId, tx, true);
+      assertOwnDocument(writer, row.createdByMemberId);
+      if (!['DRAFT', 'COUNTING'].includes(row.status))
+        throw new ConflictException('Only active counts can be submitted');
+      const [line] = await tx
+        .select({ id: stockCountItems.id })
+        .from(stockCountItems)
+        .where(eq(stockCountItems.stockCountId, id))
+        .limit(1);
+      if (!line)
+        throw new BadRequestException('Count must contain at least one item');
+      await tx
+        .update(stockCounts)
+        .set({
+          status: 'PENDING_APPROVAL',
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(stockCounts.id, id));
+      await notifyFarmApprovers(
+        tx,
+        this.notification(row, 'PENDING_APPROVAL'),
+        writer.memberId,
+      );
+    });
+    return this.withItems(id, farmId);
+  }
+
+  async reject(
+    id: string,
+    farmId: string,
+    user: string,
+    rejectionReason: string,
+  ) {
+    const member = await this.warehousesService.assertFarmAccess(
+      farmId,
+      user,
+      true,
+    );
+    const reason = rejectionReason.trim();
+    if (!reason) throw new BadRequestException('Rejection reason is required');
+    await this.dbService.db.transaction(async (tx) => {
+      const row = await this.only(id, farmId, tx, true);
+      if (row.status !== 'PENDING_APPROVAL')
+        throw new ConflictException(
+          'Only PENDING_APPROVAL counts can be rejected',
+        );
+      const now = new Date().toISOString();
+      await tx
+        .update(stockCounts)
+        .set({
+          status: 'REJECTED',
+          rejectionReason: reason,
+          rejectedByMemberId: member,
+          rejectedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(stockCounts.id, id));
+      if (row.createdByMemberId !== member)
+        await notifyDocumentCreator(
+          tx,
+          { ...this.notification(row, 'REJECTED'), rejectionReason: reason },
+          row.createdByMemberId,
+        );
     });
     return this.withItems(id, farmId);
   }
@@ -204,7 +286,7 @@ export class StockCountsService {
     await this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
       if (row.status === 'CONFIRMED') return;
-      if (!['DRAFT', 'COUNTING'].includes(row.status))
+      if (!['DRAFT', 'COUNTING', 'PENDING_APPROVAL'].includes(row.status))
         throw new ConflictException('Only active counts can be confirmed');
       const lines = await tx
         .select()
@@ -267,8 +349,28 @@ export class StockCountsService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockCounts.id, id));
+      if (row.createdByMemberId !== member)
+        await notifyDocumentCreator(
+          tx,
+          this.notification(row, 'CONFIRMED'),
+          row.createdByMemberId,
+        );
     });
     return this.withItems(id, farmId);
+  }
+
+  private notification(
+    row: typeof stockCounts.$inferSelect,
+    status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED',
+  ) {
+    return {
+      farmId: row.farmId,
+      entityType: 'STOCK_COUNT',
+      entityId: row.id,
+      documentCode: row.countCode,
+      documentKind: 'Phiếu kiểm kê',
+      status,
+    };
   }
 
   private async only(

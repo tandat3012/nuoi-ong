@@ -20,7 +20,11 @@ import {
   CreateStockTransferDto,
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
-import { WarehousesService } from './warehouses.service';
+import { assertOwnDocument, WarehousesService } from './warehouses.service';
+import {
+  notifyDocumentCreator,
+  notifyFarmApprovers,
+} from '../notifications/notification-events';
 type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
@@ -70,11 +74,8 @@ export class StockTransfersService {
     return this.withItems(id, farmId);
   }
   async create(farmId: string, user: string, input: CreateStockTransferDto) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-    );
+    const { memberId: member } =
+      await this.warehousesService.assertDocumentWriter(farmId, user);
     this.validateItems(input.items);
     if (input.fromWarehouseId === input.toWarehouseId)
       throw new BadRequestException(
@@ -116,9 +117,13 @@ export class StockTransfersService {
     user: string,
     input: UpdateStockTransferDto,
   ) {
-    await this.warehousesService.assertFarmAccess(farmId, user, true);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
     await this.databaseService.db.transaction(async (tx) => {
       const cur = await this.only(id, farmId, tx, true);
+      assertOwnDocument(writer, cur.createdByMemberId);
       if (cur.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT transfers can be edited');
       const from = input.fromWarehouseId ?? cur.fromWarehouseId;
@@ -171,9 +176,13 @@ export class StockTransfersService {
     return this.withItems(id, farmId);
   }
   async cancel(id: string, farmId: string, user: string) {
-    await this.warehousesService.assertFarmAccess(farmId, user, true);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
     await this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
+      assertOwnDocument(writer, row.createdByMemberId);
       if (row.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT transfers can be cancelled');
       await tx
@@ -187,6 +196,79 @@ export class StockTransfersService {
     });
     return this.withItems(id, farmId);
   }
+  async submit(id: string, farmId: string, user: string) {
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
+    await this.databaseService.db.transaction(async (tx) => {
+      const row = await this.only(id, farmId, tx, true);
+      assertOwnDocument(writer, row.createdByMemberId);
+      if (row.status !== 'DRAFT')
+        throw new ConflictException('Only DRAFT transfers can be submitted');
+      const [line] = await tx
+        .select({ id: stockTransferItems.id })
+        .from(stockTransferItems)
+        .where(eq(stockTransferItems.stockTransferId, id))
+        .limit(1);
+      if (!line)
+        throw new BadRequestException(
+          'Transfer must contain at least one item',
+        );
+      await tx
+        .update(stockTransfers)
+        .set({
+          status: 'PENDING_APPROVAL',
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(stockTransfers.id, id));
+      await notifyFarmApprovers(
+        tx,
+        this.notification(row, 'PENDING_APPROVAL'),
+        writer.memberId,
+      );
+    });
+    return this.withItems(id, farmId);
+  }
+  async reject(
+    id: string,
+    farmId: string,
+    user: string,
+    rejectionReason: string,
+  ) {
+    const member = await this.warehousesService.assertFarmAccess(
+      farmId,
+      user,
+      true,
+    );
+    const reason = rejectionReason.trim();
+    if (!reason) throw new BadRequestException('Rejection reason is required');
+    await this.databaseService.db.transaction(async (tx) => {
+      const row = await this.only(id, farmId, tx, true);
+      if (row.status !== 'PENDING_APPROVAL')
+        throw new ConflictException(
+          'Only PENDING_APPROVAL transfers can be rejected',
+        );
+      const now = new Date().toISOString();
+      await tx
+        .update(stockTransfers)
+        .set({
+          status: 'REJECTED',
+          rejectionReason: reason,
+          rejectedByMemberId: member,
+          rejectedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(stockTransfers.id, id));
+      if (row.createdByMemberId !== member)
+        await notifyDocumentCreator(
+          tx,
+          { ...this.notification(row, 'REJECTED'), rejectionReason: reason },
+          row.createdByMemberId,
+        );
+    });
+    return this.withItems(id, farmId);
+  }
   async confirm(id: string, farmId: string, user: string) {
     const member = await this.warehousesService.assertFarmAccess(
       farmId,
@@ -196,8 +278,10 @@ export class StockTransfersService {
     await this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
       if (row.status === 'CONFIRMED') return;
-      if (row.status !== 'DRAFT')
-        throw new ConflictException('Only DRAFT transfers can be confirmed');
+      if (!['DRAFT', 'PENDING_APPROVAL'].includes(row.status))
+        throw new ConflictException(
+          'Only DRAFT or PENDING_APPROVAL transfers can be confirmed',
+        );
       await this.assertWarehouse(tx, farmId, row.fromWarehouseId);
       await this.assertWarehouse(tx, farmId, row.toWarehouseId);
       const lines = await tx
@@ -300,8 +384,27 @@ export class StockTransfersService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockTransfers.id, id));
+      if (row.createdByMemberId !== member)
+        await notifyDocumentCreator(
+          tx,
+          this.notification(row, 'CONFIRMED'),
+          row.createdByMemberId,
+        );
     });
     return this.withItems(id, farmId);
+  }
+  private notification(
+    row: typeof stockTransfers.$inferSelect,
+    status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED',
+  ) {
+    return {
+      farmId: row.farmId,
+      entityType: 'STOCK_TRANSFER',
+      entityId: row.id,
+      documentCode: row.transferCode,
+      documentKind: 'Phiếu chuyển kho',
+      status,
+    };
   }
   private async only(
     id: string,
