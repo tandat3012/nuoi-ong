@@ -1815,3 +1815,216 @@ export const notifications = pgTable(
     ),
   ],
 );
+
+export const devicePushTokens = pgTable(
+  'device_push_tokens',
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    userId: uuid('user_id').notNull(),
+    installationId: uuid('installation_id').notNull(),
+    expoPushToken: text('expo_push_token').notNull(),
+    platform: varchar({ length: 10, enum: ['ANDROID', 'IOS'] }).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    lastSeenAt: timestamp('last_seen_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique('uq_device_push_tokens_installation_id').on(table.installationId),
+    unique('uq_device_push_tokens_expo_push_token').on(table.expoPushToken),
+    check(
+      'ck_device_push_tokens_platform',
+      sql`${table.platform} IN ('ANDROID', 'IOS')`,
+    ),
+    check(
+      'ck_device_push_tokens_token_nonempty',
+      sql`length(btrim(${table.expoPushToken})) > 0`,
+    ),
+    index('idx_device_push_tokens_user_active')
+      .on(table.userId)
+      .where(sql`${table.isActive} = true`),
+    // Covers account cleanup, including inactive registrations.
+    index('idx_device_push_tokens_user_id').on(table.userId),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'device_push_tokens_user_id_fkey',
+    }).onDelete('cascade'),
+  ],
+);
+
+export const notificationPushOutbox = pgTable(
+  'notification_push_outbox',
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    notificationId: uuid('notification_id').notNull(),
+    devicePushTokenId: uuid('device_push_token_id').notNull(),
+    status: varchar({
+      length: 24,
+      enum: [
+        'PENDING',
+        'PROCESSING',
+        'AWAITING_RECEIPT',
+        'SUCCEEDED',
+        'FAILED',
+        'CANCELLED',
+      ],
+    })
+      .default('PENDING')
+      .notNull(),
+    attemptCount: integer('attempt_count').default(0).notNull(),
+    nextAttemptAt: timestamp('next_attempt_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .defaultNow()
+      .notNull(),
+    lockedAt: timestamp('locked_at', { withTimezone: true, mode: 'string' }),
+    lockId: uuid('lock_id'),
+    expoTicketId: varchar('expo_ticket_id', { length: 255 }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique('uq_notification_push_outbox_notification_device').on(
+      table.notificationId,
+      table.devicePushTokenId,
+    ),
+    check(
+      'ck_notification_push_outbox_status',
+      sql`${table.status} IN ('PENDING', 'PROCESSING', 'AWAITING_RECEIPT', 'SUCCEEDED', 'FAILED', 'CANCELLED')`,
+    ),
+    check(
+      'ck_notification_push_outbox_attempt_count',
+      sql`${table.attemptCount} >= 0`,
+    ),
+    check(
+      'ck_notification_push_outbox_lock_pair',
+      sql`(${table.lockedAt} IS NULL AND ${table.lockId} IS NULL) OR (${table.lockedAt} IS NOT NULL AND ${table.lockId} IS NOT NULL)`,
+    ),
+    check(
+      'ck_notification_push_outbox_processing_lock',
+      sql`${table.status} <> 'PROCESSING' OR ${table.lockId} IS NOT NULL`,
+    ),
+    check(
+      'ck_notification_push_outbox_receipt_ticket',
+      sql`${table.status} NOT IN ('AWAITING_RECEIPT', 'SUCCEEDED') OR (${table.expoTicketId} IS NOT NULL AND length(btrim(${table.expoTicketId})) > 0)`,
+    ),
+    index('idx_notification_push_outbox_pending')
+      .on(table.status, table.nextAttemptAt)
+      .where(sql`${table.status} IN ('PENDING', 'AWAITING_RECEIPT')`),
+    index('idx_notification_push_outbox_processing_lock')
+      .on(table.lockedAt)
+      .where(sql`${table.status} = 'PROCESSING'`),
+    index('idx_notification_push_outbox_device_push_token_id').on(
+      table.devicePushTokenId,
+    ),
+    foreignKey({
+      columns: [table.notificationId],
+      foreignColumns: [notifications.id],
+      name: 'notification_push_outbox_notification_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.devicePushTokenId],
+      foreignColumns: [devicePushTokens.id],
+      name: 'notification_push_outbox_device_push_token_id_fkey',
+    }).onDelete('cascade'),
+  ],
+);
+
+export const maintenanceRequests = pgTable(
+  'maintenance_requests',
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    farmId: uuid('farm_id').notNull(),
+    assetId: uuid('asset_id').notNull(),
+    requestedByMemberId: uuid('requested_by_member_id').notNull(),
+    maintenanceType: maintenanceType('maintenance_type').notNull(),
+    description: text().notNull(),
+    status: documentStatus().default('PENDING_APPROVAL').notNull(),
+    rejectionReason: text('rejection_reason'),
+    reviewedByMemberId: uuid('reviewed_by_member_id'),
+    reviewedAt: timestamp('reviewed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    maintenanceRecordId: uuid('maintenance_record_id'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_maintenance_requests_farm_status_created').using(
+      'btree',
+      table.farmId.asc().nullsLast(),
+      table.status.asc().nullsLast(),
+      table.createdAt.desc().nullsFirst(),
+    ),
+    index('idx_maintenance_requests_asset_created').using(
+      'btree',
+      table.assetId.asc().nullsLast(),
+      table.createdAt.desc().nullsFirst(),
+    ),
+    uniqueIndex('ux_pending_maintenance_request_per_asset')
+      .using(
+        'btree',
+        table.farmId.asc().nullsLast(),
+        table.assetId.asc().nullsLast(),
+      )
+      .where(sql`status = 'PENDING_APPROVAL'::document_status`),
+    foreignKey({
+      columns: [table.farmId],
+      foreignColumns: [farms.id],
+      name: 'maintenance_requests_farm_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.assetId],
+      foreignColumns: [assets.id],
+      name: 'maintenance_requests_asset_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'maintenance_requests_requested_by_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.reviewedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'maintenance_requests_reviewed_by_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.maintenanceRecordId],
+      foreignColumns: [maintenanceRecords.id],
+      name: 'maintenance_requests_maintenance_record_id_fkey',
+    }),
+    check(
+      'ck_maintenance_request_review_fields',
+      sql`((status IN ('CONFIRMED'::document_status, 'REJECTED'::document_status)) AND reviewed_by_member_id IS NOT NULL AND reviewed_at IS NOT NULL) OR (status NOT IN ('CONFIRMED'::document_status, 'REJECTED'::document_status) AND reviewed_by_member_id IS NULL AND reviewed_at IS NULL)`,
+    ),
+    check(
+      'ck_maintenance_request_approval_record',
+      sql`(status <> 'CONFIRMED'::document_status) OR maintenance_record_id IS NOT NULL`,
+    ),
+    check(
+      'ck_maintenance_request_rejection_reason',
+      sql`(status <> 'REJECTED'::document_status) OR length(btrim(coalesce(rejection_reason, ''))) > 0`,
+    ),
+  ],
+);

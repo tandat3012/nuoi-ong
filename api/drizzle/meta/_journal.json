@@ -141,6 +141,20 @@
       "when": 1793034870772,
       "tag": "0019_store-orders",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793152287333,
+      "tag": "0020_device-push-tokens-and-push-outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793152292803,
+      "tag": "0021_maintenance-requests-approval",
+      "breakpoints": true
     }
   ]
 }
