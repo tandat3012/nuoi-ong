@@ -32,6 +32,21 @@ export interface WarehouseListFilters extends PaginationParams {
   status?: WarehouseStatus;
 }
 
+export interface DocumentWriter {
+  memberId: string;
+  canApprove: boolean;
+}
+
+/** Employees may only change or submit stock documents they created. */
+export function assertOwnDocument(
+  writer: DocumentWriter,
+  createdByMemberId: string | null,
+) {
+  if (!writer.canApprove && createdByMemberId !== writer.memberId) {
+    throw new ForbiddenException('Only your own documents can be changed');
+  }
+}
+
 @Injectable()
 export class WarehousesService {
   constructor(private readonly databaseService: DatabaseService) {}
@@ -165,6 +180,24 @@ export class WarehousesService {
       throw new ForbiddenException('Warehouse write permission is required');
     }
     return memberId;
+  }
+
+  /** Stock documents: approvers act on any document, employees create and submit their own drafts. */
+  async assertDocumentWriter(
+    farmId: string,
+    clerkUserId: string,
+  ): Promise<DocumentWriter> {
+    const { memberId, roleCodes } = await this.getActiveMembership(
+      farmId,
+      clerkUserId,
+    );
+    const canApprove = roleCodes.some((code) =>
+      ['ADMIN', 'FARM_OWNER'].includes(code),
+    );
+    if (!canApprove && !roleCodes.includes('EMPLOYEE')) {
+      throw new ForbiddenException('Stock document permission is required');
+    }
+    return { memberId, canApprove };
   }
 
   /** Active member id plus every role code it holds; throws 403 when not an active member. */

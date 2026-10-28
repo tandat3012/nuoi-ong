@@ -36,7 +36,11 @@ import {
 } from '../../db/schema';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
-import { WarehousesService } from './warehouses.service';
+import { assertOwnDocument, WarehousesService } from './warehouses.service';
+import {
+  notifyDocumentCreator,
+  notifyFarmApprovers,
+} from '../notifications/notification-events';
 import { quantityMillis } from '../store-orders/store-order.rules';
 
 type Filters = PaginationParams & {
@@ -113,10 +117,9 @@ export class StockIssuesService {
     clerkUserId: string,
     input: CreateStockIssueDto,
   ) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId } = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
-      true,
     );
     this.validateItems(input.items);
     const issueType = input.issueType ?? 'CONSUMPTION';
@@ -169,10 +172,14 @@ export class StockIssuesService {
     clerkUserId: string,
     input: UpdateStockIssueDto,
   ) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      clerkUserId,
+    );
     await this.databaseService.db
       .transaction(async (tx) => {
         const current = await this.getOnly(id, farmId, tx, true);
+        assertOwnDocument(writer, current.createdByMemberId);
         if (current.status !== 'DRAFT')
           throw new ConflictException('Only DRAFT issues can be edited');
         const issueType = input.issueType ?? current.issueType;
@@ -245,9 +252,13 @@ export class StockIssuesService {
   }
 
   async cancel(id: string, farmId: string, clerkUserId: string) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      clerkUserId,
+    );
     await this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
+      assertOwnDocument(writer, issue.createdByMemberId);
       if (issue.orderId)
         throw new ConflictException('Cancel the linked order instead');
       if (issue.status !== 'DRAFT')
@@ -264,6 +275,81 @@ export class StockIssuesService {
     return this.withItems(id, farmId);
   }
 
+  async submit(id: string, farmId: string, clerkUserId: string) {
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      clerkUserId,
+    );
+    await this.databaseService.db.transaction(async (tx) => {
+      const issue = await this.getOnly(id, farmId, tx, true);
+      assertOwnDocument(writer, issue.createdByMemberId);
+      if (issue.status !== 'DRAFT')
+        throw new ConflictException('Only DRAFT issues can be submitted');
+      const [line] = await tx
+        .select({ id: stockIssueItems.id })
+        .from(stockIssueItems)
+        .where(eq(stockIssueItems.stockIssueId, id))
+        .limit(1);
+      if (!line)
+        throw new BadRequestException('Issue must contain at least one item');
+      await tx
+        .update(stockIssues)
+        .set({
+          status: 'PENDING_APPROVAL',
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(stockIssues.id, id));
+      await notifyFarmApprovers(
+        tx,
+        this.notification(issue, 'PENDING_APPROVAL'),
+        writer.memberId,
+      );
+    });
+    return this.withItems(id, farmId);
+  }
+
+  async reject(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    rejectionReason: string,
+  ) {
+    const memberId = await this.warehousesService.assertFarmAccess(
+      farmId,
+      clerkUserId,
+      true,
+    );
+    const reason = rejectionReason.trim();
+    if (!reason) throw new BadRequestException('Rejection reason is required');
+    await this.databaseService.db.transaction(async (tx) => {
+      const issue = await this.getOnly(id, farmId, tx, true);
+      if (issue.orderId)
+        throw new ConflictException('Cancel the linked order instead');
+      if (issue.status !== 'PENDING_APPROVAL')
+        throw new ConflictException(
+          'Only PENDING_APPROVAL issues can be rejected',
+        );
+      const now = new Date().toISOString();
+      await tx
+        .update(stockIssues)
+        .set({
+          status: 'REJECTED',
+          rejectionReason: reason,
+          rejectedByMemberId: memberId,
+          rejectedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(stockIssues.id, id));
+      if (issue.createdByMemberId !== memberId)
+        await notifyDocumentCreator(
+          tx,
+          { ...this.notification(issue, 'REJECTED'), rejectionReason: reason },
+          issue.createdByMemberId,
+        );
+    });
+    return this.withItems(id, farmId);
+  }
+
   async confirm(id: string, farmId: string, clerkUserId: string) {
     const memberId = await this.warehousesService.assertFarmAccess(
       farmId,
@@ -272,8 +358,10 @@ export class StockIssuesService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
-      if (issue.status !== 'DRAFT')
-        throw new ConflictException('Only DRAFT issues can be confirmed');
+      if (!['DRAFT', 'PENDING_APPROVAL'].includes(issue.status))
+        throw new ConflictException(
+          'Only DRAFT or PENDING_APPROVAL issues can be confirmed',
+        );
       await this.assertWarehouse(tx, farmId, issue.warehouseId);
       if (issue.maintenanceRecordId) {
         const [maintenance] = await tx
@@ -441,8 +529,28 @@ export class StockIssuesService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockIssues.id, id));
+      if (issue.createdByMemberId !== memberId)
+        await notifyDocumentCreator(
+          tx,
+          this.notification(issue, 'CONFIRMED'),
+          issue.createdByMemberId,
+        );
     });
     return this.withItems(id, farmId);
+  }
+
+  private notification(
+    issue: typeof stockIssues.$inferSelect,
+    status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED',
+  ) {
+    return {
+      farmId: issue.farmId,
+      entityType: 'STOCK_ISSUE',
+      entityId: issue.id,
+      documentCode: issue.issueCode,
+      documentKind: 'Phiếu xuất kho',
+      status,
+    };
   }
 
   private throwDuplicateCode(error: unknown): never {

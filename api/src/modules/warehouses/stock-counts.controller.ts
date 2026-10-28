@@ -35,6 +35,7 @@ import {
 } from '../../common/query-params';
 import { stockCountStatus } from '../../db/schema';
 import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
+import { RejectStockDocumentDto } from './dto/reject-stock-document.dto';
 import {
   CreateStockCountDto,
   UpdateStockCountDto,
@@ -50,6 +51,9 @@ const countSchema = {
     countCode: { type: 'string', example: 'CNT-2026-001' },
     countDate: { type: 'string', format: 'date' },
     status: { type: 'string', enum: [...stockCountStatus.enumValues] },
+    rejectionReason: { type: 'string', nullable: true },
+    rejectedByMemberId: { type: 'string', format: 'uuid', nullable: true },
+    rejectedAt: { type: 'string', format: 'date-time', nullable: true },
     createdByMemberId: { type: 'string', format: 'uuid' },
     confirmedByMemberId: { type: 'string', format: 'uuid', nullable: true },
     confirmedAt: { type: 'string', format: 'date-time', nullable: true },
@@ -336,6 +340,72 @@ export class StockCountsController {
         requireUuid(id, 'id'),
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
+      ),
+    };
+  }
+
+  @Post(':id/submit')
+  @ApiOperation({ summary: 'Gửi phiếu kiểm kê nháp để chờ duyệt' })
+  @ApiUuidParam('id', 'ID phiếu kiểm kê.')
+  @ApiFarmIdQuery()
+  @ApiCreatedResponse({
+    description:
+      'Phiếu chuyển sang PENDING_APPROVAL; người duyệt nhận thông báo.',
+    schema: { type: 'object', properties: { data: countDetailSchema } },
+  })
+  @ApiBadRequestResponse({ description: 'Phiếu chưa có dòng nào.' })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu.' })
+  @ApiConflictResponse({ description: 'Phiếu không còn ở trạng thái nháp.' })
+  @ApiUnauthorizedResponse({
+    description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Nhân viên chỉ được gửi phiếu do chính mình tạo.',
+  })
+  async submit(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    return {
+      data: await this.service.submit(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+      ),
+    };
+  }
+
+  @Post(':id/reject')
+  @ApiOperation({ summary: 'Từ chối phiếu kiểm kê đang chờ duyệt' })
+  @ApiUuidParam('id', 'ID phiếu kiểm kê.')
+  @ApiFarmIdQuery()
+  @ApiBody({ type: RejectStockDocumentDto })
+  @ApiCreatedResponse({
+    description: 'Phiếu chuyển sang REJECTED; người tạo nhận thông báo.',
+    schema: { type: 'object', properties: { data: countDetailSchema } },
+  })
+  @ApiBadRequestResponse({ description: 'Thiếu lý do từ chối.' })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu.' })
+  @ApiConflictResponse({ description: 'Phiếu không ở trạng thái chờ duyệt.' })
+  @ApiUnauthorizedResponse({
+    description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên hoặc chủ trang trại được từ chối phiếu.',
+  })
+  async reject(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: RejectStockDocumentDto,
+  ) {
+    return {
+      data: await this.service.reject(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input.rejectionReason,
       ),
     };
   }

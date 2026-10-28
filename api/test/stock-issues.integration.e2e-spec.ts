@@ -210,7 +210,14 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
         { provide: DatabaseService, useValue: { db } },
         {
           provide: WarehousesService,
-          useValue: { assertFarmAccess: access },
+          useValue: {
+            assertFarmAccess: access,
+            // Document writes reuse the same mock so write-denial cases still apply.
+            assertDocumentWriter: async (farmId: string, user: string) => ({
+              memberId: (await access(farmId, user, true)) as string,
+              canApprove: true,
+            }),
+          },
         },
       ],
     })

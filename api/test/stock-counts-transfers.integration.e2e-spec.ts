@@ -127,6 +127,10 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
                 throw new ForbiddenException();
               return Promise.resolve(member);
             },
+            assertDocumentWriter(farmId: string) {
+              if (farmId !== farm || !canWrite) throw new ForbiddenException();
+              return Promise.resolve({ memberId: member, canApprove: true });
+            },
           },
         },
       ],
