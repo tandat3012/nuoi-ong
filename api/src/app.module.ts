@@ -16,6 +16,7 @@ import { PersonnelModule } from './modules/personnel/personnel.module';
 import { StoreAdminModule } from './modules/store-admin/store-admin.module';
 import { StoreOrdersModule } from './modules/store-orders/store-orders.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     StoreAdminModule,
     StoreOrdersModule,
     DashboardModule,
+    NotificationsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
