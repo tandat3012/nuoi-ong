@@ -1,0 +1,7 @@
+allowBuilds:
+  '@clerk/shared': true
+  browser-tabs-lock: true
+  bufferutil: true
+  core-js: true
+  utf-8-validate: true
+nodeLinker: hoisted
