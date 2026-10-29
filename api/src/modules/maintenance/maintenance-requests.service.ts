@@ -187,7 +187,11 @@ export class MaintenanceRequestsService {
           // No row lock: approve locks request then asset, so locking the asset here could deadlock.
           .limit(1);
         if (!asset) throw new NotFoundException('Asset not found');
-        if (['LOST', 'RETIRED', 'MAINTENANCE'].includes(asset.status))
+        if (
+          ['LOST', 'RETIRED', 'MAINTENANCE', 'TRANSFER_PENDING'].includes(
+            asset.status,
+          )
+        )
           throw new ConflictException(
             'Asset is not eligible for a maintenance request',
           );

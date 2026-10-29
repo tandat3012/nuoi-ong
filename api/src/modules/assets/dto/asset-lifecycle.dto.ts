@@ -8,6 +8,7 @@ import {
   Length,
   Matches,
   MaxLength,
+  MinLength,
 } from 'class-validator';
 
 const MONEY = /^(0|[1-9]\d{0,15})(\.\d{1,2})?$/;
@@ -182,4 +183,18 @@ export class TransferAssetDto {
   @IsString()
   @MaxLength(4000)
   note?: string | null;
+}
+
+export class CreateAssetTransferRequestDto extends TransferAssetDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  assetId!: string;
+}
+
+export class RejectAssetTransferRequestDto {
+  @ApiProperty({ minLength: 3, maxLength: 1000 })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(1000)
+  rejectionReason!: string;
 }

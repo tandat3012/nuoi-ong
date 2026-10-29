@@ -5,6 +5,7 @@ export const ASSET_STATUS_LABELS = {
   MAINTENANCE: "Đang bảo trì",
   LOST: "Thất lạc",
   RETIRED: "Ngừng sử dụng",
+  TRANSFER_PENDING: "Chờ chuyển",
 } as const;
 
 export type AssetStatus = keyof typeof ASSET_STATUS_LABELS;

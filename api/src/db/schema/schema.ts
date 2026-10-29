@@ -28,6 +28,7 @@ export const assetStatus = pgEnum('asset_status', [
   'MAINTENANCE',
   'LOST',
   'RETIRED',
+  'TRANSFER_PENDING',
 ]);
 export const assignmentStatus = pgEnum('assignment_status', [
   'ACTIVE',
@@ -2024,6 +2025,98 @@ export const maintenanceRequests = pgTable(
     ),
     check(
       'ck_maintenance_request_rejection_reason',
+      sql`(status <> 'REJECTED'::document_status) OR length(btrim(coalesce(rejection_reason, ''))) > 0`,
+    ),
+  ],
+);
+
+// An employee asks to move an AVAILABLE asset; the asset stays TRANSFER_PENDING
+// until an approver runs the transfer (CONFIRMED) or rejects it.
+export const assetTransferRequests = pgTable(
+  'asset_transfer_requests',
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    farmId: uuid('farm_id').notNull(),
+    assetId: uuid('asset_id').notNull(),
+    requestedByMemberId: uuid('requested_by_member_id').notNull(),
+    fromLocationId: uuid('from_location_id').notNull(),
+    toWarehouseId: uuid('to_warehouse_id').notNull(),
+    toLocationId: uuid('to_location_id').notNull(),
+    note: text(),
+    status: documentStatus().default('PENDING_APPROVAL').notNull(),
+    rejectionReason: text('rejection_reason'),
+    reviewedByMemberId: uuid('reviewed_by_member_id'),
+    reviewedAt: timestamp('reviewed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_asset_transfer_requests_farm_status_created').using(
+      'btree',
+      table.farmId.asc().nullsLast(),
+      table.status.asc().nullsLast(),
+      table.createdAt.desc().nullsFirst(),
+    ),
+    index('idx_asset_transfer_requests_asset_created').using(
+      'btree',
+      table.assetId.asc().nullsLast(),
+      table.createdAt.desc().nullsFirst(),
+    ),
+    uniqueIndex('ux_pending_asset_transfer_request_per_asset')
+      .using(
+        'btree',
+        table.farmId.asc().nullsLast(),
+        table.assetId.asc().nullsLast(),
+      )
+      .where(sql`status = 'PENDING_APPROVAL'::document_status`),
+    foreignKey({
+      columns: [table.farmId],
+      foreignColumns: [farms.id],
+      name: 'asset_transfer_requests_farm_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.assetId],
+      foreignColumns: [assets.id],
+      name: 'asset_transfer_requests_asset_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'asset_transfer_requests_requested_by_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.reviewedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'asset_transfer_requests_reviewed_by_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.fromLocationId],
+      foreignColumns: [locations.id],
+      name: 'asset_transfer_requests_from_location_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.toWarehouseId],
+      foreignColumns: [warehouses.id],
+      name: 'asset_transfer_requests_to_warehouse_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.toLocationId],
+      foreignColumns: [locations.id],
+      name: 'asset_transfer_requests_to_location_id_fkey',
+    }),
+    check(
+      'ck_asset_transfer_request_review_fields',
+      sql`((status IN ('CONFIRMED'::document_status, 'REJECTED'::document_status)) AND reviewed_by_member_id IS NOT NULL AND reviewed_at IS NOT NULL) OR (status NOT IN ('CONFIRMED'::document_status, 'REJECTED'::document_status) AND reviewed_by_member_id IS NULL AND reviewed_at IS NULL)`,
+    ),
+    check(
+      'ck_asset_transfer_request_rejection_reason',
       sql`(status <> 'REJECTED'::document_status) OR length(btrim(coalesce(rejection_reason, ''))) > 0`,
     ),
   ],
