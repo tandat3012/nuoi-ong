@@ -12,8 +12,9 @@ import { Select } from '@/shared/components/ui/select';
 import { Input } from '@/shared/components/ui/input';
 import { Button } from '@/shared/components/ui/button';
 import { WarehouseLotSelect } from '@/features/inventory';
-import { canCreateStockDocuments, StockDocumentLines, StockDocumentReview, stockDocumentActions } from '@/features/stock-documents';
+import { canCreateStockDocuments, StockDocumentLines, StockDocumentReview, stockDocumentActions, useStockDocumentQuery } from '@/features/stock-documents';
 import { shouldReloadAfterFailure } from '@/features/stock-documents/stock-document.logic';
+import { useNotificationRefresh } from '@/features/notifications';
 
 type Warehouse = { id: string; code: string; name: string };
 type Item = { id: string; code: string; name: string; trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' };
@@ -32,7 +33,8 @@ function errorMessage(error: unknown) {
 
 export function TransfersScreen() {
   const { selectedFarmId } = useAuthContext();
-  return <FarmTransfersScreen key={selectedFarmId} />;
+  const notificationRevision = useNotificationRefresh();
+  return <FarmTransfersScreen key={`${selectedFarmId}:${notificationRevision}`} />;
 }
 
 function FarmTransfersScreen() {
@@ -56,7 +58,7 @@ function FarmTransfersScreen() {
   const [error, setError] = useState<string | null>(null);
   // Action failures live apart from `error`, which every list reload clears.
   const [actionError, setActionError] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useStockDocumentQuery();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ transferCode: '', fromWarehouseId: '', toWarehouseId: '', itemId: '', lotId: '', quantity: '1', note: '' });
 

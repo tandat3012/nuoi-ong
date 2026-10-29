@@ -107,3 +107,22 @@ export function normalizeRejectionReason(value: string) {
     return { error: "Lý do từ chối tối đa 4000 ký tự." } as const;
   return { reason } as const;
 }
+
+export function stockDocumentQueryId(params: Pick<URLSearchParams, "get">) {
+  const id = params.get("id") ?? "";
+  // Same UUID validation as features/requests/requests.logic.ts.
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+    ? id : null;
+}
+
+export function stockDocumentHref(
+  pathname: string,
+  params: Pick<URLSearchParams, "toString">,
+  id: string | null,
+) {
+  const next = new URLSearchParams(params.toString());
+  if (id) next.set("id", id);
+  else next.delete("id");
+  const query = next.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}

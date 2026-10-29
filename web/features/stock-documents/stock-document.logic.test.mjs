@@ -6,6 +6,8 @@ import {
   shouldReloadAfterFailure,
   stockDocumentActions,
   stockDocumentErrorMessage,
+  stockDocumentHref,
+  stockDocumentQueryId,
 } from "./stock-document.logic.ts";
 
 const owner = { roles: ["FARM_OWNER"], memberId: "owner" };
@@ -105,4 +107,28 @@ test("rejection reasons are trimmed and bounded", () => {
   });
   assert.ok(normalizeRejectionReason("   ").error);
   assert.ok(normalizeRejectionReason("x".repeat(4001)).error);
+});
+
+test("document query IDs accept UUIDs and ignore missing or invalid values", () => {
+  const id = "123e4567-e89b-42d3-a456-426614174000";
+  assert.equal(stockDocumentQueryId(new URLSearchParams({ id })), id);
+  assert.equal(stockDocumentQueryId(new URLSearchParams({ id: id.toUpperCase() })), id.toUpperCase());
+  assert.equal(stockDocumentQueryId(new URLSearchParams(`id=${encodeURIComponent(id)}`)), id);
+  assert.equal(stockDocumentQueryId(new URLSearchParams(`id=${id}&id=invalid`)), id);
+  for (const value of ["", "invalid", "../other", "id?x=1", ` ${id}`, `${id}/other`]) {
+    assert.equal(stockDocumentQueryId(new URLSearchParams({ id: value })), null);
+  }
+  assert.equal(stockDocumentQueryId(new URLSearchParams()), null);
+});
+
+test("receipt, transfer and count URLs preserve filters when opening, replacing or closing a document", () => {
+  const id = "123e4567-e89b-42d3-a456-426614174000";
+  for (const path of ["/receipts", "/transfers", "/counts"]) {
+    const params = new URLSearchParams("status=DRAFT&page=2&id=old&id=duplicate");
+    assert.equal(stockDocumentHref(path, params, id), `${path}?status=DRAFT&page=2&id=${id}`);
+    assert.equal(stockDocumentHref(path, params, null), `${path}?status=DRAFT&page=2`);
+    assert.equal(params.toString(), "status=DRAFT&page=2&id=old&id=duplicate");
+    assert.equal(stockDocumentHref(path, new URLSearchParams({ id }), null), path);
+    assert.equal(stockDocumentHref(path, new URLSearchParams(), id), `${path}?id=${id}`);
+  }
 });

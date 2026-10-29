@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthContext } from "@/features/auth";
+import { useNotificationRefresh } from "@/features/notifications";
 import { IssueDetail } from "./issue-detail";
 import { IssueDraftForm } from "./issue-draft-form";
 import type { IssueDetail as IssueDetailData } from "../types/issue";
@@ -11,6 +12,7 @@ import type { StockDocumentViewer } from "@/features/stock-documents/stock-docum
 
 export function IssueDetailRoute({ id }: { id: string }) {
   const { data, selectedFarmId } = useAuthContext();
+  const notificationRevision = useNotificationRefresh();
   const membership = data.memberships.find(
     ({ farm }) => farm.id === selectedFarmId,
   );
@@ -18,7 +20,7 @@ export function IssueDetailRoute({ id }: { id: string }) {
     return <p role="status">Vui lòng chọn trang trại để xem phiếu xuất.</p>;
   return (
     <FarmIssueDetailRoute
-      key={`${membership.farm.id}:${id}`}
+      key={`${membership.farm.id}:${id}:${notificationRevision}`}
       farmId={membership.farm.id}
       id={id}
       viewer={{ roles: membership.roles, memberId: membership.memberId }}
