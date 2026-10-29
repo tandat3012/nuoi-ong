@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "owner": "erikquocduys-team",
+    "name": "Nuoi Ong",
+    "slug": "nuoi-ong-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "nuoi-ong",
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-dev-client",
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Cho phép Nuôi Ong dùng camera để quét mã QR tài sản.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "android": {
+      "package": "com.nuoi.ong.mobile",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.nuoi.ong.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4fd517d0-9ab7-49c7-b833-a9e3b4280ea1"
+      }
+    }
+  }
+}
