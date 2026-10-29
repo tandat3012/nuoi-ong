@@ -20,6 +20,7 @@ import {
   UpdateStockCountDto,
 } from './dto/stock-count.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
+import { auditStockDocument } from './stock-document-audit';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -122,10 +123,13 @@ export class StockCountsService {
           note: input.note,
           createdByMemberId: member,
         })
-        .returning({ id: stockCounts.id });
+        .returning();
       await tx
         .insert(stockCountItems)
         .values(rows.map((line) => ({ stockCountId: row.id, ...line })));
+      await auditStockDocument(tx, member, 'STOCK_COUNT', 'CREATE', null, row, {
+        after: rows,
+      });
       return row.id;
     });
     return this.withItems(id, farmId);
@@ -146,6 +150,7 @@ export class StockCountsService {
       assertOwnDocument(writer, current.createdByMemberId);
       if (!['DRAFT', 'COUNTING'].includes(current.status))
         throw new ConflictException('Only active counts can be edited');
+      let lines: { before?: object[]; after?: object[] } = {};
       if (input.items) {
         this.validateItems(input.items);
         const rows: SnapshotLine[] = [];
@@ -167,6 +172,11 @@ export class StockCountsService {
             note: line.note,
           });
         }
+        const before = await tx
+          .select()
+          .from(stockCountItems)
+          .where(eq(stockCountItems.stockCountId, id));
+        lines = { before, after: rows };
         await tx
           .delete(stockCountItems)
           .where(eq(stockCountItems.stockCountId, id));
@@ -174,14 +184,23 @@ export class StockCountsService {
           .insert(stockCountItems)
           .values(rows.map((line) => ({ stockCountId: id, ...line })));
       }
+      const changes = {
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        status: 'COUNTING' as const,
+      };
       await tx
         .update(stockCounts)
-        .set({
-          ...(input.note !== undefined ? { note: input.note } : {}),
-          status: 'COUNTING',
-          updatedAt: new Date().toISOString(),
-        })
+        .set({ ...changes, updatedAt: new Date().toISOString() })
         .where(eq(stockCounts.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_COUNT',
+        'UPDATE',
+        current,
+        { ...current, ...changes },
+        lines,
+      );
     });
     return this.withItems(id, farmId);
   }
@@ -200,6 +219,17 @@ export class StockCountsService {
         .update(stockCounts)
         .set({ status: 'CANCELLED', updatedAt: new Date().toISOString() })
         .where(eq(stockCounts.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_COUNT',
+        'CANCEL',
+        row,
+        {
+          ...row,
+          status: 'CANCELLED',
+        },
+      );
     });
     return this.withItems(id, farmId);
   }
@@ -228,6 +258,17 @@ export class StockCountsService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockCounts.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_COUNT',
+        'SUBMIT',
+        row,
+        {
+          ...row,
+          status: 'PENDING_APPROVAL',
+        },
+      );
       await notifyFarmApprovers(
         tx,
         this.notification(row, 'PENDING_APPROVAL'),
@@ -267,6 +308,11 @@ export class StockCountsService {
           updatedAt: now,
         })
         .where(eq(stockCounts.id, id));
+      await auditStockDocument(tx, member, 'STOCK_COUNT', 'REJECT', row, {
+        ...row,
+        status: 'REJECTED',
+        rejectionReason: reason,
+      });
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,
@@ -349,6 +395,10 @@ export class StockCountsService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockCounts.id, id));
+      await auditStockDocument(tx, member, 'STOCK_COUNT', 'CONFIRM', row, {
+        ...row,
+        status: 'CONFIRMED',
+      });
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,

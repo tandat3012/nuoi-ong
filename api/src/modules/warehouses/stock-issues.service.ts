@@ -37,6 +37,7 @@ import {
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
+import { auditStockDocument } from './stock-document-audit';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -149,7 +150,7 @@ export class StockIssuesService {
             note: input.note,
             createdByMemberId: memberId,
           })
-          .returning({ id: stockIssues.id });
+          .returning();
         await tx.insert(stockIssueItems).values(
           input.items.map((line) => ({
             stockIssueId: issue.id,
@@ -159,6 +160,17 @@ export class StockIssuesService {
             quantity: line.quantity,
             note: line.note,
           })),
+        );
+        await auditStockDocument(
+          tx,
+          memberId,
+          'STOCK_ISSUE',
+          'CREATE',
+          null,
+          issue,
+          {
+            after: input.items,
+          },
         );
         return issue.id;
       })
@@ -211,8 +223,13 @@ export class StockIssuesService {
           throw new ConflictException('SALE issues must be linked to an order');
         }
         await this.validateLines(tx, farmId, lines, issueType);
+        let previousLines: (typeof stockIssueItems.$inferSelect)[] | undefined;
         if (input.items) {
           this.validateItems(input.items);
+          previousLines = await tx
+            .select()
+            .from(stockIssueItems)
+            .where(eq(stockIssueItems.stockIssueId, id));
           await tx
             .delete(stockIssueItems)
             .where(eq(stockIssueItems.stockIssueId, id));
@@ -246,6 +263,15 @@ export class StockIssuesService {
             .update(stockIssues)
             .set(changes)
             .where(eq(stockIssues.id, id));
+        await auditStockDocument(
+          tx,
+          writer.memberId,
+          'STOCK_ISSUE',
+          'UPDATE',
+          current,
+          { ...current, ...changes },
+          input.items ? { before: previousLines, after: input.items } : {},
+        );
       })
       .catch((error: unknown) => this.throwDuplicateCode(error));
     return this.withItems(id, farmId);
@@ -271,6 +297,17 @@ export class StockIssuesService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockIssues.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_ISSUE',
+        'CANCEL',
+        issue,
+        {
+          ...issue,
+          status: 'CANCELLED',
+        },
+      );
     });
     return this.withItems(id, farmId);
   }
@@ -299,6 +336,17 @@ export class StockIssuesService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockIssues.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_ISSUE',
+        'SUBMIT',
+        issue,
+        {
+          ...issue,
+          status: 'PENDING_APPROVAL',
+        },
+      );
       await notifyFarmApprovers(
         tx,
         this.notification(issue, 'PENDING_APPROVAL'),
@@ -340,6 +388,11 @@ export class StockIssuesService {
           updatedAt: now,
         })
         .where(eq(stockIssues.id, id));
+      await auditStockDocument(tx, memberId, 'STOCK_ISSUE', 'REJECT', issue, {
+        ...issue,
+        status: 'REJECTED',
+        rejectionReason: reason,
+      });
       if (issue.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,
@@ -529,6 +582,10 @@ export class StockIssuesService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockIssues.id, id));
+      await auditStockDocument(tx, memberId, 'STOCK_ISSUE', 'CONFIRM', issue, {
+        ...issue,
+        status: 'CONFIRMED',
+      });
       if (issue.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,

@@ -182,6 +182,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     await app?.close();
     try {
       for (const table of [
+        'audit_logs',
         'inventory_transactions',
         'stock_counts',
         'stock_transfers',

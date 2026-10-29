@@ -22,6 +22,7 @@ import {
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
+import { auditStockDocument } from './stock-document-audit';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -143,6 +144,17 @@ export class StockReceiptsService {
           note: item.note,
         })),
       );
+      await auditStockDocument(
+        tx,
+        memberId,
+        'STOCK_RECEIPT',
+        'CREATE',
+        null,
+        receipt,
+        {
+          after: input.items,
+        },
+      );
       return receipt.id;
     });
     const result = await transaction.catch((error: unknown) =>
@@ -221,6 +233,15 @@ export class StockReceiptsService {
           })),
         );
       }
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_RECEIPT',
+        'UPDATE',
+        receipt,
+        { ...receipt, ...changes },
+        input.items ? { before: currentItems, after: input.items } : {},
+      );
     });
     await transaction.catch((error: unknown) =>
       this.throwMappedUniqueConflict(
@@ -250,6 +271,17 @@ export class StockReceiptsService {
           updatedAt: new Date().toISOString(),
         })
         .where(and(eq(stockReceipts.id, id), eq(stockReceipts.farmId, farmId)));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_RECEIPT',
+        'CANCEL',
+        receipt,
+        {
+          ...receipt,
+          status: 'CANCELLED',
+        },
+      );
     });
     return this.getReceiptWithItems(id, farmId);
   }
@@ -278,6 +310,17 @@ export class StockReceiptsService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockReceipts.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_RECEIPT',
+        'SUBMIT',
+        receipt,
+        {
+          ...receipt,
+          status: 'PENDING_APPROVAL',
+        },
+      );
       await notifyFarmApprovers(
         tx,
         this.notification(receipt, 'PENDING_APPROVAL'),
@@ -317,6 +360,18 @@ export class StockReceiptsService {
           updatedAt: now,
         })
         .where(eq(stockReceipts.id, id));
+      await auditStockDocument(
+        tx,
+        memberId,
+        'STOCK_RECEIPT',
+        'REJECT',
+        receipt,
+        {
+          ...receipt,
+          status: 'REJECTED',
+          rejectionReason: reason,
+        },
+      );
       if (receipt.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,
@@ -524,6 +579,17 @@ export class StockReceiptsService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockReceipts.id, id));
+      await auditStockDocument(
+        tx,
+        memberId,
+        'STOCK_RECEIPT',
+        'CONFIRM',
+        receipt,
+        {
+          ...receipt,
+          status: 'CONFIRMED',
+        },
+      );
       if (receipt.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,

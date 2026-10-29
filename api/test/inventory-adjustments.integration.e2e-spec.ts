@@ -401,6 +401,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     try {
       await cleanup.query('BEGIN');
       await cleanup.query(
+        'DELETE FROM audit_logs WHERE farm_id = ANY($1::uuid[])',
+        [[farmId, otherFarmId]],
+      );
+      await cleanup.query(
         'DELETE FROM inventory_transactions WHERE farm_id = ANY($1::uuid[])',
         [[farmId, otherFarmId]],
       );
