@@ -11,6 +11,12 @@ import { RECEIPT_STATUS_LABELS } from "../types/receipt";
 import type { ReceiptDraftInitial } from "../types/receipt";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
+import {
+  RejectionNotice,
+  StockDocumentReview,
+  stockDocumentActions,
+} from "@/features/stock-documents";
+import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 
 const date = (value: string | null) =>
   value ? value.split("-").reverse().join("/") : "—";
@@ -18,7 +24,7 @@ const date = (value: string | null) =>
 export function ReceiptDetail({
   farmId,
   id,
-  canWrite,
+  viewer,
   onBack,
   onEdit,
   onCancelled,
@@ -26,7 +32,7 @@ export function ReceiptDetail({
 }: {
   farmId: string;
   id: string;
-  canWrite: boolean;
+  viewer: StockDocumentViewer;
   onBack: () => void;
   onEdit: (initial: ReceiptDraftInitial) => void;
   onCancelled: () => void;
@@ -43,9 +49,17 @@ export function ReceiptDetail({
     isLoading,
     reload,
   } = useReceiptDetail(farmId, id);
+  const actions = stockDocumentActions(
+    viewer,
+    detail?.receipt ?? { status: "CANCELLED", createdByMemberId: null },
+  );
+  const refresh = () => {
+    reload();
+    onConfirmed();
+  };
   const { cancel, isCancelling, cancelError } = useCancelReceipt(
     farmId,
-    canWrite,
+    actions.cancel,
     id,
     onCancelled,
   );
@@ -57,12 +71,9 @@ export function ReceiptDetail({
   );
   const { confirm, isConfirming, confirmError } = useConfirmReceipt(
     farmId,
-    canWrite,
+    actions.confirm,
     id,
-    () => {
-      reload();
-      onConfirmed();
-    },
+    refresh,
   );
 
   return (
@@ -78,7 +89,7 @@ export function ReceiptDetail({
           >
             Quay lại danh sách
           </Button>
-          {canWrite && detail?.receipt.status === "DRAFT" && canEdit && (
+          {actions.edit && canEdit && (
             <Button
               onClick={() => {
                 if (!detail) return;
@@ -96,7 +107,7 @@ export function ReceiptDetail({
               Sửa nháp
             </Button>
           )}
-          {canWrite && detail?.receipt.status === "DRAFT" && (
+          {actions.cancel && (
             <Button
               onClick={() => {
                 if (window.confirm("Bạn có chắc muốn hủy phiếu nhập nháp này?"))
@@ -109,7 +120,19 @@ export function ReceiptDetail({
               {isCancelling ? "Đang hủy..." : "Hủy phiếu nháp"}
             </Button>
           )}
-          {canWrite && detail?.receipt.status === "DRAFT" && canConfirm && (
+          {detail && (
+            <StockDocumentReview
+              kind="stock-receipts"
+              farmId={farmId}
+              id={id}
+              code={detail.receipt.receiptCode}
+              canSubmit={actions.submit}
+              canReject={actions.reject}
+              disabled={isCancelling || isConfirming}
+              onChanged={refresh}
+            />
+          )}
+          {actions.confirm && canConfirm && (
             <Button
               onClick={() => {
                 if (
@@ -158,8 +181,8 @@ export function ReceiptDetail({
                 {confirmError}
               </div>
             )}
-            {canWrite &&
-              detail.receipt.status === "DRAFT" &&
+            <RejectionNotice reason={detail.receipt.rejectionReason} />
+            {(actions.confirm || actions.submit) &&
               !canConfirm &&
               !warning && (
                 <p role="status" className="rounded-xl border p-3 text-sm">
@@ -168,7 +191,7 @@ export function ReceiptDetail({
                     : "Phiếu có dòng hàng thiếu thông tin LOT/ASSET hoặc dữ liệu hàng hóa chưa tải được nên chưa thể xác nhận."}
                 </p>
               )}
-            {canWrite && detail.receipt.status === "DRAFT" && !canEdit && (
+            {actions.edit && !canEdit && (
               <p role="status" className="rounded-xl border p-3 text-sm">
                 Phiếu nháp có dòng hàng chưa tải được hoặc dữ liệu không hợp lệ
                 nên chưa thể sửa bằng form hiện tại.

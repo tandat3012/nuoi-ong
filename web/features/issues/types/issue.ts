@@ -39,6 +39,7 @@ export interface Issue {
   updatedAt: string;
   confirmedAt: string | null;
   cancelledAt: string | null;
+  rejectionReason?: string | null;
 }
 
 export interface IssueLine {

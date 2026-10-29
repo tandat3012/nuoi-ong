@@ -105,7 +105,7 @@ export function supportsQuantityDraftConfirm(
   references: Record<string, ReceiptItemReference> | undefined,
 ) {
   return (
-    detail.receipt.status === 'DRAFT' &&
+    ['DRAFT', 'PENDING_APPROVAL'].includes(detail.receipt.status) &&
     detail.items.length > 0 &&
     detail.items.every((line) => supportedLine(line, references, true))
   );
