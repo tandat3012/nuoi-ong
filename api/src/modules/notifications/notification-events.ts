@@ -20,6 +20,8 @@ type DocumentNotification = {
   documentKind: string;
   status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED';
   rejectionReason?: string;
+  /** Overrides the default stock-document title ("Phiếu …"). */
+  title?: string;
 };
 
 async function insertForUsers(
@@ -55,7 +57,7 @@ async function insertForUsers(
         userId,
         farmId: notification.farmId,
         type: labels.type,
-        title: labels.title,
+        title: notification.title ?? labels.title,
         body: labels.body,
         entityType: notification.entityType,
         entityId: notification.entityId,
