@@ -62,7 +62,7 @@ export default function AssetDetailScreen() {
     void getAccessToken()
       .then((accessToken) => {
         if (!accessToken) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
-        return apiRequest<AssetLookup>(`/assets/by-qr/${encodeURIComponent(token)}`, {
+        return apiRequest<AssetLookup>(`/assets/by-code/${encodeURIComponent(token)}`, {
           token: accessToken,
           params: { farmId: currentFarmId },
         }).then(async (assetResponse) => {
@@ -116,7 +116,8 @@ export default function AssetDetailScreen() {
     && ['AVAILABLE', 'ASSIGNED', 'IN_USE'].includes(lookup?.asset.status ?? '')
     && !hasActiveMaintenance
     && !hasPendingMaintenanceRequest;
-  const canTransferAsset = lookup?.asset.status === 'AVAILABLE' && Boolean(lookup.locationWarehouseId) && !hasActiveMaintenance;
+  // shortcut: dev forbids ASSET in stock transfers; hidden until the app uses asset-transfer-requests.
+  const canTransferAsset = false;
   const canReturnAsset = Boolean(currentMembership?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER'))
     && ['ASSIGNED', 'IN_USE'].includes(lookup?.asset.status ?? '');
   const nextMaintenance = maintenanceRecords.find((record) => record.status === 'SCHEDULED');

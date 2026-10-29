@@ -57,7 +57,8 @@ export default function StockCountScreen() {
       return { detailResponse: null, itemResponse, warehouseResponse, balanceResponse };
     }).then(({ detailResponse, itemResponse, warehouseResponse, balanceResponse }) => {
       if (cancelled) return;
-      const catalog = itemResponse.data;
+      // dev rejects ASSET lines in stock counts; assets are reconciled through asset records.
+      const catalog = itemResponse.data.filter((item) => item.trackingMode !== 'ASSET');
       setCatalogItems(catalog);
       setWarehouses(warehouseResponse.data);
       const itemById = new Map(catalog.map((item) => [item.id, item]));
@@ -66,7 +67,7 @@ export default function StockCountScreen() {
         const mapped = detail.items.map((line) => { const item = itemById.get(line.itemId); return { id: line.id, itemId: line.itemId, lotId: line.lotId, assetId: line.assetId, name: item?.name ?? 'Vật tư không còn trong danh mục', code: item?.code ?? line.itemId, system: Number(line.systemQuantity ?? 0), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(line.actualQuantity ?? 0), icon: 'grid-view' as const, reason: line.note ?? undefined }; });
         setCountItems(mapped); setValues(Object.fromEntries(mapped.map((item) => [item.id, item.initial]))); setReasons(Object.fromEntries(mapped.filter((item) => item.reason).map((item) => [item.id, item.reason ?? '']))); setCountCode(detail.count.countCode); setWarehouseId(detail.count.warehouseId); setCountStatus(detail.count.status);
       } else {
-        const mapped = balanceResponse?.data.map(({ balance, itemCode, itemName }) => { const item = itemById.get(balance.itemId); return { id: balance.id, itemId: balance.itemId, lotId: balance.lotId, name: itemName, code: itemCode, system: Number(balance.quantityOnHand), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(balance.quantityOnHand), icon: 'grid-view' as const }; }) ?? [];
+        const mapped = balanceResponse?.data.filter((row) => row.trackingMode !== 'ASSET').map(({ balance, itemCode, itemName }) => { const item = itemById.get(balance.itemId); return { id: balance.id, itemId: balance.itemId, lotId: balance.lotId, name: itemName, code: itemCode, system: Number(balance.quantityOnHand), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(balance.quantityOnHand), icon: 'grid-view' as const }; }) ?? [];
         setCountItems(mapped); setValues(Object.fromEntries(mapped.map((item) => [item.id, item.initial]))); setCountCode(`SC-${Date.now()}`); setWarehouseId(warehouseResponse.data[0]?.id ?? ''); setCountStatus('DRAFT');
       }
       setError(null);
@@ -96,7 +97,7 @@ export default function StockCountScreen() {
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
       const response = await listBalances(token, currentFarmId, id);
       const itemById = new Map(catalogItems.map((item) => [item.id, item]));
-      const mapped = response.data.map(({ balance, itemCode, itemName }) => { const item = itemById.get(balance.itemId); return { id: balance.id, itemId: balance.itemId, lotId: balance.lotId, name: itemName, code: itemCode, system: Number(balance.quantityOnHand), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(balance.quantityOnHand), icon: 'grid-view' as const }; });
+      const mapped = response.data.filter((row) => row.trackingMode !== 'ASSET').map(({ balance, itemCode, itemName }) => { const item = itemById.get(balance.itemId); return { id: balance.id, itemId: balance.itemId, lotId: balance.lotId, name: itemName, code: itemCode, system: Number(balance.quantityOnHand), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(balance.quantityOnHand), icon: 'grid-view' as const }; });
       setCountItems(mapped);
       setValues(Object.fromEntries(mapped.map((item) => [item.id, item.initial])));
       setReasons({});

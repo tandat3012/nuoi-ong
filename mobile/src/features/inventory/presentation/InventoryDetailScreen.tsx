@@ -110,7 +110,7 @@ export default function InventoryDetailScreen() {
       <View style={styles.actions}>
         <View style={styles.action}><PrimaryButton label="Tạo phiếu nhập" icon="input" onPress={() => openDocument('receipt')} /></View>
         {canIssueOrTransfer ? <View style={styles.action}><PrimaryButton label="Tạo phiếu xuất" icon="output" onPress={() => openDocument('issue')} /></View> : null}
-        {canIssueOrTransfer ? <View style={styles.action}><PrimaryButton label="Điều chuyển kho" icon="swap-horiz" onPress={() => openDocument('transfer')} /></View> : null}
+        {canIssueOrTransfer && item?.trackingMode !== 'ASSET' ? <View style={styles.action}><PrimaryButton label="Điều chuyển kho" icon="swap-horiz" onPress={() => openDocument('transfer')} /></View> : null}
         {!canIssueOrTransfer && !balanceLoading ? <Text style={styles.noStockNotice}>Chưa có tồn dương tại kho này; chỉ có thể tạo phiếu nhập.</Text> : null}
       </View>
     </>}

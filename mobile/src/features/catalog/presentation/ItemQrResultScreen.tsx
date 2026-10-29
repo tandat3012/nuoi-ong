@@ -19,6 +19,7 @@ export default function ItemQrResultScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasPositiveStockInScope, setHasPositiveStockInScope] = useState(false);
+  const [isAsset, setIsAsset] = useState(false);
   const farmName = data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.farm.name
     ?? (data?.memberships.length === 1 ? data.memberships[0]?.farm.name : undefined)
     ?? 'Chưa chọn trang trại';
@@ -54,6 +55,7 @@ export default function ItemQrResultScreen() {
             const availableAssets = await listAvailableAssets(token, currentFarmId, warehouseId);
             return {
               qrResponse,
+              isAsset: true,
               hasPositiveStock: filterAvailableAssetsForScope(availableAssets, currentFarmId, warehouseId)
                 .some(({ asset }) => asset.itemId === itemId),
             };
@@ -67,9 +69,10 @@ export default function ItemQrResultScreen() {
           };
         });
       })
-      .then(({ qrResponse, hasPositiveStock }) => {
+      .then(({ qrResponse, hasPositiveStock, isAsset }) => {
         if (!cancelled) {
           setResult(qrResponse.data);
+          setIsAsset(Boolean(isAsset));
           setHasPositiveStockInScope(hasPositiveStock);
           setError(null);
         }
@@ -104,7 +107,7 @@ export default function ItemQrResultScreen() {
             <Icon name="output" color={colors.primary} /><Text style={styles.operationText}>Tạo phiếu xuất</Text>
           </Pressable> : null}
         </View>
-        {hasPositiveStockInScope && warehouseId ? <Pressable onPress={() => router.push(`/transfers/new?itemId=${encodeURIComponent(result.itemId)}&sourceWarehouseId=${encodeURIComponent(warehouseId)}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
+        {hasPositiveStockInScope && warehouseId && !isAsset ? <Pressable onPress={() => router.push(`/transfers/new?itemId=${encodeURIComponent(result.itemId)}&sourceWarehouseId=${encodeURIComponent(warehouseId)}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
           <Icon name="swap-horiz" color={colors.primary} /><Text style={styles.operationText}>Tạo phiếu điều chuyển</Text>
         </Pressable> : null}
         {warehouseId && !hasPositiveStockInScope ? <Text style={styles.noStockNotice}>Kho đang chọn chưa có tồn dương của vật tư này; chỉ có thể tạo phiếu nhập.</Text> : null}

@@ -8,7 +8,7 @@ import NotificationBell from '@/src/features/notifications/presentation/Notifica
 import { OperationResultDialog } from '@/src/shared/ui/OperationResultDialog';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
-import { filterPositiveBalancesForScope, listAvailableAssets, listBalances, listItems, listWarehouses, type AvailableAsset, type Item, type Paginated, type Warehouse } from '@/src/features/inventory/api';
+import { filterPositiveBalancesForScope, listBalances, listItems, listWarehouses, type Item, type Paginated, type Warehouse } from '@/src/features/inventory/api';
 import { formatQuantity } from '@/src/shared/format-quantity';
 
 export type InventoryActionMode = 'material' | 'maintenance' | 'transfer' | 'assetReturn';
@@ -123,11 +123,8 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     setTransferLoading(true);
     void getAccessToken().then((token) => {
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
-      return Promise.all([
-        listBalances(token, currentFarmId, form.sourceWarehouse, true, true),
-        listAvailableAssets(token, currentFarmId, form.sourceWarehouse),
-      ]);
-    }).then(([balanceResponse, availableAssets]) => {
+      return listBalances(token, currentFarmId, form.sourceWarehouse, true, true);
+    }).then((balanceResponse) => {
       if (cancelled) return;
       const balances = filterPositiveBalancesForScope(balanceResponse.data, currentFarmId, form.sourceWarehouse);
       const itemById = new Map(items.map((item) => [item.id, item]));
@@ -150,14 +147,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
         const item = itemById.get(itemId)!;
         options.push({ id: `QTY:${itemId}`, itemId, trackingMode: 'QUANTITY', quantity, label: `${item.name} • ${item.code} • Tồn ${formatQuantity(quantity)}` });
       }
-      const assetById = new Map<string, AvailableAsset>();
-      for (const asset of availableAssets) {
-        if (asset.asset.farmId !== currentFarmId || asset.locationWarehouseId !== form.sourceWarehouse) continue;
-        assetById.set(asset.asset.id, asset);
-      }
-      for (const asset of assetById.values()) {
-        options.push({ id: `ASSET:${asset.asset.id}`, itemId: asset.asset.itemId, assetId: asset.asset.id, trackingMode: 'ASSET', quantity: 1, label: `${asset.itemName} • ${asset.asset.assetCode} • Tài sản` });
-      }
+      // dev rejects ASSET in stock transfers; assets move through the asset lifecycle.
       setTransferOptions(options);
       const requestedOption = params.assetId
         ? options.find((option) => option.assetId === params.assetId)
@@ -180,7 +170,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
   }, [currentFarmId, form.sourceWarehouse, getAccessToken, items, mode, params.assetId, params.itemId, params.lotId]);
 
   const pickerOptions = useMemo(() => ({
-    tracking: mode === 'material' ? ['SỐ LƯỢNG', 'THEO LÔ'] : ['SỐ LƯỢNG', 'THEO LÔ', 'TÀI SẢN'],
+    tracking: mode === 'material' || mode === 'transfer' ? ['SỐ LƯỢNG', 'THEO LÔ'] : ['SỐ LƯỢNG', 'THEO LÔ', 'TÀI SẢN'],
     asset: assets.map((asset) => asset.label),
     sourceWarehouse: warehouses.map((warehouse) => `${warehouse.id} • ${warehouse.code} • ${warehouse.name}`),
     destinationWarehouse: warehouses.map((warehouse) => `${warehouse.id} • ${warehouse.code} • ${warehouse.name}`),

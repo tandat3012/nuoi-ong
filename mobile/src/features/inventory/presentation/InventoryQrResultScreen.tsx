@@ -93,7 +93,7 @@ export default function InventoryQrResultScreen() {
             <Icon name="output" color={colors.primary} /><Text style={styles.operationText}>Tạo phiếu xuất</Text>
           </Pressable> : null}
         </View>
-        {hasPositiveBalance ? <Pressable onPress={() => router.push(`/transfers/new?sourceWarehouseId=${encodeURIComponent(result.balance.warehouseId)}&itemId=${encodeURIComponent(result.balance.itemId)}${result.balance.lotId ? `&lotId=${encodeURIComponent(result.balance.lotId)}` : ''}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
+        {hasPositiveBalance && result?.trackingMode !== 'ASSET' ? <Pressable onPress={() => router.push(`/transfers/new?sourceWarehouseId=${encodeURIComponent(result.balance.warehouseId)}&itemId=${encodeURIComponent(result.balance.itemId)}${result.balance.lotId ? `&lotId=${encodeURIComponent(result.balance.lotId)}` : ''}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
           <Icon name="swap-horiz" color={colors.primary} /><Text style={styles.operationText}>Tạo phiếu điều chuyển</Text>
         </Pressable> : null}
         <Pressable onPress={startNewScan} style={({ pressed }) => [styles.secondaryAction, pressed && styles.pressed]}><Icon name="qr-code-scanner" color={colors.deepAmber} /><Text style={styles.secondaryText}>Quét mã tiếp theo</Text></Pressable>
