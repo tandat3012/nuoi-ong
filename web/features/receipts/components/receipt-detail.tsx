@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useReceiptDetail } from "../hooks/use-receipt-detail";
 import { useCancelReceipt } from "../hooks/use-cancel-receipt";
 import { useConfirmReceipt } from "../hooks/use-confirm-receipt";
@@ -53,6 +54,7 @@ export function ReceiptDetail({
     viewer,
     detail?.receipt ?? { status: "CANCELLED", createdByMemberId: null },
   );
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const refresh = () => {
     reload();
     onConfirmed();
@@ -62,6 +64,7 @@ export function ReceiptDetail({
     actions.cancel,
     id,
     onCancelled,
+    refresh,
   );
   const canEdit = Boolean(
     detail && supportsQuantityDraftEdit(detail, references),
@@ -73,6 +76,7 @@ export function ReceiptDetail({
     farmId,
     actions.confirm,
     id,
+    refresh,
     refresh,
   );
 
@@ -130,6 +134,7 @@ export function ReceiptDetail({
               canReject={actions.reject}
               disabled={isCancelling || isConfirming}
               onChanged={refresh}
+              onError={setReviewError}
             />
           )}
           {actions.confirm && canConfirm && (
@@ -171,6 +176,14 @@ export function ReceiptDetail({
                 className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
               >
                 {cancelError}
+              </div>
+            )}
+            {reviewError && (
+              <div
+                role="alert"
+                className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
+              >
+                {reviewError}
               </div>
             )}
             {confirmError && (

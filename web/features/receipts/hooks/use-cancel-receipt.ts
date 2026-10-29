@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { useAuthenticatedRequest } from '@/features/auth/hooks/use-authenticated-request';
 import { ApiError } from '@/shared/api/client';
+import { shouldReloadAfterFailure } from '@/features/stock-documents/stock-document.logic';
 import { cancelReceipt } from '../api/receipts.api';
 
 export function useCancelReceipt(
@@ -10,6 +11,8 @@ export function useCancelReceipt(
   canWrite: boolean,
   id: string,
   onCancelled: () => void,
+  /** Reloads the receipt after a failure the server answered, since its state may have changed. */
+  onFailed: () => void,
 ) {
   const request = useAuthenticatedRequest();
   const pending = useRef(false);
@@ -41,6 +44,10 @@ export function useCancelReceipt(
                 ? 'Phiếu nhập không tồn tại hoặc không thuộc trang trại này.'
                 : 'Chưa xác nhận được kết quả hủy. Hãy tải lại danh sách trước khi thử lại.';
       setError(message);
+      if (
+        shouldReloadAfterFailure(failure instanceof ApiError ? failure.status : null)
+      )
+        onFailed();
     } finally {
       pending.current = false;
     }

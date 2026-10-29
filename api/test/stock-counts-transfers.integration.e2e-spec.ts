@@ -254,6 +254,27 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     },
   );
 
+  it('returns item, unit and lot names on count and transfer lines', async () => {
+    for (const kind of ['transfers', 'counts'] as const) {
+      const id = await create(kind, '1');
+      const response = await http()
+        .get(`/api/v1/stock-${kind}/${id}`)
+        .query({ farmId: farm })
+        .expect(200);
+      const body = response.body as { data: { items: unknown[] } };
+      expect(body.data.items).toEqual([
+        expect.objectContaining({
+          itemId: item,
+          itemCode: tag,
+          itemName: tag,
+          trackingMode: 'QUANTITY',
+          unitName: tag,
+          lotNumber: null,
+        }),
+      ]);
+    }
+  });
+
   it('rolls back a transfer with insufficient stock', async () => {
     const id = await create('transfers', '11');
     await confirm('transfers', id).expect(409);

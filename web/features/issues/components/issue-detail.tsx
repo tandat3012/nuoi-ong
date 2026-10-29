@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useIssueDetail } from "../hooks/use-issue-detail";
 import { useCancelIssue } from "../hooks/use-cancel-issue";
@@ -40,6 +40,7 @@ export function IssueDetail({
 }) {
   const { detail, isLoading, error, reload } = useIssueDetail(farmId, id);
   const actionPending = useRef(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const refresh = () => {
     reload();
     onChanged();
@@ -103,6 +104,14 @@ export function IssueDetail({
           {confirmError}
         </p>
       )}
+      {reviewError && (
+        <p
+          role="alert"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+        >
+          {reviewError}
+        </p>
+      )}
       {cancelError && (
         <p
           role="alert"
@@ -155,6 +164,7 @@ export function IssueDetail({
                     canReject={actions.reject}
                     disabled={isProcessing}
                     onChanged={refresh}
+                    onError={setReviewError}
                   />
                   {actions.confirm && (
                     <Button

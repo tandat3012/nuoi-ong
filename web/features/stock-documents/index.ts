@@ -5,3 +5,4 @@ export {
   type StockDocumentStatus,
 } from "./stock-document.logic";
 export { RejectionNotice, StockDocumentReview } from "./stock-document-review";
+export { StockDocumentLines } from "./stock-document-lines";
