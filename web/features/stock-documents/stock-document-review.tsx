@@ -10,6 +10,7 @@ import {
   normalizeRejectionReason,
   shouldReloadAfterFailure,
   stockDocumentErrorMessage,
+  type createStockDocumentLock,
   type StockDocumentKind,
 } from "./stock-document.logic";
 
@@ -31,6 +32,7 @@ export function StockDocumentReview({
   canSubmit,
   canReject,
   disabled,
+  lock,
   onChanged,
   onError,
 }: {
@@ -41,6 +43,7 @@ export function StockDocumentReview({
   canSubmit: boolean;
   canReject: boolean;
   disabled?: boolean;
+  lock?: ReturnType<typeof createStockDocumentLock>;
   /** Called after every answered request so the screen reloads the document. */
   onChanged: () => void;
   /** Failures go to the parent, because the reload above can unmount this component. */
@@ -52,13 +55,14 @@ export function StockDocumentReview({
   const [rejecting, setRejecting] = useState(false);
 
   async function submit() {
-    if (pending.current) return;
+    if (disabled || pending.current || lock?.locked) return;
     if (
       !window.confirm(
         `Gửi phiếu ${code} để quản lý duyệt? Sau khi gửi, bạn không sửa hoặc hủy được phiếu nữa.`,
       )
     )
       return;
+    if (lock && !lock.acquire()) return;
     pending.current = true;
     setSubmitting(true);
     onError(null);
@@ -74,6 +78,7 @@ export function StockDocumentReview({
     } finally {
       pending.current = false;
       setSubmitting(false);
+      lock?.release();
     }
   }
 
@@ -81,7 +86,7 @@ export function StockDocumentReview({
   return (
     <>
       {canSubmit && (
-        <Button disabled={disabled || submitting} onClick={() => void submit()}>
+        <Button disabled={disabled || submitting || lock?.locked} onClick={() => void submit()}>
           {submitting ? "Đang gửi duyệt..." : "Gửi duyệt"}
         </Button>
       )}
@@ -89,8 +94,9 @@ export function StockDocumentReview({
         <Button
           variant="outline"
           className="border-destructive/40 text-destructive hover:bg-destructive/10"
-          disabled={disabled || submitting}
+          disabled={disabled || submitting || lock?.locked}
           onClick={() => {
+            if (disabled || pending.current || lock?.locked) return;
             onError(null);
             setRejecting(true);
           }}
@@ -110,12 +116,16 @@ export function StockDocumentReview({
               String(data.get("rejectionReason") ?? ""),
             );
             if ("error" in result) throw new Error(result.error);
+            if (disabled || pending.current || (lock && !lock.acquire()))
+              throw new Error("Phiếu đang được xử lý. Vui lòng thử lại.");
+            pending.current = true;
             try {
               await request(`/${kind}/${id}/reject`, {
                 method: "POST",
                 params: { farmId },
                 data: { rejectionReason: result.reason },
               });
+              onChanged();
             } catch (failure) {
               if (shouldReloadAfterFailure(failureStatus(failure))) {
                 // The dialog closes with the reload, so the parent keeps the message.
@@ -123,8 +133,10 @@ export function StockDocumentReview({
                 onChanged();
               }
               throw failure;
+            } finally {
+              pending.current = false;
+              lock?.release();
             }
-            onChanged();
           }}
         >
           <label className="block space-y-1 text-sm font-medium">

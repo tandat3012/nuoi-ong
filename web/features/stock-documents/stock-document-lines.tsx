@@ -13,6 +13,7 @@ import {
   shouldReloadAfterFailure,
   stockDocumentActions,
   stockDocumentErrorMessage,
+  type createStockDocumentLock,
   type StockDocumentState,
   type StockDocumentViewer,
 } from "./stock-document.logic";
@@ -65,6 +66,7 @@ export function StockDocumentLines({
   viewer,
   items,
   revision,
+  lock,
   onChanged,
   onError,
   onClose,
@@ -76,6 +78,8 @@ export function StockDocumentLines({
   /** Active non-ASSET catalog items offered when adding a line. */
   items: CatalogItem[];
   revision: number;
+  /** Held by the screen while a draft is being edited, so no other action runs meanwhile. */
+  lock: ReturnType<typeof createStockDocumentLock>;
   /** Called after every answered save so the screen reloads the list and this panel. */
   onChanged: () => void;
   onError: (message: string | null) => void;
@@ -88,6 +92,13 @@ export function StockDocumentLines({
   const [added, setAdded] = useState({ itemId: "", lotId: "" });
   const [formError, setFormError] = useState<string | null>(null);
   const saving = useRef(false);
+  const editing = useRef(false);
+  useEffect(
+    () => () => {
+      if (editing.current) lock.release();
+    },
+    [lock],
+  );
   const panel = useRef<HTMLElement>(null);
   useEffect(() => panel.current?.scrollIntoView({ block: "nearest" }), []);
   const [isSaving, setIsSaving] = useState(false);
@@ -100,7 +111,12 @@ export function StockDocumentLines({
       .then(({ data }) => {
         if (cancelled) return;
         const header = (counts ? data.count : data.transfer)!;
+        // A reload (e.g. after a save) replaces the draft, so the edit lock ends here.
         setDraft(null);
+        if (editing.current) {
+          editing.current = false;
+          lock.release();
+        }
         setAdded({ itemId: "", lotId: "" });
         setFormError(null);
         setResult({
@@ -120,13 +136,23 @@ export function StockDocumentLines({
     return () => {
       cancelled = true;
     };
-  }, [request, kind, id, farmId, counts, revision]);
+  }, [request, kind, id, farmId, counts, revision, lock]);
 
   const current = result?.revision === revision ? result : null;
   const detail = current?.detail;
   const canEdit = detail ? stockDocumentActions(viewer, detail.header).edit : false;
   const warehouseId = detail?.header.warehouseId ?? detail?.header.fromWarehouseId ?? "";
   const addedItem = items.find((item) => item.id === added.itemId);
+
+  function stopEditing() {
+    if (saving.current) return;
+    setDraft(null);
+    setFormError(null);
+    if (editing.current) {
+      editing.current = false;
+      lock.release();
+    }
+  }
 
   function updateLine(index: number, patch: Partial<Line>) {
     setDraft((current) =>
@@ -163,7 +189,7 @@ export function StockDocumentLines({
   }
 
   async function save() {
-    if (!draft || saving.current) return;
+    if (!draft || !editing.current || saving.current) return;
     const invalid = validateDocumentLines(kind, draft.lines);
     if (invalid) {
       setFormError(invalid);
@@ -204,12 +230,25 @@ export function StockDocumentLines({
           {canEdit && !draft && (
             <Button
               variant="outline"
-              onClick={() => detail && setDraft({ note: detail.header.note ?? "", lines: detail.lines })}
+              disabled={lock.locked}
+              onClick={() => {
+                if (!detail || !lock.acquire()) return;
+                editing.current = true;
+                setDraft({ note: detail.header.note ?? "", lines: detail.lines });
+              }}
             >
               Sửa nháp
             </Button>
           )}
-          <Button variant="outline" onClick={onClose} disabled={isSaving}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (saving.current) return;
+              stopEditing();
+              onClose();
+            }}
+            disabled={isSaving}
+          >
             Đóng
           </Button>
         </div>
@@ -285,6 +324,9 @@ export function StockDocumentLines({
           </div>
           {draft && (
             <>
+              <p role="status" className="text-sm text-muted-foreground">
+                Hãy lưu hoặc bỏ sửa trước khi thao tác phiếu khác hay xác nhận, gửi duyệt hoặc hủy phiếu.
+              </p>
               <div className="grid gap-3 md:grid-cols-3">
                 <Select
                   aria-label="Thêm vật tư"
@@ -326,13 +368,7 @@ export function StockDocumentLines({
               </label>
               <div className="flex gap-2">
                 <Button onClick={() => void save()}>{isSaving ? "Đang lưu..." : "Lưu thay đổi"}</Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDraft(null);
-                    setFormError(null);
-                  }}
-                >
+                <Button variant="outline" onClick={stopEditing}>
                   Bỏ sửa
                 </Button>
               </div>

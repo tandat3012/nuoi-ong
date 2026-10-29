@@ -21,6 +21,24 @@ export interface StockDocumentState {
   orderId?: string | null;
 }
 
+/** One edit or mutation at a time: list reloads also remount the open lines panel. */
+export function createStockDocumentLock(onChange: (locked: boolean) => void) {
+  let locked = false;
+  return {
+    get locked() { return locked; },
+    acquire() {
+      if (locked) return false;
+      locked = true;
+      onChange(true);
+      return true;
+    },
+    release() {
+      locked = false;
+      onChange(false);
+    },
+  };
+}
+
 export function canApproveStockDocuments(roles: readonly string[]) {
   return roles.some((role) => role === "ADMIN" || role === "FARM_OWNER");
 }
