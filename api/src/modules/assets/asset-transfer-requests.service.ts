@@ -33,6 +33,10 @@ import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
+import {
+  PENDING_MAINTENANCE_CONFLICT,
+  pendingMaintenanceRequest,
+} from '../maintenance/maintenance-requests.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { AssetLifecycleService } from './asset-lifecycle.service';
 import { CreateAssetTransferRequestDto } from './dto/asset-lifecycle.dto';
@@ -151,6 +155,9 @@ export class AssetTransferRequestsService {
           throw new ConflictException('Asset is already at this location');
         await this.assertDestination(tx, farmId, input);
         await this.assertNoActiveMaintenance(tx, farmId, input.assetId);
+        // Both request kinds lock the asset first, so they cannot both be pending.
+        if (await pendingMaintenanceRequest(tx, farmId, input.assetId))
+          throw new ConflictException(PENDING_MAINTENANCE_CONFLICT);
         await tx
           .update(assets)
           .set({

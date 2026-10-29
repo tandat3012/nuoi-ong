@@ -288,6 +288,67 @@ describe('Asset transfer requests', () => {
     ).rejects.toThrow('Asset is not eligible for a maintenance request');
   });
 
+  it('makes a concurrent maintenance request wait for the asset and see TRANSFER_PENDING', async () => {
+    const blocker = await pool.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT id FROM assets WHERE id=$1 FOR UPDATE', [
+        asset,
+      ]);
+      const outcome = maintenanceRequests
+        .create(farm, clerk('creator'), {
+          assetId: asset,
+          maintenanceType: 'CORRECTIVE',
+          description: 'Kêu to',
+        })
+        .then(
+          () => 'created',
+          (error: Error) => error.message,
+        );
+      // Stands in for a transfer request committing while the maintenance request runs.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await blocker.query(
+        "UPDATE assets SET status='TRANSFER_PENDING' WHERE id=$1",
+        [asset],
+      );
+      await blocker.query('COMMIT');
+      expect(await outcome).toBe(
+        'Asset is not eligible for a maintenance request',
+      );
+    } finally {
+      blocker.release();
+    }
+  });
+
+  it('never leaves both a maintenance and a transfer request pending when they race', async () => {
+    for (let round = 0; round < 10; round += 1) {
+      await cleanRequests();
+      await pool.query(
+        "UPDATE assets SET status='AVAILABLE', current_location_id=$2 WHERE id=$1",
+        [asset, sourceShelf],
+      );
+      await db.insert(schema.inventoryBalances).values({
+        farmId: farm,
+        warehouseId: source,
+        itemId: item,
+        quantityOnHand: '1',
+      });
+      const results = await Promise.allSettled([
+        create('creator'),
+        maintenanceRequests.create(farm, clerk('peer'), {
+          assetId: asset,
+          maintenanceType: 'CORRECTIVE',
+          description: 'Kêu to',
+        }),
+      ]);
+      const created = results.filter((result) => result.status === 'fulfilled');
+      expect(created).toHaveLength(1);
+      for (const result of results)
+        if (result.status === 'rejected')
+          expect((result.reason as { status?: number }).status).toBe(409);
+    }
+  });
+
   it('rejects invalid destinations without marking the asset', async () => {
     await expect(
       create('creator', { warehouseId: source, locationId: targetShelf }),
