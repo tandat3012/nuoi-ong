@@ -23,6 +23,7 @@ import {
   inventoryLots,
   items,
   locations,
+  maintenanceRecords,
   maintenanceRequests,
   stockCounts,
   stockIssues,
@@ -228,7 +229,17 @@ export class AuditLogsService {
         .where(
           and(eq(stockCounts.farmId, farmId), inArray(stockCounts.id, ids)),
         ),
-      // Requests are named by the asset they concern.
+      // Maintenance records and requests are named by the asset they concern.
+      db
+        .select({ id: maintenanceRecords.id, label: assets.assetCode })
+        .from(maintenanceRecords)
+        .innerJoin(assets, eq(assets.id, maintenanceRecords.assetId))
+        .where(
+          and(
+            eq(maintenanceRecords.farmId, farmId),
+            inArray(maintenanceRecords.id, ids),
+          ),
+        ),
       db
         .select({ id: maintenanceRequests.id, label: assets.assetCode })
         .from(maintenanceRequests)
