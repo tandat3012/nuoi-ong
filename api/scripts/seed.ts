@@ -801,9 +801,9 @@ async function seed(client: PoolClient) {
     `INSERT INTO maintenance_records
     (id,farm_id,asset_id,incident_id,maintenance_type,scheduled_at,started_at,completed_at,status,description,result_note,
      performed_by_member_id,supplier_id,labor_cost,material_cost,other_cost,created_at,updated_at)
-    VALUES ($1,$2,$3,$4,'CORRECTIVE','2026-08-08T01:00:00Z','2026-08-08T02:00:00Z','2026-08-08T08:30:00Z','COMPLETED',
+    VALUES ($1,$2,$3,$4,'CORRECTIVE','2026-08-08T01:00:00Z','2026-08-08T02:00:00Z',NULL,'IN_PROGRESS',
       'Siết lại cụm truyền động.','Thiết bị hoạt động bình thường.',$5,$6,350000,120000,0,$7,$7)
-    ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status,description=EXCLUDED.description,result_note=EXCLUDED.result_note,
+    ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status,completed_at=EXCLUDED.completed_at,description=EXCLUDED.description,result_note=EXCLUDED.result_note,
       labor_cost=EXCLUDED.labor_cost,material_cost=EXCLUDED.material_cost,updated_at=EXCLUDED.updated_at`,
     [
       uuid('maintenance:completed'),
@@ -833,7 +833,7 @@ async function seed(client: PoolClient) {
     client,
     `INSERT INTO stock_issues
     (id,farm_id,warehouse_id,issue_code,issue_date,issue_type,maintenance_record_id,status,reason,note,created_by_member_id,confirmed_by_member_id,confirmed_at,created_at,updated_at)
-    VALUES ($1,$2,$3,'ISS-MAINT-001','2026-08-09','MAINTENANCE',$4,'CONFIRMED','Vật tư thay thế trong bảo trì','Phiếu xuất vật tư bảo trì mẫu.',$5,$5,'2026-08-09T03:00:00Z',$6,$6)
+    VALUES ($1,$2,$3,'ISS-MAINT-001','2026-08-08','MAINTENANCE',$4,'CONFIRMED','Vật tư thay thế trong bảo trì','Phiếu xuất vật tư bảo trì mẫu.',$5,$5,'2026-08-08T03:00:00Z',$6,$6)
     ON CONFLICT (farm_id,issue_code) DO UPDATE SET warehouse_id=EXCLUDED.warehouse_id,issue_type=EXCLUDED.issue_type,
       maintenance_record_id=EXCLUDED.maintenance_record_id,status=EXCLUDED.status,reason=EXCLUDED.reason,note=EXCLUDED.note,
       confirmed_by_member_id=EXCLUDED.confirmed_by_member_id,confirmed_at=EXCLUDED.confirmed_at,updated_at=EXCLUDED.updated_at
@@ -858,6 +858,11 @@ async function seed(client: PoolClient) {
       '5',
       SEEDED_AT,
     ],
+  );
+  // The issue trigger only accepts a confirmed maintenance issue while the record is active, so complete it afterwards.
+  await client.query(
+    `UPDATE maintenance_records SET status='COMPLETED',completed_at='2026-08-08T08:30:00Z' WHERE id=$1`,
+    [uuid('maintenance:completed')],
   );
 
   for (const [key, warehouseId, itemId, lotId, quantity] of [
@@ -1116,7 +1121,224 @@ async function seed(client: PoolClient) {
     );
   }
 
+  await seedApprovalDemo(client, {
+    farmId,
+    memberIds,
+    warehouseIds,
+    locationIds,
+    itemIds,
+    assetIds,
+  });
+
   return farmId;
+}
+
+/** Employee submissions waiting for (or refused by) an approver, so the approval screens have data. */
+async function seedApprovalDemo(
+  client: PoolClient,
+  ids: {
+    farmId: string;
+    memberIds: Record<string, string>;
+    warehouseIds: Record<string, string>;
+    locationIds: Record<string, string>;
+    itemIds: Record<string, string>;
+    assetIds: Record<string, string>;
+  },
+) {
+  const { farmId, memberIds, warehouseIds, locationIds, itemIds, assetIds } =
+    ids;
+
+  const pendingReceiptId = await id(
+    client,
+    `INSERT INTO stock_receipts
+    (id,farm_id,warehouse_id,receipt_code,receipt_date,status,note,created_by_member_id,created_at,updated_at)
+    VALUES ($1,$2,$3,'RCV-DEMO-PENDING','2026-08-20','PENDING_APPROVAL','Nhân viên nhập thêm găng tay, chờ duyệt.',$4,$5,$5)
+    ON CONFLICT (farm_id,receipt_code) DO UPDATE SET status=EXCLUDED.status,note=EXCLUDED.note,updated_at=EXCLUDED.updated_at
+    RETURNING id`,
+    [
+      uuid('receipt:pending'),
+      farmId,
+      warehouseIds.main,
+      memberIds.employee,
+      SEEDED_AT,
+    ],
+  );
+  await client.query(
+    `INSERT INTO stock_receipt_items (id,stock_receipt_id,item_id,quantity,unit_price,note,created_at)
+    VALUES ($1,$2,$3,'50','18000','Dòng nhập chờ duyệt.',$4)
+    ON CONFLICT (id) DO UPDATE SET quantity=EXCLUDED.quantity,unit_price=EXCLUDED.unit_price,note=EXCLUDED.note`,
+    [
+      uuid('receipt-item:pending-gloves'),
+      pendingReceiptId,
+      itemIds.gloves,
+      SEEDED_AT,
+    ],
+  );
+
+  const pendingIssueId = await id(
+    client,
+    `INSERT INTO stock_issues
+    (id,farm_id,warehouse_id,issue_code,issue_date,issue_type,status,reason,created_by_member_id,created_at,updated_at)
+    VALUES ($1,$2,$3,'ISS-DEMO-PENDING','2026-08-21','CONSUMPTION','PENDING_APPROVAL','Cấp hũ cho đợt chiết mật.',$4,$5,$5)
+    ON CONFLICT (farm_id,issue_code) DO UPDATE SET status=EXCLUDED.status,reason=EXCLUDED.reason,updated_at=EXCLUDED.updated_at
+    RETURNING id`,
+    [
+      uuid('issue:pending'),
+      farmId,
+      warehouseIds.main,
+      memberIds.employee,
+      SEEDED_AT,
+    ],
+  );
+  const rejectedIssueId = await id(
+    client,
+    `INSERT INTO stock_issues
+    (id,farm_id,warehouse_id,issue_code,issue_date,issue_type,status,reason,created_by_member_id,
+     rejection_reason,rejected_by_member_id,rejected_at,created_at,updated_at)
+    VALUES ($1,$2,$3,'ISS-DEMO-REJECTED','2026-08-19','CONSUMPTION','REJECTED','Xin thêm găng tay dự phòng.',$4,
+      'Kho vừa cấp đủ trong tuần, chưa cần thêm.',$5,'2026-08-19T08:00:00Z',$6,$6)
+    ON CONFLICT (farm_id,issue_code) DO UPDATE SET status=EXCLUDED.status,rejection_reason=EXCLUDED.rejection_reason,
+      rejected_by_member_id=EXCLUDED.rejected_by_member_id,rejected_at=EXCLUDED.rejected_at,updated_at=EXCLUDED.updated_at
+    RETURNING id`,
+    [
+      uuid('issue:rejected'),
+      farmId,
+      warehouseIds.main,
+      memberIds.employee,
+      memberIds.owner,
+      SEEDED_AT,
+    ],
+  );
+  for (const [key, issueId, itemId, quantity] of [
+    ['pending-jars', pendingIssueId, itemIds.jars, '40'],
+    ['rejected-gloves', rejectedIssueId, itemIds.gloves, '30'],
+  ]) {
+    await client.query(
+      `INSERT INTO stock_issue_items (id,stock_issue_id,item_id,quantity,note,created_at)
+      VALUES ($1,$2,$3,$4,NULL,$5) ON CONFLICT (id) DO UPDATE SET quantity=EXCLUDED.quantity`,
+      [uuid(`issue-item:${key}`), issueId, itemId, quantity, SEEDED_AT],
+    );
+  }
+
+  const maintenanceRequestId = await id(
+    client,
+    `INSERT INTO maintenance_requests
+    (id,farm_id,asset_id,requested_by_member_id,maintenance_type,description,status,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,'CORRECTIVE','Bình tạo khói đang dùng bị rò khói ở nắp.','PENDING_APPROVAL',$5,$5)
+    ON CONFLICT (id) DO UPDATE SET description=EXCLUDED.description,status=EXCLUDED.status,
+      rejection_reason=NULL,reviewed_by_member_id=NULL,reviewed_at=NULL,maintenance_record_id=NULL,updated_at=EXCLUDED.updated_at
+    RETURNING id`,
+    [
+      uuid('maintenance-request:pending'),
+      farmId,
+      assetIds['smoker-active'],
+      memberIds.employee,
+      SEEDED_AT,
+    ],
+  );
+
+  // A pending transfer request holds its AVAILABLE asset in TRANSFER_PENDING, as the API does.
+  const transferRequestId = await id(
+    client,
+    `INSERT INTO asset_transfer_requests
+    (id,farm_id,asset_id,requested_by_member_id,from_location_id,to_warehouse_id,to_location_id,note,status,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,'Đưa máy quay mật ra điểm nuôi cho đợt khai thác.','PENDING_APPROVAL',$8,$8)
+    ON CONFLICT (id) DO UPDATE SET note=EXCLUDED.note,status=EXCLUDED.status,
+      rejection_reason=NULL,reviewed_by_member_id=NULL,reviewed_at=NULL,updated_at=EXCLUDED.updated_at
+    RETURNING id`,
+    [
+      uuid('asset-transfer-request:pending'),
+      farmId,
+      assetIds.extractor,
+      memberIds.employee,
+      locationIds.main,
+      warehouseIds.field,
+      locationIds.field,
+      SEEDED_AT,
+    ],
+  );
+  await client.query(
+    `UPDATE assets SET status='TRANSFER_PENDING',updated_at=$2 WHERE id=$1`,
+    [assetIds.extractor, SEEDED_AT],
+  );
+
+  const approvers = await client.query<{ userId: string }>(
+    `SELECT DISTINCT fm.user_id AS "userId"
+    FROM farm_members fm
+    JOIN users u ON u.id = fm.user_id
+    JOIN farm_member_roles fmr ON fmr.farm_member_id = fm.id
+    JOIN roles r ON r.id = fmr.role_id
+    WHERE fm.farm_id = $1 AND fm.status = 'ACTIVE' AND u.status = 'ACTIVE' AND r.code IN ('ADMIN','FARM_OWNER')`,
+    [farmId],
+  );
+  const notifications = [
+    [
+      'receipt',
+      'STOCK_RECEIPT',
+      pendingReceiptId,
+      'Phiếu nhập kho',
+      'RCV-DEMO-PENDING',
+      'Phiếu cần duyệt',
+    ],
+    [
+      'issue',
+      'STOCK_ISSUE',
+      pendingIssueId,
+      'Phiếu xuất kho',
+      'ISS-DEMO-PENDING',
+      'Phiếu cần duyệt',
+    ],
+    [
+      'maintenance',
+      'MAINTENANCE_REQUEST',
+      maintenanceRequestId,
+      'Yêu cầu bảo trì',
+      'AST-SMOKER-001',
+      'Yêu cầu bảo trì cần duyệt',
+    ],
+    [
+      'transfer',
+      'ASSET_TRANSFER_REQUEST',
+      transferRequestId,
+      'Yêu cầu chuyển tài sản',
+      'AST-EXTRACTOR-001',
+      'Yêu cầu chuyển tài sản cần duyệt',
+    ],
+  ];
+  for (const { userId } of approvers.rows) {
+    for (const [
+      key,
+      entityType,
+      entityId,
+      kind,
+      code,
+      title,
+    ] of notifications) {
+      await client.query(
+        `INSERT INTO notifications (id,user_id,farm_id,type,title,body,data,entity_type,entity_id,created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10)
+        ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,body=EXCLUDED.body,data=EXCLUDED.data`,
+        [
+          uuid(`notification:${key}:${userId}`),
+          userId,
+          farmId,
+          `${entityType}_PENDING_APPROVAL`,
+          title,
+          `${kind} ${code} đang chờ duyệt.`,
+          JSON.stringify({
+            documentType: entityType,
+            documentId: entityId,
+            documentCode: code,
+            status: 'PENDING_APPROVAL',
+            rejectionReason: null,
+          }),
+          entityType,
+          entityId,
+          SEEDED_AT,
+        ],
+      );
+    }
+  }
 }
 
 async function main() {
