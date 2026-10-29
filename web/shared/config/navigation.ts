@@ -60,7 +60,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
       { href: '/assets', label: 'Tài sản', icon: Package, description: 'Theo dõi thiết bị, người giữ và vòng đời.' },
       { href: '/maintenance', label: 'Bảo trì', icon: Wrench, description: 'Lịch bảo trì, chi phí và kết quả.' },
       { href: '/requests', label: 'Yêu cầu', icon: ClipboardList, description: 'Yêu cầu bảo trì và chuyển tài sản.' },
-      { href: '/scan', label: 'Tra cứu QR', icon: ScanLine, description: 'Quét mã QR để mở nhanh hồ sơ tài sản.' },
+      { href: '/scan', label: 'Tra cứu QR', icon: ScanLine, description: 'Quét nhãn QR tài sản, mặt hàng hoặc tồn kho.' },
     ],
   },
   {
