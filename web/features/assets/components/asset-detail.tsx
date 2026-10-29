@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { getWarehouseById } from "@/features/warehouses/api/warehouses.api";
+import { AssetRequestDialog } from "@/features/requests";
+import { assetRequestActions } from "@/features/requests/requests.logic";
+import type { RequestType } from "@/features/requests/types/request";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { PageHeader } from "@/shared/components/ui/page-header";
@@ -45,6 +48,9 @@ export function AssetDetail({
   const [attempt, setAttempt] = useState(0);
   const [returnOpen, setReturnOpen] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [requestType, setRequestType] = useState<RequestType | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestSuccess, setRequestSuccess] = useState<RequestType | null>(null);
   const [action, setAction] = useState<
     AssetActionKind | "edit" | "label" | null
   >(null);
@@ -116,6 +122,7 @@ export function AssetDetail({
       ? warehouse
       : null;
   const reload = () => {
+    setRequestType(null);
     setReturnOpen(false);
     setAction(null);
     setReturnError(null);
@@ -139,6 +146,7 @@ export function AssetDetail({
   const view = current?.view;
   const asset = view?.asset;
   const writable = canWriteAssets(roles);
+  const requestActions = assetRequestActions(roles, asset?.status ?? "");
   const feedback = {
     error: returnError,
     onError: setReturnError,
@@ -205,6 +213,15 @@ export function AssetDetail({
           Đã ghi nhận thao tác. Thông tin được tải lại từ hệ thống.
         </p>
       )}
+      {requestSuccess && (
+        <p role="status" className="rounded-lg border bg-muted p-4 text-sm">
+          Đã gửi yêu cầu {requestSuccess === "maintenance" ? "bảo trì" : "chuyển tài sản"}.{" "}
+          <Link href={`/requests?type=${requestSuccess}`} className="text-primary underline">
+            Xem yêu cầu
+          </Link>
+        </p>
+      )}
+      {requestError && <ErrorAlert message={requestError} />}
       {returnError?.reloadRequired && !returnOpen && (
         <ErrorAlert
           message={returnError.message}
@@ -259,6 +276,16 @@ export function AssetDetail({
                     {ASSET_ACTION_LABELS[value]}
                   </Button>
                 ))}
+              {requestActions.maintenance && (
+                <Button variant="outline" onClick={() => { setRequestSuccess(null); setRequestType("maintenance"); }}>
+                  Báo cần sửa
+                </Button>
+              )}
+              {requestActions.transfer && (
+                <Button variant="outline" onClick={() => { setRequestSuccess(null); setRequestType("transfer"); }}>
+                  Yêu cầu chuyển
+                </Button>
+              )}
             </section>
             <dl className="grid min-w-0 gap-x-8 gap-y-5 rounded-xl border bg-card p-5 sm:grid-cols-2 xl:grid-cols-3">
               {[
@@ -326,6 +353,17 @@ export function AssetDetail({
               writable={writable}
               {...feedback}
             />
+            {requestType && requestActions[requestType] && (
+              <AssetRequestDialog
+                farmId={farmId}
+                asset={asset}
+                type={requestType}
+                onClose={() => setRequestType(null)}
+                onReload={reload}
+                onError={setRequestError}
+                onSent={() => setRequestSuccess(requestType)}
+              />
+            )}
             {action === "edit" && (
               <AssetEditor farmId={farmId} asset={asset} {...feedback} />
             )}
