@@ -21,6 +21,7 @@ export interface Receipt {
   confirmedByMemberId: string | null;
   confirmedAt: string | null;
   cancelledAt: string | null;
+  rejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
   warehouseCode?: string;

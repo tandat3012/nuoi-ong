@@ -1,0 +1,108 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  canCreateStockDocuments,
+  normalizeRejectionReason,
+  shouldReloadAfterFailure,
+  stockDocumentActions,
+  stockDocumentErrorMessage,
+} from "./stock-document.logic.ts";
+
+const owner = { roles: ["FARM_OWNER"], memberId: "owner" };
+const employee = { roles: ["EMPLOYEE"], memberId: "creator" };
+const peer = { roles: ["EMPLOYEE"], memberId: "peer" };
+const guest = { roles: ["GUEST"], memberId: "guest" };
+const draft = { status: "DRAFT", createdByMemberId: "creator" };
+const actions = (viewer, document) =>
+  Object.entries(stockDocumentActions(viewer, document))
+    .filter(([, allowed]) => allowed)
+    .map(([name]) => name);
+
+test("only approvers and employees create documents", () => {
+  assert.equal(canCreateStockDocuments(["ADMIN"]), true);
+  assert.equal(canCreateStockDocuments(["EMPLOYEE"]), true);
+  assert.equal(canCreateStockDocuments(["GUEST"]), false);
+  assert.equal(canCreateStockDocuments([]), false);
+});
+
+test("employees edit, cancel and submit only their own drafts", () => {
+  assert.deepEqual(actions(employee, draft), ["edit", "cancel", "submit"]);
+  assert.deepEqual(actions(peer, draft), []);
+  assert.deepEqual(
+    actions(guest, { ...draft, createdByMemberId: "guest" }),
+    [],
+  );
+  assert.deepEqual(actions({ roles: ["EMPLOYEE"] }, draft), []);
+});
+
+test("approvers confirm drafts directly and review pending documents", () => {
+  assert.deepEqual(actions(owner, draft), ["edit", "cancel", "confirm"]);
+  assert.deepEqual(actions(owner, { ...draft, status: "COUNTING" }), [
+    "edit",
+    "cancel",
+    "confirm",
+  ]);
+  assert.deepEqual(actions(owner, { ...draft, status: "PENDING_APPROVAL" }), [
+    "confirm",
+    "reject",
+  ]);
+});
+
+test("submitted, final and order-linked documents lock the right actions", () => {
+  for (const status of ["CONFIRMED", "REJECTED", "CANCELLED"]) {
+    assert.deepEqual(actions(owner, { ...draft, status }), [], status);
+    assert.deepEqual(actions(employee, { ...draft, status }), [], status);
+  }
+  // A submitted document cannot be withdrawn or edited by its creator.
+  assert.deepEqual(
+    actions(employee, { ...draft, status: "PENDING_APPROVAL" }),
+    [],
+  );
+  const orderIssue = { ...draft, orderId: "order-1" };
+  assert.deepEqual(actions(owner, orderIssue), ["edit", "confirm"]);
+  assert.deepEqual(actions(employee, orderIssue), ["edit"]);
+  assert.deepEqual(
+    actions(owner, { ...orderIssue, status: "PENDING_APPROVAL" }),
+    ["confirm"],
+  );
+});
+
+test("API rejections become specific messages and decide whether to reload", () => {
+  assert.match(
+    stockDocumentErrorMessage(403, "Only your own documents can be changed"),
+    /do chính mình tạo/,
+  );
+  assert.match(stockDocumentErrorMessage(403, "Forbidden"), /không có quyền/);
+  assert.match(
+    stockDocumentErrorMessage(409, "Only DRAFT receipts can be submitted"),
+    /không gửi duyệt được/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(
+      409,
+      "Only PENDING_APPROVAL issues can be rejected",
+    ),
+    /không còn chờ duyệt/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(409, "Cancel the linked order instead"),
+    /hủy đơn hàng/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(400, "Receipt must contain at least one item"),
+    /chưa có dòng hàng/,
+  );
+  assert.match(stockDocumentErrorMessage(null, ""), /Chưa nhận được kết quả/);
+  assert.equal(shouldReloadAfterFailure(409), true);
+  assert.equal(shouldReloadAfterFailure(null), true);
+  assert.equal(shouldReloadAfterFailure(401), false);
+  assert.equal(shouldReloadAfterFailure(403), false);
+});
+
+test("rejection reasons are trimmed and bounded", () => {
+  assert.deepEqual(normalizeRejectionReason("  Sai số lượng "), {
+    reason: "Sai số lượng",
+  });
+  assert.ok(normalizeRejectionReason("   ").error);
+  assert.ok(normalizeRejectionReason("x".repeat(4001)).error);
+});

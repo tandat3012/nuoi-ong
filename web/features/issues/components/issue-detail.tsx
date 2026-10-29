@@ -16,19 +16,25 @@ import { IssueMaintenancePicker } from "./issue-maintenance-picker";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
+import {
+  RejectionNotice,
+  StockDocumentReview,
+  stockDocumentActions,
+} from "@/features/stock-documents";
+import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 
 export function IssueDetail({
   farmId,
   id,
   onBack,
-  canWrite,
+  viewer,
   onEdit,
   onChanged,
 }: {
   farmId: string;
   id: string;
   onBack: () => void;
-  canWrite: boolean;
+  viewer: StockDocumentViewer;
   onEdit: (detail: IssueDetailData) => void;
   onChanged: () => void;
 }) {
@@ -38,16 +44,20 @@ export function IssueDetail({
     reload();
     onChanged();
   };
+  const actions = stockDocumentActions(
+    viewer,
+    detail?.issue ?? { status: "CANCELLED", createdByMemberId: null },
+  );
   const { confirm, isConfirming, confirmError } = useConfirmIssue(
     farmId,
-    canWrite,
+    actions.confirm,
     id,
     detail?.issue.status,
     refresh,
   );
   const { cancel, isCancelling, cancelError } = useCancelIssue(
     farmId,
-    canWrite,
+    actions.cancel,
     id,
     detail?.issue.status,
     refresh,
@@ -125,7 +135,7 @@ export function IssueDetail({
               }
               actions={
                 <>
-                  {canWrite && supportsIssueDraftEdit(detail) && (
+                  {actions.edit && supportsIssueDraftEdit(detail) && (
                     <Button
                       onClick={() => {
                         if (!actionPending.current) onEdit(detail);
@@ -136,7 +146,17 @@ export function IssueDetail({
                       Sửa phiếu nháp
                     </Button>
                   )}
-                  {canWrite && detail.issue.status === "DRAFT" && (
+                  <StockDocumentReview
+                    kind="stock-issues"
+                    farmId={farmId}
+                    id={id}
+                    code={detail.issue.issueCode}
+                    canSubmit={actions.submit}
+                    canReject={actions.reject}
+                    disabled={isProcessing}
+                    onChanged={refresh}
+                  />
+                  {actions.confirm && (
                     <Button
                       disabled={isProcessing}
                       onClick={() =>
@@ -149,7 +169,7 @@ export function IssueDetail({
                       Xác nhận phiếu xuất
                     </Button>
                   )}
-                  {canWrite && detail.issue.status === "DRAFT" && !detail.issue.orderId && (
+                  {actions.cancel && (
                     <Button
                       disabled={isProcessing}
                       onClick={() =>
@@ -167,9 +187,8 @@ export function IssueDetail({
                 </>
               }
             />
-            {canWrite &&
-              detail.issue.status === "DRAFT" &&
-              !supportsIssueDraftEdit(detail) && (
+            <RejectionNotice reason={detail.issue.rejectionReason} />
+            {actions.edit && !supportsIssueDraftEdit(detail) && (
                 <p className="text-sm text-muted-foreground">
                   Phiếu có dữ liệu không tương thích nên chưa thể chỉnh sửa trên
                   màn hình này.
@@ -190,7 +209,7 @@ export function IssueDetail({
                 >
                   Mở đơn hàng
                 </Link>
-                {canWrite && detail.issue.status === "DRAFT" && (
+                {actions.confirm && detail.issue.status === "DRAFT" && (
                   <span> · Hãy hủy đơn hàng từ màn hình đơn để hủy phiếu này.</span>
                 )}
               </p>

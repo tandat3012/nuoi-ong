@@ -224,6 +224,13 @@ test('validates and allows draft edits for ASSET lines', () => {
   };
   assert.equal(supportsQuantityDraftEdit(detail, references), true);
   assert.equal(supportsQuantityDraftConfirm(detail, references), true);
+  const submitted = {
+    ...detail,
+    receipt: { ...detail.receipt, status: 'PENDING_APPROVAL' },
+  };
+  // A submitted receipt can be confirmed by an approver but no longer edited.
+  assert.equal(supportsQuantityDraftConfirm(submitted, references), true);
+  assert.equal(supportsQuantityDraftEdit(submitted, references), false);
   for (const quantity of ['1', '1.0', '1.000']) {
     const value = { ...detail, items: [{ ...detail.items[0], quantity }] };
     assert.equal(supportsQuantityDraftEdit(value, references), true);

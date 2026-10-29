@@ -6,6 +6,8 @@ import { useAuthContext } from "@/features/auth";
 import { IssueDetail } from "./issue-detail";
 import { IssueDraftForm } from "./issue-draft-form";
 import type { IssueDetail as IssueDetailData } from "../types/issue";
+import { canCreateStockDocuments } from "@/features/stock-documents";
+import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 
 export function IssueDetailRoute({ id }: { id: string }) {
   const { data, selectedFarmId } = useAuthContext();
@@ -14,15 +16,12 @@ export function IssueDetailRoute({ id }: { id: string }) {
   );
   if (!membership)
     return <p role="status">Vui lòng chọn trang trại để xem phiếu xuất.</p>;
-  const canWrite = membership.roles.some(
-    (role) => role === "ADMIN" || role === "FARM_OWNER",
-  );
   return (
     <FarmIssueDetailRoute
       key={`${membership.farm.id}:${id}`}
       farmId={membership.farm.id}
       id={id}
-      canWrite={canWrite}
+      viewer={{ roles: membership.roles, memberId: membership.memberId }}
     />
   );
 }
@@ -30,11 +29,11 @@ export function IssueDetailRoute({ id }: { id: string }) {
 function FarmIssueDetailRoute({
   farmId,
   id,
-  canWrite,
+  viewer,
 }: {
   farmId: string;
   id: string;
-  canWrite: boolean;
+  viewer: StockDocumentViewer;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<IssueDetailData | null>(null);
@@ -44,7 +43,7 @@ function FarmIssueDetailRoute({
       <IssueDraftForm
         key={editing.issue.id}
         farmId={farmId}
-        canWrite={canWrite}
+        canWrite={canCreateStockDocuments(viewer.roles)}
         initial={editing}
         onCancel={() => setEditing(null)}
         onSaved={() => {
@@ -58,7 +57,7 @@ function FarmIssueDetailRoute({
       key={`${id}:${attempt}`}
       farmId={farmId}
       id={id}
-      canWrite={canWrite}
+      viewer={viewer}
       onEdit={setEditing}
       onChanged={() => setAttempt((value) => value + 1)}
       onBack={() => router.push("/issues")}

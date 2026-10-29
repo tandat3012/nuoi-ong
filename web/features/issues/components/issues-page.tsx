@@ -14,6 +14,7 @@ import { IssueDraftForm } from "./issue-draft-form";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Select } from "@/shared/components/ui/select";
+import { canCreateStockDocuments } from "@/features/stock-documents";
 
 export function IssuesPage() {
   const { selectedFarmId } = useAuthContext();
@@ -24,11 +25,12 @@ export function IssuesPage() {
 
 function FarmIssuesPage({ farmId }: { farmId: string }) {
   const { data } = useAuthContext();
-  const canWrite =
-    data.memberships
-      .find(({ farm }) => farm.id === farmId)
-      ?.roles.some((role) => role === "ADMIN" || role === "FARM_OWNER") ??
-    false;
+  const membership = data.memberships.find(({ farm }) => farm.id === farmId);
+  const viewer = {
+    roles: membership?.roles ?? [],
+    memberId: membership?.memberId,
+  };
+  const canWrite = canCreateStockDocuments(viewer.roles);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<IssueDetailData | null>(null);
@@ -68,7 +70,7 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
         key={selectedId}
         farmId={farmId}
         id={selectedId}
-        canWrite={canWrite}
+        viewer={viewer}
         onEdit={setEditing}
         onChanged={reload}
         onBack={() => {
