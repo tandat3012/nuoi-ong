@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Image from 'next/image';
+import { imageLoader } from '@/shared/lib/cloudinary-image';
 import { Package, ZoomIn } from 'lucide-react';
 import type { StorefrontProductImage } from '../types/product';
 import {
@@ -57,6 +58,7 @@ export function ProductGallery({
           <>
             <Image
               src={activeImage.src}
+              loader={imageLoader(activeImage.src)}
               alt={activeImage.alt || productName}
               fill
               priority
@@ -86,6 +88,7 @@ export function ProductGallery({
                 <div className="relative mt-2 aspect-square sm:aspect-[4/3] w-full overflow-hidden rounded-xl bg-[#fbf9f5] dark:bg-stone-900/50">
                   <Image
                     src={activeImage.src}
+                    loader={imageLoader(activeImage.src)}
                     alt={activeImage.alt || productName}
                     fill
                     sizes="(max-width: 768px) 100vw, 800px"
@@ -135,6 +138,7 @@ export function ProductGallery({
               >
                 <Image
                   src={img.src}
+                  loader={imageLoader(img.src)}
                   alt={img.alt || `${productName} thu nhỏ ${index + 1}`}
                   fill
                   sizes="80px"

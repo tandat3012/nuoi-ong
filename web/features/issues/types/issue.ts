@@ -1,7 +1,7 @@
 export type IssueStatus = "DRAFT" | "PENDING_APPROVAL" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 export type IssueDraftTrackingMode = "QUANTITY" | "LOT" | "ASSET";
 export type IssueType =
-  "CONSUMPTION" | "DAMAGE" | "DISPOSAL" | "OTHER" | "MAINTENANCE";
+  "CONSUMPTION" | "DAMAGE" | "DISPOSAL" | "OTHER" | "MAINTENANCE" | "SALE";
 
 export const ISSUE_STATUS_LABELS: Record<IssueStatus, string> = {
   DRAFT: "Nháp",
@@ -16,6 +16,7 @@ export const ISSUE_TYPE_LABELS: Record<IssueType, string> = {
   DISPOSAL: "Thanh lý / loại bỏ",
   OTHER: "Khác",
   MAINTENANCE: "Bảo trì",
+  SALE: "Bán hàng",
 };
 
 export interface Issue {
@@ -28,6 +29,7 @@ export interface Issue {
   issueDate: string;
   issueType: IssueType;
   maintenanceRecordId: string | null;
+  orderId: string | null;
   status: IssueStatus;
   reason: string | null;
   note: string | null;
@@ -37,6 +39,7 @@ export interface Issue {
   updatedAt: string;
   confirmedAt: string | null;
   cancelledAt: string | null;
+  rejectionReason?: string | null;
 }
 
 export interface IssueLine {

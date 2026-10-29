@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Image from 'next/image';
+import { imageLoader } from '@/shared/lib/cloudinary-image';
 import { useRouter } from 'next/navigation';
 import { getProductStore } from '../api/product.api';
 import { resolveCartInput, resolveProductForCart } from '../../cart/components/cart.logic';
@@ -103,6 +104,7 @@ export function ProductCard({
             {product.image?.src ? (
               <Image
                 src={product.image.src}
+                loader={imageLoader(product.image.src)}
                 alt={product.image.alt || product.name}
                 fill
                 sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
@@ -124,6 +126,7 @@ export function ProductCard({
             {product.image?.src ? (
               <Image
                 src={product.image.src}
+                loader={imageLoader(product.image.src)}
                 alt={product.image.alt || product.name}
                 fill
                 sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"

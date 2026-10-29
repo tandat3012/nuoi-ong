@@ -20,6 +20,13 @@ import { WarehousesService } from '../src/modules/warehouses/warehouses.service'
 
 type AdjustmentResponse = {
   data: {
+    adjustment: {
+      id: string;
+      status: string;
+      requestedByMemberId: string;
+      reviewedByMemberId: string | null;
+      rejectionReason: string | null;
+    };
     transaction: {
       transactionType: string;
       quantityChange: string;
@@ -69,6 +76,9 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
   const guestIdentity = `${tag}-guest`;
   const outsiderIdentity = `${tag}-outsider`;
   const inactiveUserIdentity = `${tag}-inactive-user`;
+  const employeeIdentity = `${tag}-employee`;
+  const employeeMemberId = randomUUID();
+  const freshLotId = randomUUID();
   let ownerMemberId = '';
   let currentIdentity = ownerIdentity;
   let app: INestApplication<App> | undefined;
@@ -79,21 +89,50 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     body: Record<string, unknown>,
     requestedFarmId: string = farmId,
   ) => http().post(endpoint).query({ farmId: requestedFarmId }).send(body);
+  const validBody = (body: Record<string, unknown>) => ({
+    idempotencyKey: randomUUID(),
+    warehouseId,
+    itemId: quantityItemId,
+    quantityChange: '1',
+    reasonCode: 'STOCK_COUNT',
+    ...body,
+  });
   const submit = (
     itemId: string,
     quantityChange: string,
-    options: { warehouseId?: string; lotId?: string; reason?: string } = {},
+    options: {
+      warehouseId?: string;
+      lotId?: string;
+      note?: string;
+      reasonCode?: string;
+      idempotencyKey?: string;
+    } = {},
   ) =>
     http()
       .post(endpoint)
       .query({ farmId })
       .send({
+        idempotencyKey: options.idempotencyKey ?? randomUUID(),
         warehouseId: options.warehouseId ?? warehouseId,
         itemId,
         ...(options.lotId ? { lotId: options.lotId } : {}),
         quantityChange,
-        reason: options.reason ?? 'Count correction',
+        reasonCode: options.reasonCode ?? 'STOCK_COUNT',
+        ...(options.note !== undefined ? { note: options.note } : {}),
       });
+  const review = (id: string, action: 'approve' | 'reject', reason?: string) =>
+    http()
+      .post(`${endpoint}/${id}/${action}`)
+      .query({ farmId })
+      .send(reason === undefined ? {} : { reason });
+  const asIdentity = async <T>(identity: string, run: () => Promise<T>) => {
+    currentIdentity = identity;
+    try {
+      return await run();
+    } finally {
+      currentIdentity = ownerIdentity;
+    }
+  };
 
   const readBalance = async (itemId: string, lotId: string | null = null) => {
     const result = await pool.query<{ quantity_on_hand: string }>(
@@ -206,6 +245,23 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
         inactiveUserMemberId,
       ],
     );
+    const employee = await pool.query<{ id: string }>(
+      'INSERT INTO users (auth_provider,auth_provider_user_id,email,full_name) VALUES ($1,$2,$3,$4) RETURNING id',
+      [
+        'CLERK',
+        employeeIdentity,
+        `${employeeIdentity}@example.local`,
+        `${tag} Employee`,
+      ],
+    );
+    await pool.query(
+      'INSERT INTO farm_members (id,farm_id,user_id) VALUES ($1,$2,$3)',
+      [employeeMemberId, farmId, employee.rows[0].id],
+    );
+    await pool.query(
+      "INSERT INTO farm_member_roles (farm_member_id,role_id) SELECT $1,id FROM roles WHERE code='EMPLOYEE'",
+      [employeeMemberId],
+    );
     await pool.query(
       'INSERT INTO categories (id,code,name) VALUES ($1,$2,$2)',
       [categoryId, tag],
@@ -289,6 +345,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       ],
     );
     await pool.query(
+      'INSERT INTO inventory_lots (id,farm_id,item_id,lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,1,$5)',
+      [freshLotId, farmId, lotItemId, `${tag}-FRESH`, '2099-12-31'],
+    );
+    await pool.query(
       'INSERT INTO assets (id,farm_id,item_id,asset_code,serial_number) VALUES ($1,$2,$3,$4,$5)',
       [assetId, farmId, assetItemId, `${tag}-ASSET-1`, `${tag}-SERIAL-1`],
     );
@@ -341,7 +401,15 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     try {
       await cleanup.query('BEGIN');
       await cleanup.query(
+        'DELETE FROM audit_logs WHERE farm_id = ANY($1::uuid[])',
+        [[farmId, otherFarmId]],
+      );
+      await cleanup.query(
         'DELETE FROM inventory_transactions WHERE farm_id = ANY($1::uuid[])',
+        [[farmId, otherFarmId]],
+      );
+      await cleanup.query(
+        'DELETE FROM inventory_adjustments WHERE farm_id = ANY($1::uuid[])',
         [[farmId, otherFarmId]],
       );
       await cleanup.query(
@@ -389,6 +457,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
             guestIdentity,
             outsiderIdentity,
             inactiveUserIdentity,
+            employeeIdentity,
           ],
         ],
       );
@@ -412,6 +481,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       [farmId, quantityItemId],
     );
     await pool.query(
+      'DELETE FROM inventory_adjustments WHERE farm_id=$1 AND item_id=$2',
+      [farmId, quantityItemId],
+    );
+    await pool.query(
       'DELETE FROM inventory_balances WHERE farm_id=$1 AND item_id=$2',
       [farmId, quantityItemId],
     );
@@ -419,17 +492,22 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
 
   it('applies positive and negative decimal strings and stores one matching ledger row each', async () => {
     const positive = await submit(quantityItemId, '+10.125', {
-      reason: '  Physical count  ',
+      note: '  Physical count  ',
     }).expect(201);
     const positiveBody = positive.body as AdjustmentResponse;
+    expect(positiveBody.data.adjustment).toMatchObject({
+      status: 'CONFIRMED',
+      requestedByMemberId: ownerMemberId,
+      reviewedByMemberId: ownerMemberId,
+    });
     expect(positiveBody.data.transaction).toMatchObject({
       transactionType: 'ADJUSTMENT_IN',
       quantityChange: '10.125',
-      reason: 'Physical count',
+      reason: 'Chênh lệch kiểm kê: Physical count',
       sourceType: 'INVENTORY_ADJUSTMENT',
+      sourceId: positiveBody.data.adjustment.id,
       performedByMemberId: ownerMemberId,
     });
-    expect(positiveBody.data.transaction.sourceId).toMatch(/^[0-9a-f-]{36}$/i);
 
     const negative = await submit(quantityItemId, '-3.125').expect(201);
     const negativeBody = negative.body as AdjustmentResponse;
@@ -494,7 +572,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       .expect(201);
 
     const adjustmentResponse = await submit(receiptIssueItemId, '-1', {
-      reason: '  Final count correction  ',
+      note: '  Final count correction  ',
     }).expect(201);
     const adjustment = (adjustmentResponse.body as AdjustmentResponse).data
       .transaction;
@@ -548,7 +626,9 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     );
     expect(adjustmentMovement?.transactionType).toBe('ADJUSTMENT_OUT');
     expect(adjustmentMovement?.quantityChange).toBe('-1.000');
-    expect(adjustmentMovement?.reason).toBe('Final count correction');
+    expect(adjustmentMovement?.reason).toBe(
+      'Chênh lệch kiểm kê: Final count correction',
+    );
     expect(adjustmentMovement?.source).toEqual({
       type: 'INVENTORY_ADJUSTMENT',
       id: adjustment.sourceId,
@@ -560,14 +640,24 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     });
   });
 
-  it('allows adjustments to an expired matching LOT and rejects invalid tracking combinations', async () => {
+  it('only lets expired lots and inactive items be decreased, and rejects invalid tracking combinations', async () => {
     const lotAdjustment = await submit(lotItemId, '2.500', {
-      lotId: expiredLotId,
+      lotId: freshLotId,
     }).expect(201);
     const lotBody = lotAdjustment.body as AdjustmentResponse;
-    expect(lotBody.data.transaction.lotId).toBe(expiredLotId);
-    expect(await readBalance(lotItemId, expiredLotId)).toBe('2.500');
-    await submit(lotItemId, '-1.250', { lotId: expiredLotId }).expect(201);
+    expect(lotBody.data.transaction.lotId).toBe(freshLotId);
+    expect(await readBalance(lotItemId, freshLotId)).toBe('2.500');
+
+    await submit(lotItemId, '2.500', { lotId: expiredLotId }).expect(409);
+    expect(await readBalance(lotItemId, expiredLotId)).toBeNull();
+    await pool.query(
+      'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,lot_id,quantity_on_hand) VALUES ($1,$2,$3,$4,2.5)',
+      [farmId, warehouseId, lotItemId, expiredLotId],
+    );
+    await submit(lotItemId, '-1.250', {
+      lotId: expiredLotId,
+      reasonCode: 'EXPIRED',
+    }).expect(201);
     expect(await readBalance(lotItemId, expiredLotId)).toBe('1.250');
 
     await submit(quantityItemId, '1', { lotId: expiredLotId }).expect(400);
@@ -594,11 +684,17 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     await submit(quantityItemId, '1', {
       warehouseId: otherFarmWarehouseId,
     }).expect(409);
-    await submit(inactiveQuantityItemId, '1').expect(201);
-    expect(await readBalance(inactiveQuantityItemId)).toBe('1.000');
+    await submit(inactiveQuantityItemId, '1').expect(409);
+    expect(await readBalance(inactiveQuantityItemId)).toBeNull();
+    await pool.query(
+      'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,lot_id,quantity_on_hand) VALUES ($1,$2,$3,NULL,3)',
+      [farmId, warehouseId, inactiveQuantityItemId],
+    );
+    await submit(inactiveQuantityItemId, '-3').expect(201);
+    expect(await readBalance(inactiveQuantityItemId)).toBe('0.000');
   });
 
-  it('rejects malformed, zero, out-of-range, and blank-reason input', async () => {
+  it('rejects malformed, zero, out-of-range, and invalid-reason input', async () => {
     await submit(quantityItemId, '0.000').expect(400);
     await submit(quantityItemId, '+0').expect(400);
     await submit(quantityItemId, '1e3').expect(400);
@@ -610,41 +706,32 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     await submit(quantityItemId, '.5').expect(400);
     await submit(quantityItemId, '1000000000000000').expect(400);
     await submit(quantityItemId, '1.0001').expect(400);
-    await submit(quantityItemId, '1', { reason: '   ' }).expect(400);
-    await submit(quantityItemId, '1', { reason: 'r'.repeat(4001) }).expect(400);
-    await submitRaw({
-      warehouseId,
-      itemId: quantityItemId,
-      quantityChange: 5,
-      reason: 'Count correction',
+    await submit(quantityItemId, '1', { reasonCode: 'OTHER' }).expect(400);
+    await submit(quantityItemId, '1', {
+      reasonCode: 'OTHER',
+      note: '   ',
     }).expect(400);
-    await submitRaw({
-      warehouseId: 'not-a-uuid',
-      itemId: quantityItemId,
-      quantityChange: '1',
-      reason: 'Count correction',
-    }).expect(400);
-    await submitRaw(
-      {
-        warehouseId,
-        itemId: quantityItemId,
-        quantityChange: '1',
-        reason: 'Count correction',
-      },
-      'not-a-farm-uuid',
-    ).expect(400);
+    await submit(quantityItemId, '1', { reasonCode: 'BOGUS' }).expect(400);
+    await submit(quantityItemId, '1', { note: 'r'.repeat(4001) }).expect(400);
+    await submitRaw(validBody({ quantityChange: 5 })).expect(400);
+    await submitRaw(validBody({ warehouseId: 'not-a-uuid' })).expect(400);
+    await submitRaw(validBody({ idempotencyKey: undefined })).expect(400);
+    await submitRaw(validBody({ idempotencyKey: 'not-a-uuid' })).expect(400);
+    await submitRaw(validBody({ reasonCode: undefined })).expect(400);
+    await submitRaw(validBody({}), 'not-a-farm-uuid').expect(400);
     expect(await readBalance(quantityItemId)).toBeNull();
     expect(await countAdjustments(quantityItemId)).toBe(0);
   });
 
-  it('accepts the numeric precision boundary and a 4000-character reason', async () => {
-    const reason = 'r'.repeat(4000);
+  it('accepts the numeric precision boundary and a 4000-character note', async () => {
+    const note = 'r'.repeat(4000);
     const response = await submit(maximumItemId, '999999999999999.999', {
-      reason,
+      reasonCode: 'OTHER',
+      note,
     }).expect(201);
     const body = response.body as AdjustmentResponse;
     expect(body.data.transaction.quantityChange).toBe('999999999999999.999');
-    expect(body.data.transaction.reason).toBe(reason);
+    expect(body.data.transaction.reason).toBe(`Khác: ${note}`);
     expect(await readBalance(maximumItemId)).toBe('999999999999999.999');
   });
 
@@ -662,7 +749,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     expect(await countAdjustments(overflowItemId)).toBe(0);
   });
 
-  it('requires an active owner role for writes', async () => {
+  it('requires an active owner or employee role for writes', async () => {
     currentIdentity = guestIdentity;
     await submit(quantityItemId, '1').expect(403);
     currentIdentity = outsiderIdentity;
@@ -671,12 +758,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     await submit(quantityItemId, '1').expect(403);
     currentIdentity = ownerIdentity;
     await submitRaw(
-      {
+      validBody({
         warehouseId: otherFarmWarehouseId,
         itemId: otherFarmItemId,
-        quantityChange: '1',
-        reason: 'Count correction',
-      },
+      }),
       otherFarmId,
     ).expect(403);
 
@@ -736,16 +821,225 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     expect(rows.rows[0].count).toBe('1');
   });
 
-  it('rolls back the balance when the ledger insert fails', async () => {
-    const access = jest
-      .spyOn(app!.get(WarehousesService), 'assertFarmAccess')
-      .mockResolvedValue(randomUUID());
+  it('rolls back the adjustment, balance and ledger when a later step fails', async () => {
+    // applyStock is private; reach it through the prototype to fail after its writes.
+    const prototype = InventoryAdjustmentsService.prototype as unknown as {
+      applyStock: (...args: unknown[]) => Promise<unknown>;
+    };
+    const original = prototype.applyStock;
+    const failing = jest
+      .spyOn(prototype, 'applyStock')
+      .mockImplementation(async function (this: unknown, ...args: unknown[]) {
+        await original.apply(this, args);
+        throw new Error('simulated failure after the ledger insert');
+      });
     try {
       await submit(rollbackItemId, '7').expect(500);
     } finally {
-      access.mockRestore();
+      failing.mockRestore();
     }
     expect(await readBalance(rollbackItemId)).toBeNull();
     expect(await countAdjustments(rollbackItemId)).toBe(0);
+    const rows = await pool.query(
+      'SELECT 1 FROM inventory_adjustments WHERE farm_id=$1 AND item_id=$2',
+      [farmId, rollbackItemId],
+    );
+    expect(rows.rowCount).toBe(0);
+  });
+
+  it('replays a retried idempotency key instead of adjusting twice', async () => {
+    const idempotencyKey = randomUUID();
+    const first = await submit(quantityItemId, '4', { idempotencyKey }).expect(
+      201,
+    );
+    const retry = await submit(quantityItemId, '4', { idempotencyKey }).expect(
+      201,
+    );
+    expect((retry.body as AdjustmentResponse).data).toEqual(
+      (first.body as AdjustmentResponse).data,
+    );
+    expect(await readBalance(quantityItemId)).toBe('4.000');
+    expect(await countAdjustments(quantityItemId)).toBe(1);
+
+    await submit(maximumItemId, '4', { idempotencyKey }).expect(409);
+    await asIdentity(employeeIdentity, () =>
+      submit(quantityItemId, '4', { idempotencyKey }).expect(409),
+    );
+  });
+
+  it('applies a concurrent retry of the same key exactly once', async () => {
+    const idempotencyKey = randomUUID();
+    const responses = await Promise.all([
+      submit(quantityItemId, '2', { idempotencyKey }),
+      submit(quantityItemId, '2', { idempotencyKey }),
+    ]);
+    expect(responses.map(({ status }) => status)).toEqual([201, 201]);
+    expect(await readBalance(quantityItemId)).toBe('2.000');
+    expect(await countAdjustments(quantityItemId)).toBe(1);
+  });
+
+  it('keeps employee adjustments pending until an owner approves them', async () => {
+    const pending = await asIdentity(employeeIdentity, () =>
+      submit(quantityItemId, '5', { reasonCode: 'DAMAGE', note: 'Thùng vỡ' }),
+    );
+    expect(pending.status).toBe(201);
+    const pendingBody = pending.body as AdjustmentResponse;
+    expect(pendingBody.data.adjustment).toMatchObject({
+      status: 'PENDING_APPROVAL',
+      requestedByMemberId: employeeMemberId,
+      reviewedByMemberId: null,
+    });
+    expect(pendingBody.data.transaction).toBeNull();
+    expect(await readBalance(quantityItemId)).toBeNull();
+
+    const id = pendingBody.data.adjustment.id;
+    await asIdentity(employeeIdentity, () => review(id, 'approve').expect(403));
+    await asIdentity(guestIdentity, () => review(id, 'approve').expect(403));
+
+    const listed = await asIdentity(employeeIdentity, () =>
+      http()
+        .get(endpoint)
+        .query({ farmId, status: 'PENDING_APPROVAL' })
+        .expect(200),
+    );
+    expect(
+      (listed.body as { data: Array<Record<string, unknown>> }).data,
+    ).toContainEqual(
+      expect.objectContaining({
+        id,
+        reasonCode: 'DAMAGE',
+        note: 'Thùng vỡ',
+        requester: { id: employeeMemberId, displayName: `${tag} Employee` },
+        reviewer: null,
+      }),
+    );
+
+    const approved = await review(id, 'approve').expect(201);
+    const approvedBody = approved.body as AdjustmentResponse;
+    expect(approvedBody.data.adjustment).toMatchObject({
+      status: 'CONFIRMED',
+      reviewedByMemberId: ownerMemberId,
+    });
+    expect(approvedBody.data.transaction).toMatchObject({
+      transactionType: 'ADJUSTMENT_IN',
+      reason: 'Hư hỏng: Thùng vỡ',
+      sourceId: id,
+      performedByMemberId: employeeMemberId,
+    });
+    expect(await readBalance(quantityItemId)).toBe('5.000');
+
+    await review(id, 'approve').expect(409);
+    await review(id, 'reject', 'late').expect(409);
+    await review(randomUUID(), 'approve').expect(404);
+    expect(await countAdjustments(quantityItemId)).toBe(1);
+  });
+
+  it('applies a pending approval at most once under concurrent clicks', async () => {
+    const pending = await asIdentity(employeeIdentity, () =>
+      submit(quantityItemId, '3').expect(201),
+    );
+    const id = (pending.body as AdjustmentResponse).data.adjustment.id;
+    const responses = await Promise.all([
+      review(id, 'approve'),
+      review(id, 'approve'),
+    ]);
+    expect(responses.map(({ status }) => status).sort()).toEqual([201, 409]);
+    expect(await readBalance(quantityItemId)).toBe('3.000');
+    expect(await countAdjustments(quantityItemId)).toBe(1);
+  });
+
+  it('rejects pending adjustments without touching stock', async () => {
+    const pending = await asIdentity(employeeIdentity, () =>
+      submit(quantityItemId, '5').expect(201),
+    );
+    const id = (pending.body as AdjustmentResponse).data.adjustment.id;
+    await review(id, 'reject', '   ').expect(400);
+    await asIdentity(employeeIdentity, () =>
+      review(id, 'reject', 'no').expect(403),
+    );
+    const rejected = await review(id, 'reject', '  Đếm lại  ').expect(201);
+    expect((rejected.body as AdjustmentResponse).data.adjustment).toMatchObject(
+      {
+        status: 'REJECTED',
+        rejectionReason: 'Đếm lại',
+        reviewedByMemberId: ownerMemberId,
+      },
+    );
+    await review(id, 'approve').expect(409);
+    expect(await readBalance(quantityItemId)).toBeNull();
+    expect(await countAdjustments(quantityItemId)).toBe(0);
+  });
+
+  it('re-checks stock at approval and leaves the request pending when it no longer fits', async () => {
+    await asIdentity(employeeIdentity, () =>
+      submit(quantityItemId, '-1').expect(409),
+    );
+    await pool.query(
+      'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,lot_id,quantity_on_hand) VALUES ($1,$2,$3,NULL,5)',
+      [farmId, warehouseId, quantityItemId],
+    );
+    const pending = await asIdentity(employeeIdentity, () =>
+      submit(quantityItemId, '-4').expect(201),
+    );
+    const id = (pending.body as AdjustmentResponse).data.adjustment.id;
+    await submit(quantityItemId, '-3').expect(201);
+
+    await review(id, 'approve').expect(409);
+    expect(await readBalance(quantityItemId)).toBe('2.000');
+    const status = await pool.query<{ status: string }>(
+      'SELECT status FROM inventory_adjustments WHERE id=$1',
+      [id],
+    );
+    expect(status.rows[0].status).toBe('PENDING_APPROVAL');
+  });
+
+  it('filters the adjustment list by warehouse, item and requester', async () => {
+    const ownerAdjustment = await submit(quantityItemId, '1').expect(201);
+    const employeeAdjustment = await asIdentity(employeeIdentity, () =>
+      submit(quantityItemId, '2').expect(201),
+    );
+    const ownerId = (ownerAdjustment.body as AdjustmentResponse).data.adjustment
+      .id;
+    const employeeId = (employeeAdjustment.body as AdjustmentResponse).data
+      .adjustment.id;
+    const listIds = async (
+      query: Record<string, string>,
+      identity = ownerIdentity,
+    ) => {
+      const response = await asIdentity(identity, () =>
+        http()
+          .get(endpoint)
+          .query({ farmId, pageSize: '100', ...query })
+          .expect(200),
+      );
+      return (response.body as { data: Array<{ id: string }> }).data.map(
+        ({ id }) => id,
+      );
+    };
+
+    const byItem = await listIds({ itemId: quantityItemId });
+    expect(byItem).toEqual(expect.arrayContaining([ownerId, employeeId]));
+    expect(await listIds({ itemId: maximumItemId })).not.toContain(ownerId);
+    expect(
+      await listIds({
+        itemId: quantityItemId,
+        warehouseId: inactiveWarehouseId,
+      }),
+    ).toEqual([]);
+    expect(
+      await listIds({ itemId: quantityItemId, mine: 'true' }, employeeIdentity),
+    ).toEqual([employeeId]);
+    expect(
+      await listIds(
+        { itemId: quantityItemId, mine: 'false' },
+        employeeIdentity,
+      ),
+    ).toEqual(expect.arrayContaining([ownerId, employeeId]));
+
+    await http()
+      .get(endpoint)
+      .query({ farmId, itemId: 'not-a-uuid' })
+      .expect(400);
+    await http().get(endpoint).query({ farmId, mine: 'yes' }).expect(400);
   });
 });

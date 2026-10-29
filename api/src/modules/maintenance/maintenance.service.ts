@@ -33,6 +33,7 @@ import {
   users,
   warehouses,
 } from '../../db/schema';
+import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import {
   CreateMaintenanceRecordDto,
@@ -142,81 +143,93 @@ export class MaintenanceService {
     input: CreateMaintenanceRecordDto,
   ) {
     const actor = await this.actor(farmId, clerkUserId);
-    return this.databaseService.db.transaction(async (tx) => {
-      const [asset] = await tx
-        .select()
-        .from(assets)
-        .where(and(eq(assets.id, input.assetId), eq(assets.farmId, farmId)))
-        .for('update')
-        .limit(1);
-      if (!asset) throw new NotFoundException('Asset not found');
-      if (['LOST', 'RETIRED'].includes(asset.status))
-        throw new ConflictException(
-          'Terminal assets cannot be scheduled for maintenance',
-        );
-      const [item] = await tx
-        .select({ id: items.id, trackingMode: items.trackingMode })
-        .from(items)
-        .where(
-          and(
-            eq(items.id, asset.itemId),
-            eq(items.farmId, farmId),
-            eq(items.status, 'ACTIVE'),
-          ),
-        )
-        .for('share')
-        .limit(1);
-      if (!item || item.trackingMode !== 'ASSET')
-        throw new ConflictException(
-          'Asset item must remain active and ASSET tracked',
-        );
-      await this.validateReferences(tx, farmId, asset.id, input);
-      const [activeRecord] = await tx
-        .select({ id: maintenanceRecords.id })
-        .from(maintenanceRecords)
-        .where(
-          and(
-            eq(maintenanceRecords.assetId, input.assetId),
-            eq(maintenanceRecords.farmId, farmId),
-            inArray(maintenanceRecords.status, ['SCHEDULED', 'IN_PROGRESS']),
-          ),
-        )
-        .limit(1);
-      if (activeRecord)
-        throw new ConflictException(
-          'Asset already has an active maintenance record',
-        );
-      const [record] = await tx
-        .insert(maintenanceRecords)
-        .values({
-          farmId,
-          assetId: input.assetId,
-          incidentId: input.incidentId,
-          maintenanceType: input.maintenanceType,
-          scheduledAt: input.scheduledAt,
-          description: input.description,
-          performedByMemberId: input.performedByMemberId,
-          supplierId: input.supplierId,
-          laborCost: input.laborCost ?? '0',
-          materialCost: input.materialCost ?? '0',
-          otherCost: input.otherCost ?? '0',
-        })
-        .returning();
-      await this.audit(
-        tx,
-        farmId,
-        actor.userId,
-        'ASSET_MAINTENANCE_SCHEDULED',
-        asset.id,
-        { status: asset.status },
-        {
-          status: asset.status,
-          referenceId: record.id,
-          summary: `Đã lên lịch ${this.maintenanceName(record.maintenanceType)}`,
-        },
+    return this.databaseService.db.transaction((tx) =>
+      this.schedule(tx, farmId, actor.userId, input),
+    );
+  }
+
+  /** Schedules a record inside the caller's transaction; also used to approve maintenance requests. */
+  async schedule(
+    tx: Transaction,
+    farmId: string,
+    actorUserId: string,
+    input: CreateMaintenanceRecordDto,
+  ) {
+    const [asset] = await tx
+      .select()
+      .from(assets)
+      .where(and(eq(assets.id, input.assetId), eq(assets.farmId, farmId)))
+      .for('update')
+      .limit(1);
+    if (!asset) throw new NotFoundException('Asset not found');
+    if (['LOST', 'RETIRED'].includes(asset.status))
+      throw new ConflictException(
+        'Terminal assets cannot be scheduled for maintenance',
       );
-      return record;
-    });
+    if (asset.status === 'TRANSFER_PENDING')
+      throw new ConflictException(TRANSFER_PENDING_CONFLICT);
+    const [item] = await tx
+      .select({ id: items.id, trackingMode: items.trackingMode })
+      .from(items)
+      .where(
+        and(
+          eq(items.id, asset.itemId),
+          eq(items.farmId, farmId),
+          eq(items.status, 'ACTIVE'),
+        ),
+      )
+      .for('share')
+      .limit(1);
+    if (!item || item.trackingMode !== 'ASSET')
+      throw new ConflictException(
+        'Asset item must remain active and ASSET tracked',
+      );
+    await this.validateReferences(tx, farmId, asset.id, input);
+    const [activeRecord] = await tx
+      .select({ id: maintenanceRecords.id })
+      .from(maintenanceRecords)
+      .where(
+        and(
+          eq(maintenanceRecords.assetId, input.assetId),
+          eq(maintenanceRecords.farmId, farmId),
+          inArray(maintenanceRecords.status, ['SCHEDULED', 'IN_PROGRESS']),
+        ),
+      )
+      .limit(1);
+    if (activeRecord)
+      throw new ConflictException(
+        'Asset already has an active maintenance record',
+      );
+    const [record] = await tx
+      .insert(maintenanceRecords)
+      .values({
+        farmId,
+        assetId: input.assetId,
+        incidentId: input.incidentId,
+        maintenanceType: input.maintenanceType,
+        scheduledAt: input.scheduledAt,
+        description: input.description,
+        performedByMemberId: input.performedByMemberId,
+        supplierId: input.supplierId,
+        laborCost: input.laborCost ?? '0',
+        materialCost: input.materialCost ?? '0',
+        otherCost: input.otherCost ?? '0',
+      })
+      .returning();
+    await this.audit(
+      tx,
+      farmId,
+      actorUserId,
+      'ASSET_MAINTENANCE_SCHEDULED',
+      asset.id,
+      { status: asset.status },
+      {
+        status: asset.status,
+        referenceId: record.id,
+        summary: `Đã lên lịch ${this.maintenanceName(record.maintenanceType)}`,
+      },
+    );
+    return record;
   }
 
   async update(

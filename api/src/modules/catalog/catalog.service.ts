@@ -1,8 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, count, eq, ilike, or, SQL } from 'drizzle-orm';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { and, asc, count, eq, ilike, notInArray, or, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
+import { qrSvg, scanUrl } from '../../common/qr';
 import { DatabaseService } from '../../db/database.service';
 import {
+  assets,
   categories,
   itemType,
   items,
@@ -11,7 +18,18 @@ import {
   suppliers,
   trackingMode,
   units,
+  warehouses,
 } from '../../db/schema';
+import type {
+  CreateCategoryDto,
+  CreateLocationDto,
+  CreateSupplierDto,
+  CreateUnitDto,
+  UpdateCategoryDto,
+  UpdateLocationDto,
+  UpdateSupplierDto,
+  UpdateUnitDto,
+} from './dto/catalog.dto';
 
 type ItemType = (typeof itemType.enumValues)[number];
 type TrackingMode = (typeof trackingMode.enumValues)[number];
@@ -210,6 +228,20 @@ export class CatalogService {
     return location;
   }
 
+  async getItemQr(id: string, farmId: string) {
+    const { item } = await this.getItem(id, farmId);
+    const qrUrl = scanUrl(`item/${item.id}`);
+    const svg = await qrSvg(qrUrl);
+    return {
+      itemId: item.id,
+      itemCode: item.code,
+      itemName: item.name,
+      qrUrl,
+      format: 'svg',
+      imageDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`,
+    };
+  }
+
   async getItem(id: string, farmId: string) {
     const [item] = await this.databaseService.db
       .select({
@@ -229,5 +261,166 @@ export class CatalogService {
     }
 
     return item;
+  }
+
+  createCategory(input: CreateCategoryDto) {
+    return this.unique('Category code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(categories)
+        .values(input)
+        .returning();
+      return row;
+    });
+  }
+
+  updateCategory(id: string, input: UpdateCategoryDto) {
+    this.assertChanges(input);
+    return this.unique('Category code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .update(categories)
+        .set({ ...input, updatedAt: new Date().toISOString() })
+        .where(eq(categories.id, id))
+        .returning();
+      if (!row) throw new NotFoundException('Category not found');
+      return row;
+    });
+  }
+
+  createUnit(input: CreateUnitDto) {
+    return this.unique('Unit code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(units)
+        .values(input)
+        .returning();
+      return row;
+    });
+  }
+
+  updateUnit(id: string, input: UpdateUnitDto) {
+    this.assertChanges(input);
+    return this.unique('Unit code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .update(units)
+        .set({ ...input, updatedAt: new Date().toISOString() })
+        .where(eq(units.id, id))
+        .returning();
+      if (!row) throw new NotFoundException('Unit not found');
+      return row;
+    });
+  }
+
+  createSupplier(farmId: string, input: CreateSupplierDto) {
+    return this.unique('Supplier code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(suppliers)
+        .values({ ...input, farmId })
+        .returning();
+      return row;
+    });
+  }
+
+  updateSupplier(id: string, farmId: string, input: UpdateSupplierDto) {
+    this.assertChanges(input);
+    return this.unique('Supplier code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .update(suppliers)
+        .set({ ...input, updatedAt: new Date().toISOString() })
+        .where(and(eq(suppliers.id, id), eq(suppliers.farmId, farmId)))
+        .returning();
+      if (!row) throw new NotFoundException('Supplier not found');
+      return row;
+    });
+  }
+
+  async createLocation(farmId: string, input: CreateLocationDto) {
+    await this.assertWarehouse(farmId, input.warehouseId);
+    return this.unique('Location code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(locations)
+        .values({ ...input, farmId })
+        .returning();
+      return row;
+    });
+  }
+
+  async updateLocation(id: string, farmId: string, input: UpdateLocationDto) {
+    this.assertChanges(input);
+    await this.assertWarehouse(farmId, input.warehouseId);
+    return this.unique('Location code already exists', () =>
+      this.databaseService.db.transaction(async (tx) => {
+        const where = and(eq(locations.id, id), eq(locations.farmId, farmId));
+        // FOR UPDATE waits for asset moves, which hold the location FOR SHARE.
+        const [current] = await tx
+          .select({ warehouseId: locations.warehouseId })
+          .from(locations)
+          .where(where)
+          .for('update');
+        if (!current) throw new NotFoundException('Location not found');
+        const movesWarehouse =
+          input.warehouseId !== undefined &&
+          input.warehouseId !== current.warehouseId;
+        if (movesWarehouse || input.status === 'INACTIVE') {
+          // Asset stock sits in the location's warehouse; it must move with each asset.
+          const [held] = await tx
+            .select({ id: assets.id })
+            .from(assets)
+            .where(
+              and(
+                eq(assets.currentLocationId, id),
+                notInArray(assets.status, ['LOST', 'RETIRED']),
+              ),
+            )
+            .limit(1);
+          if (held)
+            throw new ConflictException(
+              'Location still holds assets; transfer them to another location first',
+            );
+        }
+        const [row] = await tx
+          .update(locations)
+          .set({ ...input, updatedAt: new Date().toISOString() })
+          .where(where)
+          .returning();
+        return row;
+      }),
+    );
+  }
+
+  private assertChanges(input: object) {
+    if (!Object.values(input).some((value) => value !== undefined))
+      throw new BadRequestException('At least one field must be provided');
+  }
+
+  private async assertWarehouse(farmId: string, warehouseId?: string | null) {
+    if (!warehouseId) return;
+    const [row] = await this.databaseService.db
+      .select({ id: warehouses.id })
+      .from(warehouses)
+      .where(
+        and(
+          eq(warehouses.id, warehouseId),
+          eq(warehouses.farmId, farmId),
+          eq(warehouses.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    if (!row)
+      throw new BadRequestException(
+        'warehouseId must be an ACTIVE warehouse of this farm',
+      );
+  }
+
+  private async unique<T>(message: string, write: () => Promise<T>) {
+    try {
+      return await write();
+    } catch (error) {
+      const failure = error as { code?: string; cause?: { code?: string } };
+      const code = failure.code ?? failure.cause?.code;
+      if (code === '23505') throw new ConflictException(message);
+      // PATCH DTOs accept null for every field; required columns reject it here.
+      if (code === '23502')
+        throw new BadRequestException('Required fields cannot be empty');
+      throw error;
+    }
   }
 }

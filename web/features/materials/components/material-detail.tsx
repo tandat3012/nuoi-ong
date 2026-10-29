@@ -10,6 +10,7 @@ import {
 } from "../types/material";
 import { Card, CardHeader, CardTitle, CardContent } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
+import { ItemQrButton } from "@/features/qr/item-qr-dialog";
 import { Button } from "@/shared/components/ui/button";
 import {
   ArrowLeft,
@@ -109,6 +110,7 @@ export function MaterialDetailView({
               <ExternalLink className="size-3.5 text-muted-foreground" aria-hidden="true" />
               <span>Xem tồn kho</span>
             </Link>
+            <ItemQrButton itemId={item.id} />
             {canWrite && (
               <Button size="sm" onClick={onEdit} className="gap-1.5">
                 <Edit className="size-3.5" aria-hidden="true" />

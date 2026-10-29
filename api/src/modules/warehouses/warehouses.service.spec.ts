@@ -26,6 +26,7 @@ describe('WarehousesService', () => {
     memberId: 'member',
     userStatus: 'ACTIVE',
     memberStatus: 'ACTIVE',
+    farmStatus: 'ACTIVE',
     roleCode: 'FARM_OWNER',
   };
 
@@ -81,6 +82,10 @@ describe('WarehousesService', () => {
       service.assertFarmAccess('farm', 'identity', true),
     ).rejects.toBeInstanceOf(ForbiddenException);
     select.mockReturnValue(rows([{ ...member, memberStatus: 'INACTIVE' }]));
+    await expect(
+      service.assertFarmAccess('farm', 'identity', false),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    select.mockReturnValue(rows([{ ...member, farmStatus: 'INACTIVE' }]));
     await expect(
       service.assertFarmAccess('farm', 'identity', false),
     ).rejects.toBeInstanceOf(ForbiddenException);

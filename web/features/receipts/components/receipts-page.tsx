@@ -2,7 +2,7 @@
 
 import { useAuthContext } from '@/features/auth/context/auth-context';
 import { useFarmMembership } from '@/features/auth/hooks/use-farm-membership';
-import { useState } from 'react';
+import { startTransition, useEffect, useState } from 'react';
 import { ReceiptDetail } from './receipt-detail';
 import { ReceiptDraftForm } from './receipt-draft-form';
 import { useReceiptList } from '../hooks/use-receipt-list';
@@ -16,24 +16,34 @@ import { ReceiptDraftPicker, type DraftChoice } from './receipt-draft-picker';
 import { PageHeader } from '@/shared/components/ui/page-header';
 import { Button } from '@/shared/components/ui/button';
 import { Select } from '@/shared/components/ui/select';
+import { canCreateStockDocuments, useStockDocumentQuery } from '@/features/stock-documents';
+import { useNotificationRefresh } from '@/features/notifications';
 
 export function ReceiptsPage() {
   const { selectedFarmId } = useAuthContext();
+  const notificationRevision = useNotificationRefresh();
 
   if (!selectedFarmId)
     return <p>Vui lòng chọn trang trại để xem phiếu nhập.</p>;
 
-  return <FarmReceiptsPage key={selectedFarmId} farmId={selectedFarmId} />;
+  return <FarmReceiptsPage key={`${selectedFarmId}:${notificationRevision}`} farmId={selectedFarmId} />;
 }
 
 function FarmReceiptsPage({ farmId }: { farmId: string }) {
-  const { canManageFarm: canWrite } = useFarmMembership();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { membership } = useFarmMembership();
+  const roles = membership?.roles ?? [];
+  const canCreate = canCreateStockDocuments(roles);
+  const viewer = { roles, memberId: membership?.memberId };
+  const [selectedId, setSelectedId] = useStockDocumentQuery();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ReceiptDraftInitial | null>(null);
   const [warehouseFilter, setWarehouseFilter] =
     useState<DraftChoice | null>(null);
   const [selectingWarehouse, setSelectingWarehouse] = useState(false);
+
+  useEffect(() => {
+    startTransition(() => { setCreating(false); setEditing(null); });
+  }, [selectedId]);
 
   const {
     filters,
@@ -51,7 +61,7 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
     return (
       <ReceiptDraftForm
         farmId={farmId}
-        canWrite={canWrite}
+        canWrite={canCreate}
         initial={editing ?? undefined}
         onCancel={() => {
           setCreating(false);
@@ -73,7 +83,7 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
         key={selectedId}
         farmId={farmId}
         id={selectedId}
-        canWrite={canWrite}
+        viewer={viewer}
         onBack={() => setSelectedId(null)}
         onEdit={setEditing}
         onConfirmed={reload}
@@ -90,7 +100,7 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
         description="Lập phiếu nháp, xác nhận để cập nhật tồn kho, lô hoặc tài sản."
         actions={
           <>
-            {canWrite && <Button onClick={() => setCreating(true)}>Tạo phiếu nháp</Button>}
+            {canCreate && <Button onClick={() => setCreating(true)}>Tạo phiếu nháp</Button>}
             <Button variant="outline" onClick={reload} disabled={isLoading}>
               Tải lại
             </Button>

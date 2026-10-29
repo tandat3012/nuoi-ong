@@ -1,4 +1,13 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   parseOptionalEnum,
   parsePagination,
@@ -8,9 +17,22 @@ import {
 import { itemType, recordStatus, trackingMode } from '../../db/schema';
 import { CatalogService } from './catalog.service';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import {
+  CreateCategoryDto,
+  CreateLocationDto,
+  CreateSupplierDto,
+  CreateUnitDto,
+  UpdateCategoryDto,
+  UpdateLocationDto,
+  UpdateSupplierDto,
+  UpdateUnitDto,
+} from './dto/catalog.dto';
 import {
   ApiBearerAuth,
   ApiBadRequestResponse,
+  ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -201,6 +223,30 @@ export class CatalogController {
       ),
       status: parseOptionalEnum(statusValue, recordStatus.enumValues, 'status'),
     });
+  }
+
+  @Get('items/:id/qr')
+  @UseGuards(FarmAccessGuard)
+  @ApiOperation({ summary: 'Mã QR in nhãn cho mặt hàng' })
+  @ApiUuidParam('id', 'ID mặt hàng.')
+  @ApiFarmIdQuery()
+  @ApiOkResponse({
+    description:
+      'QR SVG chứa URL `{WEB_APP_URL}/scan/item/{itemId}` kèm mã và tên mặt hàng.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Không tìm thấy mặt hàng trong trang trại.',
+  })
+  async getItemQr(
+    @Param('id') idValue: string,
+    @Query('farmId') farmIdValue?: string,
+  ) {
+    return {
+      data: await this.catalogService.getItemQr(
+        requireUuid(idValue, 'id'),
+        requireUuid(farmIdValue, 'farmId'),
+      ),
+    };
   }
 
   @Get('items/:id')
@@ -508,6 +554,181 @@ export class CatalogController {
       data: await this.catalogService.getLocation(
         requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
+      ),
+    };
+  }
+
+  // Categories and units are shared by every farm, so only ADMIN may change them.
+  // farmId only selects the membership whose role FarmAccessGuard checks.
+  @Post('categories')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles('ADMIN')
+  @ApiOperation({ summary: 'Tạo nhóm hàng (dùng chung mọi trang trại)' })
+  @ApiFarmIdQuery()
+  @ApiCreatedResponse({ description: 'Nhóm hàng vừa tạo, bọc trong data.' })
+  @ApiBadRequestResponse({ description: 'Dữ liệu không hợp lệ.' })
+  @ApiConflictResponse({ description: 'Mã nhóm hàng đã tồn tại.' })
+  @ApiForbiddenResponse({ description: 'Chỉ quản trị viên (ADMIN).' })
+  async createCategory(@Body() input: CreateCategoryDto) {
+    return { data: await this.catalogService.createCategory(input) };
+  }
+
+  @Patch('categories/:id')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles('ADMIN')
+  @ApiOperation({ summary: 'Sửa hoặc ngưng nhóm hàng' })
+  @ApiUuidParam('id', 'ID nhóm hàng.')
+  @ApiFarmIdQuery()
+  @ApiOkResponse({ description: 'Nhóm hàng sau khi sửa, bọc trong data.' })
+  @ApiBadRequestResponse({ description: 'Dữ liệu không hợp lệ.' })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy nhóm hàng.' })
+  @ApiConflictResponse({ description: 'Mã nhóm hàng đã tồn tại.' })
+  @ApiForbiddenResponse({ description: 'Chỉ quản trị viên (ADMIN).' })
+  async updateCategory(
+    @Param('id') idValue: string,
+    @Body() input: UpdateCategoryDto,
+  ) {
+    return {
+      data: await this.catalogService.updateCategory(
+        requireUuid(idValue, 'id'),
+        input,
+      ),
+    };
+  }
+
+  @Post('units')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles('ADMIN')
+  @ApiOperation({ summary: 'Tạo đơn vị tính (dùng chung mọi trang trại)' })
+  @ApiFarmIdQuery()
+  @ApiCreatedResponse({ description: 'Đơn vị vừa tạo, bọc trong data.' })
+  @ApiBadRequestResponse({ description: 'Dữ liệu không hợp lệ.' })
+  @ApiConflictResponse({ description: 'Mã đơn vị đã tồn tại.' })
+  @ApiForbiddenResponse({ description: 'Chỉ quản trị viên (ADMIN).' })
+  async createUnit(@Body() input: CreateUnitDto) {
+    return { data: await this.catalogService.createUnit(input) };
+  }
+
+  @Patch('units/:id')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles('ADMIN')
+  @ApiOperation({ summary: 'Sửa hoặc ngưng đơn vị tính' })
+  @ApiUuidParam('id', 'ID đơn vị.')
+  @ApiFarmIdQuery()
+  @ApiOkResponse({ description: 'Đơn vị sau khi sửa, bọc trong data.' })
+  @ApiBadRequestResponse({ description: 'Dữ liệu không hợp lệ.' })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy đơn vị.' })
+  @ApiConflictResponse({ description: 'Mã đơn vị đã tồn tại.' })
+  @ApiForbiddenResponse({ description: 'Chỉ quản trị viên (ADMIN).' })
+  async updateUnit(@Param('id') idValue: string, @Body() input: UpdateUnitDto) {
+    return {
+      data: await this.catalogService.updateUnit(
+        requireUuid(idValue, 'id'),
+        input,
+      ),
+    };
+  }
+
+  @Post('suppliers')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @ApiOperation({ summary: 'Tạo nhà cung cấp' })
+  @ApiFarmIdQuery()
+  @ApiCreatedResponse({ description: 'Nhà cung cấp vừa tạo, bọc trong data.' })
+  @ApiBadRequestResponse({ description: 'Dữ liệu không hợp lệ.' })
+  @ApiConflictResponse({ description: 'Mã nhà cung cấp đã tồn tại.' })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên hoặc chủ trang trại.',
+  })
+  async createSupplier(
+    @Query('farmId') farmIdValue: string | undefined,
+    @Body() input: CreateSupplierDto,
+  ) {
+    return {
+      data: await this.catalogService.createSupplier(
+        requireUuid(farmIdValue, 'farmId'),
+        input,
+      ),
+    };
+  }
+
+  @Patch('suppliers/:id')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @ApiOperation({ summary: 'Sửa hoặc ngưng nhà cung cấp' })
+  @ApiUuidParam('id', 'ID nhà cung cấp.')
+  @ApiFarmIdQuery()
+  @ApiOkResponse({ description: 'Nhà cung cấp sau khi sửa, bọc trong data.' })
+  @ApiBadRequestResponse({ description: 'Dữ liệu không hợp lệ.' })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy nhà cung cấp.' })
+  @ApiConflictResponse({ description: 'Mã nhà cung cấp đã tồn tại.' })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên hoặc chủ trang trại.',
+  })
+  async updateSupplier(
+    @Param('id') idValue: string,
+    @Query('farmId') farmIdValue: string | undefined,
+    @Body() input: UpdateSupplierDto,
+  ) {
+    return {
+      data: await this.catalogService.updateSupplier(
+        requireUuid(idValue, 'id'),
+        requireUuid(farmIdValue, 'farmId'),
+        input,
+      ),
+    };
+  }
+
+  @Post('locations')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @ApiOperation({ summary: 'Tạo vị trí' })
+  @ApiFarmIdQuery()
+  @ApiCreatedResponse({ description: 'Vị trí vừa tạo, bọc trong data.' })
+  @ApiBadRequestResponse({
+    description: 'Dữ liệu không hợp lệ hoặc kho không thuộc trang trại.',
+  })
+  @ApiConflictResponse({ description: 'Mã vị trí đã tồn tại.' })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên hoặc chủ trang trại.',
+  })
+  async createLocation(
+    @Query('farmId') farmIdValue: string | undefined,
+    @Body() input: CreateLocationDto,
+  ) {
+    return {
+      data: await this.catalogService.createLocation(
+        requireUuid(farmIdValue, 'farmId'),
+        input,
+      ),
+    };
+  }
+
+  @Patch('locations/:id')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @ApiOperation({ summary: 'Sửa hoặc ngưng vị trí' })
+  @ApiUuidParam('id', 'ID vị trí.')
+  @ApiFarmIdQuery()
+  @ApiOkResponse({ description: 'Vị trí sau khi sửa, bọc trong data.' })
+  @ApiBadRequestResponse({
+    description: 'Dữ liệu không hợp lệ hoặc kho không thuộc trang trại.',
+  })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy vị trí.' })
+  @ApiConflictResponse({ description: 'Mã vị trí đã tồn tại.' })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên hoặc chủ trang trại.',
+  })
+  async updateLocation(
+    @Param('id') idValue: string,
+    @Query('farmId') farmIdValue: string | undefined,
+    @Body() input: UpdateLocationDto,
+  ) {
+    return {
+      data: await this.catalogService.updateLocation(
+        requireUuid(idValue, 'id'),
+        requireUuid(farmIdValue, 'farmId'),
+        input,
       ),
     };
   }

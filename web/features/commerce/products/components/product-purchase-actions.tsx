@@ -9,6 +9,7 @@ export interface ProductPurchaseActionsProps {
   inStock: boolean;
   canAdd?: boolean;
   onAddToCart?: () => void;
+  onBuyNow?: () => void;
   className?: string;
 }
 
@@ -16,6 +17,7 @@ export function ProductPurchaseActions({
   inStock,
   canAdd = inStock,
   onAddToCart,
+  onBuyNow,
   className,
 }: ProductPurchaseActionsProps) {
   return (
@@ -39,14 +41,15 @@ export function ProductPurchaseActions({
         <span>{inStock ? 'Thêm vào giỏ' : 'Hết hàng'}</span>
       </Button>
 
-      {/* Nút Mua ngay — Hành động phụ (Secondary treatment - đang chuẩn bị) */}
+      {/* Đặt hàng nhanh với đúng biến thể và số lượng đang chọn. */}
       <Button
         type="button"
-        disabled
-        aria-disabled="true"
-        aria-label="Mua ngay (Chức năng thanh toán đang chuẩn bị)"
+        disabled={!canAdd || !onBuyNow}
+        aria-disabled={!canAdd || !onBuyNow}
+        onClick={onBuyNow}
+        aria-label={inStock ? 'Mua ngay' : 'Sản phẩm tạm hết hàng'}
         className={cn(
-          'flex-1 h-12 rounded-xl bg-[#ebb02d]/60 text-[#451a03] font-semibold text-sm sm:text-base flex items-center justify-center gap-2 cursor-not-allowed opacity-75 select-none shadow-2xs',
+          'flex-1 h-12 rounded-xl bg-[#ebb02d] text-[#451a03] font-semibold text-sm sm:text-base flex items-center justify-center gap-2 hover:bg-[#e0a51d] shadow-2xs disabled:cursor-not-allowed disabled:opacity-50',
           !inStock && 'opacity-40',
         )}
       >

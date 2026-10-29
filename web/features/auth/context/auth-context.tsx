@@ -1,15 +1,18 @@
 'use client';
 import {
   createContext,
+  startTransition,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { AuthContextResponse } from '../types/auth-context';
 import { SignOutButton, useAuth } from '@clerk/nextjs';
 import { useAuthenticatedRequest } from '../hooks/use-authenticated-request';
+import { farmSelectionHref } from '../farm-navigation.logic';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -57,9 +60,24 @@ function SessionContextProvider({
   const { isSignedIn, isLoaded } = useAuth();
   const [data, setData] = useState<AuthContextResponse | null>(null);
   const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
+  const previousFarmId = useRef<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [attempt, setAttempt] = useState(0);
   const refresh = useCallback(() => setAttempt((previous) => previous + 1), []);
+
+  const applyFarm = useCallback((farmId: string | null) => {
+    const href = farmSelectionHref(previousFarmId.current, farmId, window.location.href);
+    previousFarmId.current = farmId;
+    if (href) {
+      // Commit the cleared URL and new farm together so detail effects cannot see the old ID.
+      startTransition(() => {
+        window.history.replaceState(null, '', href);
+        setSelectedFarmId(farmId);
+      });
+      return;
+    }
+    setSelectedFarmId(farmId);
+  }, []);
 
   useEffect(() => {
     window.addEventListener('focus', refresh);
@@ -107,7 +125,7 @@ function SessionContextProvider({
         )
           ? res.defaultFarmId
           : (res.memberships[0]?.farm.id ?? null);
-        setSelectedFarmId(savedFarmIsValid ? savedFarmId : defaultFarmId);
+        applyFarm(savedFarmIsValid ? savedFarmId : defaultFarmId);
         setError(null);
       })
 
@@ -123,7 +141,7 @@ function SessionContextProvider({
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, isLoaded, request, userId, attempt, router]);
+  }, [isSignedIn, isLoaded, request, userId, attempt, router, applyFarm]);
 
   const value = useMemo(() => {
     if (!data) return null;
@@ -146,10 +164,10 @@ function SessionContextProvider({
             farmId,
           );
         } catch {}
-        setSelectedFarmId(farmId);
+        applyFarm(farmId);
       },
     };
-  }, [data, selectedFarmId, error, refresh]);
+  }, [data, selectedFarmId, error, refresh, applyFarm]);
   if (!isLoaded || (isSignedIn && !data && !error)) return <p>Đang tải...</p>;
   if (!isSignedIn) return null;
   const retry = () => {
@@ -172,7 +190,7 @@ function SessionContextProvider({
         </SignOutButton>
       </section>
     );
-  if (!value) return null;
+  if (!data) return null;
   if (data?.user.mustChangePassword)
     return <p role="status">Vui lòng đổi mật khẩu ban đầu…</p>;
   if (!selectedFarmId)

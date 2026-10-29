@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, or, sql, SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import QRCode from 'qrcode';
+import { qrSvg, scanUrl } from '../../common/qr';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -144,14 +144,8 @@ export class AssetHistoryService {
       .where(and(eq(assets.id, assetId), eq(assets.farmId, farmId)))
       .limit(1);
     if (!asset) throw new NotFoundException('Asset not found');
-    return {
-      assetCode: asset.assetCode,
-      svg: await QRCode.toString(asset.assetCode, {
-        type: 'svg',
-        errorCorrectionLevel: 'M',
-        margin: 2,
-      }),
-    };
+    const qrUrl = scanUrl(encodeURIComponent(asset.assetCode));
+    return { assetCode: asset.assetCode, qrUrl, svg: await qrSvg(qrUrl) };
   }
 
   private async assignments(filters: HistoryPage) {

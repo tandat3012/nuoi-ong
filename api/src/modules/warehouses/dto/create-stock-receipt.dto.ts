@@ -43,8 +43,17 @@ export class CreateStockReceiptItemDto {
   note?: string | null;
 
   @ApiPropertyOptional({
+    format: 'uuid',
     description:
-      'Bắt buộc khi xác nhận dòng trackingMode LOT; dòng nháp có thể bỏ trống.',
+      'Nhập thêm vào lô đã có (cùng farm và mặt hàng LOT); khi đó bỏ trống lotNumber, manufacturedDate, expiryDate.',
+  })
+  @IsOptional()
+  @IsUUID()
+  lotId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Bắt buộc khi xác nhận dòng trackingMode LOT không chọn lotId; dòng nháp có thể bỏ trống.',
   })
   @IsOptional()
   @IsString()

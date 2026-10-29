@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import type { PaginatedResponse } from "@/shared/api/contracts";
@@ -116,17 +117,25 @@ export function CustomerList({
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={customer.accountStatus !== "ACTIVE"}
-                      onClick={(event) => {
-                        promoteTrigger.current = event.currentTarget;
-                        setPromote(customer.email);
-                      }}
-                    >
-                      Thêm vào nội bộ
-                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Link
+                        href={`/store-orders/customers/${encodeURIComponent(customer.id)}`}
+                        className="inline-flex h-8 items-center rounded-md border px-3 text-xs font-medium hover:bg-muted"
+                      >
+                        Lịch sử mua
+                      </Link>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={customer.accountStatus !== "ACTIVE"}
+                        onClick={(event) => {
+                          promoteTrigger.current = event.currentTarget;
+                          setPromote(customer.email);
+                        }}
+                      >
+                        Thêm vào nội bộ
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

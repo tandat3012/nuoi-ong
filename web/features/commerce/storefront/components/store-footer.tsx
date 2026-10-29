@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Phone, Mail, MapPin, Clock } from 'lucide-react';
 import { STOREFRONT_CONFIG } from '../config/storefront-config';
 import { StoreBrand } from './store-brand';
+import { hasStoreBankTransferInstructions } from '@/features/commerce/orders/store-bank-transfer';
 
 export function StoreFooter() {
   const { brand, footer } = STOREFRONT_CONFIG;
@@ -120,7 +121,12 @@ export function StoreFooter() {
 
           <div className="flex flex-wrap items-center justify-center gap-2">
             <span className="text-xs text-muted-foreground mr-1">Hình thức thanh toán:</span>
-            {footer.paymentMethods.map((method) => (
+            {[
+              'COD (Tiền mặt)',
+              ...(hasStoreBankTransferInstructions()
+                ? ['Chuyển khoản ngân hàng']
+                : []),
+            ].map((method) => (
               <span
                 key={method}
                 className="inline-flex items-center rounded-md border border-border bg-card px-2 py-0.5 text-[0.7rem] font-medium text-muted-foreground"

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useReceiptDetail } from "../hooks/use-receipt-detail";
 import { useCancelReceipt } from "../hooks/use-cancel-receipt";
 import { useConfirmReceipt } from "../hooks/use-confirm-receipt";
@@ -11,6 +12,13 @@ import { RECEIPT_STATUS_LABELS } from "../types/receipt";
 import type { ReceiptDraftInitial } from "../types/receipt";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
+import { HistoryPanel } from "@/features/history";
+import {
+  RejectionNotice,
+  StockDocumentReview,
+  stockDocumentActions,
+} from "@/features/stock-documents";
+import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 
 const date = (value: string | null) =>
   value ? value.split("-").reverse().join("/") : "—";
@@ -18,7 +26,7 @@ const date = (value: string | null) =>
 export function ReceiptDetail({
   farmId,
   id,
-  canWrite,
+  viewer,
   onBack,
   onEdit,
   onCancelled,
@@ -26,7 +34,7 @@ export function ReceiptDetail({
 }: {
   farmId: string;
   id: string;
-  canWrite: boolean;
+  viewer: StockDocumentViewer;
   onBack: () => void;
   onEdit: (initial: ReceiptDraftInitial) => void;
   onCancelled: () => void;
@@ -36,33 +44,40 @@ export function ReceiptDetail({
     detail,
     warehouse,
     supplier,
-    locationLabels,
-    references,
     warning,
     error,
     isLoading,
     reload,
+    revision,
   } = useReceiptDetail(farmId, id);
+  const actions = stockDocumentActions(
+    viewer,
+    detail?.receipt ?? { status: "CANCELLED", createdByMemberId: null },
+  );
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const refresh = () => {
+    reload();
+    onConfirmed();
+  };
   const { cancel, isCancelling, cancelError } = useCancelReceipt(
     farmId,
-    canWrite,
+    actions.cancel,
     id,
     onCancelled,
+    refresh,
   );
   const canEdit = Boolean(
-    detail && supportsQuantityDraftEdit(detail, references),
+    detail && supportsQuantityDraftEdit(detail),
   );
   const canConfirm = Boolean(
-    detail && supportsQuantityDraftConfirm(detail, references),
+    detail && supportsQuantityDraftConfirm(detail),
   );
   const { confirm, isConfirming, confirmError } = useConfirmReceipt(
     farmId,
-    canWrite,
+    actions.confirm,
     id,
-    () => {
-      reload();
-      onConfirmed();
-    },
+    refresh,
+    refresh,
   );
 
   return (
@@ -78,7 +93,7 @@ export function ReceiptDetail({
           >
             Quay lại danh sách
           </Button>
-          {canWrite && detail?.receipt.status === "DRAFT" && canEdit && (
+          {actions.edit && canEdit && (
             <Button
               onClick={() => {
                 if (!detail) return;
@@ -86,8 +101,6 @@ export function ReceiptDetail({
                   detail,
                   warehouseLabel: warehouse,
                   supplierLabel: supplier,
-                  locationLabels,
-                  references,
                 });
               }}
               disabled={isCancelling || isConfirming}
@@ -96,7 +109,7 @@ export function ReceiptDetail({
               Sửa nháp
             </Button>
           )}
-          {canWrite && detail?.receipt.status === "DRAFT" && (
+          {actions.cancel && (
             <Button
               onClick={() => {
                 if (window.confirm("Bạn có chắc muốn hủy phiếu nhập nháp này?"))
@@ -109,7 +122,20 @@ export function ReceiptDetail({
               {isCancelling ? "Đang hủy..." : "Hủy phiếu nháp"}
             </Button>
           )}
-          {canWrite && detail?.receipt.status === "DRAFT" && canConfirm && (
+          {detail && (
+            <StockDocumentReview
+              kind="stock-receipts"
+              farmId={farmId}
+              id={id}
+              code={detail.receipt.receiptCode}
+              canSubmit={actions.submit}
+              canReject={actions.reject}
+              disabled={isCancelling || isConfirming}
+              onChanged={refresh}
+              onError={setReviewError}
+            />
+          )}
+          {actions.confirm && canConfirm && (
             <Button
               onClick={() => {
                 if (
@@ -150,6 +176,14 @@ export function ReceiptDetail({
                 {cancelError}
               </div>
             )}
+            {reviewError && (
+              <div
+                role="alert"
+                className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
+              >
+                {reviewError}
+              </div>
+            )}
             {confirmError && (
               <div
                 role="alert"
@@ -158,26 +192,26 @@ export function ReceiptDetail({
                 {confirmError}
               </div>
             )}
-            {canWrite &&
-              detail.receipt.status === "DRAFT" &&
+            <RejectionNotice reason={detail.receipt.rejectionReason} />
+            {(actions.confirm || actions.submit) &&
               !canConfirm &&
               !warning && (
                 <p role="status" className="rounded-xl border p-3 text-sm">
                   {detail.items.length === 0
                     ? "Phiếu chưa có dòng hàng nên chưa thể xác nhận."
-                    : "Phiếu có dòng hàng thiếu thông tin LOT/ASSET hoặc dữ liệu hàng hóa chưa tải được nên chưa thể xác nhận."}
+                    : "Phiếu có dòng hàng thiếu thông tin lô hoặc tài sản nên chưa thể xác nhận."}
                 </p>
               )}
-            {canWrite && detail.receipt.status === "DRAFT" && !canEdit && (
+            {actions.edit && !canEdit && (
               <p role="status" className="rounded-xl border p-3 text-sm">
-                Phiếu nháp có dòng hàng chưa tải được hoặc dữ liệu không hợp lệ
-                nên chưa thể sửa bằng form hiện tại.
+                Phiếu nháp có dòng hàng không hợp lệ nên chưa thể sửa bằng form
+                hiện tại.
               </p>
             )}
             {warning && (
               <p role="status" className="rounded-xl border p-3 text-sm">
-                Không tải được một số thông tin kho/nhà cung cấp/hàng hóa/vị
-                trí. Mã tham chiếu được hiển thị thay thế.{" "}
+                Không tải được thông tin kho hoặc nhà cung cấp. Mã tham chiếu
+                được hiển thị thay thế.{" "}
                 <button type="button" onClick={reload} className="underline">
                   Thử lại
                 </button>
@@ -246,68 +280,59 @@ export function ReceiptDetail({
                   </thead>
                   <tbody className="divide-y">
                     {detail.items.map((line) => {
-                      const reference = references?.[line.itemId];
+                      const lotNumber = line.lotNumber ?? line.lotNumberFromLot;
+                      const manufacturedDate =
+                        line.manufacturedDate ?? line.lotManufacturedDate;
+                      const expiryDate = line.expiryDate ?? line.lotExpiryDate;
+                      const assetCode = line.assetCode ?? line.assetCodeFromAsset;
+                      const serialNumber =
+                        line.serialNumber ?? line.assetSerialNumber;
                       return (
                         <tr key={line.id}>
                           <td className="px-4 py-3">
-                            {reference ? (
+                            {line.itemCode ? (
                               <>
-                                <p className="font-mono">
-                                  {reference.item.code}
-                                </p>
-                                <p>{reference.item.name}</p>
+                                <p className="font-mono">{line.itemCode}</p>
+                                <p>{line.itemName}</p>
                               </>
                             ) : (
                               <span className="break-all">
-                                Không tải được thông tin hàng ({line.itemId})
+                                Không tìm thấy hàng ({line.itemId})
                               </span>
                             )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
-                            {line.quantity}{" "}
-                            {reference?.unitSymbol || reference?.unitName}
+                            {line.quantity} {line.unitSymbol || line.unitName}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {line.unitPrice}
                           </td>
                           <td className="px-4 py-3">
-                            {line.lotNumber && <p>Lô: {line.lotNumber}</p>}
-                            {line.lotId && (
-                              <p className="break-all">ID lô: {line.lotId}</p>
-                            )}
-                            {line.manufacturedDate && (
+                            {lotNumber && (
                               <p>
-                                Ngày sản xuất: {date(line.manufacturedDate)}
+                                Lô: {lotNumber}
+                                {line.lotId && !line.lotNumber && " (lô có sẵn)"}
                               </p>
                             )}
-                            {line.expiryDate && (
-                              <p>Hạn sử dụng: {date(line.expiryDate)}</p>
+                            {manufacturedDate && (
+                              <p>Ngày sản xuất: {date(manufacturedDate)}</p>
                             )}
-                            {line.assetCode && (
-                              <p>Mã tài sản: {line.assetCode}</p>
-                            )}
-                            {line.assetId && (
-                              <p className="break-all">
-                                ID tài sản: {line.assetId}
-                              </p>
-                            )}
-                            {line.serialNumber && (
-                              <p>Serial: {line.serialNumber}</p>
-                            )}
+                            {expiryDate && <p>Hạn sử dụng: {date(expiryDate)}</p>}
+                            {assetCode && <p>Mã tài sản: {assetCode}</p>}
+                            {serialNumber && <p>Serial: {serialNumber}</p>}
                             {line.locationId && (
                               <p>
                                 Vị trí:{" "}
-                                {locationLabels?.[line.locationId] ??
-                                  `Không tải được thông tin vị trí (${line.locationId})`}
+                                {line.locationCode
+                                  ? `${line.locationCode} — ${line.locationName}`
+                                  : `Không tìm thấy vị trí (${line.locationId})`}
                               </p>
                             )}
-                            {!line.lotNumber &&
-                              !line.lotId &&
-                              !line.manufacturedDate &&
-                              !line.expiryDate &&
-                              !line.assetCode &&
-                              !line.assetId &&
-                              !line.serialNumber &&
+                            {!lotNumber &&
+                              !manufacturedDate &&
+                              !expiryDate &&
+                              !assetCode &&
+                              !serialNumber &&
                               !line.locationId &&
                               "—"}
                           </td>
@@ -324,6 +349,7 @@ export function ReceiptDetail({
           </>
         )
       )}
+      <HistoryPanel key={`${farmId}:${id}`} farmId={farmId} entityType="STOCK_RECEIPT" entityId={id} revision={revision} />
     </section>
   );
 }

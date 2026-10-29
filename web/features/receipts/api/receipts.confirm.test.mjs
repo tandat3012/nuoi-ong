@@ -4,6 +4,7 @@ import {
   confirmReceipt,
   getReceiptCatalogItems,
   getReceiptLocations,
+  getReceiptLots,
   getReceiptSuppliers,
   getReceipts,
 } from './receipts.api.ts';
@@ -71,4 +72,22 @@ test('scopes receipt lists and all dropdown lookups to the selected farm', async
   assert.equal(calls[1].options.params.status, 'ACTIVE');
   assert.equal(calls[2].options.params.warehouseId, 'warehouse-selected');
   assert.equal(calls[3].options.params.trackingMode, 'ASSET');
+});
+
+test('lists lots of one item for the existing-lot picker', async () => {
+  const response = { data: [], page: { page: 1, pageSize: 10, total: 0, totalPages: 0 } };
+  assert.equal(
+    await getReceiptLots(
+      async (path, options) => {
+        assert.equal(path, '/lots');
+        assert.deepEqual(options, {
+          params: { farmId: 'farm-a', page: 2, pageSize: 10, itemId: 'item-a' },
+        });
+        return response;
+      },
+      'farm-a',
+      { page: 2, pageSize: 10, itemId: 'item-a' },
+    ),
+    response,
+  );
 });

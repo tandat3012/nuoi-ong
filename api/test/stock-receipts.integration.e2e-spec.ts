@@ -10,7 +10,7 @@ import { DatabaseService } from '../src/db/database.service';
 import * as schema from '../src/db/schema';
 import { CatalogController } from '../src/modules/catalog/catalog.controller';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
-import { FarmAccessGuard } from '../src/modules/auth/farm-access.guard';
+import { FarmAccessGuard } from '../src/modules/auth/farm-access/farm-access.guard';
 import { StockReceiptsController } from '../src/modules/warehouses/stock-receipts.controller';
 import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
@@ -48,6 +48,7 @@ async function removeConcurrentReceiptFixtures(
   const cleanup = await pool.connect();
   try {
     await cleanup.query('BEGIN');
+    await cleanup.query('DELETE FROM audit_logs WHERE farm_id=$1', [farmId]);
     await cleanup.query('DELETE FROM inventory_transactions WHERE farm_id=$1', [
       farmId,
     ]);
@@ -598,6 +599,107 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       [warehouseA, lotItemId, lot.rows[0].id],
     );
     expect(balance.rows[0].quantity).toBe('3.125');
+  });
+
+  it('adds stock to an existing lot without creating a new one and returns line details', async () => {
+    const lot = await client!.query<{ id: string }>(
+      "INSERT INTO inventory_lots (farm_id,item_id,lot_number,expiry_date,initial_quantity) VALUES ($1,$2,$3,'2027-06-01',5) RETURNING id",
+      [farmA, lotItemId, `${tag}-REUSED-LOT`],
+    );
+    const lotId = lot.rows[0].id;
+    const draft = await createReceipt(
+      farmA,
+      receiptInput(`${tag}-LOT-REUSE`, {
+        items: [{ itemId: lotItemId, quantity: '2.000', lotId }],
+      }),
+    );
+    expect(draft.items[0].lotId).toBe(lotId);
+    const confirmed = await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
+      .query({ farmId: farmA })
+      .expect(201);
+    const line = (confirmed.body as ReceiptResponse).data
+      .items[0] as ReceiptItem & Record<string, unknown>;
+    expect(line).toMatchObject({
+      lotId,
+      lotNumberFromLot: `${tag}-REUSED-LOT`,
+      lotExpiryDate: '2027-06-01',
+      trackingMode: 'LOT',
+    });
+    expect(line.itemCode).toEqual(expect.any(String));
+    expect(line.unitName).toEqual(expect.any(String));
+    const lots = await client!.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM inventory_lots WHERE farm_id=$1 AND item_id=$2',
+      [farmA, lotItemId],
+    );
+    const balance = await client!.query<{ quantity: string }>(
+      'SELECT quantity_on_hand::text AS quantity FROM inventory_balances WHERE warehouse_id=$1 AND lot_id=$2',
+      [warehouseA, lotId],
+    );
+    expect(balance.rows[0].quantity).toBe('2.000');
+    const created = await createReceipt(
+      farmA,
+      receiptInput(`${tag}-LOT-REUSE-2`, {
+        items: [{ itemId: lotItemId, quantity: '1.000', lotId }],
+      }),
+    );
+    await post()
+      .post(`/api/v1/stock-receipts/${created.receipt.id}/confirm`)
+      .query({ farmId: farmA })
+      .expect(201);
+    const after = await client!.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM inventory_lots WHERE farm_id=$1 AND item_id=$2',
+      [farmA, lotItemId],
+    );
+    expect(after.rows[0].count).toBe(lots.rows[0].count);
+  });
+
+  it.each([
+    [
+      'lotId with new lot metadata',
+      (lotId: string) => ({ lotId, lotNumber: 'NEW', quantity: '1.000' }),
+      400,
+    ],
+    [
+      'lotId on a QUANTITY item',
+      (lotId: string) => ({ lotId, quantity: '1.000', quantityItem: true }),
+      400,
+    ],
+    [
+      'an unknown lotId',
+      () => ({ lotId: randomUUID(), quantity: '1.000' }),
+      404,
+    ],
+    [
+      'expiry before manufactured date',
+      () => ({
+        lotNumber: 'DATES',
+        manufacturedDate: '2026-05-01',
+        expiryDate: '2026-04-30',
+        quantity: '1.000',
+      }),
+      400,
+    ],
+  ])('rejects a receipt line with %s', async (_label, line, status) => {
+    const lot = await client!.query<{ id: string }>(
+      'INSERT INTO inventory_lots (farm_id,item_id,lot_number,initial_quantity) VALUES ($1,$2,$3,1) RETURNING id',
+      [farmA, lotItemId, `${tag}-BAD-${randomUUID()}`],
+    );
+    const { quantityItem, ...fields } = line(lot.rows[0].id) as Record<
+      string,
+      unknown
+    >;
+    await post()
+      .post('/api/v1/stock-receipts')
+      .query({ farmId: farmA })
+      .send(
+        receiptInput(`${tag}-BAD-${randomUUID().slice(0, 8)}`, {
+          items: [
+            { itemId: quantityItem ? quantityItemId : lotItemId, ...fields },
+          ],
+        }),
+      )
+      .expect(status);
   });
 
   it('blocks cancel/edit/confirm after the receipt leaves DRAFT', async () => {

@@ -1,10 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  supportsQuantityDraftConfirm,
-  supportsQuantityDraftEdit,
+  receiptSaveErrorMessage,
+  supportsQuantityDraftConfirm as confirmable,
+  supportsQuantityDraftEdit as editable,
   validateReceiptDraft,
 } from './receipt-draft.logic.ts';
+
+// Older cases describe tracking modes per item; the API now returns it on each line.
+const withModes = (detail, references) => ({
+  ...detail,
+  items: detail.items.map((line) => ({
+    ...line,
+    trackingMode: references?.[line.itemId]?.item.trackingMode ?? null,
+  })),
+});
+const supportsQuantityDraftEdit = (detail, references) =>
+  editable(withModes(detail, references));
+const supportsQuantityDraftConfirm = (detail, references) =>
+  confirmable(withModes(detail, references));
 
 const draft = () => ({
   warehouseId: 'warehouse-a',
@@ -224,6 +238,13 @@ test('validates and allows draft edits for ASSET lines', () => {
   };
   assert.equal(supportsQuantityDraftEdit(detail, references), true);
   assert.equal(supportsQuantityDraftConfirm(detail, references), true);
+  const submitted = {
+    ...detail,
+    receipt: { ...detail.receipt, status: 'PENDING_APPROVAL' },
+  };
+  // A submitted receipt can be confirmed by an approver but no longer edited.
+  assert.equal(supportsQuantityDraftConfirm(submitted, references), true);
+  assert.equal(supportsQuantityDraftEdit(submitted, references), false);
   for (const quantity of ['1', '1.0', '1.000']) {
     const value = { ...detail, items: [{ ...detail.items[0], quantity }] };
     assert.equal(supportsQuantityDraftEdit(value, references), true);
@@ -322,4 +343,73 @@ test('only exposes quantity confirmation for quantity tracked lines', () => {
     supportsQuantityDraftConfirm({ ...detail, items: [] }, {}),
     false,
   );
+});
+
+test('existing-lot lines send only lotId and confirm without a lot number', () => {
+  const line = (patch) => ({
+    ...draft(),
+    items: [{ itemId: 'item-a', quantity: '2', ...patch }],
+  });
+  assert.equal(validateReceiptDraft(line({ lotId: 'lot-a' })), null);
+  for (const patch of [
+    { lotId: '' },
+    { lotId: 'lot-a', lotNumber: 'LOT-1' },
+    { lotId: 'lot-a', manufacturedDate: '2026-01-01' },
+    { lotId: 'lot-a', expiryDate: '2027-01-01' },
+  ])
+    assert.ok(validateReceiptDraft(line(patch)), JSON.stringify(patch));
+
+  const detail = {
+    receipt: { status: 'DRAFT' },
+    items: [
+      {
+        itemId: 'item-a',
+        quantity: '2',
+        trackingMode: 'LOT',
+        lotId: 'lot-a',
+        lotNumber: null,
+        manufacturedDate: null,
+        expiryDate: null,
+        assetId: null,
+        assetCode: null,
+        serialNumber: null,
+        locationId: null,
+      },
+    ],
+  };
+  assert.equal(editable(detail), true);
+  assert.equal(confirmable(detail), true);
+  for (const patch of [
+    { lotNumber: 'LOT-1' },
+    { expiryDate: '2027-01-01' },
+    { trackingMode: 'QUANTITY' },
+    { trackingMode: 'ASSET', assetCode: 'A-1', quantity: '1' },
+    { trackingMode: null },
+  ]) {
+    const value = { ...detail, items: [{ ...detail.items[0], ...patch }] };
+    assert.equal(confirmable(value), false, JSON.stringify(patch));
+  }
+});
+
+test('maps lot and validation rejections from the API', () => {
+  assert.match(
+    receiptSaveErrorMessage(404, 'Selected lot not found for this farm and item', 'tạo'),
+    /Lô đã chọn không còn tồn tại/,
+  );
+  assert.match(
+    receiptSaveErrorMessage(
+      400,
+      'lotId only selects an existing lot of a LOT item, without new lot metadata',
+      'cập nhật',
+    ),
+    /chỉ dùng cho vật tư theo lô/,
+  );
+  assert.match(
+    receiptSaveErrorMessage(400, 'Expiry date cannot be earlier than manufactured date', 'tạo'),
+    /Hạn sử dụng phải từ ngày sản xuất/,
+  );
+  assert.match(receiptSaveErrorMessage(400, 'other', 'tạo'), /Dữ liệu không hợp lệ.*other/);
+  assert.match(receiptSaveErrorMessage(403, '', 'cập nhật'), /không có quyền cập nhật/);
+  assert.match(receiptSaveErrorMessage(409, 'x', 'tạo'), /Không thể tạo/);
+  assert.match(receiptSaveErrorMessage(null, '', 'tạo'), /tải lại danh sách/);
 });

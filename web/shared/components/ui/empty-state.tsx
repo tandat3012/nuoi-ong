@@ -22,11 +22,10 @@ export function EmptyState({
     if (!icon) {
       return <Inbox className="size-8 text-muted-foreground/70" aria-hidden="true" />;
     }
-    if (typeof icon === 'function') {
-      const IconComponent = icon as LucideIcon;
-      return <IconComponent className="size-8 text-muted-foreground/70" aria-hidden="true" />;
-    }
-    return icon;
+    // Lucide icons are forwardRef objects, so a type check for 'function' misses them.
+    if (React.isValidElement(icon)) return icon;
+    const IconComponent = icon as LucideIcon;
+    return <IconComponent className="size-8 text-muted-foreground/70" aria-hidden="true" />;
   };
 
   return (

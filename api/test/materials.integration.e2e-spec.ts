@@ -8,7 +8,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DatabaseService } from '../src/db/database.service';
 import * as schema from '../src/db/schema';
-import { FarmAccessGuard } from '../src/modules/auth/farm-access.guard';
+import { FarmAccessGuard } from '../src/modules/auth/farm-access/farm-access.guard';
 import { MaterialsController } from '../src/modules/materials/materials.controller';
 import { MaterialsService } from '../src/modules/materials/materials.service';
 

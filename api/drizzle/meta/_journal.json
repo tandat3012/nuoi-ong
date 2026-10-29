@@ -120,6 +120,48 @@
       "when": 1792912623826,
       "tag": "0016_personnel-management",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793009510475,
+      "tag": "0017_storefront-image-public-id",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793025991840,
+      "tag": "0018_inventory-adjustment-approval",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793034870772,
+      "tag": "0019_store-orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793152287333,
+      "tag": "0020_device-push-tokens-and-push-outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793152292803,
+      "tag": "0021_maintenance-requests-approval",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793254709948,
+      "tag": "0022_asset-transfer-requests",
+      "breakpoints": true
     }
   ]
 }

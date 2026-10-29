@@ -13,6 +13,11 @@ import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { CommerceModule } from './modules/commerce/commerce.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { PersonnelModule } from './modules/personnel/personnel.module';
+import { StoreAdminModule } from './modules/store-admin/store-admin.module';
+import { StoreOrdersModule } from './modules/store-orders/store-orders.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -27,6 +32,11 @@ import { PersonnelModule } from './modules/personnel/personnel.module';
     CommerceModule,
     CloudinaryModule,
     PersonnelModule,
+    StoreAdminModule,
+    StoreOrdersModule,
+    DashboardModule,
+    NotificationsModule,
+    AuditLogsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

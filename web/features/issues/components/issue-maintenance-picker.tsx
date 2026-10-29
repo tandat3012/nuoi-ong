@@ -144,7 +144,7 @@ export function IssueMaintenancePicker({
       {onSelect && (
         <>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline"
+            <Button type="button" variant="outline"
               onClick={() => {
                 setOpen((value) => !value);
                 setAttempt((value) => value + 1);
@@ -157,7 +157,7 @@ export function IssueMaintenancePicker({
                   : "Chọn hồ sơ bảo trì"}
             </Button>
             {selectedId && (
-              <Button variant="outline"
+              <Button type="button" variant="outline"
                 onClick={() => {
                   onSelect(null);
                   setOpen(false);

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useSaveReceiptDraft } from '../hooks/use-save-receipt-draft';
+import { expiryBeforeManufactured } from './receipt-draft.logic';
 import type { ReceiptDraftInitial } from '../types/receipt';
 import {
   ReceiptDraftPicker,
@@ -17,6 +18,9 @@ type DraftLine = DraftChoice & {
   rowKey: string;
   quantity: string;
   unitPrice: string;
+  lotMode: 'new' | 'existing';
+  lotId: string | null;
+  lotLabel: string;
   lotNumber: string;
   manufacturedDate: string;
   expiryDate: string;
@@ -66,28 +70,29 @@ export function ReceiptDraftForm({
   const [lines, setLines] = useState<DraftLine[]>(() =>
     initial
       ? initial.detail.items.map((line) => {
-          const reference = initial.references?.[line.itemId];
           return {
             id: line.itemId,
             rowKey: line.id,
-            trackingMode: reference?.item.trackingMode ?? 'QUANTITY',
-            label: reference
-              ? `${reference.item.code} — ${reference.item.name} (${reference.unitSymbol || reference.unitName || '—'})`
+            trackingMode: line.trackingMode ?? 'QUANTITY',
+            label: line.itemCode
+              ? `${line.itemCode} — ${line.itemName} (${line.unitSymbol || line.unitName || '—'})`
               : `Vật tư (${line.itemId})`,
-            quantity:
-              reference?.item.trackingMode === 'ASSET'
-                ? '1'
-                : line.quantity,
+            quantity: line.trackingMode === 'ASSET' ? '1' : line.quantity,
             unitPrice: line.unitPrice,
+            lotMode: line.lotId ? 'existing' : 'new',
+            lotId: line.lotId,
+            lotLabel: line.lotNumberFromLot ?? (line.lotId ? `Lô (${line.lotId})` : ''),
             lotNumber: line.lotNumber ?? '',
             manufacturedDate: line.manufacturedDate ?? '',
             expiryDate: line.expiryDate ?? '',
             assetCode: line.assetCode ?? '',
             serialNumber: line.serialNumber ?? '',
             locationId: line.locationId ?? null,
-            locationLabel:
-              initial.locationLabels?.[line.locationId ?? ''] ??
-              (line.locationId ? `Vị trí (${line.locationId})` : ''),
+            locationLabel: line.locationCode
+              ? `${line.locationCode} — ${line.locationName}`
+              : line.locationId
+                ? `Vị trí (${line.locationId})`
+                : '',
             note: line.note ?? '',
           };
         })
@@ -115,6 +120,14 @@ export function ReceiptDraftForm({
         );
       setWarehouse(choice);
     } else if (picker?.kind === 'supplier') setSupplier(choice);
+    else if (picker?.kind === 'lot' && picker.rowKey)
+      setLines((previous) =>
+        previous.map((line) =>
+          line.rowKey === picker.rowKey
+            ? { ...line, lotId: choice.id, lotLabel: choice.label }
+            : line,
+        ),
+      );
     else if (picker?.kind === 'location' && picker.rowKey)
       setLines((previous) =>
         previous.map((line) =>
@@ -135,6 +148,9 @@ export function ReceiptDraftForm({
                 rowKey: crypto.randomUUID(),
                 quantity: '1',
                 unitPrice: '0',
+                lotMode: 'new',
+                lotId: null,
+                lotLabel: '',
                 lotNumber: '',
                 manufacturedDate: '',
                 expiryDate: '',
@@ -175,7 +191,9 @@ export function ReceiptDraftForm({
               line.trackingMode === 'ASSET' ? '1' : line.quantity.trim(),
             unitPrice: line.unitPrice.trim() || '0',
             note: line.note.trim() || null,
-            ...(line.trackingMode === 'LOT'
+            ...(line.trackingMode === 'LOT' && line.lotMode === 'existing'
+              ? { lotId: line.lotId ?? '' }
+              : line.trackingMode === 'LOT'
               ? {
                   lotNumber: line.lotNumber.trim(),
                   manufacturedDate: line.manufacturedDate || undefined,
@@ -318,6 +336,42 @@ export function ReceiptDraftForm({
               </label>
             </div>
             {line.trackingMode === 'LOT' && (
+              <fieldset className="flex flex-wrap gap-4">
+                <legend className="sr-only">Lô của {line.label}</legend>
+                {(['new', 'existing'] as const).map((mode) => (
+                  <label key={mode} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name={`lot-mode-${line.rowKey}`}
+                      checked={line.lotMode === mode}
+                      onChange={() =>
+                        setLines((previous) =>
+                          previous.map((row) =>
+                            row.rowKey === line.rowKey
+                              ? { ...row, lotMode: mode }
+                              : row,
+                          ),
+                        )
+                      }
+                    />
+                    {mode === 'new' ? 'Lô mới' : 'Lô có sẵn'}
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            {line.trackingMode === 'LOT' && line.lotMode === 'existing' && (
+              <div>
+                <p>Lô: {line.lotLabel || 'Chưa chọn'}</p>
+                <button
+                  type="button"
+                  onClick={() => setPicker({ kind: 'lot', rowKey: line.rowKey })}
+                  className="underline"
+                >
+                  Chọn lô có sẵn
+                </button>
+              </div>
+            )}
+            {line.trackingMode === 'LOT' && line.lotMode === 'new' && (
               <div className="grid gap-3 sm:grid-cols-3">
                 <label>
                   Số lô *
@@ -358,6 +412,8 @@ export function ReceiptDraftForm({
                   Hạn sử dụng
                   <Input
                     type="date"
+                    min={line.manufacturedDate || undefined}
+                    aria-invalid={expiryBeforeManufactured(line)}
                     value={line.expiryDate}
                     onChange={(event) =>
                       setLines((previous) =>
@@ -371,6 +427,11 @@ export function ReceiptDraftForm({
                     className="w-full"
                   />
                 </label>
+                {expiryBeforeManufactured(line) && (
+                  <p role="alert" className="text-sm text-destructive sm:col-span-3">
+                    Hạn sử dụng phải từ ngày sản xuất trở đi.
+                  </p>
+                )}
               </div>
             )}
             {line.trackingMode === 'ASSET' && (
@@ -495,6 +556,7 @@ export function ReceiptDraftForm({
             farmId={farmId}
             kind={picker.kind}
             warehouseId={warehouse?.id}
+            itemId={lines.find((line) => line.rowKey === picker.rowKey)?.id}
             onSelect={select}
             onClose={() => setPicker(null)}
           />

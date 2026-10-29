@@ -312,6 +312,24 @@ a {
   }
 }
 
+/* Printing while a QR label is shown prints only the label. */
+@media print {
+  body:has(.qr-print-label) * {
+    visibility: hidden;
+  }
+
+  body:has(.qr-print-label) .qr-print-label,
+  body:has(.qr-print-label) .qr-print-label * {
+    visibility: visible;
+  }
+
+  .qr-print-label {
+    position: fixed;
+    inset: 0;
+    justify-content: center;
+  }
+}
+
 /* Slim Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;

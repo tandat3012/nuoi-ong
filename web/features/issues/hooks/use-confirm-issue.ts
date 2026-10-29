@@ -9,8 +9,8 @@ import type { IssueStatus } from "../types/issue";
 const BUSINESS_ERRORS: Record<string, string> = {
   "Insufficient inventory":
     "Tồn kho không đủ để xác nhận phiếu xuất. Phiếu chưa được xử lý; hãy kiểm tra lại tồn kho.",
-  "Only DRAFT issues can be confirmed":
-    "Phiếu không còn ở trạng thái nháp nên không thể xác nhận.",
+  "Only DRAFT or PENDING_APPROVAL issues can be confirmed":
+    "Phiếu không còn ở trạng thái nháp hoặc chờ duyệt nên không thể xác nhận.",
   "Warehouse must exist and be ACTIVE":
     "Kho nguồn không tồn tại hoặc đã ngừng hoạt động.",
   "LOT is missing or expired": "Lô hàng không tồn tại hoặc đã hết hạn sử dụng.",
@@ -41,11 +41,11 @@ export function useConfirmIssue(
 
   async function confirm() {
     if (pending.current) return;
-    if (!canWrite || status !== "DRAFT") {
+    if (!canWrite || (status !== "DRAFT" && status !== "PENDING_APPROVAL")) {
       setError(
         !canWrite
           ? "Bạn không có quyền xác nhận phiếu xuất."
-          : "Chỉ phiếu xuất nháp mới được xác nhận.",
+          : "Chỉ phiếu xuất nháp hoặc chờ duyệt mới được xác nhận.",
       );
       return;
     }

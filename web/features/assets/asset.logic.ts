@@ -6,7 +6,13 @@ export function canWriteAssets(roles: readonly string[]) {
 
 export function assetActions(status: AssetStatus) {
   if (status === "LOST") return ["recover"] as const;
-  if (status === "RETIRED" || status === "MAINTENANCE") return [] as const;
+  // A pending transfer request must be approved or rejected first.
+  if (
+    status === "RETIRED" ||
+    status === "MAINTENANCE" ||
+    status === "TRANSFER_PENDING"
+  )
+    return [] as const;
   return [
     "assign",
     ...(status === "ASSIGNED" ? ["start-use" as const] : []),

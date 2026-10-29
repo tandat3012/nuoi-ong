@@ -14,7 +14,7 @@ import { DatabaseService } from '../src/db/database.service';
 import * as schema from '../src/db/schema';
 import { CatalogController } from '../src/modules/catalog/catalog.controller';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
-import { FarmAccessGuard } from '../src/modules/auth/farm-access.guard';
+import { FarmAccessGuard } from '../src/modules/auth/farm-access/farm-access.guard';
 import { StockCountsController } from '../src/modules/warehouses/stock-counts.controller';
 import { StockCountsService } from '../src/modules/warehouses/stock-counts.service';
 import { StockTransfersController } from '../src/modules/warehouses/stock-transfers.controller';
@@ -127,6 +127,10 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
                 throw new ForbiddenException();
               return Promise.resolve(member);
             },
+            assertDocumentWriter(farmId: string) {
+              if (farmId !== farm || !canWrite) throw new ForbiddenException();
+              return Promise.resolve({ memberId: member, canApprove: true });
+            },
           },
         },
       ],
@@ -178,6 +182,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     await app?.close();
     try {
       for (const table of [
+        'audit_logs',
         'inventory_transactions',
         'stock_counts',
         'stock_transfers',
@@ -248,6 +253,27 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       ).toBe(0);
     },
   );
+
+  it('returns item, unit and lot names on count and transfer lines', async () => {
+    for (const kind of ['transfers', 'counts'] as const) {
+      const id = await create(kind, '1');
+      const response = await http()
+        .get(`/api/v1/stock-${kind}/${id}`)
+        .query({ farmId: farm })
+        .expect(200);
+      const body = response.body as { data: { items: unknown[] } };
+      expect(body.data.items).toEqual([
+        expect.objectContaining({
+          itemId: item,
+          itemCode: tag,
+          itemName: tag,
+          trackingMode: 'QUANTITY',
+          unitName: tag,
+          lotNumber: null,
+        }),
+      ]);
+    }
+  });
 
   it('rolls back a transfer with insufficient stock', async () => {
     const id = await create('transfers', '11');

@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Show, SignInButton, UserButton } from '@clerk/nextjs';
 import { usePathname } from 'next/navigation';
-import { Menu, User, ShoppingBag } from 'lucide-react';
+import { Menu, User, ShoppingBag, ClipboardList } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/components/ui/button';
 import {
@@ -124,6 +124,14 @@ export function StoreMobileNav() {
               </SignInButton>
             </Show>
             <Show when="signed-in">
+              <Link
+                href="/orders"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-foreground hover:bg-muted/70"
+              >
+                <ClipboardList className="size-4.5 text-primary" aria-hidden="true" />
+                <span>Đơn hàng của tôi</span>
+              </Link>
               <UserButton />
             </Show>
 

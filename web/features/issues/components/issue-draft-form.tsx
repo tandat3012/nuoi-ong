@@ -9,7 +9,11 @@ import {
   type IssueDetail,
   type IssueDraftTrackingMode,
 } from "../types/issue";
-import { supportsIssueDraftEdit } from "./issue-draft.logic";
+import {
+  preservesIssueItemTotals,
+  splitIssueQuantity,
+  supportsIssueDraftEdit,
+} from "./issue-draft.logic";
 import { IssueDraftPicker, type IssueChoice } from "./issue-draft-picker";
 import { IssueLotPicker, type IssueLotChoice } from "./issue-lot-picker";
 import { IssueAssetPicker, type IssueAssetChoice } from "./issue-asset-picker";
@@ -27,6 +31,7 @@ type DraftLine = IssueChoice & {
   trackingMode: IssueDraftTrackingMode;
   lot: IssueLotChoice | null;
   asset: IssueAssetChoice | null;
+  splitQuantity?: string;
 };
 
 export function IssueDraftForm({
@@ -62,6 +67,9 @@ export function IssueDraftForm({
   );
   const [reason, setReason] = useState(initial?.issue.reason ?? "");
   const [note, setNote] = useState(initial?.issue.note ?? "");
+  const [linkedError, setLinkedError] = useState<string | null>(null);
+  const isLinkedSale =
+    initial?.issue.issueType === "SALE" && Boolean(initial.issue.orderId);
   const [lines, setLines] = useState<DraftLine[]>(
     () =>
       initial?.items.map((line) => ({
@@ -94,6 +102,7 @@ export function IssueDraftForm({
     canWrite,
     initial?.issue.id,
     onSaved,
+    isLinkedSale,
   );
 
   function select(choice: IssueChoice) {
@@ -128,11 +137,37 @@ export function IssueDraftForm({
   }
   function updateLine(
     rowKey: string,
-    patch: Partial<Pick<DraftLine, "quantity" | "note" | "lot" | "asset">>,
+    patch: Partial<Pick<DraftLine, "quantity" | "note" | "lot" | "asset" | "splitQuantity">>,
   ) {
+    setLinkedError(null);
     setLines((previous) =>
       previous.map((line) =>
         line.rowKey === rowKey ? { ...line, ...patch } : line,
+      ),
+    );
+  }
+  function splitLotLine(line: DraftLine) {
+    const split = splitIssueQuantity(line.quantity, line.splitQuantity ?? "");
+    if (!split) {
+      setLinkedError("Nhập số lượng tách nhỏ hơn số lượng hiện có, tối đa 3 chữ số thập phân.");
+      return;
+    }
+    setLinkedError(null);
+    setLines((previous) =>
+      previous.flatMap((row) =>
+        row.rowKey !== line.rowKey
+          ? [row]
+          : [
+              { ...row, quantity: split[0], splitQuantity: "" },
+              {
+                ...row,
+                rowKey: crypto.randomUUID(),
+                quantity: split[1],
+                splitQuantity: "",
+                lot: null,
+                asset: null,
+              },
+            ],
       ),
     );
   }
@@ -144,7 +179,7 @@ export function IssueDraftForm({
             ? "Bạn không có quyền lưu phiếu xuất."
             : "Phiếu có dữ liệu không tương thích nên chỉ có thể xem."}
         </p>
-        <Button variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={onCancel}>
           Quay lại
         </Button>
       </div>
@@ -156,8 +191,7 @@ export function IssueDraftForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (picker) return;
-        void submit(
-          {
+        const input: CreateIssueInput = {
             warehouseId: warehouse?.id ?? "",
             issueCode: code.trim(),
             issueDate: date || undefined,
@@ -178,9 +212,18 @@ export function IssueDraftForm({
                 ? { assetId: line.asset?.id ?? "" }
                 : {}),
             })),
-          },
-          lines.map((line) => line.trackingMode),
-        );
+          };
+        if (
+          isLinkedSale &&
+          !preservesIssueItemTotals(
+            initial!.items.map((line) => ({ itemId: line.itemId, quantity: line.quantity })),
+            input.items,
+          )
+        ) {
+          setLinkedError("Tổng số lượng của từng vật tư phải giữ nguyên khi phân bổ lại lô.");
+          return;
+        }
+        void submit(input, lines.map((line) => line.trackingMode));
       }}
     >
       <PageHeader
@@ -189,7 +232,7 @@ export function IssueDraftForm({
             ? `Sửa phiếu xuất ${initial.issue.issueCode}`
             : "Tạo phiếu xuất nháp"
         }
-        description="Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho."
+        description={isLinkedSale ? "Phiếu bán hàng liên kết đơn; chỉ phân bổ lại lô/tài sản và giữ nguyên tổng từng vật tư." : "Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho."}
       />
       <fieldset disabled={isSaving} className="space-y-6 disabled:opacity-70">
         <legend className="sr-only">Thông tin phiếu xuất</legend>
@@ -204,6 +247,7 @@ export function IssueDraftForm({
             <Input
               id="issue-code"
               value={code}
+              readOnly={isLinkedSale}
               onChange={(event) => setCode(event.target.value)}
               maxLength={50}
               required
@@ -221,6 +265,7 @@ export function IssueDraftForm({
               id="issue-date"
               type="date"
               value={date}
+              readOnly={isLinkedSale}
               onChange={(event) => setDate(event.target.value)}
               className="w-full"
             />
@@ -231,7 +276,8 @@ export function IssueDraftForm({
           <div>
             <p className="mb-1 text-sm font-medium">Kho xuất *</p>
             <p className="mb-2">{warehouse?.label ?? "Chưa chọn kho"}</p>
-            <Button variant="outline"
+            <Button type="button" variant="outline"
+              disabled={isLinkedSale}
               onClick={() => setPicker("warehouse")}
             >
               Chọn kho xuất
@@ -247,6 +293,7 @@ export function IssueDraftForm({
             <Select
               id="issue-type"
               value={issueType}
+              disabled={isLinkedSale}
               onChange={(event) => {
                 const next = event.target
                   .value as CreateIssueInput["issueType"];
@@ -255,7 +302,9 @@ export function IssueDraftForm({
               }}
               className="w-full"
             >
-              {Object.entries(ISSUE_TYPE_LABELS).map(([value, label]) => (
+              {Object.entries(ISSUE_TYPE_LABELS)
+                .filter(([value]) => value !== "SALE" || isLinkedSale)
+                .map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
@@ -281,6 +330,7 @@ export function IssueDraftForm({
             <Textarea
               id="issue-reason"
               value={reason}
+              readOnly={isLinkedSale}
               onChange={(event) => setReason(event.target.value)}
               maxLength={4000}
               rows={3}
@@ -297,6 +347,7 @@ export function IssueDraftForm({
             <Textarea
               id="issue-note"
               value={note}
+              readOnly={isLinkedSale}
               onChange={(event) => setNote(event.target.value)}
               maxLength={4000}
               rows={3}
@@ -323,7 +374,8 @@ export function IssueDraftForm({
         <section aria-label="Các dòng vật tư" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Vật tư trong phiếu xuất</h2>
-            <Button variant="outline"
+            <Button type="button" variant="outline"
+              disabled={isLinkedSale}
               onClick={() => setPicker("item")}
             >
               Thêm vật tư
@@ -352,7 +404,8 @@ export function IssueDraftForm({
                         : "số lượng"}
                   </p>
                 </div>
-                <Button variant="outline"
+                <Button type="button" variant="outline"
+                  disabled={isLinkedSale}
                   aria-label={`Xóa dòng ${index + 1}`}
                   onClick={() =>
                     setLines((previous) =>
@@ -401,7 +454,7 @@ export function IssueDraftForm({
                     autoComplete="off"
                     required
                     value={line.trackingMode === "ASSET" ? "1" : line.quantity}
-                    readOnly={line.trackingMode === "ASSET"}
+                    readOnly={isLinkedSale || line.trackingMode === "ASSET"}
                     onChange={(event) =>
                       updateLine(line.rowKey, { quantity: event.target.value })
                     }
@@ -419,6 +472,7 @@ export function IssueDraftForm({
                   <Input
                     id={`note-${line.rowKey}`}
                     value={line.note}
+                    readOnly={isLinkedSale}
                     onChange={(event) =>
                       updateLine(line.rowKey, { note: event.target.value })
                     }
@@ -427,6 +481,21 @@ export function IssueDraftForm({
                   />
                 </div>
               </div>
+              {isLinkedSale && line.trackingMode === "LOT" && (
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <label htmlFor={`split-${line.rowKey}`} className="space-y-1 text-sm">
+                    <span>Số lượng tách sang lô khác</span>
+                    <Input
+                      id={`split-${line.rowKey}`}
+                      inputMode="decimal"
+                      value={line.splitQuantity ?? ""}
+                      onChange={(event) => updateLine(line.rowKey, { splitQuantity: event.target.value })}
+                      placeholder="Ví dụ 1.250"
+                    />
+                  </label>
+                  <Button type="button" variant="outline" onClick={() => splitLotLine(line)}>Tách dòng</Button>
+                </div>
+              )}
             </fieldset>
           ))}
           <p id="issue-quantity-help" className="text-sm text-muted-foreground">
@@ -443,6 +512,14 @@ export function IssueDraftForm({
           {error}
         </p>
       )}
+      {linkedError && (
+        <p
+          role="alert"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+        >
+          {linkedError}
+        </p>
+      )}
       {isSaving && <p role="status">Đang lưu phiếu xuất...</p>}
       <div className="flex flex-wrap gap-3">
         <Button
@@ -451,7 +528,7 @@ export function IssueDraftForm({
         >
           {isSaving ? "Đang lưu..." : "Lưu phiếu nháp"}
         </Button>
-        <Button variant="outline"
+        <Button type="button" variant="outline"
           disabled={isSaving}
           onClick={onCancel}
         >

@@ -29,12 +29,20 @@ import {
   maintenanceRecords,
   stockIssueItems,
   stockIssues,
+  storeOrders,
+  storeOrderItems,
   units,
   warehouses,
 } from '../../db/schema';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
-import { WarehousesService } from './warehouses.service';
+import { assertOwnDocument, WarehousesService } from './warehouses.service';
+import { auditStockDocument } from './stock-document-audit';
+import {
+  notifyDocumentCreator,
+  notifyFarmApprovers,
+} from '../notifications/notification-events';
+import { quantityMillis } from '../store-orders/store-order.rules';
 
 type Filters = PaginationParams & {
   farmId: string;
@@ -110,13 +118,14 @@ export class StockIssuesService {
     clerkUserId: string,
     input: CreateStockIssueDto,
   ) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId } = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
-      true,
     );
     this.validateItems(input.items);
     const issueType = input.issueType ?? 'CONSUMPTION';
+    if (issueType === 'SALE')
+      throw new BadRequestException('SALE issues are created through orders');
 
     await this.validateMaintenance(
       farmId,
@@ -141,7 +150,7 @@ export class StockIssuesService {
             note: input.note,
             createdByMemberId: memberId,
           })
-          .returning({ id: stockIssues.id });
+          .returning();
         await tx.insert(stockIssueItems).values(
           input.items.map((line) => ({
             stockIssueId: issue.id,
@@ -151,6 +160,17 @@ export class StockIssuesService {
             quantity: line.quantity,
             note: line.note,
           })),
+        );
+        await auditStockDocument(
+          tx,
+          memberId,
+          'STOCK_ISSUE',
+          'CREATE',
+          null,
+          issue,
+          {
+            after: input.items,
+          },
         );
         return issue.id;
       })
@@ -164,10 +184,14 @@ export class StockIssuesService {
     clerkUserId: string,
     input: UpdateStockIssueDto,
   ) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      clerkUserId,
+    );
     await this.databaseService.db
       .transaction(async (tx) => {
         const current = await this.getOnly(id, farmId, tx, true);
+        assertOwnDocument(writer, current.createdByMemberId);
         if (current.status !== 'DRAFT')
           throw new ConflictException('Only DRAFT issues can be edited');
         const issueType = input.issueType ?? current.issueType;
@@ -185,9 +209,27 @@ export class StockIssuesService {
             .select()
             .from(stockIssueItems)
             .where(eq(stockIssueItems.stockIssueId, id)));
+        if (current.orderId) {
+          if (
+            (input.warehouseId && input.warehouseId !== current.warehouseId) ||
+            (input.issueType && input.issueType !== 'SALE') ||
+            (input.issueCode && input.issueCode !== current.issueCode)
+          )
+            throw new ConflictException(
+              'Order issue warehouse, type and code cannot change',
+            );
+          await this.assertOrderLines(tx, current.orderId, lines);
+        } else if (issueType === 'SALE') {
+          throw new ConflictException('SALE issues must be linked to an order');
+        }
         await this.validateLines(tx, farmId, lines, issueType);
+        let previousLines: (typeof stockIssueItems.$inferSelect)[] | undefined;
         if (input.items) {
           this.validateItems(input.items);
+          previousLines = await tx
+            .select()
+            .from(stockIssueItems)
+            .where(eq(stockIssueItems.stockIssueId, id));
           await tx
             .delete(stockIssueItems)
             .where(eq(stockIssueItems.stockIssueId, id));
@@ -221,15 +263,30 @@ export class StockIssuesService {
             .update(stockIssues)
             .set(changes)
             .where(eq(stockIssues.id, id));
+        await auditStockDocument(
+          tx,
+          writer.memberId,
+          'STOCK_ISSUE',
+          'UPDATE',
+          current,
+          { ...current, ...changes },
+          input.items ? { before: previousLines, after: input.items } : {},
+        );
       })
       .catch((error: unknown) => this.throwDuplicateCode(error));
     return this.withItems(id, farmId);
   }
 
   async cancel(id: string, farmId: string, clerkUserId: string) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, true);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      clerkUserId,
+    );
     await this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
+      assertOwnDocument(writer, issue.createdByMemberId);
+      if (issue.orderId)
+        throw new ConflictException('Cancel the linked order instead');
       if (issue.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT issues can be cancelled');
       await tx
@@ -240,6 +297,108 @@ export class StockIssuesService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockIssues.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_ISSUE',
+        'CANCEL',
+        issue,
+        {
+          ...issue,
+          status: 'CANCELLED',
+        },
+      );
+    });
+    return this.withItems(id, farmId);
+  }
+
+  async submit(id: string, farmId: string, clerkUserId: string) {
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      clerkUserId,
+    );
+    await this.databaseService.db.transaction(async (tx) => {
+      const issue = await this.getOnly(id, farmId, tx, true);
+      assertOwnDocument(writer, issue.createdByMemberId);
+      if (issue.status !== 'DRAFT')
+        throw new ConflictException('Only DRAFT issues can be submitted');
+      const [line] = await tx
+        .select({ id: stockIssueItems.id })
+        .from(stockIssueItems)
+        .where(eq(stockIssueItems.stockIssueId, id))
+        .limit(1);
+      if (!line)
+        throw new BadRequestException('Issue must contain at least one item');
+      await tx
+        .update(stockIssues)
+        .set({
+          status: 'PENDING_APPROVAL',
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(stockIssues.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_ISSUE',
+        'SUBMIT',
+        issue,
+        {
+          ...issue,
+          status: 'PENDING_APPROVAL',
+        },
+      );
+      await notifyFarmApprovers(
+        tx,
+        this.notification(issue, 'PENDING_APPROVAL'),
+        writer.memberId,
+      );
+    });
+    return this.withItems(id, farmId);
+  }
+
+  async reject(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    rejectionReason: string,
+  ) {
+    const memberId = await this.warehousesService.assertFarmAccess(
+      farmId,
+      clerkUserId,
+      true,
+    );
+    const reason = rejectionReason.trim();
+    if (!reason) throw new BadRequestException('Rejection reason is required');
+    await this.databaseService.db.transaction(async (tx) => {
+      const issue = await this.getOnly(id, farmId, tx, true);
+      if (issue.orderId)
+        throw new ConflictException('Cancel the linked order instead');
+      if (issue.status !== 'PENDING_APPROVAL')
+        throw new ConflictException(
+          'Only PENDING_APPROVAL issues can be rejected',
+        );
+      const now = new Date().toISOString();
+      await tx
+        .update(stockIssues)
+        .set({
+          status: 'REJECTED',
+          rejectionReason: reason,
+          rejectedByMemberId: memberId,
+          rejectedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(stockIssues.id, id));
+      await auditStockDocument(tx, memberId, 'STOCK_ISSUE', 'REJECT', issue, {
+        ...issue,
+        status: 'REJECTED',
+        rejectionReason: reason,
+      });
+      if (issue.createdByMemberId !== memberId)
+        await notifyDocumentCreator(
+          tx,
+          { ...this.notification(issue, 'REJECTED'), rejectionReason: reason },
+          issue.createdByMemberId,
+        );
     });
     return this.withItems(id, farmId);
   }
@@ -252,8 +411,10 @@ export class StockIssuesService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
-      if (issue.status !== 'DRAFT')
-        throw new ConflictException('Only DRAFT issues can be confirmed');
+      if (!['DRAFT', 'PENDING_APPROVAL'].includes(issue.status))
+        throw new ConflictException(
+          'Only DRAFT or PENDING_APPROVAL issues can be confirmed',
+        );
       await this.assertWarehouse(tx, farmId, issue.warehouseId);
       if (issue.maintenanceRecordId) {
         const [maintenance] = await tx
@@ -284,6 +445,9 @@ export class StockIssuesService {
         );
       if (!lines.length)
         throw new BadRequestException('Issue must contain at least one item');
+      if (issue.orderId) await this.assertOrderLines(tx, issue.orderId, lines);
+      else if (issue.issueType === 'SALE')
+        throw new ConflictException('SALE issues must be linked to an order');
       if (lines.some((line) => line.assetId))
         this.assertAssetIssueType(issue.issueType, true);
       for (const line of lines) {
@@ -385,7 +549,12 @@ export class StockIssuesService {
           await tx
             .update(assets)
             .set({
-              status: issue.issueType === 'DISPOSAL' ? 'RETIRED' : 'IN_USE',
+              status: ['DISPOSAL', 'SALE'].includes(issue.issueType)
+                ? 'RETIRED'
+                : 'IN_USE',
+              ...(issue.issueType === 'SALE'
+                ? { currentLocationId: null }
+                : {}),
               updatedAt: new Date().toISOString(),
             })
             .where(eq(assets.id, line.assetId));
@@ -413,8 +582,32 @@ export class StockIssuesService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockIssues.id, id));
+      await auditStockDocument(tx, memberId, 'STOCK_ISSUE', 'CONFIRM', issue, {
+        ...issue,
+        status: 'CONFIRMED',
+      });
+      if (issue.createdByMemberId !== memberId)
+        await notifyDocumentCreator(
+          tx,
+          this.notification(issue, 'CONFIRMED'),
+          issue.createdByMemberId,
+        );
     });
     return this.withItems(id, farmId);
+  }
+
+  private notification(
+    issue: typeof stockIssues.$inferSelect,
+    status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED',
+  ) {
+    return {
+      farmId: issue.farmId,
+      entityType: 'STOCK_ISSUE',
+      entityId: issue.id,
+      documentCode: issue.issueCode,
+      documentKind: 'Phiếu xuất kho',
+      status,
+    };
   }
 
   private throwDuplicateCode(error: unknown): never {
@@ -438,6 +631,18 @@ export class StockIssuesService {
     db: Db | Transaction = this.databaseService.db,
     forUpdate = false,
   ) {
+    // Every linked operation locks the order before its issue, including approval.
+    const orderQuery = db
+      .select()
+      .from(storeOrders)
+      .where(
+        and(eq(storeOrders.stockIssueId, id), eq(storeOrders.farmId, farmId)),
+      );
+    const [order] = forUpdate
+      ? await orderQuery.for('update')
+      : await orderQuery;
+    if (forUpdate && order && order.status !== 'CONFIRMED')
+      throw new ConflictException('The linked order must be CONFIRMED');
     const query = db
       .select()
       .from(stockIssues)
@@ -445,7 +650,7 @@ export class StockIssuesService {
       .limit(1);
     const [issue] = forUpdate ? await query.for('update') : await query;
     if (!issue) throw new NotFoundException('Stock issue not found');
-    return issue;
+    return { ...issue, orderId: order?.id ?? null };
   }
 
   private async withItems(id: string, farmId: string) {
@@ -503,7 +708,41 @@ export class StockIssuesService {
       )
       .where(eq(stockIssueItems.stockIssueId, id))
       .orderBy(asc(stockIssueItems.createdAt), asc(stockIssueItems.id));
-    return { issue, items: lines };
+    const [order] = await this.databaseService.db
+      .select({ id: storeOrders.id })
+      .from(storeOrders)
+      .where(
+        and(eq(storeOrders.stockIssueId, id), eq(storeOrders.farmId, farmId)),
+      )
+      .limit(1);
+    return { issue: { ...issue, orderId: order?.id ?? null }, items: lines };
+  }
+
+  private async assertOrderLines(
+    db: Db | Transaction,
+    orderId: string,
+    lines: CreateStockIssueDto['items'],
+  ) {
+    const expected = await db
+      .select()
+      .from(storeOrderItems)
+      .where(eq(storeOrderItems.orderId, orderId));
+    const totals = new Map<string, bigint>();
+    for (const line of lines)
+      totals.set(
+        line.itemId,
+        (totals.get(line.itemId) ?? 0n) + quantityMillis(line.quantity),
+      );
+    if (
+      totals.size !== expected.length ||
+      expected.some(
+        (line) =>
+          totals.get(line.itemId) !== quantityMillis(line.stockQuantity),
+      )
+    )
+      throw new ConflictException(
+        'Issue items and stock quantities must match the linked order',
+      );
   }
 
   private validateItems(lines: CreateStockIssueDto['items']) {

@@ -5,9 +5,21 @@ export const ASSET_STATUS_LABELS = {
   MAINTENANCE: "Đang bảo trì",
   LOST: "Thất lạc",
   RETIRED: "Ngừng sử dụng",
+  TRANSFER_PENDING: "Chờ chuyển",
 } as const;
 
 export type AssetStatus = keyof typeof ASSET_STATUS_LABELS;
+
+export const ASSET_HISTORY_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: "Đang giữ",
+  RETURNED: "Đã trả",
+  CANCELLED: "Đã hủy",
+  OPEN: "Mới báo",
+  IN_PROGRESS: "Đang xử lý",
+  RESOLVED: "Đã giải quyết",
+  SCHEDULED: "Đã lên lịch",
+  COMPLETED: "Hoàn tất",
+};
 
 export interface Asset {
   id: string;

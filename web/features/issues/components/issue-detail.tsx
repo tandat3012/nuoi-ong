@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import Link from "next/link";
 import { useIssueDetail } from "../hooks/use-issue-detail";
 import { useCancelIssue } from "../hooks/use-cancel-issue";
 import { useConfirmIssue } from "../hooks/use-confirm-issue";
@@ -10,42 +11,55 @@ import {
   type IssueDetail as IssueDetailData,
 } from "../types/issue";
 import { supportsIssueDraftEdit } from "./issue-draft.logic";
+import { formatIssueQuantity } from "./issue-detail.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
+import { HistoryPanel } from "@/features/history";
+import {
+  RejectionNotice,
+  StockDocumentReview,
+  stockDocumentActions,
+} from "@/features/stock-documents";
+import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 
 export function IssueDetail({
   farmId,
   id,
   onBack,
-  canWrite,
+  viewer,
   onEdit,
   onChanged,
 }: {
   farmId: string;
   id: string;
   onBack: () => void;
-  canWrite: boolean;
+  viewer: StockDocumentViewer;
   onEdit: (detail: IssueDetailData) => void;
-  onChanged: () => void;
+  onChanged?: () => void;
 }) {
-  const { detail, isLoading, error, reload } = useIssueDetail(farmId, id);
+  const { detail, isLoading, error, reload, revision } = useIssueDetail(farmId, id);
   const actionPending = useRef(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const refresh = () => {
     reload();
-    onChanged();
+    onChanged?.();
   };
+  const actions = stockDocumentActions(
+    viewer,
+    detail?.issue ?? { status: "CANCELLED", createdByMemberId: null },
+  );
   const { confirm, isConfirming, confirmError } = useConfirmIssue(
     farmId,
-    canWrite,
+    actions.confirm,
     id,
     detail?.issue.status,
     refresh,
   );
   const { cancel, isCancelling, cancelError } = useCancelIssue(
     farmId,
-    canWrite,
+    actions.cancel,
     id,
     detail?.issue.status,
     refresh,
@@ -91,6 +105,14 @@ export function IssueDetail({
           {confirmError}
         </p>
       )}
+      {reviewError && (
+        <p
+          role="alert"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+        >
+          {reviewError}
+        </p>
+      )}
       {cancelError && (
         <p
           role="alert"
@@ -123,7 +145,7 @@ export function IssueDetail({
               }
               actions={
                 <>
-                  {canWrite && supportsIssueDraftEdit(detail) && (
+                  {actions.edit && supportsIssueDraftEdit(detail) && (
                     <Button
                       onClick={() => {
                         if (!actionPending.current) onEdit(detail);
@@ -134,7 +156,18 @@ export function IssueDetail({
                       Sửa phiếu nháp
                     </Button>
                   )}
-                  {canWrite && detail.issue.status === "DRAFT" && (
+                  <StockDocumentReview
+                    kind="stock-issues"
+                    farmId={farmId}
+                    id={id}
+                    code={detail.issue.issueCode}
+                    canSubmit={actions.submit}
+                    canReject={actions.reject}
+                    disabled={isProcessing}
+                    onChanged={refresh}
+                    onError={setReviewError}
+                  />
+                  {actions.confirm && (
                     <Button
                       disabled={isProcessing}
                       onClick={() =>
@@ -147,7 +180,7 @@ export function IssueDetail({
                       Xác nhận phiếu xuất
                     </Button>
                   )}
-                  {canWrite && detail.issue.status === "DRAFT" && (
+                  {actions.cancel && (
                     <Button
                       disabled={isProcessing}
                       onClick={() =>
@@ -165,9 +198,8 @@ export function IssueDetail({
                 </>
               }
             />
-            {canWrite &&
-              detail.issue.status === "DRAFT" &&
-              !supportsIssueDraftEdit(detail) && (
+            <RejectionNotice reason={detail.issue.rejectionReason} />
+            {actions.edit && !supportsIssueDraftEdit(detail) && (
                 <p className="text-sm text-muted-foreground">
                   Phiếu có dữ liệu không tương thích nên chưa thể chỉnh sửa trên
                   màn hình này.
@@ -178,6 +210,20 @@ export function IssueDetail({
                 farmId={farmId}
                 selectedId={detail.issue.maintenanceRecordId}
               />
+            )}
+            {detail.issue.orderId && (
+              <p className="rounded-xl border bg-card p-4 text-sm">
+                Phiếu xuất liên kết với đơn hàng. {" "}
+                <Link
+                  className="text-primary underline"
+                  href={`/store-orders/${encodeURIComponent(detail.issue.orderId)}`}
+                >
+                  Mở đơn hàng
+                </Link>
+                {actions.confirm && detail.issue.status === "DRAFT" && (
+                  <span> · Hãy hủy đơn hàng từ màn hình đơn để hủy phiếu này.</span>
+                )}
+              </p>
             )}
             <dl className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2">
               <div>
@@ -231,7 +277,11 @@ export function IssueDetail({
                         "Đơn vị",
                         "Ghi chú",
                       ].map((label) => (
-                        <th key={label} scope="col" className="px-4 py-3">
+                        <th
+                          key={label}
+                          scope="col"
+                          className={`px-4 py-3${label === "Số lượng" ? " text-right" : ""}`}
+                        >
                           {label}
                         </th>
                       ))}
@@ -296,8 +346,8 @@ export function IssueDetail({
                           )}
                           {!line.lotId && !line.assetId && "—"}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono tabular-nums">
-                          {line.quantity}
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {formatIssueQuantity(line.quantity)}
                         </td>
                         <td className="px-4 py-3">
                           {line.unitSymbol || line.unitName || "—"}
@@ -314,6 +364,7 @@ export function IssueDetail({
           </>
         )
       )}
+      <HistoryPanel key={`${farmId}:${id}`} farmId={farmId} entityType="STOCK_ISSUE" entityId={id} revision={revision} />
     </section>
   );
 }

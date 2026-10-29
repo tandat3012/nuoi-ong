@@ -155,12 +155,12 @@ export function IssueDraftPicker({
           }}
           placeholder="Mã hoặc tên..."
         />
-        <Button variant="outline"
+        <Button type="button" variant="outline"
           onClick={() => setQuery({ search: search.trim(), page: 1 })}
         >
           Tìm
         </Button>
-        <Button variant="outline"
+        <Button type="button" variant="outline"
           onClick={onClose}
         >
           Đóng lựa chọn

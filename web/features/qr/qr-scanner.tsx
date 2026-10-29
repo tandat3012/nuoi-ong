@@ -8,7 +8,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { PageHeader } from "@/shared/components/ui/page-header";
-import { parseAssetScan } from "./scan.logic";
+import { parseScan, scanPath } from "./scan.logic";
 
 function Scanner({ farmId }: { farmId: string }) {
   const router = useRouter();
@@ -18,17 +18,17 @@ function Scanner({ farmId }: { farmId: string }) {
   const video = useRef<HTMLVideoElement>(null);
   const navigating = useRef(false);
   function open(value: string) {
-    const parsed = parseAssetScan(value, window.location.origin);
+    const parsed = parseScan(value, window.location.origin);
     if (!parsed) {
       setError(
-        "QR không chứa mã tài sản hợp lệ hoặc thuộc một địa chỉ khác. Bạn có thể nhập mã trực tiếp.",
+        "QR không phải nhãn tài sản, mặt hàng hay tồn kho của hệ thống này. Bạn có thể nhập mã tài sản trực tiếp.",
       );
       return false;
     }
     if (navigating.current) return true;
     navigating.current = true;
     setRunning(false);
-    router.push(`/scan/${encodeURIComponent(parsed)}`);
+    router.push(scanPath(parsed));
     return true;
   }
   const openRef = useRef(open);
@@ -89,12 +89,12 @@ function Scanner({ farmId }: { farmId: string }) {
     <div className="min-w-0 space-y-6">
       <PageHeader
         title="Tra cứu QR"
-        description="Quét nhãn hoặc nhập mã để xem tài sản trong trang trại đang chọn."
+        description="Quét nhãn tài sản, mặt hàng hoặc tồn kho, hay nhập mã tài sản, để xem trong trang trại đang chọn."
       />
       <section className="mx-auto max-w-xl space-y-5 rounded-xl border bg-card p-5 sm:p-6">
         <div className="flex items-center gap-3">
           <ScanLine className="size-6 text-primary" aria-hidden="true" />
-          <h2 className="font-semibold">Quét tài sản</h2>
+          <h2 className="font-semibold">Quét nhãn QR</h2>
         </div>
         <p className="text-sm text-muted-foreground">
           Camera chỉ bật khi bạn chọn mở và tự tắt khi dừng hoặc rời trang.
@@ -151,7 +151,7 @@ function Scanner({ farmId }: { farmId: string }) {
             className="w-full"
             disabled={!code.trim()}
           >
-            Tra cứu tài sản
+            Tra cứu
           </Button>
         </form>
         <span className="sr-only">Trang trại {farmId}</span>
