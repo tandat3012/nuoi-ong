@@ -1,6 +1,5 @@
 import type { ApiRequestOptions } from "@/shared/api/client";
-import type { PaginatedResponse } from "@/shared/api/contracts";
-import type { AuditLog, HistoryFilters } from "../types/history";
+import type { AuditLogPage, HistoryFilters } from "../types/history";
 
 type AuthenticatedRequest = <T>(
   path: string,
@@ -12,7 +11,7 @@ export function getAuditLogs(
   farmId: string,
   filters: HistoryFilters,
 ) {
-  return request<PaginatedResponse<AuditLog>>("/audit-logs", {
+  return request<AuditLogPage>("/audit-logs", {
     params: {
       farmId,
       page: filters.page,

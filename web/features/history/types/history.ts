@@ -1,3 +1,5 @@
+import type { PaginatedResponse } from "@/shared/api/contracts";
+
 export type AuditLog = {
   id: string;
   farmId: string;
@@ -9,6 +11,11 @@ export type AuditLog = {
   newData: Record<string, unknown> | null;
   createdAt: string;
   actor: { name: string | null; email: string | null } | null;
+};
+
+export type AuditLogPage = PaginatedResponse<AuditLog> & {
+  /** Codes or names for the ids in this page, keyed by id. */
+  references: Record<string, string>;
 };
 
 export type HistoryQuery = {

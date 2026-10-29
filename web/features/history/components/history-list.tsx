@@ -3,12 +3,11 @@
 import { useEffect, useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { ApiError } from "@/shared/api/client";
-import type { PaginatedResponse } from "@/shared/api/contracts";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Pagination } from "@/shared/components/ui/pagination";
 import { getAuditLogs } from "../api/history.api";
 import { historyEntityIdError, historyErrorMessage } from "../history.logic";
-import type { AuditLog, HistoryFilters } from "../types/history";
+import type { AuditLogPage, HistoryFilters } from "../types/history";
 import { HistoryEntry } from "./history-entry";
 
 export function HistoryList({ farmId, filters, revision, onPageChange, showEntity = false }: {
@@ -24,7 +23,7 @@ export function HistoryList({ farmId, filters, revision, onPageChange, showEntit
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     key: string;
-    response?: PaginatedResponse<AuditLog>;
+    response?: AuditLogPage;
     error?: string;
     status?: number | null;
   } | null>(null);
@@ -57,11 +56,12 @@ export function HistoryList({ farmId, filters, revision, onPageChange, showEntit
   if (current.error) return <ErrorAlert className="m-4" message={current.error}
     onRetry={current.status === 401 || current.status === 403 ? undefined : () => setAttempt((value) => value + 1)} />;
   if (!current.response) return null;
+  const references = current.response.references ?? {};
   return (
     <>
       {!current.response.data.length && <p role="status" className="p-5 text-sm text-muted-foreground">Chưa có lịch sử thay đổi phù hợp.</p>}
       <ul aria-label="Các thay đổi" className="divide-y">
-        {current.response.data.map((log) => <li key={log.id}><HistoryEntry log={log} showEntity={showEntity} /></li>)}
+        {current.response.data.map((log) => <li key={log.id}><HistoryEntry log={log} references={references} showEntity={showEntity} /></li>)}
       </ul>
       <Pagination pageInfo={current.response.page} itemLabel="thay đổi" onPageChange={onPageChange} />
     </>

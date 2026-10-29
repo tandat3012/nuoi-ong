@@ -145,19 +145,56 @@ function jsonValue(value: unknown): string | undefined {
   );
 }
 
-function displayValue(value: unknown) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Readable names for ids (from the API's `references`) and Vietnamese labels for coded values. */
+export type HistoryFormat = {
+  references: Record<string, string>;
+  label: (key: string, value: string) => string;
+};
+
+const plainFormat: HistoryFormat = { references: {}, label: (_key, value) => value };
+
+function displayValue(key: string, value: unknown, format: HistoryFormat): string {
   if (value === undefined || value === null) return "—";
-  if (typeof value === "string") return value || "(Trống)";
   if (typeof value === "boolean") return value ? "Có" : "Không";
-  return jsonValue(value) ?? "—";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") {
+    if (!value) return "(Trống)";
+    if (UUID.test(value)) {
+      const name = format.references[value];
+      return name ? (key === "lotId" ? `Lô ${name}` : name) : "Không xác định";
+    }
+    return format.label(key, value);
+  }
+  if (Array.isArray(value))
+    return value.length
+      ? value.map((entry) => displayValue(key, entry, format)).join(
+        value.some((entry) => entry && typeof entry === "object") ? "\n" : ", ",
+      )
+      : "(Trống)";
+  // An object is one line of a document (item, lot, quantities…).
+  return Object.entries(value)
+    .filter(([, nested]) => nested !== null && nested !== undefined && nested !== "")
+    .map(([nestedKey, nested]) => nestedKey.endsWith("Id")
+      ? displayValue(nestedKey, nested, format)
+      : `${HISTORY_FIELD_LABELS[nestedKey] ?? nestedKey}: ${displayValue(nestedKey, nested, format)}`)
+    .join(" · ");
 }
 
-export function historyChanges(log: Pick<AuditLog, "action" | "oldData" | "newData">) {
+export function historyChanges(
+  log: Pick<AuditLog, "action" | "oldData" | "newData">,
+  format: HistoryFormat = plainFormat,
+) {
   const initial = !log.oldData || log.action === "CREATE" || log.action === "ASSET_CREATED";
   const before = initial ? {} : log.oldData ?? {};
   const after = log.newData ?? {};
   const keys = initial ? Object.keys(after) : [...new Set([...Object.keys(before), ...Object.keys(after)])];
   return keys
     .filter((key) => initial || jsonValue(before[key]) !== jsonValue(after[key]))
-    .map((key) => ({ key, before: displayValue(before[key]), after: displayValue(after[key]) }));
+    .map((key) => ({
+      key,
+      before: displayValue(key, before[key], format),
+      after: displayValue(key, after[key], format),
+    }));
 }

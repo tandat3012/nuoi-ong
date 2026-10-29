@@ -70,14 +70,47 @@ test("unchanged values including reordered nested JSON are hidden", () => {
   assert.deepEqual(historyChanges({ action: "UPDATE", oldData, newData }), []);
 });
 
-test("changed nested JSON and arrays are stringified without losing their values", () => {
+test("changed nested values and arrays are written out without raw JSON", () => {
   assert.deepEqual(historyChanges({ action: "UPDATE",
     oldData: { settings: { z: 1, a: { enabled: true } }, items: [1, 2] },
     newData: { settings: { a: { enabled: false }, z: 1 }, items: [2, 1] },
   }), [
-    { key: "settings", before: '{"a":{"enabled":true},"z":1}', after: '{"a":{"enabled":false},"z":1}' },
-    { key: "items", before: "[1,2]", after: "[2,1]" },
+    { key: "settings", before: "z: 1 · a: enabled: Có", after: "a: enabled: Không · z: 1" },
+    { key: "items", before: "1, 2", after: "2, 1" },
   ]);
+});
+
+test("ids become names from references and document lines read as one line each", () => {
+  const ids = {
+    warehouse: "ae1fd411-1173-4f25-ae92-fb14c3409b73",
+    member: "0174a038-ed2c-4608-9f07-d8cff711a227",
+    item: "297ef4ae-f4f0-4a32-956c-169ca8c5a218",
+    lot: "c1ea900a-0659-4f05-840a-a1e7f41de843",
+    gone: "11111111-2222-4333-8444-555555555555",
+  };
+  const format = {
+    references: { [ids.warehouse]: "KHO-01 — Kho chính", [ids.member]: "Dat", [ids.item]: "MAT-01 — Sáp ong", [ids.lot]: "L-2026" },
+    label: (key, value) => (key === "issueType" && value === "CONSUMPTION" ? "Xuất sử dụng" : value),
+  };
+  const changes = historyChanges({ action: "CREATE", oldData: null, newData: {
+    warehouseId: ids.warehouse,
+    createdByMemberId: ids.member,
+    issueType: "CONSUMPTION",
+    supplierId: ids.gone,
+    items: [
+      { itemId: ids.item, lotId: ids.lot, quantity: "999" },
+      { itemId: ids.item, lotId: null, actualQuantity: "65", systemQuantity: "68.000" },
+    ],
+  } }, format);
+  assert.deepEqual(Object.fromEntries(changes.map(({ key, after }) => [key, after])), {
+    warehouseId: "KHO-01 — Kho chính",
+    createdByMemberId: "Dat",
+    issueType: "Xuất sử dụng",
+    supplierId: "Không xác định",
+    items: "MAT-01 — Sáp ong · Lô L-2026 · Số lượng: 999\nMAT-01 — Sáp ong · Số lượng thực tế: 65 · Số lượng sổ sách: 68.000",
+  });
+  for (const { before, after } of changes)
+    for (const value of [before, after]) assert.doesNotMatch(value, /[0-9a-f]{8}-[0-9a-f]{4}-|[{}"]/i);
 });
 
 test("CREATE with null oldData shows every initial value including null, zero and false", () => {
@@ -88,7 +121,7 @@ test("CREATE with null oldData shows every initial value including null, zero an
     { key: "quantity", before: "—", after: "0" },
     { key: "active", before: "—", after: "Không" },
     { key: "extraField", before: "—", after: "(Trống)" },
-    { key: "items", before: "—", after: '[{"quantity":1}]' },
+    { key: "items", before: "—", after: "Số lượng: 1" },
   ];
   for (const action of ["CREATE", "ASSET_CREATED", "PERSONNEL_ADDED"]) {
     assert.deepEqual(historyChanges({ action, oldData: null, newData }), expected);
