@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { and, asc, count, eq, ilike, notInArray, or, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
+import { qrSvg, scanUrl } from '../../common/qr';
 import { DatabaseService } from '../../db/database.service';
 import {
   assets,
@@ -225,6 +226,20 @@ export class CatalogService {
       .limit(1);
     if (!location) throw new NotFoundException('Location not found');
     return location;
+  }
+
+  async getItemQr(id: string, farmId: string) {
+    const { item } = await this.getItem(id, farmId);
+    const qrUrl = scanUrl(`item/${item.id}`);
+    const svg = await qrSvg(qrUrl);
+    return {
+      itemId: item.id,
+      itemCode: item.code,
+      itemName: item.name,
+      qrUrl,
+      format: 'svg',
+      imageDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`,
+    };
   }
 
   async getItem(id: string, farmId: string) {

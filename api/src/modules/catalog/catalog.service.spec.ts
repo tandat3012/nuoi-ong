@@ -151,4 +151,26 @@ describe('CatalogService', () => {
       NotFoundException,
     );
   });
+
+  it('encodes the web scan URL in the item QR', async () => {
+    const previous = process.env.WEB_APP_URL;
+    process.env.WEB_APP_URL = 'https://farm.example/';
+    jest.spyOn(service, 'getItem').mockResolvedValue({
+      item: { id: 'item-1', code: 'MAT-1', name: 'Sáp ong' },
+    } as Awaited<ReturnType<CatalogService['getItem']>>);
+    try {
+      const qr = await service.getItemQr('item-1', farmId);
+      expect(qr).toMatchObject({
+        itemId: 'item-1',
+        itemCode: 'MAT-1',
+        qrUrl: 'https://farm.example/scan/item/item-1',
+      });
+      expect(
+        Buffer.from(qr.imageDataUrl.split(',')[1], 'base64').toString(),
+      ).toContain('<svg');
+    } finally {
+      if (previous === undefined) delete process.env.WEB_APP_URL;
+      else process.env.WEB_APP_URL = previous;
+    }
+  });
 });

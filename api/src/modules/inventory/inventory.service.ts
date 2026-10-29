@@ -13,7 +13,7 @@ import {
   sql,
   SQL,
 } from 'drizzle-orm';
-import QRCode from 'qrcode';
+import { qrSvg, scanUrl } from '../../common/qr';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -225,12 +225,8 @@ export class InventoryService {
       .limit(1);
 
     if (!row) throw new NotFoundException('Inventory balance not found');
-    const qrUrl = `${this.webAppUrl()}/inventory?warehouseId=${row.balance.warehouseId}&itemId=${row.balance.itemId}`;
-    const svg = await QRCode.toString(qrUrl, {
-      type: 'svg',
-      errorCorrectionLevel: 'M',
-      margin: 2,
-    });
+    const qrUrl = scanUrl(`inventory/${row.balance.id}`);
+    const svg = await qrSvg(qrUrl);
 
     return {
       balanceId: row.balance.id,
@@ -583,13 +579,5 @@ export class InventoryService {
         ),
       )
       .orderBy(asc(inventoryLots.expiryDate), asc(inventoryLots.createdAt));
-  }
-
-  private webAppUrl() {
-    return (
-      process.env.WEB_APP_URL ??
-      process.env.WEB_ORIGIN ??
-      'http://localhost:3000'
-    ).replace(/\/+$/, '');
   }
 }
