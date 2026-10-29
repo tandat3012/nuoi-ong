@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthContext, useAuthenticatedRequest, useFarmMembership } from "@/features/auth";
+import { useNotificationRefresh } from "@/features/notifications";
 import type { PaginatedResponse } from "@/shared/api/contracts";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
@@ -19,11 +20,12 @@ import { RequestReview } from "./request-review";
 
 export function RequestsScreen() {
   const { selectedFarmId, isLoading, error } = useAuthContext();
+  const notificationRevision = useNotificationRefresh();
   const { membership } = useFarmMembership();
   if (isLoading) return <p role="status">Đang tải thông tin trang trại…</p>;
   if (error) return <ErrorAlert message="Không thể tải quyền truy cập trang trại. Vui lòng tải lại trang." />;
   if (!selectedFarmId || !membership) return <p role="status">Vui lòng chọn trang trại để xem yêu cầu.</p>;
-  return <FarmRequestsScreen key={`${selectedFarmId}:${membership.roles.join(",")}`} farmId={selectedFarmId} roles={membership.roles} />;
+  return <FarmRequestsScreen key={`${selectedFarmId}:${membership.roles.join(",")}:${notificationRevision}`} farmId={selectedFarmId} roles={membership.roles} />;
 }
 
 function FarmRequestsScreen({ farmId, roles }: { farmId: string; roles: readonly string[] }) {
