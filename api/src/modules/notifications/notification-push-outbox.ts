@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DatabaseService } from '../../db/database.service';
 import {
+  assetTransferRequests,
   devicePushTokens,
   farms,
   farmMembers,
@@ -36,6 +37,11 @@ const documents = [
   { type: 'STOCK_ISSUE', table: stockIssues },
   { type: 'STOCK_TRANSFER', table: stockTransfers },
   { type: 'STOCK_COUNT', table: stockCounts },
+] as const;
+
+const requests = [
+  { type: 'MAINTENANCE_REQUEST', table: maintenanceRequests },
+  { type: 'ASSET_TRANSFER_REQUEST', table: assetTransferRequests },
 ] as const;
 
 // Correlated to `notifications`. Never infer authorization from a route supplied
@@ -74,17 +80,19 @@ export function documentPushEligibility() {
     )
   )`,
   );
-  const maintenanceRequestCondition = sql`(
-    ${notifications.entityType} = 'MAINTENANCE_REQUEST' AND EXISTS (
-      SELECT 1 FROM ${maintenanceRequests} AS push_request
+  // Requests carry the requester instead of a document creator.
+  const requestConditions = requests.map(
+    ({ type, table }) => sql`(
+    ${notifications.entityType} = ${type} AND EXISTS (
+      SELECT 1 FROM ${table} AS push_request
       WHERE push_request.id = ${notifications.entityId}
         AND push_request.farm_id = ${notifications.farmId}
         AND (
-          (${notifications.type} = 'MAINTENANCE_REQUEST_PENDING_APPROVAL'
+          (${notifications.type} = ${type + '_PENDING_APPROVAL'}
             AND push_request.status = 'PENDING_APPROVAL' AND ${isApprover})
           OR (
-            ((${notifications.type} = 'MAINTENANCE_REQUEST_CONFIRMED' AND push_request.status = 'CONFIRMED')
-              OR (${notifications.type} = 'MAINTENANCE_REQUEST_REJECTED' AND push_request.status = 'REJECTED'))
+            ((${notifications.type} = ${type + '_CONFIRMED'} AND push_request.status = 'CONFIRMED')
+              OR (${notifications.type} = ${type + '_REJECTED'} AND push_request.status = 'REJECTED'))
             AND EXISTS (
               SELECT 1 FROM ${farmMembers} AS push_creator
               WHERE push_creator.id = push_request.requested_by_member_id
@@ -95,13 +103,14 @@ export function documentPushEligibility() {
           )
         )
     )
-  )`;
+  )`,
+  );
   return sql`(
     EXISTS (SELECT 1 FROM ${users} AS push_user
       WHERE push_user.id = ${notifications.userId} AND push_user.status = 'ACTIVE')
     AND EXISTS (SELECT 1 FROM ${farms} AS push_farm
       WHERE push_farm.id = ${notifications.farmId} AND push_farm.status = 'ACTIVE')
-    AND (${sql.join([...documentConditions, maintenanceRequestCondition], sql` OR `)})
+    AND (${sql.join([...documentConditions, ...requestConditions], sql` OR `)})
   )`;
 }
 

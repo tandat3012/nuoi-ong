@@ -38,7 +38,10 @@ import {
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 type AssetStatus = (typeof assetStatus.enumValues)[number];
-type Actor = { memberId: string; userId: string };
+export type Actor = { memberId: string; userId: string };
+
+export const TRANSFER_PENDING_CONFLICT =
+  'Asset has a pending transfer request; approve or reject it first';
 type LocationRow = {
   id: string;
   warehouseId: string | null;
@@ -418,160 +421,179 @@ export class AssetLifecycleService {
     input: TransferAssetDto,
   ) {
     const actor = await this.actor(farmId, clerkUserId);
-    return this.databaseService.db.transaction(async (tx) => {
-      const preliminary = await this.getAsset(tx, id, farmId);
-      if (preliminary.status !== 'AVAILABLE')
-        throw new ConflictException('Only AVAILABLE assets can be transferred');
-      if (!preliminary.currentLocationId)
-        throw new ConflictException('Asset has no recorded source location');
-      const source = await this.locationWithWarehouse(
-        tx,
-        farmId,
-        preliminary.currentLocationId,
-      );
-      if (!source.warehouseId)
-        throw new ConflictException(
-          'Asset source location is not associated with a warehouse',
-        );
-      await this.activeWarehouse(tx, farmId, source.warehouseId);
-      await this.activeWarehouse(tx, farmId, input.warehouseId);
-      const destinationPreview = await this.locationWithWarehouse(
-        tx,
-        farmId,
-        input.locationId,
-      );
-      if (destinationPreview.warehouseId !== input.warehouseId)
-        throw new ConflictException(
-          'Receiving location must belong to the selected warehouse',
-        );
-      if (preliminary.currentLocationId === input.locationId)
-        throw new ConflictException('Asset is already at this location');
+    return this.databaseService.db.transaction((tx) =>
+      this.transferInTransaction(tx, id, farmId, actor, input),
+    );
+  }
 
-      const warehouseIds = [
-        ...new Set([source.warehouseId, input.warehouseId]),
-      ].sort((left, right) => left.localeCompare(right));
-      for (const warehouseId of warehouseIds)
-        await this.ensureBalance(tx, farmId, warehouseId, preliminary.itemId);
-      const balances = new Map<string, string>();
-      for (const warehouseId of warehouseIds) {
-        const [balance] = await tx
-          .select({ id: inventoryBalances.id })
-          .from(inventoryBalances)
-          .where(
-            and(
-              eq(inventoryBalances.farmId, farmId),
-              eq(inventoryBalances.warehouseId, warehouseId),
-              eq(inventoryBalances.itemId, preliminary.itemId),
-              isNull(inventoryBalances.lotId),
-              warehouseId === source.warehouseId
-                ? gte(inventoryBalances.quantityOnHand, '1')
-                : undefined,
-            ),
-          )
-          .for('update')
-          .limit(1);
-        if (!balance)
-          throw new ConflictException(
+  /**
+   * Moves the asset inside the caller's transaction and leaves it AVAILABLE.
+   * Approving a transfer request passes `fromStatus` TRANSFER_PENDING.
+   */
+  async transferInTransaction(
+    tx: Transaction,
+    id: string,
+    farmId: string,
+    actor: Actor,
+    input: TransferAssetDto,
+    fromStatus: 'AVAILABLE' | 'TRANSFER_PENDING' = 'AVAILABLE',
+  ) {
+    const preliminary = await this.getAsset(tx, id, farmId);
+    if (preliminary.status !== fromStatus)
+      throw new ConflictException('Only AVAILABLE assets can be transferred');
+    if (!preliminary.currentLocationId)
+      throw new ConflictException('Asset has no recorded source location');
+    const source = await this.locationWithWarehouse(
+      tx,
+      farmId,
+      preliminary.currentLocationId,
+    );
+    if (!source.warehouseId)
+      throw new ConflictException(
+        'Asset source location is not associated with a warehouse',
+      );
+    await this.activeWarehouse(tx, farmId, source.warehouseId);
+    await this.activeWarehouse(tx, farmId, input.warehouseId);
+    const destinationPreview = await this.locationWithWarehouse(
+      tx,
+      farmId,
+      input.locationId,
+    );
+    if (destinationPreview.warehouseId !== input.warehouseId)
+      throw new ConflictException(
+        'Receiving location must belong to the selected warehouse',
+      );
+    if (preliminary.currentLocationId === input.locationId)
+      throw new ConflictException('Asset is already at this location');
+
+    const warehouseIds = [
+      ...new Set([source.warehouseId, input.warehouseId]),
+    ].sort((left, right) => left.localeCompare(right));
+    for (const warehouseId of warehouseIds)
+      await this.ensureBalance(tx, farmId, warehouseId, preliminary.itemId);
+    const balances = new Map<string, string>();
+    for (const warehouseId of warehouseIds) {
+      const [balance] = await tx
+        .select({ id: inventoryBalances.id })
+        .from(inventoryBalances)
+        .where(
+          and(
+            eq(inventoryBalances.farmId, farmId),
+            eq(inventoryBalances.warehouseId, warehouseId),
+            eq(inventoryBalances.itemId, preliminary.itemId),
+            isNull(inventoryBalances.lotId),
             warehouseId === source.warehouseId
-              ? 'Asset is missing from source warehouse inventory'
-              : 'Receiving warehouse balance is unavailable',
-          );
-        balances.set(warehouseId, balance.id);
-      }
-
-      const asset = await this.getAsset(tx, id, farmId, true);
-      if (
-        asset.status !== 'AVAILABLE' ||
-        asset.itemId !== preliminary.itemId ||
-        asset.currentLocationId !== preliminary.currentLocationId
-      )
+              ? gte(inventoryBalances.quantityOnHand, '1')
+              : undefined,
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!balance)
         throw new ConflictException(
-          'Asset changed during transfer; reload before retrying',
+          warehouseId === source.warehouseId
+            ? 'Asset is missing from source warehouse inventory'
+            : 'Receiving warehouse balance is unavailable',
         );
-      await this.assertNoActiveMaintenance(tx, farmId, id);
-      const lockedSource = await this.activeLocation(
-        tx,
-        farmId,
-        asset.currentLocationId,
-        source.warehouseId,
-      );
-      const destination = await this.activeLocation(
-        tx,
-        farmId,
-        input.locationId,
-        input.warehouseId,
-      );
-      await this.activeWarehouse(tx, farmId, source.warehouseId);
-      await this.activeWarehouse(tx, farmId, input.warehouseId);
+      balances.set(warehouseId, balance.id);
+    }
 
-      const now = new Date().toISOString();
-      if (source.warehouseId !== input.warehouseId) {
-        const sourceBalanceId = balances.get(source.warehouseId)!;
-        const destinationBalanceId = balances.get(input.warehouseId)!;
-        await tx
-          .update(inventoryBalances)
-          .set({
-            quantityOnHand: sql`${inventoryBalances.quantityOnHand} - 1`,
-            updatedAt: now,
-          })
-          .where(eq(inventoryBalances.id, sourceBalanceId));
-        await tx
-          .update(inventoryBalances)
-          .set({
-            quantityOnHand: sql`${inventoryBalances.quantityOnHand} + 1`,
-            updatedAt: now,
-          })
-          .where(eq(inventoryBalances.id, destinationBalanceId));
-        const movementGroupId = randomUUID();
-        await tx.insert(inventoryTransactions).values([
-          {
-            farmId,
-            warehouseId: source.warehouseId,
-            itemId: asset.itemId,
-            assetId: id,
-            transactionType: 'TRANSFER_OUT',
-            quantityChange: '-1',
-            sourceType: 'ASSET_TRANSFER',
-            sourceId: id,
-            movementGroupId,
-            performedByMemberId: actor.memberId,
-            reason: input.note ?? null,
-          },
-          {
-            farmId,
-            warehouseId: input.warehouseId,
-            itemId: asset.itemId,
-            assetId: id,
-            transactionType: 'TRANSFER_IN',
-            quantityChange: '1',
-            sourceType: 'ASSET_TRANSFER',
-            sourceId: id,
-            movementGroupId,
-            performedByMemberId: actor.memberId,
-            reason: input.note ?? null,
-          },
-        ]);
-      }
-      const [updated] = await tx
-        .update(assets)
-        .set({ currentLocationId: destination.id, updatedAt: now })
-        .where(and(eq(assets.id, id), eq(assets.farmId, farmId)))
-        .returning();
-      await this.audit(
-        tx,
-        farmId,
-        actor.userId,
-        'ASSET_TRANSFERRED',
-        id,
-        { locationId: lockedSource.id, warehouseId: source.warehouseId },
-        {
-          locationId: destination.id,
-          warehouseId: input.warehouseId,
-          summary: `Chuyển từ ${lockedSource.code} — ${lockedSource.name} đến ${destination.code} — ${destination.name}`,
-        },
+    const asset = await this.getAsset(tx, id, farmId, true);
+    if (
+      asset.status !== fromStatus ||
+      asset.itemId !== preliminary.itemId ||
+      asset.currentLocationId !== preliminary.currentLocationId
+    )
+      throw new ConflictException(
+        'Asset changed during transfer; reload before retrying',
       );
-      return updated;
-    });
+    await this.assertNoActiveMaintenance(tx, farmId, id);
+    const lockedSource = await this.activeLocation(
+      tx,
+      farmId,
+      asset.currentLocationId,
+      source.warehouseId,
+    );
+    const destination = await this.activeLocation(
+      tx,
+      farmId,
+      input.locationId,
+      input.warehouseId,
+    );
+    await this.activeWarehouse(tx, farmId, source.warehouseId);
+    await this.activeWarehouse(tx, farmId, input.warehouseId);
+
+    const now = new Date().toISOString();
+    if (source.warehouseId !== input.warehouseId) {
+      const sourceBalanceId = balances.get(source.warehouseId)!;
+      const destinationBalanceId = balances.get(input.warehouseId)!;
+      await tx
+        .update(inventoryBalances)
+        .set({
+          quantityOnHand: sql`${inventoryBalances.quantityOnHand} - 1`,
+          updatedAt: now,
+        })
+        .where(eq(inventoryBalances.id, sourceBalanceId));
+      await tx
+        .update(inventoryBalances)
+        .set({
+          quantityOnHand: sql`${inventoryBalances.quantityOnHand} + 1`,
+          updatedAt: now,
+        })
+        .where(eq(inventoryBalances.id, destinationBalanceId));
+      const movementGroupId = randomUUID();
+      await tx.insert(inventoryTransactions).values([
+        {
+          farmId,
+          warehouseId: source.warehouseId,
+          itemId: asset.itemId,
+          assetId: id,
+          transactionType: 'TRANSFER_OUT',
+          quantityChange: '-1',
+          sourceType: 'ASSET_TRANSFER',
+          sourceId: id,
+          movementGroupId,
+          performedByMemberId: actor.memberId,
+          reason: input.note ?? null,
+        },
+        {
+          farmId,
+          warehouseId: input.warehouseId,
+          itemId: asset.itemId,
+          assetId: id,
+          transactionType: 'TRANSFER_IN',
+          quantityChange: '1',
+          sourceType: 'ASSET_TRANSFER',
+          sourceId: id,
+          movementGroupId,
+          performedByMemberId: actor.memberId,
+          reason: input.note ?? null,
+        },
+      ]);
+    }
+    const [updated] = await tx
+      .update(assets)
+      .set({
+        currentLocationId: destination.id,
+        status: 'AVAILABLE',
+        updatedAt: now,
+      })
+      .where(and(eq(assets.id, id), eq(assets.farmId, farmId)))
+      .returning();
+    await this.audit(
+      tx,
+      farmId,
+      actor.userId,
+      'ASSET_TRANSFERRED',
+      id,
+      { locationId: lockedSource.id, warehouseId: source.warehouseId },
+      {
+        locationId: destination.id,
+        warehouseId: input.warehouseId,
+        summary: `Chuyển từ ${lockedSource.code} — ${lockedSource.name} đến ${destination.code} — ${destination.name}`,
+      },
+    );
+    return updated;
   }
 
   async retire(
@@ -666,6 +688,8 @@ export class AssetLifecycleService {
         throw new ConflictException(
           'Terminal assets cannot receive new incidents',
         );
+      if (preliminary.status === 'TRANSFER_PENDING')
+        throw new ConflictException(TRANSFER_PENDING_CONFLICT);
       let balanceId: string | undefined;
       let sourceWarehouseId: string | undefined;
       if (input.incidentType === 'LOSS' && preliminary.status === 'AVAILABLE') {

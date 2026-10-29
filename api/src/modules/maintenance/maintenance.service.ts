@@ -33,6 +33,7 @@ import {
   users,
   warehouses,
 } from '../../db/schema';
+import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import {
   CreateMaintenanceRecordDto,
@@ -165,6 +166,8 @@ export class MaintenanceService {
       throw new ConflictException(
         'Terminal assets cannot be scheduled for maintenance',
       );
+    if (asset.status === 'TRANSFER_PENDING')
+      throw new ConflictException(TRANSFER_PENDING_CONFLICT);
     const [item] = await tx
       .select({ id: items.id, trackingMode: items.trackingMode })
       .from(items)

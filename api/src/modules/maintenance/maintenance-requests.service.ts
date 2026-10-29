@@ -51,6 +51,29 @@ const requesterUsers = alias(users, 'maintenance_requester_users');
 const reviewerMembers = alias(farmMembers, 'maintenance_reviewers');
 const reviewerUsers = alias(users, 'maintenance_reviewer_users');
 
+export const PENDING_MAINTENANCE_CONFLICT =
+  'This asset already has a pending maintenance request';
+
+/** Call with the asset row locked so request creation for that asset is serialized. */
+export async function pendingMaintenanceRequest(
+  tx: Transaction,
+  farmId: string,
+  assetId: string,
+) {
+  const [pending] = await tx
+    .select({ id: maintenanceRequests.id })
+    .from(maintenanceRequests)
+    .where(
+      and(
+        eq(maintenanceRequests.farmId, farmId),
+        eq(maintenanceRequests.assetId, assetId),
+        eq(maintenanceRequests.status, 'PENDING_APPROVAL'),
+      ),
+    )
+    .limit(1);
+  return Boolean(pending);
+}
+
 const NOTIFICATION_TITLES = {
   PENDING_APPROVAL: 'Yêu cầu bảo trì cần duyệt',
   CONFIRMED: 'Yêu cầu bảo trì đã được duyệt',
@@ -184,14 +207,22 @@ export class MaintenanceRequestsService {
           .select({ assetCode: assets.assetCode, status: assets.status })
           .from(assets)
           .where(and(eq(assets.id, input.assetId), eq(assets.farmId, farmId)))
-          // No row lock: approve locks request then asset, so locking the asset here could deadlock.
+          // Serializes with transfer requests, which lock the asset to mark it TRANSFER_PENDING.
+          .for('update')
           .limit(1);
         if (!asset) throw new NotFoundException('Asset not found');
-        if (['LOST', 'RETIRED', 'MAINTENANCE'].includes(asset.status))
+        if (
+          ['LOST', 'RETIRED', 'MAINTENANCE', 'TRANSFER_PENDING'].includes(
+            asset.status,
+          )
+        )
           throw new ConflictException(
             'Asset is not eligible for a maintenance request',
           );
         await this.assertNoActiveMaintenance(tx, farmId, input.assetId);
+        // The unique index stays the backstop; this gives the same 409 the transfer request uses.
+        if (await pendingMaintenanceRequest(tx, farmId, input.assetId))
+          throw new ConflictException(PENDING_MAINTENANCE_CONFLICT);
         const [request] = await tx
           .insert(maintenanceRequests)
           .values({
@@ -219,9 +250,7 @@ export class MaintenanceRequestsService {
         const constraint =
           databaseError?.constraint ?? databaseError?.cause?.constraint;
         if (constraint === 'ux_pending_maintenance_request_per_asset')
-          throw new ConflictException(
-            'This asset already has a pending maintenance request',
-          );
+          throw new ConflictException(PENDING_MAINTENANCE_CONFLICT);
         throw error;
       });
   }

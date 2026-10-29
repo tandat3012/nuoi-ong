@@ -260,6 +260,29 @@ describe('Maintenance requests', () => {
     });
   });
 
+  it('approving while another request is created for the same asset neither deadlocks nor duplicates', async () => {
+    for (let round = 0; round < 10; round += 1) {
+      await cleanRequests();
+      const pending = await create('creator');
+      const [approved, duplicate] = await Promise.allSettled([
+        requests.approve(
+          pending.id,
+          farm,
+          clerk('owner'),
+          '2026-11-02T09:00:00Z',
+        ),
+        create('peer'),
+      ]);
+      expect(approved.status).toBe('fulfilled');
+      expect(duplicate.status).toBe('rejected');
+      // 409 either for the pending request or for the maintenance just scheduled; never a deadlock (500).
+      expect(
+        ((duplicate as PromiseRejectedResult).reason as { status?: number })
+          .status,
+      ).toBe(409);
+    }
+  });
+
   it('rejects with a reason and records the history the requester can read', async () => {
     const request = await create('creator');
     await expect(
