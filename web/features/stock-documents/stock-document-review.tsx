@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth/hooks/use-authenticated-request";
 import { ApiError } from "@/shared/api/client";
 import { Button } from "@/shared/components/ui/button";
-import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { FormDialog } from "@/shared/components/ui/form-dialog";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
@@ -33,6 +32,7 @@ export function StockDocumentReview({
   canReject,
   disabled,
   onChanged,
+  onError,
 }: {
   kind: StockDocumentKind;
   farmId: string;
@@ -43,12 +43,13 @@ export function StockDocumentReview({
   disabled?: boolean;
   /** Called after every answered request so the screen reloads the document. */
   onChanged: () => void;
+  /** Failures go to the parent, because the reload above can unmount this component. */
+  onError: (message: string | null) => void;
 }) {
   const request = useAuthenticatedRequest();
   const pending = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [rejecting, setRejecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function submit() {
     if (pending.current) return;
@@ -60,7 +61,7 @@ export function StockDocumentReview({
       return;
     pending.current = true;
     setSubmitting(true);
-    setError(null);
+    onError(null);
     try {
       await request(`/${kind}/${id}/submit`, {
         method: "POST",
@@ -68,7 +69,7 @@ export function StockDocumentReview({
       });
       onChanged();
     } catch (failure) {
-      setError(failureMessage(failure));
+      onError(failureMessage(failure));
       if (shouldReloadAfterFailure(failureStatus(failure))) onChanged();
     } finally {
       pending.current = false;
@@ -90,14 +91,13 @@ export function StockDocumentReview({
           className="border-destructive/40 text-destructive hover:bg-destructive/10"
           disabled={disabled || submitting}
           onClick={() => {
-            setError(null);
+            onError(null);
             setRejecting(true);
           }}
         >
           Từ chối
         </Button>
       )}
-      {error && <ErrorAlert message={error} className="basis-full" />}
       {rejecting && (
         <FormDialog
           title={`Từ chối phiếu ${code}`}
@@ -117,7 +117,11 @@ export function StockDocumentReview({
                 data: { rejectionReason: result.reason },
               });
             } catch (failure) {
-              if (shouldReloadAfterFailure(failureStatus(failure))) onChanged();
+              if (shouldReloadAfterFailure(failureStatus(failure))) {
+                // The dialog closes with the reload, so the parent keeps the message.
+                onError(failureMessage(failure));
+                onChanged();
+              }
               throw failure;
             }
             onChanged();

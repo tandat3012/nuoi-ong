@@ -4,7 +4,18 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, asc, count, desc, eq, gte, isNull, sql, SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  isNull,
+  sql,
+  SQL,
+  getTableColumns,
+} from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -14,6 +25,7 @@ import {
   items,
   stockTransferItems,
   stockTransfers,
+  units,
   warehouses,
 } from '../../db/schema';
 import {
@@ -473,12 +485,33 @@ export class StockTransfersService {
   }
   private async withItems(id: string, farmId: string) {
     const transfer = await this.only(id, farmId);
-    const items = await this.databaseService.db
-      .select()
+    const lines = await this.databaseService.db
+      .select({
+        ...getTableColumns(stockTransferItems),
+        itemCode: items.code,
+        itemName: items.name,
+        trackingMode: items.trackingMode,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+        lotNumber: inventoryLots.lotNumber,
+        lotExpiryDate: inventoryLots.expiryDate,
+      })
       .from(stockTransferItems)
+      .leftJoin(
+        items,
+        and(eq(items.id, stockTransferItems.itemId), eq(items.farmId, farmId)),
+      )
+      .leftJoin(units, eq(units.id, items.unitId))
+      .leftJoin(
+        inventoryLots,
+        and(
+          eq(inventoryLots.id, stockTransferItems.lotId),
+          eq(inventoryLots.farmId, farmId),
+        ),
+      )
       .where(eq(stockTransferItems.stockTransferId, id))
       .orderBy(asc(stockTransferItems.createdAt));
-    return { transfer, items };
+    return { transfer, items: lines };
   }
   private validateItems(lines: CreateStockTransferDto['items']) {
     if (!lines?.length)

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth/hooks/use-authenticated-request";
 import { ApiError } from "@/shared/api/client";
+import { shouldReloadAfterFailure } from "@/features/stock-documents/stock-document.logic";
 import { confirmReceipt } from "../api/receipts.api";
 
 export function useConfirmReceipt(
@@ -10,6 +11,8 @@ export function useConfirmReceipt(
   canWrite: boolean,
   id: string,
   onConfirmed: () => void,
+  /** Reloads the receipt after a failure the server answered, since its state may have changed. */
+  onFailed: () => void,
 ) {
   const request = useAuthenticatedRequest();
 
@@ -45,6 +48,10 @@ export function useConfirmReceipt(
                   ? `Phiếu nhập chưa hợp lệ: ${failure.message}`
                   : "Chưa xác nhận được kết quả xác nhận. Hãy tải lại chi tiết trước khi thử lại.";
       setError(message);
+      if (
+        shouldReloadAfterFailure(failure instanceof ApiError ? failure.status : null)
+      )
+        onFailed();
     } finally {
       pending.current = false;
     }

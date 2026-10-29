@@ -4,7 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, count, desc, eq, isNull, SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  isNull,
+  SQL,
+  getTableColumns,
+} from 'drizzle-orm';
 import { DatabaseService } from '../../db/database.service';
 import {
   inventoryBalances,
@@ -13,6 +22,7 @@ import {
   items,
   stockCountItems,
   stockCounts,
+  units,
   warehouses,
 } from '../../db/schema';
 import {
@@ -440,12 +450,33 @@ export class StockCountsService {
   }
   private async withItems(id: string, farmId: string) {
     const row = await this.only(id, farmId);
-    const items = await this.dbService.db
-      .select()
+    const lines = await this.dbService.db
+      .select({
+        ...getTableColumns(stockCountItems),
+        itemCode: items.code,
+        itemName: items.name,
+        trackingMode: items.trackingMode,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+        lotNumber: inventoryLots.lotNumber,
+        lotExpiryDate: inventoryLots.expiryDate,
+      })
       .from(stockCountItems)
+      .leftJoin(
+        items,
+        and(eq(items.id, stockCountItems.itemId), eq(items.farmId, farmId)),
+      )
+      .leftJoin(units, eq(units.id, items.unitId))
+      .leftJoin(
+        inventoryLots,
+        and(
+          eq(inventoryLots.id, stockCountItems.lotId),
+          eq(inventoryLots.farmId, farmId),
+        ),
+      )
       .where(eq(stockCountItems.stockCountId, id))
       .orderBy(asc(stockCountItems.createdAt));
-    return { count: row, items };
+    return { count: row, items: lines };
   }
   private validateItems(items: CreateStockCountDto['items']) {
     if (!items?.length)
