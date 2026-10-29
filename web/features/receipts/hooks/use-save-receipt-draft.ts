@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth/hooks/use-authenticated-request";
 import { ApiError } from "@/shared/api/client";
 import { createReceipt, updateReceipt } from "../api/receipts.api";
-import { validateReceiptDraft } from "../components/receipt-draft.logic";
+import {
+  receiptSaveErrorMessage,
+  validateReceiptDraft,
+} from "../components/receipt-draft.logic";
 import type { CreateReceiptInput } from "../types/receipt";
 
 export function useSaveReceiptDraft(
@@ -46,19 +49,13 @@ export function useSaveReceiptDraft(
       if (alive.current) onSaved(data.receipt.id);
     } catch (failure: unknown) {
       if (!alive.current) return;
-      const action = id ? "cập nhật" : "tạo";
-      const message =
-        failure instanceof ApiError && failure.status === 403
-          ? `Bạn không có quyền ${action} phiếu nhập trong trang trại này.`
-          : failure instanceof ApiError && failure.status === 401
-            ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
-            : failure instanceof ApiError && failure.status === 409
-              ? `Không thể ${action} phiếu nhập: ${failure.message}`
-              : failure instanceof ApiError &&
-                  [400, 404].includes(failure.status)
-                ? `Dữ liệu không hợp lệ hoặc không còn khả dụng: ${failure.message}`
-                : `Chưa xác nhận được kết quả ${action}. Hãy tải lại danh sách trước khi gửi lại.`;
-      setError(message);
+      setError(
+        receiptSaveErrorMessage(
+          failure instanceof ApiError ? failure.status : null,
+          failure instanceof ApiError ? failure.message : "",
+          id ? "cập nhật" : "tạo",
+        ),
+      );
     } finally {
       submitting.current = false;
       if (alive.current) setIsSaving(false);

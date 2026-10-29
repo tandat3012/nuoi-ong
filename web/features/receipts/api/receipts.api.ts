@@ -7,6 +7,7 @@ import type {
   ReceiptItemReference,
   CreateReceiptInput,
   ReceiptLocationReference,
+  ReceiptLotReference,
   UpdateReceiptInput,
   ReceiptSupplierReference,
 } from '../types/receipt';
@@ -89,16 +90,6 @@ export function getReceiptById(
   });
 }
 
-export function getReceiptItem(
-  request: AuthenticatedRequest,
-  farmId: string,
-  id: string,
-) {
-  return request<{ data: ReceiptItemReference }>(`/items/${id}`, {
-    params: { farmId },
-  });
-}
-
 export function getReceiptCatalogItems(
   request: AuthenticatedRequest,
   farmId: string,
@@ -171,12 +162,12 @@ export function getReceiptLocations(
   });
 }
 
-export function getReceiptLocation(
+export function getReceiptLots(
   request: AuthenticatedRequest,
   farmId: string,
-  id: string,
+  filters: { page: number; pageSize: number; itemId: string },
 ) {
-  return request<{ data: ReceiptLocationReference }>(`/locations/${id}`, {
-    params: { farmId },
+  return request<PaginatedResponse<ReceiptLotReference>>('/lots', {
+    params: { farmId, ...filters },
   });
 }

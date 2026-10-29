@@ -4,16 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth/hooks/use-authenticated-request";
 import { getWarehouseById } from "@/features/warehouses/api/warehouses.api";
 import { ApiError } from "@/shared/api/client";
-import {
-  getReceiptById,
-  getReceiptItem,
-  getReceiptLocation,
-  getReceiptSupplier,
-} from "../api/receipts.api";
-import type {
-  ReceiptDetail,
-  ReceiptItemReference,
-} from "../types/receipt";
+import { getReceiptById, getReceiptSupplier } from "../api/receipts.api";
+import type { ReceiptDetail } from "../types/receipt";
 
 export function useReceiptDetail(farmId: string, id: string) {
   const request = useAuthenticatedRequest();
@@ -26,8 +18,6 @@ export function useReceiptDetail(farmId: string, id: string) {
     detail?: ReceiptDetail;
     warehouse?: string;
     supplier?: string;
-    locationLabels?: Record<string, string>;
-    references?: Record<string, ReceiptItemReference>;
     warning?: boolean;
     error?: string;
   } | null>(null);
@@ -41,15 +31,7 @@ export function useReceiptDetail(farmId: string, id: string) {
 
         if (cancelled) return;
 
-        const ids = [...new Set(detail.items.map((line) => line.itemId))];
-        const locationIds = [
-          ...new Set(
-            detail.items.flatMap((line) =>
-              line.locationId ? [line.locationId] : [],
-            ),
-          ),
-        ];
-        const [warehouseResult, supplierResult, itemResults, locationResults] =
+        const [warehouseResult, supplierResult] =
           await Promise.all([
             Promise.allSettled([
               getWarehouseById(request, detail.receipt.warehouseId, farmId).then(
@@ -65,33 +47,11 @@ export function useReceiptDetail(farmId: string, id: string) {
                   ).then(({ data }) => `${data.code} — ${data.name}`)
                 : Promise.resolve(undefined),
             ]).then(([result]) => result),
-            Promise.allSettled(
-              ids.map((itemId) =>
-                getReceiptItem(request, farmId, itemId).then(
-                  ({ data }) => data,
-                ),
-              ),
-            ),
-            Promise.allSettled(
-              locationIds.map((locationId) =>
-                getReceiptLocation(request, farmId, locationId).then(
-                  ({ data }) => ({
-                    id: data.id,
-                    label: `${data.code} — ${data.name}`,
-                  }),
-                ),
-              ),
-            ),
           ]);
 
         if (cancelled) return;
         // Authentication/permission failures must not be presented as missing labels.
-        const lookups = [
-          warehouseResult,
-          supplierResult,
-          ...itemResults,
-          ...locationResults,
-        ];
+        const lookups = [warehouseResult, supplierResult];
         for (const lookup of lookups) {
           if (
             lookup.status === "rejected" &&
@@ -100,27 +60,15 @@ export function useReceiptDetail(farmId: string, id: string) {
           )
             throw lookup.reason;
         }
-        const references: Record<string, ReceiptItemReference> = {};
-        itemResults.forEach((lookup, index) => {
-          if (lookup.status === "fulfilled" && typeof lookup.value !== "string")
-            references[ids[index]] = lookup.value;
-        });
-        const locationLabels: Record<string, string> = {};
-        locationResults.forEach((lookup) => {
-          if (lookup.status === "fulfilled")
-            locationLabels[lookup.value.id] = lookup.value.label;
-        });
         setResult({
           farmId,
           id,
           attempt,
           detail,
-          references,
           supplier:
             supplierResult.status === "fulfilled"
               ? supplierResult.value
               : undefined,
-          locationLabels,
           warehouse:
             warehouseResult.status === "fulfilled" &&
             typeof warehouseResult.value === "string"

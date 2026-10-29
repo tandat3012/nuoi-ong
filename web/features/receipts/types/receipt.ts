@@ -47,6 +47,7 @@ export interface CreateReceiptInput {
     itemId: string;
     quantity: string;
     unitPrice?: string;
+    lotId?: string;
     lotNumber?: string;
     manufacturedDate?: string;
     expiryDate?: string;
@@ -75,6 +76,19 @@ export interface ReceiptLine {
   serialNumber: string | null;
   note: string | null;
   createdAt: string;
+  // Joined by the detail endpoint; null when the referenced row is missing.
+  itemCode: string | null;
+  itemName: string | null;
+  trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' | null;
+  unitName: string | null;
+  unitSymbol: string | null;
+  lotNumberFromLot: string | null;
+  lotManufacturedDate: string | null;
+  lotExpiryDate: string | null;
+  assetCodeFromAsset: string | null;
+  assetSerialNumber: string | null;
+  locationCode: string | null;
+  locationName: string | null;
 }
 
 export interface ReceiptDetail {
@@ -96,9 +110,14 @@ export interface ReceiptItemReference {
 export interface ReceiptDraftInitial {
   detail: ReceiptDetail;
   warehouseLabel?: string;
-  references?: Record<string, ReceiptItemReference>;
   supplierLabel?: string;
-  locationLabels?: Record<string, string>;
+}
+
+export interface ReceiptLotReference {
+  id: string;
+  lotNumber: string;
+  manufacturedDate: string | null;
+  expiryDate: string | null;
 }
 
 export interface ReceiptSupplierReference {

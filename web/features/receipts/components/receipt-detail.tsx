@@ -42,8 +42,6 @@ export function ReceiptDetail({
     detail,
     warehouse,
     supplier,
-    locationLabels,
-    references,
     warning,
     error,
     isLoading,
@@ -64,10 +62,10 @@ export function ReceiptDetail({
     onCancelled,
   );
   const canEdit = Boolean(
-    detail && supportsQuantityDraftEdit(detail, references),
+    detail && supportsQuantityDraftEdit(detail),
   );
   const canConfirm = Boolean(
-    detail && supportsQuantityDraftConfirm(detail, references),
+    detail && supportsQuantityDraftConfirm(detail),
   );
   const { confirm, isConfirming, confirmError } = useConfirmReceipt(
     farmId,
@@ -97,8 +95,6 @@ export function ReceiptDetail({
                   detail,
                   warehouseLabel: warehouse,
                   supplierLabel: supplier,
-                  locationLabels,
-                  references,
                 });
               }}
               disabled={isCancelling || isConfirming}
@@ -188,19 +184,19 @@ export function ReceiptDetail({
                 <p role="status" className="rounded-xl border p-3 text-sm">
                   {detail.items.length === 0
                     ? "Phiếu chưa có dòng hàng nên chưa thể xác nhận."
-                    : "Phiếu có dòng hàng thiếu thông tin LOT/ASSET hoặc dữ liệu hàng hóa chưa tải được nên chưa thể xác nhận."}
+                    : "Phiếu có dòng hàng thiếu thông tin lô hoặc tài sản nên chưa thể xác nhận."}
                 </p>
               )}
             {actions.edit && !canEdit && (
               <p role="status" className="rounded-xl border p-3 text-sm">
-                Phiếu nháp có dòng hàng chưa tải được hoặc dữ liệu không hợp lệ
-                nên chưa thể sửa bằng form hiện tại.
+                Phiếu nháp có dòng hàng không hợp lệ nên chưa thể sửa bằng form
+                hiện tại.
               </p>
             )}
             {warning && (
               <p role="status" className="rounded-xl border p-3 text-sm">
-                Không tải được một số thông tin kho/nhà cung cấp/hàng hóa/vị
-                trí. Mã tham chiếu được hiển thị thay thế.{" "}
+                Không tải được thông tin kho hoặc nhà cung cấp. Mã tham chiếu
+                được hiển thị thay thế.{" "}
                 <button type="button" onClick={reload} className="underline">
                   Thử lại
                 </button>
@@ -269,68 +265,59 @@ export function ReceiptDetail({
                   </thead>
                   <tbody className="divide-y">
                     {detail.items.map((line) => {
-                      const reference = references?.[line.itemId];
+                      const lotNumber = line.lotNumber ?? line.lotNumberFromLot;
+                      const manufacturedDate =
+                        line.manufacturedDate ?? line.lotManufacturedDate;
+                      const expiryDate = line.expiryDate ?? line.lotExpiryDate;
+                      const assetCode = line.assetCode ?? line.assetCodeFromAsset;
+                      const serialNumber =
+                        line.serialNumber ?? line.assetSerialNumber;
                       return (
                         <tr key={line.id}>
                           <td className="px-4 py-3">
-                            {reference ? (
+                            {line.itemCode ? (
                               <>
-                                <p className="font-mono">
-                                  {reference.item.code}
-                                </p>
-                                <p>{reference.item.name}</p>
+                                <p className="font-mono">{line.itemCode}</p>
+                                <p>{line.itemName}</p>
                               </>
                             ) : (
                               <span className="break-all">
-                                Không tải được thông tin hàng ({line.itemId})
+                                Không tìm thấy hàng ({line.itemId})
                               </span>
                             )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
-                            {line.quantity}{" "}
-                            {reference?.unitSymbol || reference?.unitName}
+                            {line.quantity} {line.unitSymbol || line.unitName}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {line.unitPrice}
                           </td>
                           <td className="px-4 py-3">
-                            {line.lotNumber && <p>Lô: {line.lotNumber}</p>}
-                            {line.lotId && (
-                              <p className="break-all">ID lô: {line.lotId}</p>
-                            )}
-                            {line.manufacturedDate && (
+                            {lotNumber && (
                               <p>
-                                Ngày sản xuất: {date(line.manufacturedDate)}
+                                Lô: {lotNumber}
+                                {line.lotId && !line.lotNumber && " (lô có sẵn)"}
                               </p>
                             )}
-                            {line.expiryDate && (
-                              <p>Hạn sử dụng: {date(line.expiryDate)}</p>
+                            {manufacturedDate && (
+                              <p>Ngày sản xuất: {date(manufacturedDate)}</p>
                             )}
-                            {line.assetCode && (
-                              <p>Mã tài sản: {line.assetCode}</p>
-                            )}
-                            {line.assetId && (
-                              <p className="break-all">
-                                ID tài sản: {line.assetId}
-                              </p>
-                            )}
-                            {line.serialNumber && (
-                              <p>Serial: {line.serialNumber}</p>
-                            )}
+                            {expiryDate && <p>Hạn sử dụng: {date(expiryDate)}</p>}
+                            {assetCode && <p>Mã tài sản: {assetCode}</p>}
+                            {serialNumber && <p>Serial: {serialNumber}</p>}
                             {line.locationId && (
                               <p>
                                 Vị trí:{" "}
-                                {locationLabels?.[line.locationId] ??
-                                  `Không tải được thông tin vị trí (${line.locationId})`}
+                                {line.locationCode
+                                  ? `${line.locationCode} — ${line.locationName}`
+                                  : `Không tìm thấy vị trí (${line.locationId})`}
                               </p>
                             )}
-                            {!line.lotNumber &&
-                              !line.lotId &&
-                              !line.manufacturedDate &&
-                              !line.expiryDate &&
-                              !line.assetCode &&
-                              !line.assetId &&
-                              !line.serialNumber &&
+                            {!lotNumber &&
+                              !manufacturedDate &&
+                              !expiryDate &&
+                              !assetCode &&
+                              !serialNumber &&
                               !line.locationId &&
                               "—"}
                           </td>

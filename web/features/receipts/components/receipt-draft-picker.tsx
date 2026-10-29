@@ -8,6 +8,7 @@ import { ApiError } from '@/shared/api/client';
 import {
   getReceiptCatalogItems,
   getReceiptLocations,
+  getReceiptLots,
   getReceiptSuppliers,
 } from '../api/receipts.api';
 import { Input } from '@/shared/components/ui/input';
@@ -25,18 +26,23 @@ export type DraftPickerKind =
   | 'material'
   | 'asset'
   | 'supplier'
-  | 'location';
+  | 'location'
+  | 'lot';
+
+const formatDate = (value: string) => value.split('-').reverse().join('/');
 
 export function ReceiptDraftPicker({
   farmId,
   kind,
   warehouseId,
+  itemId,
   onSelect,
   onClose,
 }: {
   farmId: string;
   kind: DraftPickerKind;
   warehouseId?: string;
+  itemId?: string;
   onSelect: (choice: DraftChoice) => void;
   onClose: () => void;
 }) {
@@ -79,6 +85,25 @@ export function ReceiptDraftPicker({
             choices: data.map((row) => ({
               id: row.id,
               label: `${row.code} — ${row.name}`,
+            })),
+          };
+        } else if (kind === 'lot') {
+          const { data, page } = await getReceiptLots(request, farmId, {
+            page: query.page,
+            pageSize: 10,
+            itemId: itemId!,
+          });
+          response = {
+            page,
+            choices: data.map((lot) => ({
+              id: lot.id,
+              label: [
+                lot.lotNumber,
+                lot.manufacturedDate && `NSX ${formatDate(lot.manufacturedDate)}`,
+                lot.expiryDate && `HSD ${formatDate(lot.expiryDate)}`,
+              ]
+                .filter(Boolean)
+                .join(' · '),
             })),
           };
         } else if (kind === 'location' && !warehouseId) {
@@ -128,7 +153,7 @@ export function ReceiptDraftPicker({
     return () => {
       cancelled = true;
     };
-  }, [request, farmId, kind, warehouseId, query]);
+  }, [request, farmId, kind, warehouseId, itemId, query]);
   const current = result?.query === query ? result : null;
   return (
     <section
@@ -139,25 +164,31 @@ export function ReceiptDraftPicker({
             ? 'Chọn nhà cung cấp'
             : kind === 'location'
               ? 'Chọn vị trí'
-              : kind === 'asset'
-                ? 'Chọn thiết bị/tài sản'
-                : 'Chọn vật tư'
+              : kind === 'lot'
+                ? 'Chọn lô có sẵn'
+                : kind === 'asset'
+                  ? 'Chọn thiết bị/tài sản'
+                  : 'Chọn vật tư'
       }
       className="space-y-3 rounded-xl border bg-muted/30 p-4"
     >
       <div className="flex flex-wrap gap-2">
-        <Input
-          aria-label="Từ khóa lựa chọn"
-          value={search}
-          maxLength={100}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Mã hoặc tên..."
-        />
-        <Button variant="outline"
-          onClick={() => setQuery({ search: search.trim(), page: 1 })}
-        >
-          Tìm
-        </Button>
+        {kind !== 'lot' && (
+          <>
+            <Input
+              aria-label="Từ khóa lựa chọn"
+              value={search}
+              maxLength={100}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Mã hoặc tên..."
+            />
+            <Button variant="outline"
+              onClick={() => setQuery({ search: search.trim(), page: 1 })}
+            >
+              Tìm
+            </Button>
+          </>
+        )}
         <Button variant="outline"
           onClick={onClose}
         >
