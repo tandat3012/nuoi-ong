@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
-import type { DatabaseService } from '../../db/database.service';
+import type { DatabaseService } from '../../../db/database.service';
 import { FarmAccessGuard } from './farm-access.guard';
 
 describe('FarmAccessGuard', () => {
@@ -48,7 +48,12 @@ describe('FarmAccessGuard', () => {
   it('allows an active farm member to read farm data', async () => {
     getAllAndOverride.mockReturnValue(undefined);
     mockMembershipRows([
-      { userStatus: 'ACTIVE', memberStatus: 'ACTIVE', roleCode: 'EMPLOYEE' },
+      {
+        userStatus: 'ACTIVE',
+        memberStatus: 'ACTIVE',
+        farmStatus: 'ACTIVE',
+        roleCode: 'EMPLOYEE',
+      },
     ]);
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
@@ -66,14 +71,39 @@ describe('FarmAccessGuard', () => {
   it('rejects inactive users and inactive memberships', async () => {
     getAllAndOverride.mockReturnValue(undefined);
     mockMembershipRows([
-      { userStatus: 'INACTIVE', memberStatus: 'ACTIVE', roleCode: 'ADMIN' },
+      {
+        userStatus: 'INACTIVE',
+        memberStatus: 'ACTIVE',
+        farmStatus: 'ACTIVE',
+        roleCode: 'ADMIN',
+      },
     ]);
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
 
     mockMembershipRows([
-      { userStatus: 'ACTIVE', memberStatus: 'INACTIVE', roleCode: 'ADMIN' },
+      {
+        userStatus: 'ACTIVE',
+        memberStatus: 'INACTIVE',
+        farmStatus: 'ACTIVE',
+        roleCode: 'ADMIN',
+      },
+    ]);
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('rejects members of an inactive farm', async () => {
+    getAllAndOverride.mockReturnValue(undefined);
+    mockMembershipRows([
+      {
+        userStatus: 'ACTIVE',
+        memberStatus: 'ACTIVE',
+        farmStatus: 'INACTIVE',
+        roleCode: 'ADMIN',
+      },
     ]);
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -110,7 +140,12 @@ describe('FarmAccessGuard', () => {
   it('rejects an active member without a required write role', async () => {
     getAllAndOverride.mockReturnValue(['ADMIN', 'FARM_OWNER']);
     mockMembershipRows([
-      { userStatus: 'ACTIVE', memberStatus: 'ACTIVE', roleCode: 'EMPLOYEE' },
+      {
+        userStatus: 'ACTIVE',
+        memberStatus: 'ACTIVE',
+        farmStatus: 'ACTIVE',
+        roleCode: 'EMPLOYEE',
+      },
     ]);
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(

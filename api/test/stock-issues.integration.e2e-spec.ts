@@ -16,7 +16,9 @@ import { InventoryController } from '../src/modules/inventory/inventory.controll
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { AssetsController } from '../src/modules/assets/assets.controller';
 import { AssetsService } from '../src/modules/assets/assets.service';
-import { FarmAccessGuard } from '../src/modules/auth/farm-access.guard';
+import { AssetHistoryService } from '../src/modules/assets/asset-history.service';
+import { AssetLifecycleService } from '../src/modules/assets/asset-lifecycle.service';
+import { FarmAccessGuard } from '../src/modules/auth/farm-access/farm-access.guard';
 import { MaintenanceController } from '../src/modules/maintenance/maintenance.controller';
 import { MaintenanceService } from '../src/modules/maintenance/maintenance.service';
 import { StockIssuesController } from '../src/modules/warehouses/stock-issues.controller';
@@ -206,6 +208,8 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
         StockIssuesService,
         InventoryService,
         AssetsService,
+        AssetHistoryService,
+        AssetLifecycleService,
         MaintenanceService,
         { provide: DatabaseService, useValue: { db } },
         {
@@ -465,13 +469,12 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     });
   });
 
-  it('cancels a mixed maintenance draft without changing balances, lots, assets, records, or lines', async () => {
+  it('cancels a maintenance materials draft without changing balances, lots, assets, records, or lines', async () => {
     const record = await maintenance();
     const draft = await create(
       [
         line('2.500'),
         { itemId: lotItem, lotId: lot, quantity: '0.125', note: 'Lot note' },
-        assetLine(),
       ],
       { issueType: 'MAINTENANCE', maintenanceRecordId: record.id },
     );
@@ -1524,14 +1527,10 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     expect(await balance()).toBe('8.750');
   });
 
-  it('confirms a mixed maintenance issue atomically and preserves the maintenance record', async () => {
+  it('confirms a maintenance materials issue atomically and preserves the asset and maintenance record', async () => {
     const { id: recordId } = await maintenance();
     const draft = await create(
-      [
-        line('2.125'),
-        { itemId: lotItem, lotId: lot, quantity: '0.125' },
-        assetLine(),
-      ],
+      [line('2.125'), { itemId: lotItem, lotId: lot, quantity: '0.125' }],
       { issueType: 'MAINTENANCE', maintenanceRecordId: recordId },
     );
     const response = await confirm(draft.issue.id).expect(201);
@@ -1540,10 +1539,10 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     );
     expect(await balance()).toBe('7.875');
     expect(await balance(lotItem)).toBe('9.875');
-    expect(await balance(assetItem)).toBe('2.000');
+    expect(await balance(assetItem)).toBe('3.000');
     expect(await state(draft.issue.id)).toMatchObject({
       status: 'CONFIRMED',
-      transactions: 3,
+      transactions: 2,
     });
     const ledger = await pool.query<{
       transaction_type: string;
@@ -1557,7 +1556,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       ledger.rows.every((row) => row.transaction_type === 'MAINTENANCE_ISSUE'),
     ).toBe(true);
     expect(ledger.rows.some((row) => row.lot_id === lot)).toBe(true);
-    expect(ledger.rows.some((row) => row.asset_id === assetIds[0])).toBe(true);
+    expect(ledger.rows.every((row) => row.asset_id === null)).toBe(true);
     const record = await pool.query<{ status: string }>(
       'SELECT status FROM maintenance_records WHERE id=$1',
       [recordId],
@@ -1570,7 +1569,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       assetIds[0],
     ]);
     expect(asset.rows[0]).toEqual({
-      status: 'IN_USE',
+      status: 'AVAILABLE',
       current_location_id: location,
     });
   });
@@ -1633,7 +1632,6 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   });
 
   it.each([
-    ['DAMAGE', 'MAINTENANCE'],
     ['DISPOSAL', 'RETIRED'],
     ['OTHER', 'IN_USE'],
   ])('maps ASSET %s issues to %s', async (issueType, status) => {
@@ -1645,6 +1643,31 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     );
     expect(result.rows[0].status).toBe(status);
     expect(await balance(assetItem)).toBe('2.000');
+  });
+
+  it('rejects a legacy mixed DAMAGE draft without moving materials or assets', async () => {
+    const draft = await create([
+      line('2.125'),
+      { itemId: lotItem, lotId: lot, quantity: '0.125' },
+      assetLine(),
+    ]);
+    await pool.query(
+      "UPDATE stock_issues SET issue_type='DAMAGE' WHERE id=$1",
+      [draft.issue.id],
+    );
+    await confirm(draft.issue.id).expect(409);
+    expect(await balance()).toBe('10.000');
+    expect(await balance(lotItem)).toBe('10.000');
+    expect(await balance(assetItem)).toBe('3.000');
+    expect(await state(draft.issue.id)).toMatchObject({
+      status: 'DRAFT',
+      transactions: 0,
+    });
+    const result = await pool.query<{ status: string }>(
+      'SELECT status FROM assets WHERE id=$1',
+      [assetIds[0]],
+    );
+    expect(result.rows[0].status).toBe('AVAILABLE');
   });
 
   it('returns insufficient stock when no balance exists', async () => {
@@ -1768,6 +1791,30 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       });
     },
   );
+
+  it('rejects an asset at an inactive location in the issuing warehouse', async () => {
+    const draft = await create([assetLine()]);
+    await pool.query("UPDATE locations SET status='INACTIVE' WHERE id=$1", [
+      location,
+    ]);
+    try {
+      await confirm(draft.issue.id).expect(409);
+      expect(await balance(assetItem)).toBe('3.000');
+      expect(await state(draft.issue.id)).toMatchObject({
+        status: 'DRAFT',
+        transactions: 0,
+      });
+      const asset = await pool.query<{ status: string }>(
+        'SELECT status FROM assets WHERE id=$1',
+        [assetIds[0]],
+      );
+      expect(asset.rows[0].status).toBe('AVAILABLE');
+    } finally {
+      await pool.query("UPDATE locations SET status='ACTIVE' WHERE id=$1", [
+        location,
+      ]);
+    }
+  });
 
   it.each(['ASSIGNED', 'IN_USE', 'MAINTENANCE', 'LOST', 'RETIRED'])(
     'rejects unavailable ASSET status %s',
