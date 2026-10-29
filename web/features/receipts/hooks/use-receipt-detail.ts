@@ -101,6 +101,7 @@ export function useReceiptDetail(farmId: string, id: string) {
       : null;
   return {
     ...current,
+    revision: attempt,
     isLoading: !current,
     reload: () => setAttempt((previous) => previous + 1),
   };

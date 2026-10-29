@@ -39,7 +39,6 @@ function FarmIssueDetailRoute({
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<IssueDetailData | null>(null);
-  const [attempt, setAttempt] = useState(0);
   if (editing)
     return (
       <IssueDraftForm
@@ -48,20 +47,16 @@ function FarmIssueDetailRoute({
         canWrite={canCreateStockDocuments(viewer.roles)}
         initial={editing}
         onCancel={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null);
-          setAttempt((value) => value + 1);
-        }}
+        onSaved={() => setEditing(null)}
       />
     );
   return (
     <IssueDetail
-      key={`${id}:${attempt}`}
+      key={id}
       farmId={farmId}
       id={id}
       viewer={viewer}
       onEdit={setEditing}
-      onChanged={() => setAttempt((value) => value + 1)}
       onBack={() => router.push("/issues")}
     />
   );

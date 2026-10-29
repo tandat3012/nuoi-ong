@@ -12,6 +12,7 @@ import { RECEIPT_STATUS_LABELS } from "../types/receipt";
 import type { ReceiptDraftInitial } from "../types/receipt";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
+import { HistoryPanel } from "@/features/history";
 import {
   RejectionNotice,
   StockDocumentReview,
@@ -47,6 +48,7 @@ export function ReceiptDetail({
     error,
     isLoading,
     reload,
+    revision,
   } = useReceiptDetail(farmId, id);
   const actions = stockDocumentActions(
     viewer,
@@ -347,6 +349,7 @@ export function ReceiptDetail({
           </>
         )
       )}
+      <HistoryPanel key={`${farmId}:${id}`} farmId={farmId} entityType="STOCK_RECEIPT" entityId={id} revision={revision} />
     </section>
   );
 }

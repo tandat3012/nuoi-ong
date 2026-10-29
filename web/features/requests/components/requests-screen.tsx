@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthContext, useAuthenticatedRequest, useFarmMembership } from "@/features/auth";
 import { useNotificationRefresh } from "@/features/notifications";
+import { HistoryPanel } from "@/features/history";
 import type { PaginatedResponse } from "@/shared/api/contracts";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
@@ -118,6 +119,9 @@ function FarmRequestsScreen({ farmId, roles }: { farmId: string; roles: readonly
               : currentDetail.row && <RequestCard row={currentDetail.row} detail>
                 <RequestReview farmId={farmId} row={currentDetail.row} roles={roles} onChanged={reload} onError={setActionError} />
               </RequestCard>}
+          <div className="p-5">
+            <HistoryPanel key={`${type}:${id}`} farmId={farmId} entityType={type === "maintenance" ? "MAINTENANCE_REQUEST" : "ASSET_TRANSFER_REQUEST"} entityId={id} revision={revision} />
+          </div>
         </section>
       )}
       <section aria-label="Danh sách yêu cầu" className="min-w-0 rounded-xl border bg-card">
