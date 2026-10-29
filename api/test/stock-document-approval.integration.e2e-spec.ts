@@ -435,6 +435,14 @@ describe('Stock document approval rules', () => {
         [own, others, actors.peer.member].sort(),
       );
       expect(ownerView.data[0]).toHaveProperty('actor');
+      // Ids in the page come back as readable codes and names.
+      expect(ownerView.references).toMatchObject({
+        [warehouse]: `SOURCE — ${tag}`,
+        [item]: `${tag} — ${tag}`,
+        [actors.creator.member]: `${clerk('creator')}@example.local`,
+        [actors.peer.member]: `${clerk('peer')}@example.local`,
+      });
+      expect(ownerView.references[own]).toEqual(expect.any(String));
       const creatorView = await auditLogs.list({
         ...page,
         farmId: farm,

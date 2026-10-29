@@ -16,6 +16,7 @@ import {
 import { assetError } from "../asset.logic";
 import {
   HISTORY_KINDS,
+  ASSET_HISTORY_STATUS_LABELS,
   type AssetHistoryEntry,
   type AssetHistoryKind,
 } from "../types/asset";
@@ -23,17 +24,6 @@ import {
   AssetMutationDialog,
   type AssetMutationFeedback,
 } from "./asset-mutation-dialog";
-
-const STATUS_LABELS: Record<string, string> = {
-  ACTIVE: "Đang giữ",
-  RETURNED: "Đã trả",
-  CANCELLED: "Đã hủy",
-  OPEN: "Mới báo",
-  IN_PROGRESS: "Đang xử lý",
-  RESOLVED: "Đã giải quyết",
-  SCHEDULED: "Đã lên lịch",
-  COMPLETED: "Hoàn tất",
-};
 
 export function AssetHistory({
   farmId,
@@ -186,7 +176,7 @@ export function AssetHistory({
                   </div>
                   {record.status && (
                     <p className="text-xs text-muted-foreground">
-                      {STATUS_LABELS[record.status] ?? record.status}
+                      {ASSET_HISTORY_STATUS_LABELS[record.status] ?? record.status}
                     </p>
                   )}
                   <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">

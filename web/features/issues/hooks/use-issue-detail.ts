@@ -47,6 +47,7 @@ export function useIssueDetail(farmId: string, id: string) {
   return {
     detail: current?.detail,
     error: current?.error,
+    revision: attempt,
     isLoading: !current,
     reload: () => setAttempt((previous) => previous + 1),
   };

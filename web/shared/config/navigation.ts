@@ -17,6 +17,7 @@ import {
   ShoppingCart,
   ChartNoAxesCombined,
   Tags,
+  History,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -82,6 +83,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
     title: 'Tổ chức',
     items: [
       { href: '/personnel', label: 'Nhân sự', icon: Users, adminOnly: true, description: 'Tài khoản nhân viên và vai trò.' },
+      { href: '/history', label: 'Lịch sử thay đổi', icon: History, staffOnly: true, description: 'Người thao tác và dữ liệu thay đổi trong trang trại.' },
     ],
   },
 ];

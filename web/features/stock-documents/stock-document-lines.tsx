@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth/hooks/use-authenticated-request";
 import { WarehouseLotSelect } from "@/features/inventory";
+import { HistoryPanel } from "@/features/history";
 import { ApiError } from "@/shared/api/client";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -63,6 +64,7 @@ export function StockDocumentLines({
   id,
   viewer,
   items,
+  revision,
   onChanged,
   onError,
   onClose,
@@ -73,6 +75,7 @@ export function StockDocumentLines({
   viewer: StockDocumentViewer;
   /** Active non-ASSET catalog items offered when adding a line. */
   items: CatalogItem[];
+  revision: number;
   /** Called after every answered save so the screen reloads the list and this panel. */
   onChanged: () => void;
   onError: (message: string | null) => void;
@@ -80,7 +83,7 @@ export function StockDocumentLines({
 }) {
   const request = useAuthenticatedRequest();
   const counts = kind === "stock-counts";
-  const [result, setResult] = useState<{ detail?: Detail; error?: string } | null>(null);
+  const [result, setResult] = useState<{ revision: number; detail?: Detail; error?: string } | null>(null);
   const [draft, setDraft] = useState<{ note: string; lines: Line[] } | null>(null);
   const [added, setAdded] = useState({ itemId: "", lotId: "" });
   const [formError, setFormError] = useState<string | null>(null);
@@ -97,7 +100,11 @@ export function StockDocumentLines({
       .then(({ data }) => {
         if (cancelled) return;
         const header = (counts ? data.count : data.transfer)!;
+        setDraft(null);
+        setAdded({ itemId: "", lotId: "" });
+        setFormError(null);
         setResult({
+          revision,
           detail: {
             header,
             lines: data.items.map((line) => ({
@@ -108,14 +115,15 @@ export function StockDocumentLines({
         });
       })
       .catch((failure: unknown) => {
-        if (!cancelled) setResult({ error: failureMessage(failure) });
+        if (!cancelled) setResult({ revision, error: failureMessage(failure) });
       });
     return () => {
       cancelled = true;
     };
-  }, [request, kind, id, farmId, counts]);
+  }, [request, kind, id, farmId, counts, revision]);
 
-  const detail = result?.detail;
+  const current = result?.revision === revision ? result : null;
+  const detail = current?.detail;
   const canEdit = detail ? stockDocumentActions(viewer, detail.header).edit : false;
   const warehouseId = detail?.header.warehouseId ?? detail?.header.fromWarehouseId ?? "";
   const addedItem = items.find((item) => item.id === added.itemId);
@@ -206,10 +214,10 @@ export function StockDocumentLines({
           </Button>
         </div>
       </div>
-      {!result ? (
+      {!current ? (
         <p role="status">Đang tải dòng hàng...</p>
-      ) : result.error ? (
-        <p role="alert" className="text-sm text-destructive">{result.error}</p>
+      ) : current.error ? (
+        <p role="alert" className="text-sm text-destructive">{current.error}</p>
       ) : (
         <fieldset disabled={isSaving} className="space-y-3">
           {formError && (
@@ -332,6 +340,7 @@ export function StockDocumentLines({
           )}
         </fieldset>
       )}
+      <HistoryPanel key={`${farmId}:${kind}:${id}`} farmId={farmId} entityType={counts ? "STOCK_COUNT" : "STOCK_TRANSFER"} entityId={id} revision={revision} />
     </section>
   );
 }

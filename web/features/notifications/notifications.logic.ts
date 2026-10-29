@@ -11,6 +11,8 @@ export function notificationHref(
     case 'STOCK_COUNT': return `/counts?id=${id}`;
     case 'MAINTENANCE_REQUEST': return `/requests?type=maintenance&id=${id}`;
     case 'ASSET_TRANSFER_REQUEST': return `/requests?type=transfer&id=${id}`;
+    case 'ASSET': return `/assets/${id}`;
+    case 'PERSONNEL': return `/personnel/${id}`;
     default: return null;
   }
 }

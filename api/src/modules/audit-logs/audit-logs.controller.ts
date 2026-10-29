@@ -51,7 +51,10 @@ export class AuditLogsController {
     required: false,
     example: 'CONFIRM',
   })
-  @ApiOkResponse({ description: 'Bản ghi mới nhất trước, kèm người thao tác.' })
+  @ApiOkResponse({
+    description:
+      'Bản ghi mới nhất trước, kèm người thao tác. `references` đổi các id trong trang (đối tượng, kho, mặt hàng, lô, vị trí, nhà cung cấp, tài sản, thành viên, phiếu) thành mã hoặc tên để hiển thị.',
+  })
   list(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId?: string,

@@ -12,6 +12,8 @@ const targets = [
   ['STOCK_COUNT', '/counts?id='],
   ['MAINTENANCE_REQUEST', '/requests?type=maintenance&id='],
   ['ASSET_TRANSFER_REQUEST', '/requests?type=transfer&id='],
+  ['ASSET', '/assets/'],
+  ['PERSONNEL', '/personnel/'],
 ];
 
 for (const [type, prefix] of targets) {

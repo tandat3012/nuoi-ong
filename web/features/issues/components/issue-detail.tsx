@@ -16,6 +16,7 @@ import { IssueMaintenancePicker } from "./issue-maintenance-picker";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
+import { HistoryPanel } from "@/features/history";
 import {
   RejectionNotice,
   StockDocumentReview,
@@ -36,14 +37,14 @@ export function IssueDetail({
   onBack: () => void;
   viewer: StockDocumentViewer;
   onEdit: (detail: IssueDetailData) => void;
-  onChanged: () => void;
+  onChanged?: () => void;
 }) {
-  const { detail, isLoading, error, reload } = useIssueDetail(farmId, id);
+  const { detail, isLoading, error, reload, revision } = useIssueDetail(farmId, id);
   const actionPending = useRef(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const refresh = () => {
     reload();
-    onChanged();
+    onChanged?.();
   };
   const actions = stockDocumentActions(
     viewer,
@@ -363,6 +364,7 @@ export function IssueDetail({
           </>
         )
       )}
+      <HistoryPanel key={`${farmId}:${id}`} farmId={farmId} entityType="STOCK_ISSUE" entityId={id} revision={revision} />
     </section>
   );
 }
