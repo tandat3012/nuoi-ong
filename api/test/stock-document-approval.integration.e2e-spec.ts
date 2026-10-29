@@ -10,6 +10,7 @@ import { StockIssuesService } from '../src/modules/warehouses/stock-issues.servi
 import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.service';
 import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
+import { AuditLogsService } from '../src/modules/audit-logs/audit-logs.service';
 
 // Approval rules for all four stock documents, with real farm authorization:
 // approvers confirm drafts directly, employees submit their own drafts for review.
@@ -24,6 +25,7 @@ describe('Stock document approval rules', () => {
   const issues = new StockIssuesService(database, authorization);
   const transfers = new StockTransfersService(database, authorization);
   const counts = new StockCountsService(database, authorization);
+  const auditLogs = new AuditLogsService(database, authorization);
   const farm = randomUUID();
   const warehouse = randomUUID(),
     target = randomUUID();
@@ -42,6 +44,12 @@ describe('Stock document approval rules', () => {
   const clerk = (actor: Actor) => `${tag}-${actor}`;
   const line = { itemId: item, quantity: '1' };
   let fixturesCreated = false;
+  const entityTypes: Record<string, string> = {
+    receipt: 'STOCK_RECEIPT',
+    issue: 'STOCK_ISSUE',
+    transfer: 'STOCK_TRANSFER',
+    count: 'STOCK_COUNT',
+  };
 
   const cases = [
     {
@@ -213,6 +221,7 @@ describe('Stock document approval rules', () => {
 
   beforeEach(async () => {
     await pool.query('DELETE FROM notifications WHERE farm_id=$1', [farm]);
+    await pool.query('DELETE FROM audit_logs WHERE farm_id=$1', [farm]);
     await pool.query('DELETE FROM inventory_transactions WHERE farm_id=$1', [
       farm,
     ]);
@@ -231,6 +240,7 @@ describe('Stock document approval rules', () => {
     try {
       if (fixturesCreated) {
         await pool.query('DELETE FROM notifications WHERE farm_id=$1', [farm]);
+        await pool.query('DELETE FROM audit_logs WHERE farm_id=$1', [farm]);
         await pool.query(
           'DELETE FROM inventory_transactions WHERE farm_id=$1',
           [farm],
@@ -345,6 +355,119 @@ describe('Stock document approval rules', () => {
       const direct = await document.create('owner');
       await document.confirm(direct, 'owner');
       expect(await notified(direct)).toEqual([]);
+    });
+
+    it('audits every change with its actor, states and lines, inside the same transaction', async () => {
+      const id = await document.create('creator');
+      await document.update(id, 'creator');
+      await expect(document.update(id, 'peer')).rejects.toThrow();
+      await document.submit(id, 'creator');
+      await document.reject(id, 'owner');
+      const { rows } = await pool.query<{
+        action: string;
+        entity_type: string;
+        user_id: string;
+        old_data: Record<string, unknown> | null;
+        new_data: Record<string, unknown>;
+      }>(
+        'SELECT action, entity_type, user_id, old_data, new_data FROM audit_logs WHERE entity_id=$1 ORDER BY created_at, action',
+        [id],
+      );
+      expect(rows.map((row) => [row.action, row.user_id])).toEqual([
+        ['CREATE', actors.creator.id],
+        ['UPDATE', actors.creator.id],
+        ['SUBMIT', actors.creator.id],
+        ['REJECT', actors.owner.id],
+      ]);
+      expect(new Set(rows.map((row) => row.entity_type))).toEqual(
+        new Set([entityTypes[document.type]]),
+      );
+      const [created, updated, submitted, rejected] = rows;
+      expect(created.old_data).toBeNull();
+      expect(created.new_data).toMatchObject({
+        status: 'DRAFT',
+        createdByMemberId: actors.creator.member,
+        items: [expect.objectContaining({ itemId: item })],
+      });
+      expect(updated.new_data).toMatchObject({ note: tag });
+      expect(submitted.old_data).toMatchObject({
+        status: document.type === 'count' ? 'COUNTING' : 'DRAFT',
+      });
+      expect(submitted.new_data).toMatchObject({ status: 'PENDING_APPROVAL' });
+      expect(rejected.new_data).toMatchObject({
+        status: 'REJECTED',
+        rejectionReason: 'Sai số lượng',
+        createdByMemberId: actors.creator.member,
+      });
+    });
+
+    it('audits a direct confirmation once', async () => {
+      const id = await document.create('owner');
+      await document.confirm(id, 'owner');
+      await document.confirm(id, 'owner').catch(() => undefined);
+      const { rows } = await pool.query<{ action: string }>(
+        'SELECT action FROM audit_logs WHERE entity_id=$1 ORDER BY created_at',
+        [id],
+      );
+      expect(rows.map((row) => row.action)).toEqual(['CREATE', 'CONFIRM']);
+    });
+  });
+
+  describe('audit history access', () => {
+    it('shows approvers the whole farm and employees only their own documents', async () => {
+      const own = await cases[0].create('creator');
+      const others = await cases[1].create('peer');
+      await db.insert(schema.auditLogs).values({
+        farmId: farm,
+        userId: actors.owner.id,
+        action: 'UPDATE',
+        entityType: 'PERSONNEL',
+        entityId: actors.peer.member,
+        newData: { note: tag },
+      });
+      const page = { page: 1, pageSize: 50, offset: 0 };
+      const ownerView = await auditLogs.list({
+        ...page,
+        farmId: farm,
+        clerkUserId: clerk('owner'),
+      });
+      expect(ownerView.data.map((row) => row.entityId).sort()).toEqual(
+        [own, others, actors.peer.member].sort(),
+      );
+      expect(ownerView.data[0]).toHaveProperty('actor');
+      const creatorView = await auditLogs.list({
+        ...page,
+        farmId: farm,
+        clerkUserId: clerk('creator'),
+      });
+      expect(creatorView.data.map((row) => row.entityId)).toEqual([own]);
+      expect(creatorView.data[0].actor).toMatchObject({
+        email: `${clerk('creator')}@example.local`,
+      });
+      const filtered = await auditLogs.list({
+        ...page,
+        farmId: farm,
+        clerkUserId: clerk('owner'),
+        entityType: 'STOCK_ISSUE',
+        action: 'CREATE',
+      });
+      expect(filtered.data.map((row) => row.entityId)).toEqual([others]);
+      const [peerLog] = (
+        await auditLogs.list({
+          ...page,
+          farmId: farm,
+          clerkUserId: clerk('peer'),
+        })
+      ).data;
+      await expect(
+        auditLogs.get(peerLog.id, farm, clerk('creator')),
+      ).rejects.toThrow('Audit log not found');
+      await expect(
+        auditLogs.get(peerLog.id, farm, clerk('owner')),
+      ).resolves.toMatchObject({ entityId: others });
+      await expect(
+        auditLogs.list({ ...page, farmId: farm, clerkUserId: clerk('guest') }),
+      ).rejects.toThrow('Audit history permission is required');
     });
   });
 });

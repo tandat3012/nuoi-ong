@@ -293,6 +293,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       try {
         await client.query('BEGIN');
         for (const table of [
+          'audit_logs',
           'inventory_transactions',
           'stock_issues',
           'maintenance_records',

@@ -17,6 +17,7 @@ import { StoreAdminModule } from './modules/store-admin/store-admin.module';
 import { StoreOrdersModule } from './modules/store-orders/store-orders.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     StoreOrdersModule,
     DashboardModule,
     NotificationsModule,
+    AuditLogsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

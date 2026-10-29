@@ -21,6 +21,7 @@ import {
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
+import { auditStockDocument } from './stock-document-audit';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -96,7 +97,7 @@ export class StockTransfersService {
           note: input.note,
           createdByMemberId: member,
         })
-        .returning({ id: stockTransfers.id });
+        .returning();
       await tx.insert(stockTransferItems).values(
         input.items.map((x) => ({
           stockTransferId: row.id,
@@ -106,6 +107,17 @@ export class StockTransfersService {
           quantity: x.quantity,
           note: x.note,
         })),
+      );
+      await auditStockDocument(
+        tx,
+        member,
+        'STOCK_TRANSFER',
+        'CREATE',
+        null,
+        row,
+        {
+          after: input.items,
+        },
       );
       return row.id;
     });
@@ -134,13 +146,11 @@ export class StockTransfersService {
         );
       await this.assertWarehouse(tx, farmId, from);
       await this.assertWarehouse(tx, farmId, to);
-      const currentItems = input.items
-        ? undefined
-        : await tx
-            .select()
-            .from(stockTransferItems)
-            .where(eq(stockTransferItems.stockTransferId, id));
-      const lines = input.items ?? currentItems ?? [];
+      const currentItems = await tx
+        .select()
+        .from(stockTransferItems)
+        .where(eq(stockTransferItems.stockTransferId, id));
+      const lines = input.items ?? currentItems;
       if (input.items) {
         this.validateItems(input.items);
         await tx
@@ -172,6 +182,15 @@ export class StockTransfersService {
         .update(stockTransfers)
         .set(changes)
         .where(eq(stockTransfers.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_TRANSFER',
+        'UPDATE',
+        cur,
+        { ...cur, ...changes },
+        input.items ? { before: currentItems, after: input.items } : {},
+      );
     });
     return this.withItems(id, farmId);
   }
@@ -193,6 +212,17 @@ export class StockTransfersService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockTransfers.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_TRANSFER',
+        'CANCEL',
+        row,
+        {
+          ...row,
+          status: 'CANCELLED',
+        },
+      );
     });
     return this.withItems(id, farmId);
   }
@@ -222,6 +252,17 @@ export class StockTransfersService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockTransfers.id, id));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_TRANSFER',
+        'SUBMIT',
+        row,
+        {
+          ...row,
+          status: 'PENDING_APPROVAL',
+        },
+      );
       await notifyFarmApprovers(
         tx,
         this.notification(row, 'PENDING_APPROVAL'),
@@ -260,6 +301,11 @@ export class StockTransfersService {
           updatedAt: now,
         })
         .where(eq(stockTransfers.id, id));
+      await auditStockDocument(tx, member, 'STOCK_TRANSFER', 'REJECT', row, {
+        ...row,
+        status: 'REJECTED',
+        rejectionReason: reason,
+      });
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,
@@ -384,6 +430,10 @@ export class StockTransfersService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(stockTransfers.id, id));
+      await auditStockDocument(tx, member, 'STOCK_TRANSFER', 'CONFIRM', row, {
+        ...row,
+        status: 'CONFIRMED',
+      });
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,

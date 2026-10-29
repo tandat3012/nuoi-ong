@@ -48,6 +48,7 @@ async function removeConcurrentReceiptFixtures(
   const cleanup = await pool.connect();
   try {
     await cleanup.query('BEGIN');
+    await cleanup.query('DELETE FROM audit_logs WHERE farm_id=$1', [farmId]);
     await cleanup.query('DELETE FROM inventory_transactions WHERE farm_id=$1', [
       farmId,
     ]);
