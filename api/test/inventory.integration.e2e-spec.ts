@@ -283,10 +283,9 @@ describe('Current inventory HTTP and PostgreSQL contract', () => {
       };
     };
     expect(data.balanceId).toBe(balanceQuantity);
-    const destination = new URL(data.qrUrl);
-    expect(destination.pathname).toBe('/inventory');
-    expect(destination.searchParams.get('warehouseId')).toBe(warehouseA);
-    expect(destination.searchParams.get('itemId')).toBe(quantityItem);
+    expect(new URL(data.qrUrl).pathname).toBe(
+      `/scan/inventory/${balanceQuantity}`,
+    );
     expect(data.format).toBe('svg');
     expect(data.imageDataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
     expect(

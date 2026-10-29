@@ -225,6 +225,30 @@ export class CatalogController {
     });
   }
 
+  @Get('items/:id/qr')
+  @UseGuards(FarmAccessGuard)
+  @ApiOperation({ summary: 'Mã QR in nhãn cho mặt hàng' })
+  @ApiUuidParam('id', 'ID mặt hàng.')
+  @ApiFarmIdQuery()
+  @ApiOkResponse({
+    description:
+      'QR SVG chứa URL `{WEB_APP_URL}/scan/item/{itemId}` kèm mã và tên mặt hàng.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Không tìm thấy mặt hàng trong trang trại.',
+  })
+  async getItemQr(
+    @Param('id') idValue: string,
+    @Query('farmId') farmIdValue?: string,
+  ) {
+    return {
+      data: await this.catalogService.getItemQr(
+        requireUuid(idValue, 'id'),
+        requireUuid(farmIdValue, 'farmId'),
+      ),
+    };
+  }
+
   @Get('items/:id')
   @UseGuards(FarmAccessGuard)
   @ApiOperation({ summary: 'Chi tiết mặt hàng' })

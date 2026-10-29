@@ -348,7 +348,8 @@ export class AssetsController {
   @ApiUuidParam('id', 'ID tài sản.')
   @ApiFarmIdQuery()
   @ApiOkResponse({
-    description: 'Mã tài sản và QR SVG, payload là mã tài sản.',
+    description:
+      'Mã tài sản và QR SVG; QR chứa URL `{WEB_APP_URL}/scan/{assetCode}`.',
   })
   async getLabel(
     @Param('id') idValue: string,
