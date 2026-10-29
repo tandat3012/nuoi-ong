@@ -161,7 +161,9 @@ describe('PostgreSQL schema, constraints, functions and triggers', () => {
            'validate_material_profile_scope',
            'protect_item_material_profile',
            'set_material_profile_updated_at',
-           'validate_stock_issue_maintenance'
+           'validate_stock_issue_maintenance',
+           'validate_store_variant_quantity_step',
+           'protect_store_variant_tracking_mode'
          )
        ORDER BY p.proname`,
     );
@@ -175,6 +177,7 @@ describe('PostgreSQL schema, constraints, functions and triggers', () => {
 
     expect(functions.rows.map((row) => row.proname)).toEqual([
       'protect_item_material_profile',
+      'protect_store_variant_tracking_mode',
       'set_material_profile_updated_at',
       'validate_asset_assignment_scope',
       'validate_asset_incident_scope',
@@ -182,16 +185,19 @@ describe('PostgreSQL schema, constraints, functions and triggers', () => {
       'validate_maintenance_scope',
       'validate_material_profile_scope',
       'validate_stock_issue_maintenance',
+      'validate_store_variant_quantity_step',
     ]);
     expect(triggers.rows.map((row) => row.trigger_name)).toEqual([
       'trg_material_profiles_updated_at',
       'trg_protect_item_material_profile',
+      'trg_protect_store_variant_tracking_mode',
       'trg_validate_asset_assignment_scope',
       'trg_validate_asset_incident_scope',
       'trg_validate_asset_scope',
       'trg_validate_maintenance_scope',
       'trg_validate_material_profile_scope',
       'trg_validate_stock_issue_maintenance',
+      'trg_validate_store_variant_quantity_step',
     ]);
   });
 

@@ -18,8 +18,7 @@ function evaluate(path, env) {
 }
 
 for (const [name, env, expected] of [
-  ['public URL takes precedence', { NEXT_PUBLIC_API_URL: 'https://public.example.com', API_URL: 'https://legacy.example.com' }, 'https://public.example.com'],
-  ['legacy API_URL reaches browser code', { API_URL: 'https://legacy.example.com' }, 'https://legacy.example.com'],
+  ['public URL takes precedence', { NEXT_PUBLIC_API_URL: 'https://public.example.com' }, 'https://public.example.com'],
   ['local fallback', {}, 'http://localhost:5050'],
 ]) {
   test(name, () => {

@@ -14,7 +14,7 @@ import { DatabaseService } from '../src/db/database.service';
 import * as schema from '../src/db/schema';
 import { CatalogController } from '../src/modules/catalog/catalog.controller';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
-import { FarmAccessGuard } from '../src/modules/auth/farm-access.guard';
+import { FarmAccessGuard } from '../src/modules/auth/farm-access/farm-access.guard';
 import { StockCountsController } from '../src/modules/warehouses/stock-counts.controller';
 import { StockCountsService } from '../src/modules/warehouses/stock-counts.service';
 import { StockTransfersController } from '../src/modules/warehouses/stock-transfers.controller';
