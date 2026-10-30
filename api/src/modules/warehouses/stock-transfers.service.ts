@@ -35,7 +35,12 @@ import {
 } from './dto/stock-transfer.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import { allocateDocumentCode, ignoreLegacyCode } from './stock-document-code';
+import {
+  confirmationCode,
+  ignoreLegacyCode,
+  numberingOptionChanges,
+  rethrowCodeConflict,
+} from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -94,8 +99,12 @@ export class StockTransfersService {
     return this.withItems(id, farmId);
   }
   async create(farmId: string, user: string, input: CreateStockTransferDto) {
-    const { memberId: member } =
-      await this.warehousesService.assertDocumentWriter(farmId, user);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
+    const member = writer.memberId;
+    const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
     if (input.fromWarehouseId === input.toWarehouseId)
       throw new BadRequestException(
@@ -109,6 +118,7 @@ export class StockTransfersService {
       const [row] = await tx
         .insert(stockTransfers)
         .values({
+          ...numbering,
           farmId,
           fromWarehouseId: input.fromWarehouseId,
           toWarehouseId: input.toWarehouseId,
@@ -152,6 +162,7 @@ export class StockTransfersService {
       farmId,
       user,
     );
+    const numbering = numberingOptionChanges(input, writer);
     await this.databaseService.db.transaction(async (tx) => {
       const cur = await this.only(id, farmId, tx, true);
       assertOwnDocument(writer, cur.createdByMemberId);
@@ -196,6 +207,7 @@ export class StockTransfersService {
       ] as const)
         if (input[k] !== undefined) changes[k] = input[k] as never;
       changes.updatedAt = new Date().toISOString();
+      Object.assign(changes, numbering);
       ignoreLegacyCode('transferCode', input.transferCode);
       await tx
         .update(stockTransfers)
@@ -340,7 +352,7 @@ export class StockTransfersService {
       user,
       true,
     );
-    await this.databaseService.db.transaction(async (tx) => {
+    const confirmation = this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(row.status))
@@ -416,21 +428,30 @@ export class StockTransfersService {
         ]);
       }
       const confirmedAt = new Date();
-      // Legacy drafts keep their code; uncoded drafts take the next number.
-      const transferCode =
-        row.transferCode ??
-        (await allocateDocumentCode(tx, farmId, 'CK', confirmedAt));
+      const { code: transferCode, codeSource } = await confirmationCode(
+        tx,
+        farmId,
+        'CK',
+        { code: row.transferCode, requestedCode: row.requestedCode },
+        confirmedAt,
+      );
       await tx
         .update(stockTransfers)
         .set({
           status: 'CONFIRMED',
           transferCode,
+          codeSource,
           confirmedByMemberId: member,
           confirmedAt: confirmedAt.toISOString(),
           updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockTransfers.id, id));
-      const confirmed = { ...row, transferCode, status: 'CONFIRMED' as const };
+      const confirmed = {
+        ...row,
+        transferCode,
+        codeSource: codeSource ?? row.codeSource,
+        status: 'CONFIRMED' as const,
+      };
       await auditStockDocument(
         tx,
         member,
@@ -446,6 +467,7 @@ export class StockTransfersService {
           row.createdByMemberId,
         );
     });
+    await confirmation.catch(rethrowCodeConflict);
     return this.withItems(id, farmId);
   }
   // Locks every source and destination balance in id order, so transfers in

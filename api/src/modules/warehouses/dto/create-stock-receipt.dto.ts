@@ -12,6 +12,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 
 const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 
@@ -95,7 +96,7 @@ export class CreateStockReceiptItemDto {
   locationId?: string;
 }
 
-export class CreateStockReceiptDto {
+export class CreateStockReceiptDto extends DocumentNumberingOptionsDto {
   @IsUUID()
   warehouseId!: string;
 

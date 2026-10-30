@@ -24,7 +24,12 @@ import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import { allocateDocumentCode, ignoreLegacyCode } from './stock-document-code';
+import {
+  confirmationCode,
+  ignoreLegacyCode,
+  numberingOptionChanges,
+  rethrowCodeConflict,
+} from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -110,10 +115,12 @@ export class StockReceiptsService {
     clerkUserId: string,
     input: CreateStockReceiptDto,
   ) {
-    const { memberId } = await this.warehousesService.assertDocumentWriter(
+    const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
     );
+    const { memberId } = writer;
+    const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
     const transaction = this.databaseService.db.transaction(async (tx) => {
       await this.assertActiveWarehouse(tx, input.warehouseId, farmId);
@@ -122,6 +129,7 @@ export class StockReceiptsService {
       const [receipt] = await tx
         .insert(stockReceipts)
         .values({
+          ...numbering,
           farmId,
           warehouseId: input.warehouseId,
           supplierId: input.supplierId,
@@ -180,6 +188,7 @@ export class StockReceiptsService {
       farmId,
       clerkUserId,
     );
+    const numbering = numberingOptionChanges(input, writer);
     if (input.items) this.validateItems(input.items);
     const transaction = this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
@@ -209,6 +218,7 @@ export class StockReceiptsService {
         items: input.items ?? current.items,
       } as CreateStockReceiptDto);
       changes.updatedAt = new Date().toISOString();
+      Object.assign(changes, numbering);
       if (Object.keys(changes).length > 0) {
         ignoreLegacyCode('receiptCode', input.receiptCode);
         await tx
@@ -395,7 +405,7 @@ export class StockReceiptsService {
       clerkUserId,
       true,
     );
-    await this.databaseService.db.transaction(async (tx) => {
+    const confirmation = this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       if (receipt.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(receipt.status))
@@ -591,15 +601,19 @@ export class StockReceiptsService {
         });
       }
       const confirmedAt = new Date();
-      // Legacy drafts keep their code; uncoded drafts take the next number.
-      const receiptCode =
-        receipt.receiptCode ??
-        (await allocateDocumentCode(tx, farmId, 'PN', confirmedAt));
+      const { code: receiptCode, codeSource } = await confirmationCode(
+        tx,
+        farmId,
+        'PN',
+        { code: receipt.receiptCode, requestedCode: receipt.requestedCode },
+        confirmedAt,
+      );
       await tx
         .update(stockReceipts)
         .set({
           status: 'CONFIRMED',
           receiptCode,
+          codeSource,
           confirmedByMemberId: memberId,
           confirmedAt: confirmedAt.toISOString(),
           updatedAt: confirmedAt.toISOString(),
@@ -608,6 +622,7 @@ export class StockReceiptsService {
       const confirmed = {
         ...receipt,
         receiptCode,
+        codeSource: codeSource ?? receipt.codeSource,
         status: 'CONFIRMED' as const,
       };
       await auditStockDocument(
@@ -625,6 +640,7 @@ export class StockReceiptsService {
           receipt.createdByMemberId,
         );
     });
+    await confirmation.catch(rethrowCodeConflict);
     return this.getReceiptWithItems(id, farmId);
   }
 

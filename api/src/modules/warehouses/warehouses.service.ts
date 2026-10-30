@@ -35,6 +35,8 @@ export interface WarehouseListFilters extends PaginationParams {
 export interface DocumentWriter {
   memberId: string;
   canApprove: boolean;
+  /** Only an active FARM_OWNER may set document numbering options. */
+  isOwner: boolean;
 }
 
 /** Employees may only change or submit stock documents they created. */
@@ -197,7 +199,7 @@ export class WarehousesService {
     if (!canApprove && !roleCodes.includes('EMPLOYEE')) {
       throw new ForbiddenException('Stock document permission is required');
     }
-    return { memberId, canApprove };
+    return { memberId, canApprove, isOwner: roleCodes.includes('FARM_OWNER') };
   }
 
   /** Active member id plus every role code it holds; throws 403 when not an active member. */

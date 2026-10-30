@@ -11,8 +11,9 @@ import {
 } from 'class-validator';
 import { CreateStockIssueItemDto } from './create-stock-issue.dto';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 
-export class UpdateStockIssueDto {
+export class UpdateStockIssueDto extends DocumentNumberingOptionsDto {
   @IsOptional() @IsUUID() warehouseId?: string;
   // Legacy field: ignored, the code is assigned on confirmation.
   @ApiPropertyOptional({

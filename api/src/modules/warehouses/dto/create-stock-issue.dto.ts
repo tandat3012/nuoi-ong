@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 
 const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 const ISSUE_TYPES = [
@@ -54,7 +55,7 @@ export class CreateStockIssueItemDto {
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
 }
 
-export class CreateStockIssueDto {
+export class CreateStockIssueDto extends DocumentNumberingOptionsDto {
   @IsUUID() warehouseId!: string;
   // Legacy field: ignored, the code is assigned on confirmation.
   @ApiPropertyOptional({

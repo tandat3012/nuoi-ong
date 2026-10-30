@@ -10,6 +10,7 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 export class StockTransferItemDto {
   @IsUUID() itemId!: string;
@@ -39,7 +40,7 @@ export class StockTransferItemDto {
   assetId?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
 }
-export class CreateStockTransferDto {
+export class CreateStockTransferDto extends DocumentNumberingOptionsDto {
   @IsUUID() fromWarehouseId!: string;
   @IsUUID() toWarehouseId!: string;
   // Legacy field: ignored, the code is assigned on confirmation.
@@ -59,7 +60,7 @@ export class CreateStockTransferDto {
   @Type(() => StockTransferItemDto)
   items!: StockTransferItemDto[];
 }
-export class UpdateStockTransferDto {
+export class UpdateStockTransferDto extends DocumentNumberingOptionsDto {
   @IsOptional() @IsUUID() fromWarehouseId?: string;
   @IsOptional() @IsUUID() toWarehouseId?: string;
   // Legacy field: ignored, the code is assigned on confirmation.
