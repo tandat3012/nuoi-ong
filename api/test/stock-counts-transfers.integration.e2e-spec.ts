@@ -230,6 +230,63 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     expect(await ledger()).toEqual(['-3.125', '3.125']);
   });
 
+  const createTransfer = async (from: string, to: string, quantity: string) => {
+    const response = await http()
+      .post('/api/v1/stock-transfers')
+      .query({ farmId: farm })
+      .send({
+        fromWarehouseId: from,
+        toWarehouseId: to,
+        transferCode: randomUUID(),
+        items: [{ itemId: item, quantity }],
+      })
+      .expect(201);
+    return (response.body as { data: { transfer: { id: string } } }).data
+      .transfer.id;
+  };
+
+  it('confirms concurrent first-time transfers into a missing destination balance', async () => {
+    const ids = await Promise.all(
+      [1, 2, 3, 4].map(() => createTransfer(source, destination, '1')),
+    );
+    const statuses = await Promise.all(
+      ids.map(async (id) => (await confirm('transfers', id)).status),
+    );
+    expect(statuses).toEqual([201, 201, 201, 201]);
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '6.000' },
+        { warehouse_id: destination, quantity_on_hand: '4.000' },
+      ]),
+    );
+  });
+
+  it('confirms concurrent opposite-direction transfers without deadlock', async () => {
+    await db.insert(schema.inventoryBalances).values({
+      farmId: farm,
+      warehouseId: destination,
+      itemId: item,
+      quantityOnHand: '10',
+    });
+    const ids = await Promise.all(
+      [0, 1, 2, 3, 4, 5, 6, 7].map((n) =>
+        n % 2
+          ? createTransfer(destination, source, '1')
+          : createTransfer(source, destination, '1'),
+      ),
+    );
+    const statuses = await Promise.all(
+      ids.map(async (id) => (await confirm('transfers', id)).status),
+    );
+    expect(statuses).toEqual(Array(8).fill(201));
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '10.000' },
+        { warehouse_id: destination, quantity_on_hand: '10.000' },
+      ]),
+    );
+  });
+
   it.each(['0', '0.000'])(
     'rejects a zero transfer quantity %s before creating a document',
     async (quantity) => {
