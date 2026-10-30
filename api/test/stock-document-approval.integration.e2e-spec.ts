@@ -600,6 +600,13 @@ describe('Stock document approval rules', () => {
       await expect(
         document.edit(id, 'owner', { requestedCode: 'REQ-2' }),
       ).rejects.toThrow('reason is required');
+      // 50 characters that uppercase to 100 (ß -> SS).
+      await expect(
+        document.edit(id, 'owner', {
+          requestedCode: 'ß'.repeat(50),
+          requestedCodeReason: reason,
+        }),
+      ).rejects.toThrow('at most 50 characters');
       await expect(
         document.edit(id, 'owner', { requestedCodeReason: reason }),
       ).rejects.toThrow('together');

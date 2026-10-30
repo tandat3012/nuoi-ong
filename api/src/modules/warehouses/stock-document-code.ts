@@ -193,13 +193,19 @@ export function numberingOptionChanges(
       requestedByMemberId: null,
     });
   } else if (requestedCode !== undefined) {
+    const code = normalizeRequestedCode(requestedCode);
+    // Uppercasing can lengthen a code (ß -> SS); the column holds 50 characters.
+    if (code.length > 50)
+      throw new BadRequestException(
+        'requestedCode must be at most 50 characters after uppercasing',
+      );
     const reason = requestedCodeReason?.trim();
     if (!reason)
       throw new BadRequestException(
         'A reason is required for a requested document code',
       );
     Object.assign(changes, {
-      requestedCode: normalizeRequestedCode(requestedCode),
+      requestedCode: code,
       requestedCodeReason: reason,
       requestedByMemberId: writer.memberId,
     });
