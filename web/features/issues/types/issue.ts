@@ -25,7 +25,7 @@ export interface Issue {
   warehouseId: string;
   warehouseCode: string | null;
   warehouseName: string | null;
-  issueCode: string;
+  issueCode: string | null;
   issueDate: string;
   issueType: IssueType;
   maintenanceRecordId: string | null;
@@ -74,7 +74,6 @@ export interface IssueFilters {
 
 export interface CreateIssueInput {
   warehouseId: string;
-  issueCode: string;
   issueDate?: string;
   issueType: IssueType;
   maintenanceRecordId?: string | null;

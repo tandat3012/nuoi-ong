@@ -23,6 +23,10 @@ import { Button } from "@/shared/components/ui/button";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { Select } from "@/shared/components/ui/select";
 import { Input } from "@/shared/components/ui/input";
+import {
+  DOCUMENT_CODE_HINT,
+  documentCodeLabel,
+} from "@/features/stock-documents";
 
 type DraftLine = IssueChoice & {
   rowKey: string;
@@ -57,7 +61,6 @@ export function IssueDraftForm({
         }
       : null,
   );
-  const [code, setCode] = useState(initial?.issue.issueCode ?? "");
   const [date, setDate] = useState(initial?.issue.issueDate ?? "");
   const [issueType, setIssueType] = useState<CreateIssueInput["issueType"]>(
     initial?.issue.issueType ?? "CONSUMPTION",
@@ -193,7 +196,6 @@ export function IssueDraftForm({
         if (picker) return;
         const input: CreateIssueInput = {
             warehouseId: warehouse?.id ?? "",
-            issueCode: code.trim(),
             issueDate: date || undefined,
             issueType,
             maintenanceRecordId:
@@ -229,7 +231,7 @@ export function IssueDraftForm({
       <PageHeader
         title={
           initial
-            ? `Sửa phiếu xuất ${initial.issue.issueCode}`
+            ? `Sửa phiếu xuất ${documentCodeLabel(initial.issue.issueCode, initial.issue.id)}`
             : "Tạo phiếu xuất nháp"
         }
         description={isLinkedSale ? "Phiếu bán hàng liên kết đơn; chỉ phân bổ lại lô/tài sản và giữ nguyên tổng từng vật tư." : "Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho."}
@@ -238,21 +240,12 @@ export function IssueDraftForm({
         <legend className="sr-only">Thông tin phiếu xuất</legend>
         <div className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2">
           <div>
-            <label
-              htmlFor="issue-code"
-              className="mb-1 block text-sm font-medium"
-            >
-              Mã phiếu *
-            </label>
-            <Input
-              id="issue-code"
-              value={code}
-              readOnly={isLinkedSale}
-              onChange={(event) => setCode(event.target.value)}
-              maxLength={50}
-              required
-              className="w-full"
-            />
+            <p className="mb-1 block text-sm font-medium">Mã phiếu</p>
+            <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+              {initial
+                ? documentCodeLabel(initial.issue.issueCode, initial.issue.id)
+                : DOCUMENT_CODE_HINT}
+            </p>
           </div>
           <div>
             <label

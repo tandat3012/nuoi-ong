@@ -1,5 +1,6 @@
 import { RECEIPT_STATUS_LABELS, type Receipt } from '../types/receipt';
 import { Button } from '@/shared/components/ui/button';
+import { documentCodeLabel } from '@/features/stock-documents';
 
 export function ReceiptTable({
   receipts,
@@ -34,7 +35,7 @@ export function ReceiptTable({
         <tbody className="divide-y">
           {receipts.map((receipt) => (
             <tr key={receipt.id}>
-              <td className="px-4 py-3 font-mono">{receipt.receiptCode}</td>
+              <td className="px-4 py-3 font-mono">{documentCodeLabel(receipt.receiptCode, receipt.id)}</td>
               <td className="whitespace-nowrap px-4 py-3">
                 {receipt.receiptDate.split('-').reverse().join('/')}
               </td>
@@ -57,7 +58,7 @@ export function ReceiptTable({
               <td className="px-4 py-3">
                 <Button variant="outline"
                   onClick={() => onOpen(receipt.id)}
-                  aria-label={`Chi tiết phiếu ${receipt.receiptCode}`}
+                  aria-label={`Chi tiết phiếu ${documentCodeLabel(receipt.receiptCode, receipt.id)}`}
                 >
                   Chi tiết
                 </Button>

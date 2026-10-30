@@ -13,6 +13,10 @@ import { PageHeader } from '@/shared/components/ui/page-header';
 import { Button } from '@/shared/components/ui/button';
 import { Textarea } from '@/shared/components/ui/textarea';
 import { Input } from '@/shared/components/ui/input';
+import {
+  DOCUMENT_CODE_HINT,
+  documentCodeLabel,
+} from '@/features/stock-documents';
 
 type DraftLine = DraftChoice & {
   rowKey: string;
@@ -64,7 +68,6 @@ export function ReceiptDraftForm({
         }
       : null,
   );
-  const [code, setCode] = useState(initial?.detail.receipt.receiptCode ?? '');
   const [date, setDate] = useState(initial?.detail.receipt.receiptDate ?? '');
   const [note, setNote] = useState(initial?.detail.receipt.note ?? '');
   const [lines, setLines] = useState<DraftLine[]>(() =>
@@ -182,7 +185,6 @@ export function ReceiptDraftForm({
         void submit({
           warehouseId: warehouse?.id ?? '',
           supplierId: supplier?.id ?? null,
-          receiptCode: code.trim(),
           receiptDate: date || undefined,
           note: note.trim() || null,
           items: lines.map((line) => ({
@@ -227,16 +229,17 @@ export function ReceiptDraftForm({
       )}
       <fieldset disabled={isSaving} className="space-y-4 disabled:opacity-60">
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="space-y-1">
-            Mã phiếu *
-            <Input
-              required
-              maxLength={50}
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              className="w-full"
-            />
-          </label>
+          <div className="space-y-1">
+            Mã phiếu
+            <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+              {initial
+                ? documentCodeLabel(
+                    initial.detail.receipt.receiptCode,
+                    initial.detail.receipt.id,
+                  )
+                : DOCUMENT_CODE_HINT}
+            </p>
+          </div>
           <label className="space-y-1">
             Ngày nhập
             <Input

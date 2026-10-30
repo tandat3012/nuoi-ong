@@ -4,6 +4,7 @@ import {
   type Issue,
 } from "../types/issue";
 import { Button } from '@/shared/components/ui/button';
+import { documentCodeLabel } from "@/features/stock-documents";
 
 export function IssueTable({
   issues,
@@ -35,7 +36,7 @@ export function IssueTable({
         <tbody className="divide-y">
           {issues.map((issue) => (
             <tr key={issue.id}>
-              <td className="px-4 py-3 font-mono">{issue.issueCode}</td>
+              <td className="px-4 py-3 font-mono">{documentCodeLabel(issue.issueCode, issue.id)}</td>
               <td className="whitespace-nowrap px-4 py-3">
                 {issue.issueDate.split("-").reverse().join("/")}
               </td>
@@ -53,7 +54,7 @@ export function IssueTable({
               <td className="px-4 py-3">
                 <Button variant="outline"
                   onClick={() => onOpen(issue.id)}
-                  aria-label={`Chi tiết phiếu ${issue.issueCode}`}
+                  aria-label={`Chi tiết phiếu ${documentCodeLabel(issue.issueCode, issue.id)}`}
                 >
                   Chi tiết
                 </Button>

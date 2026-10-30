@@ -13,7 +13,7 @@ export interface Receipt {
   farmId: string;
   warehouseId: string;
   supplierId: string | null;
-  receiptCode: string;
+  receiptCode: string | null;
   receiptDate: string;
   status: ReceiptStatus;
   note: string | null;
@@ -40,7 +40,6 @@ export interface ReceiptFilters {
 export interface CreateReceiptInput {
   warehouseId: string;
   supplierId?: string | null;
-  receiptCode: string;
   receiptDate?: string;
   note?: string | null;
   items: {
