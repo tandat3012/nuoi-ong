@@ -1,5 +1,7 @@
 # Cloudinary
 
+Đang dùng bởi: `modules/store-admin` (ảnh sản phẩm cửa hàng).
+
 Import `CloudinaryModule` into the feature module that needs file storage, then
 inject `CloudinaryService`.
 
