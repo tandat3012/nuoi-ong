@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { ASSET_HISTORY_STATUS_LABELS, ASSET_STATUS_LABELS } from "@/features/assets/types/asset";
+import { formatInventoryQuantity } from "@/features/inventory/inventory.logic";
 import { ISSUE_TYPE_LABELS } from "@/features/issues/types/issue";
 import { ROLE_LABELS } from "@/features/personnel/types";
 import { notificationHref } from "@/features/notifications/notifications.logic";
@@ -36,7 +37,12 @@ export function HistoryEntry({ log, references, showEntity }: {
   };
   const changes = historyChanges(log, {
     references,
-    label: (key, value) => (valueLabels[key] ? label(valueLabels[key], value) : value),
+    label: (key, value) =>
+      valueLabels[key]
+        ? label(valueLabels[key], value)
+        : /quantity|difference/i.test(key) && /^-?\d+(\.\d+)?$/.test(value)
+          ? formatInventoryQuantity(value)
+          : value,
   });
   const entityName = references[log.entityId] ?? "Không xác định";
   const initial = !log.oldData || log.action === "CREATE" || log.action === "ASSET_CREATED";

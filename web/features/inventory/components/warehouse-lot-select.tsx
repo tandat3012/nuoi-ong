@@ -6,6 +6,7 @@ import { useAuthenticatedRequest } from '@/features/auth';
 import { Select } from '@/shared/components/ui/select';
 import { getInventoryBalances } from '../api/inventory.api';
 import type { InventoryBalance } from '../types/inventory';
+import { formatInventoryQuantity } from '../inventory.logic';
 
 /** Lots of one item that have a balance row in the chosen warehouse, expired lots included. */
 export function WarehouseLotSelect({
@@ -57,7 +58,7 @@ export function WarehouseLotSelect({
       <option value="">{placeholder}</option>
       {lots.map(({ lot, quantityOnHand }) => (
         <option key={lot.id} value={lot.id}>
-          {lot.lotNumber} · HSD {lot.expiryDate ?? 'không có'} · Tồn {quantityOnHand}
+          {lot.lotNumber} · HSD {lot.expiryDate ?? 'không có'} · Tồn {formatInventoryQuantity(quantityOnHand)}
         </option>
       ))}
     </Select>

@@ -11,12 +11,13 @@ import {
   getReceiptLots,
   getReceiptSuppliers,
 } from '../api/receipts.api';
-import { Input } from '@/shared/components/ui/input';
-import { Button } from '@/shared/components/ui/button';
+import { Combobox } from '@/shared/components/ui/combobox';
 
 export type DraftChoice = {
   id: string;
   label: string;
+  /** Secondary text shown at the right of the dropdown row. */
+  hint?: string;
   trackingMode?: 'QUANTITY' | 'LOT' | 'ASSET';
 };
 
@@ -29,40 +30,59 @@ export type DraftPickerKind =
   | 'location'
   | 'lot';
 
+const PAGE_SIZE = 20;
+const SEARCH_DELAY_MS = 250;
+
 const formatDate = (value: string) => value.split('-').reverse().join('/');
 
+/** Searchable dropdown backed by the paged API; typing searches by code or name. */
 export function ReceiptDraftPicker({
   farmId,
   kind,
   warehouseId,
   itemId,
+  value,
+  placeholder,
+  disabled,
+  autoFocus,
   onSelect,
-  onClose,
 }: {
   farmId: string;
   kind: DraftPickerKind;
   warehouseId?: string;
   itemId?: string;
+  /** Current choice; leave empty for "add a line" pickers that reset after each pick. */
+  value?: DraftChoice | null;
+  placeholder?: string;
+  disabled?: boolean;
+  autoFocus?: boolean;
   onSelect: (choice: DraftChoice) => void;
-  onClose: () => void;
 }) {
   const request = useAuthenticatedRequest();
-  const [search, setSearch] = useState('');
+  // A new object per keystroke/open, so reopening refetches (e.g. after an error).
   const [query, setQuery] = useState({ search: '', page: 1 });
+  const [active, setActive] = useState(false);
   const [result, setResult] = useState<{
     query: typeof query;
     choices?: DraftChoice[];
     page?: PageInfo;
     error?: string;
   } | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
+  useEffect(() => {
+    if (!active) return;
+    const query = debouncedQuery;
     let cancelled = false;
     async function load() {
       try {
         const params = {
           farmId,
           ...query,
-          pageSize: 10,
+          pageSize: PAGE_SIZE,
           status: 'ACTIVE' as const,
         };
         let response: { page: PageInfo; choices: DraftChoice[] };
@@ -89,8 +109,8 @@ export function ReceiptDraftPicker({
           };
         } else if (kind === 'lot') {
           const { data, page } = await getReceiptLots(request, farmId, {
-            page: query.page,
-            pageSize: 10,
+            page: 1,
+            pageSize: PAGE_SIZE,
             itemId: itemId!,
           });
           response = {
@@ -132,7 +152,8 @@ export function ReceiptDraftPicker({
             page,
             choices: data.map(({ item, unitSymbol, unitName }) => ({
               id: item.id,
-              label: `${item.code} — ${item.name} (${unitSymbol || unitName || '—'}) · ${item.trackingMode === 'LOT' ? 'Theo lô' : item.trackingMode === 'ASSET' ? 'Tài sản' : 'Theo số lượng'}`,
+              label: `${item.code} — ${item.name} (${unitSymbol || unitName || "—"})`,
+              hint: item.trackingMode === 'LOT' ? 'Theo lô' : item.trackingMode === 'ASSET' ? 'Tài sản' : 'Theo số lượng',
               trackingMode: item.trackingMode,
             })),
           };
@@ -153,10 +174,11 @@ export function ReceiptDraftPicker({
     return () => {
       cancelled = true;
     };
-  }, [request, farmId, kind, warehouseId, itemId, query]);
+  }, [request, farmId, kind, warehouseId, itemId, debouncedQuery, active]);
   const current = result?.query === query ? result : null;
+  const choices = current?.choices ?? [];
   return (
-    <section
+    <Combobox
       aria-label={
         kind === 'warehouse' || kind === 'warehouse-filter'
           ? 'Chọn kho'
@@ -170,83 +192,27 @@ export function ReceiptDraftPicker({
                   ? 'Chọn thiết bị/tài sản'
                   : 'Chọn vật tư'
       }
-      className="space-y-3 rounded-xl border bg-muted/30 p-4"
-    >
-      <div className="flex flex-wrap gap-2">
-        {kind !== 'lot' && (
-          <>
-            <Input
-              aria-label="Từ khóa lựa chọn"
-              value={search}
-              maxLength={100}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Mã hoặc tên..."
-            />
-            <Button variant="outline"
-              onClick={() => setQuery({ search: search.trim(), page: 1 })}
-            >
-              Tìm
-            </Button>
-          </>
-        )}
-        <Button variant="outline"
-          onClick={onClose}
-        >
-          Đóng lựa chọn
-        </Button>
-      </div>
-      {!current ? (
-        <p role="status">Đang tải...</p>
-      ) : current.error ? (
-        <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive">
-          <p>{current.error}</p>
-          <button
-            type="button"
-            className="underline"
-            onClick={() => setQuery({ ...query })}
-          >
-            Thử lại
-          </button>
-        </div>
-      ) : (
-        <>
-          {current.choices?.length === 0 && <p>Không có kết quả phù hợp.</p>}
-          <ul className="space-y-2">
-            {current.choices?.map((choice) => (
-              <li key={choice.id}>
-                <button
-                  type="button"
-                  className="text-left underline"
-                  onClick={() => onSelect(choice)}
-                >
-                  {choice.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {current.page && (
-            <div className="flex gap-3">
-              <button
-                type="button"
-                disabled={query.page <= 1}
-                onClick={() => setQuery({ ...query, page: query.page - 1 })}
-                className="disabled:opacity-40"
-              >
-                Trang trước
-              </button>
-              <span>Trang {query.page}</span>
-              <button
-                type="button"
-                disabled={query.page >= current.page.totalPages}
-                onClick={() => setQuery({ ...query, page: query.page + 1 })}
-                className="disabled:opacity-40"
-              >
-                Trang sau
-              </button>
-            </div>
-          )}
-        </>
-      )}
-    </section>
+      options={choices.map((choice) => ({
+        value: choice.id,
+        label: choice.label,
+        hint: choice.hint,
+      }))}
+      value={value?.id ?? ''}
+      selectedLabel={value?.label}
+      placeholder={placeholder ?? 'Tìm theo mã hoặc tên...'}
+      disabled={disabled}
+      autoFocus={autoFocus}
+      loading={!current}
+      total={current?.page?.totalItems}
+      emptyText={current?.error ?? 'Không có kết quả phù hợp.'}
+      onSearchChange={(search) => {
+        setActive(true);
+        setQuery({ search: search.trim(), page: 1 });
+      }}
+      onChange={(id) => {
+        const choice = choices.find((row) => row.id === id);
+        if (choice) onSelect(choice);
+      }}
+    />
   );
 }

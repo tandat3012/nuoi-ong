@@ -24,6 +24,15 @@ export interface ComboboxProps {
   disabled?: boolean;
   required?: boolean;
   className?: string;
+  /** Server-side search: called with the typed text; options are shown unfiltered. */
+  onSearchChange?: (query: string) => void;
+  loading?: boolean;
+  /** Label for a value that is not in the current (server) page of options. */
+  selectedLabel?: string;
+  /** Total server matches, to hint that typing narrows the list. */
+  total?: number;
+  autoFocus?: boolean;
+  "aria-label"?: string;
 }
 
 export function Combobox({
@@ -35,22 +44,34 @@ export function Combobox({
   disabled,
   required,
   className,
+  onSearchChange,
+  loading,
+  selectedLabel,
+  total,
+  autoFocus,
+  "aria-label": ariaLabel,
 }: ComboboxProps) {
   const listId = React.useId();
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [active, setActive] = React.useState(0);
-  const selected = options.find((option) => option.value === value);
+  const selectedText =
+    options.find((option) => option.value === value)?.label ??
+    (value ? selectedLabel : undefined);
 
-  const matches = open
-    ? options.filter((option) => matchesSearch(option.label, query))
-    : [];
+  const matches = !open
+    ? []
+    : onSearchChange
+      ? options
+      : options.filter((option) => matchesSearch(option.label, query));
+  const matchCount = Math.max(matches.length, total ?? 0);
   const visible = matches.slice(0, MAX_RESULTS);
 
   function openList() {
     setOpen(true);
     setQuery("");
     setActive(0);
+    onSearchChange?.("");
   }
 
   function choose(option: ComboboxOption) {
@@ -91,25 +112,29 @@ export function Combobox({
         aria-expanded={open}
         aria-controls={listId}
         aria-autocomplete="list"
+        aria-label={ariaLabel}
+        aria-busy={loading || undefined}
         aria-activedescendant={
           open && visible[active] ? `${listId}-${active}` : undefined
         }
         autoComplete="off"
+        autoFocus={autoFocus}
         required={required}
         disabled={disabled}
-        placeholder={selected ? selected.label : placeholder}
-        value={open ? query : (selected?.label ?? "")}
+        placeholder={selectedText ?? placeholder}
+        value={open ? query : (selectedText ?? "")}
         onFocus={openList}
         onClick={() => !open && openList()}
         onBlur={() => setOpen(false)}
         onChange={(event) => {
           setQuery(event.target.value);
+          onSearchChange?.(event.target.value);
           setActive(0);
           setOpen(true);
         }}
         onKeyDown={handleKeyDown}
         className={cn(
-          "flex h-10 w-full truncate rounded-md border border-input bg-background px-3 py-1.5 pr-8 text-sm text-foreground shadow-2xs transition-colors",
+          "flex h-10 w-full truncate rounded-md border border-input bg-card px-3 py-1.5 pr-8 text-sm font-normal text-foreground shadow-2xs transition-colors",
           "placeholder:text-muted-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary",
           "disabled:cursor-not-allowed disabled:opacity-50",
@@ -124,7 +149,7 @@ export function Combobox({
         <ul
           id={listId}
           role="listbox"
-          className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-md border bg-background py-1 text-sm font-normal shadow-lg"
+          className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-md border bg-popover py-1 text-sm font-normal shadow-lg"
         >
           {visible.map((option, index) => (
             <li
@@ -156,11 +181,13 @@ export function Combobox({
             </li>
           ))}
           {visible.length === 0 && (
-            <li className="px-3 py-2 text-muted-foreground">{emptyText}</li>
+            <li className="px-3 py-2 text-muted-foreground">
+              {loading ? "Đang tải..." : emptyText}
+            </li>
           )}
-          {matches.length > MAX_RESULTS && (
+          {matchCount > visible.length && (
             <li className="px-3 py-2 text-xs text-muted-foreground">
-              Hiển thị {MAX_RESULTS}/{matches.length} kết quả. Gõ thêm để thu
+              Hiển thị {visible.length}/{matchCount} kết quả. Gõ thêm để thu
               hẹp.
             </li>
           )}

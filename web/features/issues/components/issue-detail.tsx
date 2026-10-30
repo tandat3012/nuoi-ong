@@ -11,7 +11,7 @@ import {
   type IssueDetail as IssueDetailData,
 } from "../types/issue";
 import { supportsIssueDraftEdit } from "./issue-draft.logic";
-import { formatIssueQuantity } from "./issue-detail.logic";
+import { formatInventoryQuantity } from "@/features/inventory/inventory.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
@@ -350,7 +350,7 @@ export function IssueDetail({
                           {!line.lotId && !line.assetId && "—"}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
-                          {formatIssueQuantity(line.quantity)}
+                          {formatInventoryQuantity(line.quantity)}
                         </td>
                         <td className="px-4 py-3">
                           {line.unitSymbol || line.unitName || "—"}
