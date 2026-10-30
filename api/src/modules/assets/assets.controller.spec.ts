@@ -1,6 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { AssetsController } from './assets.controller';
 import { AssetsService } from './assets.service';
+import type { AssetLifecycleService } from './asset-lifecycle.service';
+import type { AssetHistoryService } from './asset-history.service';
 
 describe('AssetsController', () => {
   const farmId = '6a8ac800-8daa-4e25-9ef8-57af547f8784';
@@ -13,6 +15,8 @@ describe('AssetsController', () => {
   };
   const controller = new AssetsController(
     assetsService as unknown as AssetsService,
+    {} as AssetLifecycleService,
+    {} as AssetHistoryService,
   );
 
   beforeEach(() => jest.clearAllMocks());
