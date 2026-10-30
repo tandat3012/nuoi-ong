@@ -18,6 +18,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { EmptyState } from "@/shared/components/ui/empty-state";
 import { Loader2, Boxes, Eye, Edit } from "lucide-react";
+import { formatInventoryQuantity } from "@/features/inventory";
 
 interface MaterialTableProps {
   materials: MaterialListRow[];
@@ -153,7 +154,7 @@ export function MaterialTable({
                 {MATERIAL_TRACKING_MODE_LABELS[row.item.trackingMode]}
               </TableCell>
               <TableCell className="text-right font-semibold tabular-nums text-foreground">
-                {row.quantityOnHand}{" "}
+                {formatInventoryQuantity(row.quantityOnHand)}{" "}
                 <span className="text-[0.7rem] font-normal text-muted-foreground">
                   {row.unitSymbol ?? row.unitName ?? "—"}
                 </span>

@@ -7,6 +7,7 @@ import { getIssueLotSuggestions } from "../api/issues.api";
 import type { IssueLotSuggestion } from "../types/issue";
 import { selectableIssueLotSuggestions } from "./issue-draft.logic";
 import { Button } from "@/shared/components/ui/button";
+import { formatInventoryQuantity } from "@/features/inventory";
 
 export type IssueLotChoice = {
   id: string;
@@ -99,9 +100,9 @@ export function IssueLotPicker({
         <p className="text-sm text-muted-foreground">
           Hạn dùng: {selected.expiryDate ?? "Không có hạn"}
           {selectedSuggestion
-            ? ` · Tồn hiện tại: ${selectedSuggestion.balance.quantityOnHand}`
+            ? ` · Tồn hiện tại: ${formatInventoryQuantity(selectedSuggestion.balance.quantityOnHand)}`
             : current?.error && selected.quantityOnHand
-              ? ` · Số tồn lần chọn trước: ${selected.quantityOnHand}`
+              ? ` · Số tồn lần chọn trước: ${formatInventoryQuantity(selected.quantityOnHand)}`
               : ""}
         </p>
       )}
@@ -167,7 +168,7 @@ export function IssueLotPicker({
                     className="text-left underline"
                   >
                     {lot.lotNumber} · Hạn: {lot.expiryDate ?? "Không có hạn"} ·
-                    Tồn: {balance.quantityOnHand}
+                    Tồn: {formatInventoryQuantity(balance.quantityOnHand)}
                   </button>
                 </li>
               ))}

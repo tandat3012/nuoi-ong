@@ -7,6 +7,7 @@ import {
   type CustomerOrderItem,
   type OrderStatus,
 } from "../types/order";
+import { formatInventoryQuantity } from "@/features/inventory";
 
 const statusVariant = {
   PENDING: "warning",
@@ -75,7 +76,7 @@ export function OrderItems({
               <td className="px-4 py-3">{formatOrderMoney(item.unitPrice)}</td>
               <td className="px-4 py-3 tabular-nums">{item.quantity}</td>
               {showStock && (
-                <td className="px-4 py-3 tabular-nums">{item.stockQuantity}</td>
+                <td className="px-4 py-3 tabular-nums">{formatInventoryQuantity(item.stockQuantity)}</td>
               )}
               <td className="px-4 py-3 font-medium">
                 {formatOrderMoney(item.lineTotal)}

@@ -36,6 +36,7 @@ import { StoreProductForm } from "./store-product-form";
 import { StoreProductImages } from "./store-product-images";
 import { statusVariant } from "./store-product-list";
 import { StoreVariantForm } from "./store-variant-form";
+import { formatInventoryQuantity } from "@/features/inventory";
 
 const statusActions: Record<
   StoreProductStatus,
@@ -188,7 +189,7 @@ export function StoreProductDetail({
                       {formatVndCurrency(Number(row.price))}
                     </TableCell>
                     <TableCell className="text-right">
-                      {row.quantityStep} {row.unit?.symbol ?? row.unit?.name}
+                      {formatInventoryQuantity(row.quantityStep)} {row.unit?.symbol ?? row.unit?.name}
                     </TableCell>
                     <TableCell>
                       <Badge variant={row.active ? "success" : "outline"}>

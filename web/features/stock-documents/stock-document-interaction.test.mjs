@@ -5,6 +5,7 @@ import { test } from "node:test";
 import ts from "typescript";
 import * as rules from "./stock-document.logic.ts";
 import * as linesRules from "./stock-document-lines.logic.ts";
+import * as inventoryRules from "../inventory/inventory.logic.ts";
 
 // Run the real event handlers with delayed requests, without a browser or another test dependency.
 function fixture(kind, roles = ["ADMIN"], headerPatch = {}) {
@@ -66,6 +67,9 @@ function fixture(kind, roles = ["ADMIN"], headerPatch = {}) {
         useFarmMembership: () => ({ membership: { roles, memberId: "creator" } }),
       };
       if (name === "@/shared/api/client") return { ApiError };
+      if (name === "@/features/inventory") return {
+        ...inventoryRules, WarehouseLotSelect: "WarehouseLotSelect",
+      };
       return new Proxy({}, { get: (_, key) => key });
     };
     new Function("require", "module", "exports", "window", outputText)(
