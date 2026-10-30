@@ -16,7 +16,6 @@ import { Combobox } from "@/shared/components/ui/combobox";
 import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
-import { Select } from "@/shared/components/ui/select";
 
 export function InventoryPage({
   initialFilters,
@@ -209,24 +208,27 @@ function CurrentBalancesView({
       >
         <label className="grid gap-1.5 text-sm font-medium">
           Kho
-          <Select
+          <Combobox
             value={filters.warehouseId ?? ""}
-            onChange={(event) =>
-              inventory.changeWarehouse(event.target.value || undefined)
+            onChange={(warehouseId) =>
+              inventory.changeWarehouse(warehouseId || undefined)
             }
             disabled={references.isLoading || Boolean(references.error)}
-            className="font-normal"
-          >
-            <option value="">Tất cả kho</option>
-            {filters.warehouseId && !warehouseKnown && (
-              <option value={filters.warehouseId}>
-                Kho đã chọn không có trong trang trại này
-              </option>
-            )}
-            {references.warehouses.map((warehouse) => (
-              <WarehouseOption key={warehouse.id} warehouse={warehouse} />
-            ))}
-          </Select>
+            placeholder="Tìm theo mã hoặc tên kho"
+            emptyText="Không có kho khớp từ khóa."
+            options={[
+              { value: "", label: "Tất cả kho" },
+              ...(filters.warehouseId && !warehouseKnown
+                ? [
+                    {
+                      value: filters.warehouseId,
+                      label: "Kho đã chọn không có trong trang trại này",
+                    },
+                  ]
+                : []),
+              ...references.warehouses.map(warehouseOption),
+            ]}
+          />
         </label>
 
         <label className="grid gap-1.5 text-sm font-medium">
@@ -254,39 +256,39 @@ function CurrentBalancesView({
                 }`,
               })),
             ]}
-            className="font-normal"
           />
         </label>
 
         <label className="grid gap-1.5 text-sm font-medium">
           Lô
-          <Select
+          <Combobox
             value={filters.lotId ?? ""}
-            onChange={(event) =>
-              inventory.changeLot(event.target.value || undefined)
-            }
+            onChange={(lotId) => inventory.changeLot(lotId || undefined)}
             disabled={
               !selectedLotItem ||
               references.lotsLoading ||
               Boolean(references.lotsError)
             }
-            className="font-normal"
-          >
-            <option value="">
-              {!filters.itemId
+            placeholder={
+              !filters.itemId
                 ? "Chọn vật tư theo lô trước"
                 : selectedLotItem
                   ? references.lotsLoading
                     ? "Đang tải lô..."
-                    : "Tất cả lô"
-                  : "Vật tư này không theo dõi lô"}
-            </option>
-            {references.lots.map((lot) => (
-              <option key={lot.id} value={lot.id}>
-                {lot.lotNumber} · HSD {lot.expiryDate ?? "không có"}
-              </option>
-            ))}
-          </Select>
+                    : "Tìm theo số lô"
+                  : "Vật tư này không theo dõi lô"
+            }
+            emptyText="Không có lô khớp từ khóa."
+            options={[
+              // Without a lot item, keep the placeholder explaining why it's disabled.
+              ...(selectedLotItem ? [{ value: "", label: "Tất cả lô" }] : []),
+              ...references.lots.map((lot) => ({
+                value: lot.id,
+                label: lot.lotNumber,
+                hint: `HSD ${lot.expiryDate ?? "không có"}`,
+              })),
+            ]}
+          />
         </label>
       </section>
 
@@ -376,11 +378,11 @@ function CurrentBalancesView({
   );
 }
 
-function WarehouseOption({ warehouse }: { warehouse: Warehouse }) {
-  return (
-    <option value={warehouse.id}>
-      {warehouse.code} · {warehouse.name}
-      {warehouse.status === "INACTIVE" ? " (Ngừng hoạt động)" : ""}
-    </option>
-  );
+function warehouseOption(warehouse: Warehouse) {
+  return {
+    value: warehouse.id,
+    label: `${warehouse.code} · ${warehouse.name}${
+      warehouse.status === "INACTIVE" ? " (Ngừng hoạt động)" : ""
+    }`,
+  };
 }
