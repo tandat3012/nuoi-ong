@@ -11,6 +11,7 @@ import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.s
 import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 import { AuditLogsService } from '../src/modules/audit-logs/audit-logs.service';
+import type { NumberingOptionsInput } from '../src/modules/warehouses/stock-document-code';
 
 // Approval rules for all four stock documents, with real farm authorization:
 // approvers confirm drafts directly, employees submit their own drafts for review.
@@ -34,6 +35,7 @@ describe('Stock document approval rules', () => {
     item = randomUUID();
   const actors = {
     owner: { id: randomUUID(), member: randomUUID(), role: 'FARM_OWNER' },
+    admin: { id: randomUUID(), member: randomUUID(), role: 'ADMIN' },
     creator: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     peer: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     guest: { id: randomUUID(), member: randomUUID(), role: 'GUEST' },
@@ -55,9 +57,10 @@ describe('Stock document approval rules', () => {
     {
       type: 'receipt',
       table: 'stock_receipts',
-      create: async (actor: Actor) =>
+      create: async (actor: Actor, extra: NumberingOptionsInput = {}) =>
         (
           await receipts.createReceipt(farm, clerk(actor), {
+            ...extra,
             warehouseId: warehouse,
             receiptCode: randomUUID(),
             items: [line],
@@ -65,6 +68,8 @@ describe('Stock document approval rules', () => {
         ).receipt.id,
       update: (id: string, actor: Actor) =>
         receipts.updateReceipt(id, farm, clerk(actor), { note: tag }),
+      edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
+        receipts.updateReceipt(id, farm, clerk(actor), body),
       cancel: (id: string, actor: Actor) =>
         receipts.cancelReceipt(id, farm, clerk(actor)),
       submit: (id: string, actor: Actor) =>
@@ -78,9 +83,10 @@ describe('Stock document approval rules', () => {
     {
       type: 'issue',
       table: 'stock_issues',
-      create: async (actor: Actor) =>
+      create: async (actor: Actor, extra: NumberingOptionsInput = {}) =>
         (
           await issues.create(farm, clerk(actor), {
+            ...extra,
             warehouseId: warehouse,
             issueCode: randomUUID(),
             items: [line],
@@ -88,6 +94,8 @@ describe('Stock document approval rules', () => {
         ).issue.id,
       update: (id: string, actor: Actor) =>
         issues.update(id, farm, clerk(actor), { note: tag }),
+      edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
+        issues.update(id, farm, clerk(actor), body),
       cancel: (id: string, actor: Actor) =>
         issues.cancel(id, farm, clerk(actor)),
       submit: (id: string, actor: Actor) =>
@@ -101,9 +109,10 @@ describe('Stock document approval rules', () => {
     {
       type: 'transfer',
       table: 'stock_transfers',
-      create: async (actor: Actor) =>
+      create: async (actor: Actor, extra: NumberingOptionsInput = {}) =>
         (
           await transfers.create(farm, clerk(actor), {
+            ...extra,
             fromWarehouseId: warehouse,
             toWarehouseId: target,
             transferCode: randomUUID(),
@@ -112,6 +121,8 @@ describe('Stock document approval rules', () => {
         ).transfer.id,
       update: (id: string, actor: Actor) =>
         transfers.update(id, farm, clerk(actor), { note: tag }),
+      edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
+        transfers.update(id, farm, clerk(actor), body),
       cancel: (id: string, actor: Actor) =>
         transfers.cancel(id, farm, clerk(actor)),
       submit: (id: string, actor: Actor) =>
@@ -125,9 +136,10 @@ describe('Stock document approval rules', () => {
     {
       type: 'count',
       table: 'stock_counts',
-      create: async (actor: Actor) =>
+      create: async (actor: Actor, extra: NumberingOptionsInput = {}) =>
         (
           await counts.create(farm, clerk(actor), {
+            ...extra,
             warehouseId: warehouse,
             countCode: randomUUID(),
             items: [{ itemId: item, actualQuantity: '22' }],
@@ -135,6 +147,8 @@ describe('Stock document approval rules', () => {
         ).count.id,
       update: (id: string, actor: Actor) =>
         counts.update(id, farm, clerk(actor), { note: tag }),
+      edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
+        counts.update(id, farm, clerk(actor), body),
       cancel: (id: string, actor: Actor) =>
         counts.cancel(id, farm, clerk(actor)),
       submit: (id: string, actor: Actor) =>
@@ -262,6 +276,10 @@ describe('Stock document approval rules', () => {
         await pool.query('DELETE FROM users WHERE id=ANY($1::uuid[])', [
           userIds,
         ]);
+        await pool.query(
+          'DELETE FROM stock_document_counters WHERE farm_id=$1',
+          [farm],
+        );
         await pool.query('DELETE FROM farms WHERE id=$1', [farm]);
       }
     } finally {
@@ -348,10 +366,15 @@ describe('Stock document approval rules', () => {
       const submitted = await document.create('creator');
       await document.submit(submitted, 'creator');
       await document.confirm(submitted, 'owner');
-      expect(await notified(submitted)).toEqual([
-        [actors.owner.id, 'APPROVAL'],
-        [actors.creator.id, 'CONFIRMED'],
-      ]);
+      const rows = await notified(submitted);
+      expect(rows).toHaveLength(3);
+      expect(rows).toEqual(
+        expect.arrayContaining([
+          [actors.owner.id, 'APPROVAL'],
+          [actors.admin.id, 'APPROVAL'],
+          [actors.creator.id, 'CONFIRMED'],
+        ]),
+      );
       const direct = await document.create('owner');
       await document.confirm(direct, 'owner');
       expect(await notified(direct)).toEqual([]);
@@ -476,6 +499,164 @@ describe('Stock document approval rules', () => {
       await expect(
         auditLogs.list({ ...page, farmId: farm, clerkUserId: clerk('guest') }),
       ).rejects.toThrow('Audit history permission is required');
+    });
+  });
+
+  describe.each(cases)('$type owner numbering options', (document) => {
+    const prefix = { receipt: 'PN', issue: 'PX', transfer: 'CK', count: 'KK' }[
+      document.type
+    ]!;
+    const numbering = async (id: string) =>
+      (
+        await pool.query<{
+          status: string;
+          code: string | null;
+          code_source: string | null;
+          external_reference: string | null;
+          requested_code: string | null;
+          requested_by_member_id: string | null;
+        }>(
+          `SELECT status, ${document.type}_code AS code, code_source, external_reference,
+                  requested_code, requested_by_member_id
+             FROM ${document.table} WHERE id = $1`,
+          [id],
+        )
+      ).rows[0];
+    const counters = async () =>
+      (
+        await pool.query<{ year: number; last_value: number }>(
+          'SELECT year, last_value FROM stock_document_counters WHERE farm_id=$1 AND prefix=$2 ORDER BY year',
+          [farm, prefix],
+        )
+      ).rows;
+    const requested = `${prefix}-2026-987654`;
+    const reason = 'Khớp với phiếu giấy';
+
+    it('uses an owner-requested code when another approver confirms, without moving the counter', async () => {
+      const id = await document.create('owner', {
+        externalReference: '  HĐ giấy 12  ',
+        requestedCode: ` ${requested.toLowerCase()} `,
+        requestedCodeReason: reason,
+      });
+      expect(await numbering(id)).toMatchObject({
+        code: null,
+        requested_code: requested,
+        external_reference: 'HĐ giấy 12',
+        requested_by_member_id: actors.owner.member,
+      });
+      const before = await counters();
+      await document.confirm(id, 'admin');
+      expect(await numbering(id)).toMatchObject({
+        status: 'CONFIRMED',
+        code: requested,
+        code_source: 'MANUAL',
+      });
+      expect(
+        (await counters()).map(({ year, last_value }) => [year, last_value]),
+      ).toEqual(
+        before.length
+          ? before.map(({ year, last_value }) => [year, last_value])
+          : [[2026, 0]],
+      );
+      const audit = await pool.query<{
+        user_id: string;
+        new_data: Record<string, unknown>;
+      }>(
+        `SELECT user_id, new_data FROM audit_logs WHERE entity_id=$1 AND action='CONFIRM'`,
+        [id],
+      );
+      expect(audit.rows).toEqual([
+        {
+          user_id: actors.admin.id,
+          new_data: expect.objectContaining({
+            [`${document.type}Code`]: requested,
+            codeSource: 'MANUAL',
+            requestedCode: requested,
+            requestedByMemberId: actors.owner.member,
+          }) as unknown,
+        },
+      ]);
+    });
+
+    it('lets only the farm owner set, change or clear the options', async () => {
+      for (const actor of ['creator', 'admin'] as const)
+        await expect(
+          document.create(actor, { externalReference: 'HĐ 1' }),
+        ).rejects.toThrow('Only the farm owner');
+      const id = await document.create('creator');
+      await document.edit(id, 'owner', {
+        requestedCode: 'req-1',
+        requestedCodeReason: reason,
+      });
+      await expect(
+        document.edit(id, 'creator', { requestedCode: null }),
+      ).rejects.toThrow('Only the farm owner');
+      await expect(
+        document.edit(id, 'admin', { externalReference: null }),
+      ).rejects.toThrow('Only the farm owner');
+      // Other edits by the creator keep the owner's request.
+      await document.update(id, 'creator');
+      expect(await numbering(id)).toMatchObject({ requested_code: 'REQ-1' });
+      await expect(
+        document.edit(id, 'owner', { requestedCode: 'REQ-2' }),
+      ).rejects.toThrow('reason is required');
+      // 50 characters that uppercase to 100 (ß -> SS).
+      await expect(
+        document.edit(id, 'owner', {
+          requestedCode: 'ß'.repeat(50),
+          requestedCodeReason: reason,
+        }),
+      ).rejects.toThrow('at most 50 characters');
+      await expect(
+        document.edit(id, 'owner', { requestedCodeReason: reason }),
+      ).rejects.toThrow('together');
+      await document.edit(id, 'owner', { requestedCode: null });
+      expect(await numbering(id)).toMatchObject({
+        requested_code: null,
+        requested_by_member_id: null,
+      });
+    });
+
+    it('rolls back a confirmation whose requested code is taken and keeps the draft', async () => {
+      const options = { requestedCode: 'DUP-1', requestedCodeReason: reason };
+      await document.confirm(await document.create('owner', options), 'owner');
+      const second = await document.create('owner', options);
+      const stock = await sourceQuantity();
+      await expect(document.confirm(second, 'owner')).rejects.toThrow(
+        'already in use',
+      );
+      expect(await numbering(second)).toMatchObject({
+        status: 'DRAFT',
+        code: null,
+        requested_code: 'DUP-1',
+      });
+      expect(await sourceQuantity()).toBe(stock);
+      await document.edit(second, 'owner', { requestedCode: null });
+      await document.confirm(second, 'owner');
+      expect(await numbering(second)).toMatchObject({
+        code: expect.stringMatching(
+          new RegExp(`^${prefix}-\\d{4}-\\d{6}$`),
+        ) as string,
+        code_source: 'AUTO',
+      });
+    });
+
+    it('lets only one of two concurrent confirmations take the same requested code', async () => {
+      const options = { requestedCode: 'RACE-1', requestedCodeReason: reason };
+      const a = await document.create('owner', options);
+      const b = await document.create('owner', options);
+      const results = await Promise.allSettled([
+        document.confirm(a, 'owner'),
+        document.confirm(b, 'owner'),
+      ]);
+      expect(results.map((result) => result.status).sort()).toEqual([
+        'fulfilled',
+        'rejected',
+      ]);
+      const failed = results.find(
+        (result) => result.status === 'rejected',
+      ) as PromiseRejectedResult;
+      expect(failed.reason).toMatchObject({ status: 409 });
     });
   });
 });

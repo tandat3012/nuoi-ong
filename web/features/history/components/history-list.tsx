@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { History } from "lucide-react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { ApiError } from "@/shared/api/client";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
@@ -52,15 +53,34 @@ export function HistoryList({ farmId, filters, revision, onPageChange, showEntit
 
   const current = result?.key === key ? result : null;
   if (invalid) return <ErrorAlert className="m-4" message={invalid} />;
-  if (!current) return <p role="status" className="p-5">Đang tải lịch sử thay đổi…</p>;
+  if (!current) return (
+    <div role="status" className="space-y-6 p-4 sm:p-6">
+      <span className="sr-only">Đang tải lịch sử thay đổi…</span>
+      {[0, 1].map((index) => (
+        <div key={index} aria-hidden="true" className="space-y-4 motion-safe:animate-pulse">
+          <div className="flex items-center justify-between gap-4">
+            <div className="h-5 w-40 rounded bg-muted" />
+            <div className="h-4 w-24 rounded bg-muted" />
+          </div>
+          <div className="h-32 rounded-lg border bg-muted/40" />
+        </div>
+      ))}
+    </div>
+  );
   if (current.error) return <ErrorAlert className="m-4" message={current.error}
     onRetry={current.status === 401 || current.status === 403 ? undefined : () => setAttempt((value) => value + 1)} />;
   if (!current.response) return null;
   const references = current.response.references ?? {};
   return (
     <>
-      {!current.response.data.length && <p role="status" className="p-5 text-sm text-muted-foreground">Chưa có lịch sử thay đổi phù hợp.</p>}
-      <ul aria-label="Các thay đổi" className="divide-y">
+      {!current.response.data.length && (
+        <div role="status" className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+          <History className="size-6 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm font-medium">Chưa có lịch sử thay đổi phù hợp.</p>
+          <p className="max-w-sm text-sm text-muted-foreground">Các thao tác được ghi nhận sẽ xuất hiện tại đây.</p>
+        </div>
+      )}
+      <ul aria-label="Các thay đổi" className="divide-y bg-card text-card-foreground">
         {current.response.data.map((log) => <li key={log.id}><HistoryEntry log={log} references={references} showEntity={showEntity} /></li>)}
       </ul>
       <Pagination pageInfo={current.response.page} itemLabel="thay đổi" onPageChange={onPageChange} />

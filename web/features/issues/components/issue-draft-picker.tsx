@@ -8,8 +8,7 @@ import type { PageInfo } from "@/shared/api/contracts";
 import { getIssueCatalogItems } from "../api/issues.api";
 import type { IssueDraftTrackingMode } from "../types/issue";
 import { Select } from "@/shared/components/ui/select";
-import { Input } from "@/shared/components/ui/input";
-import { Button } from "@/shared/components/ui/button";
+import { Combobox } from "@/shared/components/ui/combobox";
 
 export type IssueChoice = {
   id: string;
@@ -17,25 +16,34 @@ export type IssueChoice = {
   trackingMode?: IssueDraftTrackingMode;
 };
 
+const PAGE_SIZE = 20;
+const SEARCH_DELAY_MS = 250;
+
+/** Searchable dropdown backed by the paged API; typing searches by code or name. */
 export function IssueDraftPicker({
   farmId,
   kind,
+  value,
+  disabled,
+  autoFocus,
   onSelect,
-  onClose,
 }: {
   farmId: string;
   kind: "warehouse" | "item";
+  /** Current choice; leave empty for the "add item" picker that resets after each pick. */
+  value?: IssueChoice | null;
+  disabled?: boolean;
+  autoFocus?: boolean;
   onSelect: (choice: IssueChoice) => void;
-  onClose: () => void;
 }) {
   const request = useAuthenticatedRequest();
-  const [search, setSearch] = useState("");
+  // A new object per keystroke/open, so reopening refetches (e.g. after an error).
   const [query, setQuery] = useState({ search: "", page: 1 });
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  const [active, setActive] = useState(false);
   const [trackingMode, setTrackingMode] =
     useState<IssueDraftTrackingMode>("QUANTITY");
   const [result, setResult] = useState<{
-    farmId: string;
-    kind: typeof kind;
     trackingMode: IssueDraftTrackingMode;
     query: typeof query;
     choices?: IssueChoice[];
@@ -43,10 +51,16 @@ export function IssueDraftPicker({
     error?: string;
   } | null>(null);
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
+  useEffect(() => {
+    if (!active) return;
+    const current = debouncedQuery;
     let cancelled = false;
     async function load() {
       try {
-        const params = { ...query, pageSize: 10, status: "ACTIVE" as const };
+        const params = { ...current, pageSize: PAGE_SIZE, status: "ACTIVE" as const };
         let choices: IssueChoice[];
         let page: PageInfo;
         if (kind === "warehouse") {
@@ -58,8 +72,8 @@ export function IssueDraftPicker({
           }));
         } else {
           const response = await getIssueCatalogItems(request, farmId, {
-            ...query,
-            pageSize: 10,
+            ...current,
+            pageSize: PAGE_SIZE,
             trackingMode,
           });
           page = response.page;
@@ -72,14 +86,12 @@ export function IssueDraftPicker({
             }));
         }
         if (!cancelled)
-          setResult({ farmId, kind, trackingMode, query, choices, page });
+          setResult({ trackingMode, query: current, choices, page });
       } catch (error: unknown) {
         if (!cancelled)
           setResult({
-            farmId,
-            kind,
             trackingMode,
-            query,
+            query: current,
             error:
               error instanceof ApiError && error.status === 403
                 ? "Bạn không có quyền xem dữ liệu lựa chọn."
@@ -93,16 +105,14 @@ export function IssueDraftPicker({
     return () => {
       cancelled = true;
     };
-  }, [request, farmId, kind, query, trackingMode]);
+  }, [request, farmId, kind, debouncedQuery, trackingMode, active]);
   const current =
-    result?.farmId === farmId &&
-    result.kind === kind &&
-    result.trackingMode === trackingMode &&
-    result.query === query
+    result?.trackingMode === trackingMode && result.query === query
       ? result
       : null;
-  return (
-    <section
+  const choices = current?.choices ?? [];
+  const combobox = (
+    <Combobox
       aria-label={
         kind === "warehouse"
           ? "Chọn kho xuất"
@@ -112,116 +122,50 @@ export function IssueDraftPicker({
               ? "Chọn vật tư tài sản"
               : "Chọn vật tư theo số lượng"
       }
-      className="space-y-3 rounded-xl border bg-muted/30 p-4"
-    >
-      <h2 className="font-semibold">
-        {kind === "warehouse"
-          ? "Chọn kho xuất"
-          : trackingMode === "LOT"
-            ? "Chọn vật tư theo lô"
-            : trackingMode === "ASSET"
-              ? "Chọn vật tư tài sản"
-              : "Chọn vật tư theo số lượng"}
-      </h2>
-      <div className="flex flex-wrap gap-2">
-        {kind === "item" && (
-          <label className="flex items-center gap-2 text-sm">
-            <span>Theo dõi vật tư</span>
-            <Select
-              aria-label="Theo dõi vật tư"
-              value={trackingMode}
-              onChange={(event) => {
-                setSearch("");
-                setQuery({ search: "", page: 1 });
-                setTrackingMode(event.target.value as IssueDraftTrackingMode);
-              }}
-            >
-              <option value="QUANTITY">Số lượng</option>
-              <option value="LOT">Theo lô</option>
-              <option value="ASSET">Tài sản</option>
-            </Select>
-          </label>
-        )}
-        <Input
-          aria-label="Từ khóa lựa chọn"
-          value={search}
-          maxLength={100}
-          onChange={(event) => setSearch(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              setQuery({ search: search.trim(), page: 1 });
-            }
-          }}
-          placeholder="Mã hoặc tên..."
-        />
-        <Button type="button" variant="outline"
-          onClick={() => setQuery({ search: search.trim(), page: 1 })}
-        >
-          Tìm
-        </Button>
-        <Button type="button" variant="outline"
-          onClick={onClose}
-        >
-          Đóng lựa chọn
-        </Button>
-      </div>
-      {!current ? (
-        <p role="status">Đang tải...</p>
-      ) : current.error ? (
-        <div role="alert">
-          <p>{current.error}</p>
-          <button
-            type="button"
-            onClick={() => setQuery({ ...query })}
-            className="underline"
-          >
-            Thử lại
-          </button>
-        </div>
-      ) : (
-        <>
-          {current.choices?.length === 0 && (
-            <p role="status">Không có kết quả phù hợp.</p>
-          )}
-          <ul className="space-y-2">
-            {current.choices?.map((choice) => (
-              <li key={choice.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(choice)}
-                  className="text-left underline"
-                >
-                  {choice.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {current.page && (
-            <nav aria-label="Phân trang lựa chọn" className="flex gap-3">
-              <button
-                type="button"
-                disabled={query.page <= 1}
-                onClick={() => setQuery({ ...query, page: query.page - 1 })}
-                className="disabled:opacity-40"
-              >
-                Trang trước
-              </button>
-              <span>
-                Trang {query.page} / {Math.max(1, current.page.totalPages)}
-              </span>
-              <button
-                type="button"
-                disabled={query.page >= current.page.totalPages}
-                onClick={() => setQuery({ ...query, page: query.page + 1 })}
-                className="disabled:opacity-40"
-              >
-                Trang sau
-              </button>
-            </nav>
-          )}
-        </>
-      )}
-    </section>
+      options={choices.map((choice) => ({
+        value: choice.id,
+        label: choice.label,
+      }))}
+      value={value?.id ?? ""}
+      selectedLabel={value?.label}
+      placeholder={
+        kind === "warehouse"
+          ? "Tìm kho theo mã hoặc tên..."
+          : "Tìm vật tư theo mã hoặc tên..."
+      }
+      disabled={disabled}
+      autoFocus={autoFocus}
+      loading={!current}
+      total={current?.page?.totalItems}
+      emptyText={current?.error ?? "Không có kết quả phù hợp."}
+      onSearchChange={(search) => {
+        setActive(true);
+        setQuery({ search: search.trim(), page: 1 });
+      }}
+      onChange={(id) => {
+        const choice = choices.find((row) => row.id === id);
+        if (choice) onSelect(choice);
+      }}
+    />
+  );
+  if (kind === "warehouse") return combobox;
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row">
+      <Select
+        aria-label="Theo dõi vật tư"
+        value={trackingMode}
+        disabled={disabled}
+        onChange={(event) => {
+          setQuery({ search: "", page: 1 });
+          setTrackingMode(event.target.value as IssueDraftTrackingMode);
+        }}
+        className="sm:w-40"
+      >
+        <option value="QUANTITY">Số lượng</option>
+        <option value="LOT">Theo lô</option>
+        <option value="ASSET">Tài sản</option>
+      </Select>
+      {combobox}
+    </div>
   );
 }

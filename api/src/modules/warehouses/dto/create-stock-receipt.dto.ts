@@ -6,13 +6,13 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   Matches,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 
 const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 
@@ -96,7 +96,7 @@ export class CreateStockReceiptItemDto {
   locationId?: string;
 }
 
-export class CreateStockReceiptDto {
+export class CreateStockReceiptDto extends DocumentNumberingOptionsDto {
   @IsUUID()
   warehouseId!: string;
 
@@ -109,10 +109,13 @@ export class CreateStockReceiptDto {
   @IsDateString()
   receiptDate?: string;
 
-  @ApiProperty({ example: 'RCV-2026-001' })
-  @IsString()
-  @Length(1, 50)
-  receiptCode!: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  receiptCode?: unknown;
 
   @IsOptional()
   @IsString()

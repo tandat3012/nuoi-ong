@@ -187,11 +187,16 @@ export type StockDocumentStatus =
   | 'REJECTED'
   | 'CANCELLED';
 
+/** Drafts have no permanent code until confirmation; name them by a short id. */
+export function documentCodeLabel(code: string | null | undefined, id: string) {
+  return code ?? `Nháp #${id.slice(0, 8)}`;
+}
+
 export type StockReceipt = {
   id: string;
   farmId: string;
   warehouseId: string;
-  receiptCode: string;
+  receiptCode: string | null;
   receiptDate?: string | null;
   status: StockDocumentStatus;
   note?: string | null;
@@ -208,7 +213,7 @@ export type StockIssue = {
   id: string;
   farmId: string;
   warehouseId: string;
-  issueCode: string;
+  issueCode: string | null;
   issueDate?: string | null;
   issueType?: string | null;
   status: StockDocumentStatus;
@@ -223,7 +228,7 @@ export type StockCount = {
   id: string;
   farmId: string;
   warehouseId: string;
-  countCode: string;
+  countCode: string | null;
   status: StockDocumentStatus;
   note?: string | null;
   createdAt?: string;

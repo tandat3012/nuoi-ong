@@ -12,6 +12,7 @@ import {
   eq,
   gte,
   isNull,
+  or,
   sql,
   SQL,
   getTableColumns,
@@ -35,9 +36,20 @@ import {
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
+  confirmationCode,
+  ignoreLegacyCode,
+  numberingOptionChanges,
+  rethrowCodeConflict,
+} from './stock-document-code';
+import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
+const balanceKey = (
+  warehouseId: string,
+  itemId: string,
+  lotId: string | null,
+) => `${warehouseId}:${itemId}:${lotId ?? ''}`;
 type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
@@ -87,8 +99,12 @@ export class StockTransfersService {
     return this.withItems(id, farmId);
   }
   async create(farmId: string, user: string, input: CreateStockTransferDto) {
-    const { memberId: member } =
-      await this.warehousesService.assertDocumentWriter(farmId, user);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
+    const member = writer.memberId;
+    const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
     if (input.fromWarehouseId === input.toWarehouseId)
       throw new BadRequestException(
@@ -98,13 +114,14 @@ export class StockTransfersService {
       await this.assertWarehouse(tx, farmId, input.fromWarehouseId);
       await this.assertWarehouse(tx, farmId, input.toWarehouseId);
       await this.validateLines(tx, farmId, input.items);
+      ignoreLegacyCode('transferCode', input.transferCode);
       const [row] = await tx
         .insert(stockTransfers)
         .values({
+          ...numbering,
           farmId,
           fromWarehouseId: input.fromWarehouseId,
           toWarehouseId: input.toWarehouseId,
-          transferCode: input.transferCode,
           transferDate: input.transferDate,
           note: input.note,
           createdByMemberId: member,
@@ -145,6 +162,7 @@ export class StockTransfersService {
       farmId,
       user,
     );
+    const numbering = numberingOptionChanges(input, writer);
     await this.databaseService.db.transaction(async (tx) => {
       const cur = await this.only(id, farmId, tx, true);
       assertOwnDocument(writer, cur.createdByMemberId);
@@ -184,12 +202,13 @@ export class StockTransfersService {
       for (const k of [
         'fromWarehouseId',
         'toWarehouseId',
-        'transferCode',
         'transferDate',
         'note',
       ] as const)
         if (input[k] !== undefined) changes[k] = input[k] as never;
       changes.updatedAt = new Date().toISOString();
+      Object.assign(changes, numbering);
+      ignoreLegacyCode('transferCode', input.transferCode);
       await tx
         .update(stockTransfers)
         .set(changes)
@@ -333,7 +352,7 @@ export class StockTransfersService {
       user,
       true,
     );
-    await this.databaseService.db.transaction(async (tx) => {
+    const confirmation = this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(row.status))
@@ -351,61 +370,36 @@ export class StockTransfersService {
           'Transfer must contain at least one item',
         );
       await this.validateLines(tx, farmId, lines, true);
+      const balances = await this.lockBalances(tx, farmId, row, lines);
       for (const line of lines) {
-        const [source] = await tx
-          .select()
-          .from(inventoryBalances)
-          .where(
-            and(
-              eq(inventoryBalances.farmId, farmId),
-              eq(inventoryBalances.warehouseId, row.fromWarehouseId),
-              eq(inventoryBalances.itemId, line.itemId),
-              line.lotId
-                ? eq(inventoryBalances.lotId, line.lotId)
-                : isNull(inventoryBalances.lotId),
-              gte(inventoryBalances.quantityOnHand, line.quantity),
-            ),
-          )
-          .limit(1);
-        if (!source)
-          throw new ConflictException('Insufficient source inventory');
-        await tx
+        const source = balances.get(
+          balanceKey(row.fromWarehouseId, line.itemId, line.lotId),
+        )!;
+        const dest = balances.get(
+          balanceKey(row.toWarehouseId, line.itemId, line.lotId),
+        )!;
+        const debited = await tx
           .update(inventoryBalances)
           .set({
             quantityOnHand: sql`${inventoryBalances.quantityOnHand} - ${line.quantity}`,
             updatedAt: new Date().toISOString(),
           })
-          .where(eq(inventoryBalances.id, source.id));
-        const [dest] = await tx
-          .select()
-          .from(inventoryBalances)
           .where(
             and(
-              eq(inventoryBalances.farmId, farmId),
-              eq(inventoryBalances.warehouseId, row.toWarehouseId),
-              eq(inventoryBalances.itemId, line.itemId),
-              line.lotId
-                ? eq(inventoryBalances.lotId, line.lotId)
-                : isNull(inventoryBalances.lotId),
+              eq(inventoryBalances.id, source),
+              gte(inventoryBalances.quantityOnHand, line.quantity),
             ),
           )
-          .limit(1);
-        if (dest)
-          await tx
-            .update(inventoryBalances)
-            .set({
-              quantityOnHand: sql`${inventoryBalances.quantityOnHand} + ${line.quantity}`,
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(inventoryBalances.id, dest.id));
-        else
-          await tx.insert(inventoryBalances).values({
-            farmId,
-            warehouseId: row.toWarehouseId,
-            itemId: line.itemId,
-            lotId: line.lotId,
-            quantityOnHand: line.quantity,
-          });
+          .returning({ id: inventoryBalances.id });
+        if (!debited.length)
+          throw new ConflictException('Insufficient source inventory');
+        await tx
+          .update(inventoryBalances)
+          .set({
+            quantityOnHand: sql`${inventoryBalances.quantityOnHand} + ${line.quantity}`,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(inventoryBalances.id, dest));
         await tx.insert(inventoryTransactions).values([
           {
             farmId,
@@ -433,27 +427,112 @@ export class StockTransfersService {
           },
         ]);
       }
+      const confirmedAt = new Date();
+      const { code: transferCode, codeSource } = await confirmationCode(
+        tx,
+        farmId,
+        'CK',
+        { code: row.transferCode, requestedCode: row.requestedCode },
+        confirmedAt,
+      );
       await tx
         .update(stockTransfers)
         .set({
           status: 'CONFIRMED',
+          transferCode,
+          codeSource,
           confirmedByMemberId: member,
-          confirmedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          confirmedAt: confirmedAt.toISOString(),
+          updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockTransfers.id, id));
-      await auditStockDocument(tx, member, 'STOCK_TRANSFER', 'CONFIRM', row, {
+      const confirmed = {
         ...row,
-        status: 'CONFIRMED',
-      });
+        transferCode,
+        codeSource: codeSource ?? row.codeSource,
+        status: 'CONFIRMED' as const,
+      };
+      await auditStockDocument(
+        tx,
+        member,
+        'STOCK_TRANSFER',
+        'CONFIRM',
+        row,
+        confirmed,
+      );
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,
-          this.notification(row, 'CONFIRMED'),
+          this.notification(confirmed, 'CONFIRMED'),
           row.createdByMemberId,
         );
     });
+    await confirmation.catch(rethrowCodeConflict);
     return this.withItems(id, farmId);
+  }
+  // Locks every source and destination balance in id order, so transfers in
+  // opposite directions cannot deadlock. Missing rows are created at zero first,
+  // in key order, so concurrent first-time destinations cannot race.
+  private async lockBalances(
+    tx: Pick<DatabaseService['db'], 'select' | 'insert'>,
+    farmId: string,
+    row: typeof stockTransfers.$inferSelect,
+    lines: { itemId: string; lotId: string | null }[],
+  ) {
+    const keys = new Map<
+      string,
+      { warehouseId: string; itemId: string; lotId: string | null }
+    >();
+    for (const line of lines)
+      for (const warehouseId of [row.fromWarehouseId, row.toWarehouseId])
+        keys.set(balanceKey(warehouseId, line.itemId, line.lotId), {
+          warehouseId,
+          itemId: line.itemId,
+          lotId: line.lotId,
+        });
+    const sorted = [...keys.keys()].sort().map((key) => keys.get(key)!);
+    await tx
+      .insert(inventoryBalances)
+      .values(sorted.map((key) => ({ farmId, ...key })))
+      .onConflictDoNothing({
+        target: [
+          inventoryBalances.itemId,
+          inventoryBalances.lotId,
+          inventoryBalances.warehouseId,
+        ],
+      });
+    const locked = await tx
+      .select({
+        id: inventoryBalances.id,
+        warehouseId: inventoryBalances.warehouseId,
+        itemId: inventoryBalances.itemId,
+        lotId: inventoryBalances.lotId,
+      })
+      .from(inventoryBalances)
+      .where(
+        and(
+          eq(inventoryBalances.farmId, farmId),
+          or(
+            ...sorted.map((key) =>
+              and(
+                eq(inventoryBalances.warehouseId, key.warehouseId),
+                eq(inventoryBalances.itemId, key.itemId),
+                key.lotId
+                  ? eq(inventoryBalances.lotId, key.lotId)
+                  : isNull(inventoryBalances.lotId),
+              ),
+            ),
+          ),
+        ),
+      )
+      .orderBy(asc(inventoryBalances.id))
+      .for('update');
+    return new Map(
+      locked.map((balance) => [
+        balanceKey(balance.warehouseId, balance.itemId, balance.lotId),
+        balance.id,
+      ]),
+    );
   }
   private notification(
     row: typeof stockTransfers.$inferSelect,

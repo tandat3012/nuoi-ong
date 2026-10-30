@@ -46,7 +46,12 @@ const issueSchema = {
     id: { type: 'string', format: 'uuid' },
     farmId: { type: 'string', format: 'uuid' },
     warehouseId: { type: 'string', format: 'uuid' },
-    issueCode: { type: 'string', example: 'ISS-2026-001' },
+    issueCode: {
+      type: 'string',
+      nullable: true,
+      example: 'PX-2026-000001',
+      description: 'Null on drafts; assigned on confirmation.',
+    },
     issueDate: { type: 'string', format: 'date' },
     issueType: {
       type: 'string',
@@ -160,7 +165,6 @@ export class StockIssuesController {
         summary: 'Xuất vật tư tiêu hao',
         value: {
           warehouseId: '550e8400-e29b-41d4-a716-446655440000',
-          issueCode: 'ISS-2026-001',
           issueType: 'CONSUMPTION',
           reason: 'Sử dụng tại vườn ong',
           items: [

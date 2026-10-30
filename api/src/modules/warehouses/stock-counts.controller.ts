@@ -48,7 +48,12 @@ const countSchema = {
     id: { type: 'string', format: 'uuid' },
     farmId: { type: 'string', format: 'uuid' },
     warehouseId: { type: 'string', format: 'uuid' },
-    countCode: { type: 'string', example: 'CNT-2026-001' },
+    countCode: {
+      type: 'string',
+      nullable: true,
+      example: 'KK-2026-000001',
+      description: 'Null on drafts; assigned on confirmation.',
+    },
     countDate: { type: 'string', format: 'date' },
     status: { type: 'string', enum: [...stockCountStatus.enumValues] },
     rejectionReason: { type: 'string', nullable: true },
@@ -146,7 +151,6 @@ export class StockCountsController {
         summary: 'Kiểm kê kho chính',
         value: {
           warehouseId: '550e8400-e29b-41d4-a716-446655440000',
-          countCode: 'CNT-2026-001',
           items: [
             {
               itemId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',

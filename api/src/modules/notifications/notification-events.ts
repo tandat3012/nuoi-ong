@@ -16,7 +16,7 @@ type DocumentNotification = {
   farmId: string;
   entityType: string;
   entityId: string;
-  documentCode: string;
+  documentCode: string | null;
   documentKind: string;
   status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED';
   rejectionReason?: string;
@@ -31,22 +31,25 @@ async function insertForUsers(
 ) {
   const distinctUserIds = [...new Set(userIds)];
   if (!distinctUserIds.length) return;
+  // Drafts have no permanent code yet; name them by a short id instead.
+  const code =
+    notification.documentCode ?? `(nháp #${notification.entityId.slice(0, 8)})`;
 
   const labels = {
     PENDING_APPROVAL: {
       type: `${notification.entityType}_PENDING_APPROVAL`,
       title: 'Phiếu cần duyệt',
-      body: `${notification.documentKind} ${notification.documentCode} đang chờ duyệt.`,
+      body: `${notification.documentKind} ${code} đang chờ duyệt.`,
     },
     CONFIRMED: {
       type: `${notification.entityType}_CONFIRMED`,
       title: 'Phiếu đã được duyệt',
-      body: `${notification.documentKind} ${notification.documentCode} đã được duyệt.`,
+      body: `${notification.documentKind} ${code} đã được duyệt.`,
     },
     REJECTED: {
       type: `${notification.entityType}_REJECTED`,
       title: 'Phiếu bị từ chối',
-      body: `${notification.documentKind} ${notification.documentCode} bị từ chối${notification.rejectionReason ? `: ${notification.rejectionReason}` : '.'}`,
+      body: `${notification.documentKind} ${code} bị từ chối${notification.rejectionReason ? `: ${notification.rejectionReason}` : '.'}`,
     },
   }[notification.status];
 

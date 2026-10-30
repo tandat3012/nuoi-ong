@@ -25,6 +25,12 @@ import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
+  confirmationCode,
+  ignoreLegacyCode,
+  numberingOptionChanges,
+  rethrowCodeConflict,
+} from './stock-document-code';
+import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
@@ -109,21 +115,24 @@ export class StockReceiptsService {
     clerkUserId: string,
     input: CreateStockReceiptDto,
   ) {
-    const { memberId } = await this.warehousesService.assertDocumentWriter(
+    const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
     );
+    const { memberId } = writer;
+    const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
     const transaction = this.databaseService.db.transaction(async (tx) => {
       await this.assertActiveWarehouse(tx, input.warehouseId, farmId);
       await this.assertReferences(tx, farmId, input);
+      ignoreLegacyCode('receiptCode', input.receiptCode);
       const [receipt] = await tx
         .insert(stockReceipts)
         .values({
+          ...numbering,
           farmId,
           warehouseId: input.warehouseId,
           supplierId: input.supplierId,
-          receiptCode: input.receiptCode,
           receiptDate: input.receiptDate,
           note: input.note,
           createdByMemberId: memberId,
@@ -179,6 +188,7 @@ export class StockReceiptsService {
       farmId,
       clerkUserId,
     );
+    const numbering = numberingOptionChanges(input, writer);
     if (input.items) this.validateItems(input.items);
     const transaction = this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
@@ -195,7 +205,6 @@ export class StockReceiptsService {
       for (const key of [
         'warehouseId',
         'supplierId',
-        'receiptCode',
         'receiptDate',
         'note',
       ] as const) {
@@ -209,7 +218,9 @@ export class StockReceiptsService {
         items: input.items ?? current.items,
       } as CreateStockReceiptDto);
       changes.updatedAt = new Date().toISOString();
+      Object.assign(changes, numbering);
       if (Object.keys(changes).length > 0) {
+        ignoreLegacyCode('receiptCode', input.receiptCode);
         await tx
           .update(stockReceipts)
           .set(changes)
@@ -394,7 +405,7 @@ export class StockReceiptsService {
       clerkUserId,
       true,
     );
-    await this.databaseService.db.transaction(async (tx) => {
+    const confirmation = this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       if (receipt.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(receipt.status))
@@ -589,33 +600,47 @@ export class StockReceiptsService {
           performedByMemberId: memberId,
         });
       }
+      const confirmedAt = new Date();
+      const { code: receiptCode, codeSource } = await confirmationCode(
+        tx,
+        farmId,
+        'PN',
+        { code: receipt.receiptCode, requestedCode: receipt.requestedCode },
+        confirmedAt,
+      );
       await tx
         .update(stockReceipts)
         .set({
           status: 'CONFIRMED',
+          receiptCode,
+          codeSource,
           confirmedByMemberId: memberId,
-          confirmedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          confirmedAt: confirmedAt.toISOString(),
+          updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockReceipts.id, id));
+      const confirmed = {
+        ...receipt,
+        receiptCode,
+        codeSource: codeSource ?? receipt.codeSource,
+        status: 'CONFIRMED' as const,
+      };
       await auditStockDocument(
         tx,
         memberId,
         'STOCK_RECEIPT',
         'CONFIRM',
         receipt,
-        {
-          ...receipt,
-          status: 'CONFIRMED',
-        },
+        confirmed,
       );
       if (receipt.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,
-          this.notification(receipt, 'CONFIRMED'),
+          this.notification(confirmed, 'CONFIRMED'),
           receipt.createdByMemberId,
         );
     });
+    await confirmation.catch(rethrowCodeConflict);
     return this.getReceiptWithItems(id, farmId);
   }
 

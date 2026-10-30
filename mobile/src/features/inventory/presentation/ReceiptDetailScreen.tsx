@@ -25,7 +25,7 @@ import { OperationResultDialog } from '@/src/shared/ui/OperationResultDialog';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
 import { formatQuantity } from '@/src/shared/format-quantity';
-import { balanceMatchesTrackingMode, filterPositiveBalancesForScope, listAvailableAssets, listBalances, listInventoryLots, listItems, listWarehouses, unwrap, type AvailableAsset, type InventoryBalance, type InventoryLot, type Item, type StockIssueDetail, type StockReceiptDetail } from '@/src/features/inventory/api';
+import { balanceMatchesTrackingMode, documentCodeLabel, filterPositiveBalancesForScope, listAvailableAssets, listBalances, listInventoryLots, listItems, listWarehouses, unwrap, type AvailableAsset, type InventoryBalance, type InventoryLot, type Item, type StockIssueDetail, type StockReceiptDetail } from '@/src/features/inventory/api';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 type DocumentType = 'receipt' | 'issue';
@@ -201,6 +201,7 @@ export default function ReceiptDetailScreen() {
   const [items, setItems] = useState<ReceiptItem[]>([]);
   const [catalogItems, setCatalogItems] = useState<ReceiptItem[]>([]);
   const [documentStatus, setDocumentStatus] = useState('DRAFT');
+  const [savedCode, setSavedCode] = useState<string | null>(null);
   const [documentDate, setDocumentDate] = useState<string | null>(null);
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [documentNote, setDocumentNote] = useState<string | null>(null);
@@ -277,8 +278,8 @@ export default function ReceiptDetailScreen() {
       const base = documentType === 'receipt' ? 'stock-receipts' : 'stock-issues';
       const createdAt = new Date().toISOString();
       const body = documentType === 'receipt'
-        ? { warehouseId, receiptDate: createdAt, note: documentNote ?? undefined, receiptCode: `REC-${Date.now()}`, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: String(item.quantity), lotId: item.lotId || undefined, lotNumber: item.lotId ? undefined : item.lotNumber?.trim() || undefined, manufacturedDate: item.lotId ? undefined : item.manufacturedDate || undefined, expiryDate: item.lotId ? undefined : item.expiryDate || undefined, assetCode: item.assetCode?.trim() || undefined, serialNumber: item.serialNumber?.trim() || undefined })) }
-        : { warehouseId, issueDate: createdAt, reason: documentNote ?? undefined, issueCode: `ISS-${Date.now()}`, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: String(item.quantity), lotId: item.lotId, assetId: item.assetId })) };
+        ? { warehouseId, receiptDate: createdAt, note: documentNote ?? undefined, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: String(item.quantity), lotId: item.lotId || undefined, lotNumber: item.lotId ? undefined : item.lotNumber?.trim() || undefined, manufacturedDate: item.lotId ? undefined : item.manufacturedDate || undefined, expiryDate: item.lotId ? undefined : item.expiryDate || undefined, assetCode: item.assetCode?.trim() || undefined, serialNumber: item.serialNumber?.trim() || undefined })) }
+        : { warehouseId, issueDate: createdAt, reason: documentNote ?? undefined, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: String(item.quantity), lotId: item.lotId, assetId: item.assetId })) };
 
       if (params.id) {
         await apiRequest(`/${base}/${params.id}`, { method: 'PATCH', token, params: { farmId: currentFarmId }, body });
@@ -327,6 +328,7 @@ export default function ReceiptDetailScreen() {
       const lines = detail.items;
       const itemById = new Map(catalog.map((item) => [item.id, item]));
       setDocumentStatus(document.status);
+      setSavedCode(documentType === 'receipt' ? (document as StockReceiptDetail['receipt']).receiptCode : (document as StockIssueDetail['issue']).issueCode);
       setDocumentDate(documentType === 'receipt' ? (document as StockReceiptDetail['receipt']).receiptDate ?? document.createdAt ?? null : (document as StockIssueDetail['issue']).issueDate ?? document.createdAt ?? null);
       setCreatorMemberId(document.createdByMemberId ?? null);
       setWarehouseId(document.warehouseId);
@@ -472,7 +474,7 @@ export default function ReceiptDetailScreen() {
   const actionLabel = documentType === 'receipt' ? 'Gửi duyệt Nhập kho' : 'Gửi duyệt Xuất kho';
   const canEditDocument = !params.id ? true : !loading && documentStatus === 'DRAFT';
   const title = documentNote || (documentType === 'receipt' ? 'Phiếu nhập kho' : 'Phiếu xuất kho');
-  const documentCode = params.id ?? 'Phiếu mới chưa tạo';
+  const documentCode = params.id ? documentCodeLabel(savedCode, params.id) : 'Cấp khi xác nhận';
   const currentFarmName = data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.farm.name ?? (data?.memberships.length === 1 ? data.memberships[0]?.farm.name : undefined) ?? 'Chưa chọn trang trại';
   const selectedWarehouse = warehouses.find((warehouse) => warehouse.id === warehouseId);
   const warehouseInheritedFromInventory = !params.id && Boolean(params.warehouseId);
@@ -754,8 +756,8 @@ export default function ReceiptDetailScreen() {
       let id = params.id ?? createdDocumentId ?? undefined;
       const createdAt = new Date().toISOString();
       const body = documentType === 'receipt'
-        ? { warehouseId, receiptDate: createdAt, note: documentNote ?? undefined, receiptCode: `REC-${Date.now()}`, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: String(item.quantity), lotId: item.lotId || undefined, lotNumber: item.lotId ? undefined : item.lotNumber?.trim() || undefined, manufacturedDate: item.lotId ? undefined : item.manufacturedDate || undefined, expiryDate: item.lotId ? undefined : item.expiryDate || undefined, assetCode: item.assetCode?.trim() || undefined, serialNumber: item.serialNumber?.trim() || undefined })) }
-        : { warehouseId, issueDate: createdAt, reason: documentNote ?? undefined, issueCode: `ISS-${Date.now()}`, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: String(item.quantity), lotId: item.lotId, assetId: item.assetId })) };
+        ? { warehouseId, receiptDate: createdAt, note: documentNote ?? undefined, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: String(item.quantity), lotId: item.lotId || undefined, lotNumber: item.lotId ? undefined : item.lotNumber?.trim() || undefined, manufacturedDate: item.lotId ? undefined : item.manufacturedDate || undefined, expiryDate: item.lotId ? undefined : item.expiryDate || undefined, assetCode: item.assetCode?.trim() || undefined, serialNumber: item.serialNumber?.trim() || undefined })) }
+        : { warehouseId, issueDate: createdAt, reason: documentNote ?? undefined, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: String(item.quantity), lotId: item.lotId, assetId: item.assetId })) };
       if (!id) {
         const created = await apiRequest<{ data: StockReceiptDetail | StockIssueDetail }>(`/${base}`, { method: 'POST', token, params: { farmId: currentFarmId }, body });
         const createdData = unwrap(created);

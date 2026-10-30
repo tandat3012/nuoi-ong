@@ -14,7 +14,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
         Đi tới nội dung chính
       </a>
 
-      <div className="min-h-screen bg-background lg:grid lg:grid-cols-[16rem_1fr]">
+      <div className="min-h-screen bg-muted dark:bg-background lg:grid lg:grid-cols-[16rem_1fr]">
         {/* Desktop persistent sidebar */}
         <aside className="hidden border-r border-border bg-card lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
           <div className="flex h-14 items-center gap-2.5 border-b border-border px-5">

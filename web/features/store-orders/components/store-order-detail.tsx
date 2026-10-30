@@ -28,6 +28,7 @@ import {
   PaymentStatusBadge,
   paymentMethodLabel,
 } from "@/features/commerce/orders/components/order-presentation";
+import { documentCodeLabel } from "@/features/stock-documents";
 
 export function StoreOrderDetail({
   farmId,
@@ -227,7 +228,7 @@ export function StoreOrderDetail({
                       className="text-primary underline"
                       href={`/issues/${encodeURIComponent(detail.stockIssue.id)}`}
                     >
-                      {detail.stockIssue.issueCode} · {detail.stockIssue.status}
+                      {documentCodeLabel(detail.stockIssue.issueCode, detail.stockIssue.id)} · {detail.stockIssue.status}
                     </Link>
                   </p>
                 ) : (

@@ -39,7 +39,6 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
   const [editing, setEditing] = useState<ReceiptDraftInitial | null>(null);
   const [warehouseFilter, setWarehouseFilter] =
     useState<DraftChoice | null>(null);
-  const [selectingWarehouse, setSelectingWarehouse] = useState(false);
 
   useEffect(() => {
     startTransition(() => { setCreating(false); setEditing(null); });
@@ -128,14 +127,19 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
               </option>
             ))}
           </Select></div>
-          <span className="text-sm font-medium">
-            Kho: {warehouseFilter?.label ?? 'Tất cả kho'}
-          </span>
-          <Button variant="outline"
-            onClick={() => setSelectingWarehouse(true)}
-          >
-            Lọc theo kho
-          </Button>
+          <span className="text-sm font-medium">Kho</span>
+          <div className="w-full sm:w-72">
+            <ReceiptDraftPicker
+              kind="warehouse-filter"
+              farmId={farmId}
+              value={warehouseFilter}
+              placeholder="Tất cả kho"
+              onSelect={(choice) => {
+                setWarehouseFilter(choice);
+                changeWarehouse(choice.id);
+              }}
+            />
+          </div>
           {warehouseFilter && (
             <button
               type="button"
@@ -149,18 +153,6 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
             </button>
           )}
         </div>
-        {selectingWarehouse && (
-          <ReceiptDraftPicker
-            kind="warehouse-filter"
-            farmId={farmId}
-            onSelect={(choice) => {
-              setWarehouseFilter(choice);
-              changeWarehouse(choice.id);
-              setSelectingWarehouse(false);
-            }}
-            onClose={() => setSelectingWarehouse(false)}
-          />
-        )}
       </div>
       {isLoading ? (
         <p role="status">Đang tải danh sách phiếu nhập...</p>

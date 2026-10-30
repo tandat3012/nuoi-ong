@@ -19,6 +19,8 @@ import {
   stockDocumentActions,
 } from "@/features/stock-documents";
 import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
+import { documentCodeLabel, NumberingDetails } from '@/features/stock-documents';
+import { formatInventoryQuantity } from "@/features/inventory";
 
 const date = (value: string | null) =>
   value ? value.split("-").reverse().join("/") : "—";
@@ -127,7 +129,7 @@ export function ReceiptDetail({
               kind="stock-receipts"
               farmId={farmId}
               id={id}
-              code={detail.receipt.receiptCode}
+              code={documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id)}
               canSubmit={actions.submit}
               canReject={actions.reject}
               disabled={isCancelling || isConfirming}
@@ -221,9 +223,10 @@ export function ReceiptDetail({
               <div>
                 <dt className="text-sm text-muted-foreground">Mã phiếu</dt>
                 <dd className="break-words font-mono">
-                  {detail.receipt.receiptCode}
+                  {documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id)}
                 </dd>
               </div>
+              <NumberingDetails document={detail.receipt} />
               <div>
                 <dt className="text-sm text-muted-foreground">Ngày nhập</dt>
                 <dd>{date(detail.receipt.receiptDate)}</dd>
@@ -261,7 +264,7 @@ export function ReceiptDetail({
               <div className="overflow-x-auto rounded-xl border bg-card">
                 <table className="w-full text-left text-sm">
                   <caption className="sr-only">
-                    Các dòng hàng của phiếu nhập {detail.receipt.receiptCode}
+                    Các dòng hàng của phiếu nhập {documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id)}
                   </caption>
                   <thead className="border-b bg-muted/50">
                     <tr>
@@ -302,7 +305,7 @@ export function ReceiptDetail({
                             )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
-                            {line.quantity} {line.unitSymbol || line.unitName}
+                            {formatInventoryQuantity(line.quantity)} {line.unitSymbol || line.unitName}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {line.unitPrice}

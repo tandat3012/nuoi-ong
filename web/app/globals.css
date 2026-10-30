@@ -39,7 +39,8 @@
 
   /* Borders, Inputs & Ring */
   --border: #ede6dc;
-  --input: #ede6dc;
+  /* Darker than --border so field outlines reach 3:1 against white and the canvas. */
+  --input: #9f8d74;
   --ring: #d97706;
 
   /* Geometry */
@@ -83,7 +84,7 @@
 
   /* Borders, Inputs & Ring */
   --border: #2e261f;
-  --input: #2e261f;
+  --input: #75665a;
   --ring: #f59e0b;
 }
 
