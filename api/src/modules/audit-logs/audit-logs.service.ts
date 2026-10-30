@@ -262,7 +262,7 @@ export class AuditLogsService {
         ),
     ]);
     return Object.fromEntries(
-      groups.flat().map(({ id, label }) => [id, label]),
+      groups.flat().flatMap(({ id, label }) => (label ? [[id, label]] : [])),
     );
   }
 
