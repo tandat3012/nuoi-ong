@@ -20,13 +20,17 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:db": "jest --config ./test/jest-db.json",
+    "test:assets": "jest --config ./test/jest-assets.config.cjs",
+    "test:assets:config": "node --test test/jest-assets.config.test.cjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:pull": "drizzle-kit pull",
     "db:seed": "ts-node --transpile-only scripts/seed.ts",
     "db:seed:storefront": "ts-node --transpile-only scripts/seed-storefront.ts",
     "db:seed:demo-inventory": "ts-node --transpile-only scripts/seed-demo-inventory.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "test:personnel": "jest --config ./test/jest-personnel.config.cjs",
+    "test:personnel:config": "node --test test/jest-personnel.config.test.cjs"
   },
   "dependencies": {
     "@clerk/backend": "^3.16.12",

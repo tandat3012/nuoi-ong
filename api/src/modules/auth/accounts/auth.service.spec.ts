@@ -1,8 +1,8 @@
 import type { ClerkClient } from '@clerk/backend';
-import type { DatabaseService } from '../../db/database.service';
+import type { DatabaseService } from '../../../db/database.service';
 import { AuthService } from './auth.service';
 import { ForbiddenException } from '@nestjs/common';
-import { farmMembers } from '../../db/schema';
+import { farmMembers } from '../../../db/schema';
 
 describe('AuthService', () => {
   const database = {
@@ -17,7 +17,11 @@ describe('AuthService', () => {
 
   let service: AuthService;
 
-  function contextRows(rows: unknown[], status = 'ACTIVE') {
+  function contextRows(
+    rows: unknown[],
+    status = 'ACTIVE',
+    storeFarmRows: unknown[] = [],
+  ) {
     database.select.mockReturnValueOnce({
       from: () => ({
         where: () => ({
@@ -30,6 +34,7 @@ describe('AuthService', () => {
                 email: 'user@example.com',
                 fullName: null,
                 avatarUrl: null,
+                mustChangePassword: false,
                 systemRoleId: 'private-role-id',
               },
             ]),
@@ -48,6 +53,16 @@ describe('AuthService', () => {
     query.leftJoin.mockReturnValue(query);
     query.where.mockReturnValue(query);
     database.select.mockReturnValueOnce(query);
+    const storeQuery = {
+      from: jest.fn(),
+      innerJoin: jest.fn(),
+      where: jest.fn(),
+      limit: jest.fn().mockResolvedValue(storeFarmRows),
+    };
+    storeQuery.from.mockReturnValue(storeQuery);
+    storeQuery.innerJoin.mockReturnValue(storeQuery);
+    storeQuery.where.mockReturnValue(storeQuery);
+    database.select.mockReturnValueOnce(storeQuery);
   }
 
   it('returns null default farm when the user has no memberships', async () => {
@@ -59,10 +74,14 @@ describe('AuthService', () => {
         email: 'user@example.com',
         fullName: null,
         avatarUrl: null,
+        mustChangePassword: false,
       },
       memberships: [],
       defaultFarmId: null,
+      storeFarm: null,
     });
+    // Customers without memberships never query the store farm.
+    expect(database.select).toHaveBeenCalledTimes(2);
   });
 
   it('keeps farms and their roles separate and deduplicates roles', async () => {
@@ -92,6 +111,26 @@ describe('AuthService', () => {
     expect(context.memberships[0].roles).toEqual(['EMPLOYEE']);
     expect(context.memberships[1].roles).toEqual(['FARM_OWNER']);
     expect(context.defaultFarmId).toBe('farm-a');
+    expect(context.storeFarm).toBeNull();
+  });
+
+  it('returns the farm that owns the store warehouse to staff', async () => {
+    contextRows(
+      [
+        {
+          memberId: 'membership-a',
+          farmId: 'farm-a',
+          farmCode: 'A',
+          farmName: 'A',
+          roleCode: 'EMPLOYEE',
+        },
+      ],
+      'ACTIVE',
+      [{ id: 'farm-a', name: 'A' }],
+    );
+    const context = await service.getAuthContext('user_123');
+    expect(context.storeFarm).toEqual({ id: 'farm-a', name: 'A' });
+    expect(database.select).toHaveBeenCalledTimes(3);
   });
 
   it('rejects inactive users before loading memberships', async () => {
