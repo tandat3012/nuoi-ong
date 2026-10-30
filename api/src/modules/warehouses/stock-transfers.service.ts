@@ -35,7 +35,10 @@ import {
 } from './dto/stock-transfer.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import { allocateDocumentCode } from './stock-document-code';
+import {
+  allocateDocumentCode,
+  lockManualCodeScope,
+} from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -105,6 +108,7 @@ export class StockTransfersService {
       await this.assertWarehouse(tx, farmId, input.fromWarehouseId);
       await this.assertWarehouse(tx, farmId, input.toWarehouseId);
       await this.validateLines(tx, farmId, input.items);
+      await lockManualCodeScope(tx, farmId, 'CK', input.transferCode);
       const [row] = await tx
         .insert(stockTransfers)
         .values({
@@ -197,6 +201,7 @@ export class StockTransfersService {
       ] as const)
         if (input[k] !== undefined) changes[k] = input[k] as never;
       changes.updatedAt = new Date().toISOString();
+      await lockManualCodeScope(tx, farmId, 'CK', input.transferCode);
       await tx
         .update(stockTransfers)
         .set(changes)

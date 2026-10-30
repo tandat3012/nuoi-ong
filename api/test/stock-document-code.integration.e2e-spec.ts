@@ -1,11 +1,13 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from '../src/db/schema';
 import {
   allocateDocumentCode,
   formatDocumentCode,
+  lockManualCodeScope,
   numberingYear,
 } from '../src/modules/warehouses/stock-document-code';
 
@@ -159,5 +161,89 @@ describe('Stock document code allocator', () => {
       ),
     );
     expect(await counter('CK')).toBe(10);
+  });
+
+  describe('manual codes in the automatic format', () => {
+    type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+    const insertReceipt = (tx: Tx, code: string) =>
+      tx.execute(
+        sql`INSERT INTO stock_receipts (farm_id, warehouse_id, receipt_code, created_by_member_id) VALUES (${farm}, ${warehouse}, ${code}, ${member})`,
+      );
+    // Starts a transaction that runs `work`, then stays open until released.
+    const holdOpen = async (work: (tx: Tx) => Promise<unknown>) => {
+      let release!: () => void;
+      let ready!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      const started = new Promise<void>((resolve) => (ready = resolve));
+      const done = db.transaction(async (tx) => {
+        await work(tx);
+        ready();
+        await released;
+      });
+      await started;
+      return { release, done };
+    };
+    const settled = async <T>(promise: Promise<T>) => {
+      let finished = false;
+      void promise.then(
+        () => (finished = true),
+        () => (finished = true),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return finished;
+    };
+    const constraintOf = (error: unknown) => {
+      const failure = error as {
+        constraint?: string;
+        cause?: { constraint?: string };
+      };
+      return failure.cause?.constraint ?? failure.constraint;
+    };
+
+    it('makes allocation wait for an open manual write of the next code, then skip it', async () => {
+      const manual = await holdOpen(async (tx) => {
+        await lockManualCodeScope(tx, farm, 'PN', ' pn-2026-000001 ');
+        await insertReceipt(tx, 'PN-2026-000001');
+      });
+      const automatic = allocate('PN');
+      try {
+        expect(await settled(automatic)).toBe(false);
+      } finally {
+        manual.release();
+        await manual.done;
+      }
+      expect(await automatic).toBe('PN-2026-000002');
+    });
+
+    it('makes a manual write wait for an open allocation and fail on the taken code', async () => {
+      const automatic = await holdOpen(async (tx) => {
+        const code = await allocateDocumentCode(tx, farm, 'PN', at2026);
+        await insertReceipt(tx, code);
+      });
+      const manual = db.transaction(async (tx) => {
+        await lockManualCodeScope(tx, farm, 'PN', 'PN-2026-000001');
+        await insertReceipt(tx, 'PN-2026-000001');
+      });
+      try {
+        expect(await settled(manual)).toBe(false);
+      } finally {
+        automatic.release();
+        await automatic.done;
+      }
+      expect(constraintOf(await manual.catch((error: unknown) => error))).toBe(
+        'uq_receipt_code_per_farm',
+      );
+    });
+
+    it('locks the scope of the code year without moving its counter', async () => {
+      await db.transaction(async (tx) => {
+        await lockManualCodeScope(tx, farm, 'PN', 'PN-2025-000500');
+        await lockManualCodeScope(tx, farm, 'PN', 'PN-demo-001');
+        await lockManualCodeScope(tx, farm, 'PN', 'PX-2026-000001');
+        await lockManualCodeScope(tx, farm, 'PN', null);
+      });
+      expect(await counter('PN', 2025)).toBe(0);
+      expect(await counter('PN', 2026)).toBeUndefined();
+    });
   });
 });

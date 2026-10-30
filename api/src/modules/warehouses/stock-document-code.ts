@@ -41,6 +41,56 @@ export function formatDocumentCode(
   return `${prefix}-${year}-${String(value).padStart(6, '0')}`;
 }
 
+function counterScope(
+  farmId: string,
+  prefix: StockDocumentPrefix,
+  year: number,
+) {
+  return and(
+    eq(stockDocumentCounters.farmId, farmId),
+    eq(stockDocumentCounters.prefix, prefix),
+    eq(stockDocumentCounters.year, year),
+  );
+}
+
+// Creates the scope's counter on first use, then locks it until commit.
+async function lockCounter(
+  tx: Transaction,
+  farmId: string,
+  prefix: StockDocumentPrefix,
+  year: number,
+) {
+  await tx
+    .insert(stockDocumentCounters)
+    .values({ farmId, prefix, year })
+    .onConflictDoNothing();
+  const [counter] = await tx
+    .select({ lastValue: stockDocumentCounters.lastValue })
+    .from(stockDocumentCounters)
+    .where(counterScope(farmId, prefix, year))
+    .for('update');
+  return counter.lastValue;
+}
+
+/**
+ * A written code in the automatic format (e.g. PN-2026-000005) locks the
+ * counter of its own prefix and encoded year before the write, so it
+ * serializes with automatic allocation instead of racing it. The counter
+ * value is not changed. Other codes can never collide with automatic ones.
+ */
+export async function lockManualCodeScope(
+  tx: Transaction,
+  farmId: string,
+  prefix: StockDocumentPrefix,
+  code: string | null | undefined,
+) {
+  const year = code
+    ?.trim()
+    .toUpperCase()
+    .match(new RegExp(`^${prefix}-(\\d{4})-\\d{6,}$`))?.[1];
+  if (year) await lockCounter(tx, farmId, prefix, Number(year));
+}
+
 /**
  * Takes the next free automatic code for a confirmation, inside the caller's
  * transaction so a rollback also rolls back the counter. Call it after the
@@ -54,22 +104,8 @@ export async function allocateDocumentCode(
   confirmedAt: Date,
 ) {
   const year = numberingYear(confirmedAt);
-  const scope = and(
-    eq(stockDocumentCounters.farmId, farmId),
-    eq(stockDocumentCounters.prefix, prefix),
-    eq(stockDocumentCounters.year, year),
-  );
-  await tx
-    .insert(stockDocumentCounters)
-    .values({ farmId, prefix, year })
-    .onConflictDoNothing();
-  const [counter] = await tx
-    .select({ lastValue: stockDocumentCounters.lastValue })
-    .from(stockDocumentCounters)
-    .where(scope)
-    .for('update');
   const { table, code: column } = DOCUMENTS[prefix];
-  let value = counter.lastValue;
+  let value = await lockCounter(tx, farmId, prefix, year);
   let code: string;
   let taken: boolean;
   do {
@@ -83,6 +119,6 @@ export async function allocateDocumentCode(
   await tx
     .update(stockDocumentCounters)
     .set({ lastValue: value, updatedAt: confirmedAt.toISOString() })
-    .where(scope);
+    .where(counterScope(farmId, prefix, year));
   return code;
 }

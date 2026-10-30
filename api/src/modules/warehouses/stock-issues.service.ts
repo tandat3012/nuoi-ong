@@ -38,7 +38,10 @@ import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import { allocateDocumentCode } from './stock-document-code';
+import {
+  allocateDocumentCode,
+  lockManualCodeScope,
+} from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -138,6 +141,7 @@ export class StockIssuesService {
       .transaction(async (tx) => {
         await this.assertWarehouse(tx, farmId, input.warehouseId);
         await this.validateLines(tx, farmId, input.items, issueType);
+        await lockManualCodeScope(tx, farmId, 'PX', input.issueCode);
         const [issue] = await tx
           .insert(stockIssues)
           .values({
@@ -259,6 +263,7 @@ export class StockIssuesService {
         ] as const)
           if (input[key] !== undefined) changes[key] = input[key] as never;
         changes.updatedAt = new Date().toISOString();
+        await lockManualCodeScope(tx, farmId, 'PX', input.issueCode);
         if (Object.keys(changes).length)
           await tx
             .update(stockIssues)
