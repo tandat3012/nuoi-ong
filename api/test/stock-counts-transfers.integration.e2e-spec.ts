@@ -463,6 +463,32 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       .expect(400);
   });
 
+  it('rejects a null transfer code on draft update and keeps the existing code', async () => {
+    const id = await create('transfers', '1');
+    const before = await pool.query<{ transfer_code: string }>(
+      'SELECT transfer_code FROM stock_transfers WHERE id=$1',
+      [id],
+    );
+    await http()
+      .patch(`/api/v1/stock-transfers/${id}`)
+      .query({ farmId: farm })
+      .send({ transferCode: null })
+      .expect(400);
+    await http()
+      .patch(`/api/v1/stock-transfers/${id}`)
+      .query({ farmId: farm })
+      .send({ note: 'code untouched' })
+      .expect(200);
+    const after = await pool.query<{ transfer_code: string; note: string }>(
+      'SELECT transfer_code, note FROM stock_transfers WHERE id=$1',
+      [id],
+    );
+    expect(after.rows[0]).toEqual({
+      transfer_code: before.rows[0].transfer_code,
+      note: 'code untouched',
+    });
+  });
+
   it('rejects ASSET items on create, update, and confirmation of legacy drafts', async () => {
     await http()
       .post('/api/v1/stock-transfers')
