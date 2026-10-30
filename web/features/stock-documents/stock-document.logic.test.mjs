@@ -159,6 +159,10 @@ test("normalizes owner numbering options like the API and requires a reason with
     "Cần nhập lý do khi yêu cầu mã phiếu.",
   );
   assert.equal(numberingOptionsError({ requestedCode: "X".repeat(51), requestedCodeReason: "r" }), "Mã phiếu yêu cầu không được quá 50 ký tự.");
+  assert.equal(
+    numberingOptionsError(numberingOptionsPayload({ externalReference: "", requestedCode: "ß".repeat(50), requestedCodeReason: "r" })),
+    "Mã phiếu yêu cầu không được quá 50 ký tự.",
+  );
   assert.equal(isFarmOwner(["ADMIN"]), false);
   assert.equal(isFarmOwner(["EMPLOYEE", "FARM_OWNER"]), true);
 });
