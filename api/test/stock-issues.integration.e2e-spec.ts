@@ -734,6 +734,24 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     },
   );
 
+  it('rejects a null issue code on draft update and keeps the existing code', async () => {
+    const draft = await create([line('0.125')]);
+    await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({ issueCode: null })
+      .expect(400);
+    const updated = await http()
+      .patch(`/stock-issues/${draft.issue.id}`)
+      .query({ farmId: farm })
+      .send({ note: 'code untouched' })
+      .expect(200);
+    expect((updated.body as { data: Detail }).data.issue).toMatchObject({
+      issueCode: draft.issue.issueCode,
+      note: 'code untouched',
+    });
+  });
+
   it('preserves a maintenance link on draft edits and clears it when the issue type changes', async () => {
     const record = await maintenance();
     const draft = await create([line('0.125')], {

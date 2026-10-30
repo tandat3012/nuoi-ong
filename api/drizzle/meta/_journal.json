@@ -162,6 +162,13 @@
       "when": 1793254709948,
       "tag": "0022_asset-transfer-requests",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793344951634,
+      "tag": "0023_stock-document-numbering",
+      "breakpoints": true
     }
   ]
 }

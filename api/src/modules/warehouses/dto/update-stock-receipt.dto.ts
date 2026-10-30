@@ -4,10 +4,12 @@ import {
   IsDateString,
   IsOptional,
   IsString,
+  Matches,
   IsUUID,
   Length,
   MaxLength,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import { CreateStockReceiptItemDto } from './create-stock-receipt.dto';
 import { ApiPropertyOptional } from '@nestjs/swagger';
@@ -26,9 +28,11 @@ export class UpdateStockReceiptDto {
   @IsDateString()
   receiptDate?: string;
 
-  @IsOptional()
+  // null must fail: a draft keeps its code until confirmation assigns one.
+  @ValidateIf((_, value) => value !== undefined)
   @IsString()
   @Length(1, 50)
+  @Matches(/\S/)
   receiptCode?: string;
 
   @IsOptional()

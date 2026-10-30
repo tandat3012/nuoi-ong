@@ -12,6 +12,7 @@ import {
   eq,
   gte,
   isNull,
+  or,
   sql,
   SQL,
   getTableColumns,
@@ -38,6 +39,11 @@ import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
+const balanceKey = (
+  warehouseId: string,
+  itemId: string,
+  lotId: string | null,
+) => `${warehouseId}:${itemId}:${lotId ?? ''}`;
 type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
@@ -351,61 +357,36 @@ export class StockTransfersService {
           'Transfer must contain at least one item',
         );
       await this.validateLines(tx, farmId, lines, true);
+      const balances = await this.lockBalances(tx, farmId, row, lines);
       for (const line of lines) {
-        const [source] = await tx
-          .select()
-          .from(inventoryBalances)
-          .where(
-            and(
-              eq(inventoryBalances.farmId, farmId),
-              eq(inventoryBalances.warehouseId, row.fromWarehouseId),
-              eq(inventoryBalances.itemId, line.itemId),
-              line.lotId
-                ? eq(inventoryBalances.lotId, line.lotId)
-                : isNull(inventoryBalances.lotId),
-              gte(inventoryBalances.quantityOnHand, line.quantity),
-            ),
-          )
-          .limit(1);
-        if (!source)
-          throw new ConflictException('Insufficient source inventory');
-        await tx
+        const source = balances.get(
+          balanceKey(row.fromWarehouseId, line.itemId, line.lotId),
+        )!;
+        const dest = balances.get(
+          balanceKey(row.toWarehouseId, line.itemId, line.lotId),
+        )!;
+        const debited = await tx
           .update(inventoryBalances)
           .set({
             quantityOnHand: sql`${inventoryBalances.quantityOnHand} - ${line.quantity}`,
             updatedAt: new Date().toISOString(),
           })
-          .where(eq(inventoryBalances.id, source.id));
-        const [dest] = await tx
-          .select()
-          .from(inventoryBalances)
           .where(
             and(
-              eq(inventoryBalances.farmId, farmId),
-              eq(inventoryBalances.warehouseId, row.toWarehouseId),
-              eq(inventoryBalances.itemId, line.itemId),
-              line.lotId
-                ? eq(inventoryBalances.lotId, line.lotId)
-                : isNull(inventoryBalances.lotId),
+              eq(inventoryBalances.id, source),
+              gte(inventoryBalances.quantityOnHand, line.quantity),
             ),
           )
-          .limit(1);
-        if (dest)
-          await tx
-            .update(inventoryBalances)
-            .set({
-              quantityOnHand: sql`${inventoryBalances.quantityOnHand} + ${line.quantity}`,
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(inventoryBalances.id, dest.id));
-        else
-          await tx.insert(inventoryBalances).values({
-            farmId,
-            warehouseId: row.toWarehouseId,
-            itemId: line.itemId,
-            lotId: line.lotId,
-            quantityOnHand: line.quantity,
-          });
+          .returning({ id: inventoryBalances.id });
+        if (!debited.length)
+          throw new ConflictException('Insufficient source inventory');
+        await tx
+          .update(inventoryBalances)
+          .set({
+            quantityOnHand: sql`${inventoryBalances.quantityOnHand} + ${line.quantity}`,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(inventoryBalances.id, dest));
         await tx.insert(inventoryTransactions).values([
           {
             farmId,
@@ -454,6 +435,70 @@ export class StockTransfersService {
         );
     });
     return this.withItems(id, farmId);
+  }
+  // Locks every source and destination balance in id order, so transfers in
+  // opposite directions cannot deadlock. Missing rows are created at zero first,
+  // in key order, so concurrent first-time destinations cannot race.
+  private async lockBalances(
+    tx: Pick<DatabaseService['db'], 'select' | 'insert'>,
+    farmId: string,
+    row: typeof stockTransfers.$inferSelect,
+    lines: { itemId: string; lotId: string | null }[],
+  ) {
+    const keys = new Map<
+      string,
+      { warehouseId: string; itemId: string; lotId: string | null }
+    >();
+    for (const line of lines)
+      for (const warehouseId of [row.fromWarehouseId, row.toWarehouseId])
+        keys.set(balanceKey(warehouseId, line.itemId, line.lotId), {
+          warehouseId,
+          itemId: line.itemId,
+          lotId: line.lotId,
+        });
+    const sorted = [...keys.keys()].sort().map((key) => keys.get(key)!);
+    await tx
+      .insert(inventoryBalances)
+      .values(sorted.map((key) => ({ farmId, ...key })))
+      .onConflictDoNothing({
+        target: [
+          inventoryBalances.itemId,
+          inventoryBalances.lotId,
+          inventoryBalances.warehouseId,
+        ],
+      });
+    const locked = await tx
+      .select({
+        id: inventoryBalances.id,
+        warehouseId: inventoryBalances.warehouseId,
+        itemId: inventoryBalances.itemId,
+        lotId: inventoryBalances.lotId,
+      })
+      .from(inventoryBalances)
+      .where(
+        and(
+          eq(inventoryBalances.farmId, farmId),
+          or(
+            ...sorted.map((key) =>
+              and(
+                eq(inventoryBalances.warehouseId, key.warehouseId),
+                eq(inventoryBalances.itemId, key.itemId),
+                key.lotId
+                  ? eq(inventoryBalances.lotId, key.lotId)
+                  : isNull(inventoryBalances.lotId),
+              ),
+            ),
+          ),
+        ),
+      )
+      .orderBy(asc(inventoryBalances.id))
+      .for('update');
+    return new Map(
+      locked.map((balance) => [
+        balanceKey(balance.warehouseId, balance.itemId, balance.lotId),
+        balance.id,
+      ]),
+    );
   }
   private notification(
     row: typeof stockTransfers.$inferSelect,

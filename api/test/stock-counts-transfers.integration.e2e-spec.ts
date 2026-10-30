@@ -393,6 +393,102 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     expect(await ledger()).toEqual(['-3.125', '3.125']);
   });
 
+  const createTransfer = async (from: string, to: string, quantity: string) => {
+    const response = await http()
+      .post('/api/v1/stock-transfers')
+      .query({ farmId: farm })
+      .send({
+        fromWarehouseId: from,
+        toWarehouseId: to,
+        transferCode: randomUUID(),
+        items: [{ itemId: item, quantity }],
+      })
+      .expect(201);
+    return (response.body as { data: { transfer: { id: string } } }).data
+      .transfer.id;
+  };
+
+  it('confirms concurrent first-time transfers into a missing destination balance', async () => {
+    const ids = await Promise.all(
+      [1, 2, 3, 4].map(() => createTransfer(source, destination, '1')),
+    );
+    const statuses = await Promise.all(
+      ids.map(async (id) => (await confirm('transfers', id)).status),
+    );
+    expect(statuses).toEqual([201, 201, 201, 201]);
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '6.000' },
+        { warehouse_id: destination, quantity_on_hand: '4.000' },
+      ]),
+    );
+  });
+
+  it('confirms concurrent opposite-direction transfers without deadlock', async () => {
+    await db.insert(schema.inventoryBalances).values({
+      farmId: farm,
+      warehouseId: destination,
+      itemId: item,
+      quantityOnHand: '10',
+    });
+    const ids = await Promise.all(
+      [0, 1, 2, 3, 4, 5, 6, 7].map((n) =>
+        n % 2
+          ? createTransfer(destination, source, '1')
+          : createTransfer(source, destination, '1'),
+      ),
+    );
+    const statuses = await Promise.all(
+      ids.map(async (id) => (await confirm('transfers', id)).status),
+    );
+    expect(statuses).toEqual(Array(8).fill(201));
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '10.000' },
+        { warehouse_id: destination, quantity_on_hand: '10.000' },
+      ]),
+    );
+  });
+
+  it('rejects a whitespace-only transfer code instead of storing it', async () => {
+    await http()
+      .post('/api/v1/stock-transfers')
+      .query({ farmId: farm })
+      .send({
+        fromWarehouseId: source,
+        toWarehouseId: destination,
+        transferCode: '   ',
+        items: [{ itemId: item, quantity: '1' }],
+      })
+      .expect(400);
+  });
+
+  it('rejects a null transfer code on draft update and keeps the existing code', async () => {
+    const id = await create('transfers', '1');
+    const before = await pool.query<{ transfer_code: string }>(
+      'SELECT transfer_code FROM stock_transfers WHERE id=$1',
+      [id],
+    );
+    await http()
+      .patch(`/api/v1/stock-transfers/${id}`)
+      .query({ farmId: farm })
+      .send({ transferCode: null })
+      .expect(400);
+    await http()
+      .patch(`/api/v1/stock-transfers/${id}`)
+      .query({ farmId: farm })
+      .send({ note: 'code untouched' })
+      .expect(200);
+    const after = await pool.query<{ transfer_code: string; note: string }>(
+      'SELECT transfer_code, note FROM stock_transfers WHERE id=$1',
+      [id],
+    );
+    expect(after.rows[0]).toEqual({
+      transfer_code: before.rows[0].transfer_code,
+      note: 'code untouched',
+    });
+  });
+
   it('rejects ASSET items on create, update, and confirmation of legacy drafts', async () => {
     await http()
       .post('/api/v1/stock-transfers')

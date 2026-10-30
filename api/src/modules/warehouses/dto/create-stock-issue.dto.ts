@@ -57,7 +57,7 @@ export class CreateStockIssueItemDto {
 
 export class CreateStockIssueDto {
   @IsUUID() warehouseId!: string;
-  @IsString() @Length(1, 50) issueCode!: string;
+  @IsString() @Length(1, 50) @Matches(/\S/) issueCode!: string;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()

@@ -456,6 +456,24 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .expect(409);
   });
 
+  it('rejects a null receipt code on draft update and keeps the existing code', async () => {
+    const draft = await createReceipt(farmA, receiptInput(`${tag}-NULL-CODE`));
+    await post()
+      .patch(`/api/v1/stock-receipts/${draft.receipt.id}`)
+      .query({ farmId: farmA })
+      .send({ receiptCode: null })
+      .expect(400);
+    const updated = await post()
+      .patch(`/api/v1/stock-receipts/${draft.receipt.id}`)
+      .query({ farmId: farmA })
+      .send({ note: 'code untouched' })
+      .expect(200);
+    expect((updated.body as ReceiptResponse).data.receipt).toMatchObject({
+      receiptCode: draft.receipt.receiptCode,
+      note: 'code untouched',
+    });
+  });
+
   it('rejects invalid payloads and cross-farm warehouse, supplier, and item references', async () => {
     await post()
       .post('/api/v1/stock-receipts')
