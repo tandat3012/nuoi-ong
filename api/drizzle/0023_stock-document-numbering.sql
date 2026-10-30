@@ -22,10 +22,14 @@ CREATE UNIQUE INDEX "uq_count_code_per_farm" ON "stock_counts" USING btree ("far
 CREATE UNIQUE INDEX "uq_issue_code_per_farm" ON "stock_issues" USING btree ("farm_id",upper(btrim("issue_code")));--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_receipt_code_per_farm" ON "stock_receipts" USING btree ("farm_id",upper(btrim("receipt_code")));--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_transfer_code_per_farm" ON "stock_transfers" USING btree ("farm_id",upper(btrim("transfer_code")));--> statement-breakpoint
-ALTER TABLE "stock_counts" ADD CONSTRAINT "ck_count_confirmed_code" CHECK ((status <> 'CONFIRMED'::stock_count_status) OR ((count_code IS NOT NULL) AND (btrim(count_code) <> '')));--> statement-breakpoint
-ALTER TABLE "stock_issues" ADD CONSTRAINT "ck_issue_confirmed_code" CHECK ((status <> 'CONFIRMED'::document_status) OR ((issue_code IS NOT NULL) AND (btrim(issue_code) <> '')));--> statement-breakpoint
-ALTER TABLE "stock_receipts" ADD CONSTRAINT "ck_receipt_confirmed_code" CHECK ((status <> 'CONFIRMED'::document_status) OR ((receipt_code IS NOT NULL) AND (btrim(receipt_code) <> '')));--> statement-breakpoint
-ALTER TABLE "stock_transfers" ADD CONSTRAINT "ck_transfer_confirmed_code" CHECK ((status <> 'CONFIRMED'::document_status) OR ((transfer_code IS NOT NULL) AND (btrim(transfer_code) <> '')));--> statement-breakpoint
+ALTER TABLE "stock_counts" ADD CONSTRAINT "ck_count_code_not_blank" CHECK (btrim(count_code) <> '');--> statement-breakpoint
+ALTER TABLE "stock_counts" ADD CONSTRAINT "ck_count_confirmed_code" CHECK ((status <> 'CONFIRMED'::stock_count_status) OR (count_code IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "stock_issues" ADD CONSTRAINT "ck_issue_code_not_blank" CHECK (btrim(issue_code) <> '');--> statement-breakpoint
+ALTER TABLE "stock_issues" ADD CONSTRAINT "ck_issue_confirmed_code" CHECK ((status <> 'CONFIRMED'::document_status) OR (issue_code IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "stock_receipts" ADD CONSTRAINT "ck_receipt_code_not_blank" CHECK (btrim(receipt_code) <> '');--> statement-breakpoint
+ALTER TABLE "stock_receipts" ADD CONSTRAINT "ck_receipt_confirmed_code" CHECK ((status <> 'CONFIRMED'::document_status) OR (receipt_code IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "stock_transfers" ADD CONSTRAINT "ck_transfer_code_not_blank" CHECK (btrim(transfer_code) <> '');--> statement-breakpoint
+ALTER TABLE "stock_transfers" ADD CONSTRAINT "ck_transfer_confirmed_code" CHECK ((status <> 'CONFIRMED'::document_status) OR (transfer_code IS NOT NULL));--> statement-breakpoint
 -- Seed counters from existing canonical codes (PREFIX-YYYY-NNNNNN+) of every status.
 -- A suffix above integer range fails the migration on purpose so it gets reviewed.
 INSERT INTO "stock_document_counters" ("farm_id", "prefix", "year", "last_value")

@@ -43,7 +43,7 @@ export class StockTransferItemDto {
 export class CreateStockTransferDto {
   @IsUUID() fromWarehouseId!: string;
   @IsUUID() toWarehouseId!: string;
-  @IsString() @Length(1, 50) transferCode!: string;
+  @IsString() @Length(1, 50) @Matches(/\S/) transferCode!: string;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()
@@ -57,7 +57,7 @@ export class CreateStockTransferDto {
 export class UpdateStockTransferDto {
   @IsOptional() @IsUUID() fromWarehouseId?: string;
   @IsOptional() @IsUUID() toWarehouseId?: string;
-  @IsOptional() @IsString() @Length(1, 50) transferCode?: string;
+  @IsOptional() @IsString() @Length(1, 50) @Matches(/\S/) transferCode?: string;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()

@@ -120,17 +120,24 @@ describe('Stock document numbering schema', () => {
       await insert(t, null, { status: 'CANCELLED' });
     });
 
-    it('rejects a confirmed row with a null or blank code', async () => {
+    it('rejects a confirmed row without a code', async () => {
       await expectViolation(
         () => insert(t, null, { status: 'CONFIRMED' }),
         `ck_${t.name}_confirmed_code`,
       );
-      await expectViolation(
-        () => insert(t, '   ', { status: 'CONFIRMED' }),
-        `ck_${t.name}_confirmed_code`,
-      );
       await insert(t, 'PX-2026-000001', { status: 'CONFIRMED' });
     });
+
+    it.each(['', '   '])(
+      'rejects a blank code %j in any status, so drafts store NULL',
+      async (code) => {
+        for (const status of ['DRAFT', 'CANCELLED', 'CONFIRMED'])
+          await expectViolation(
+            () => insert(t, code, { status }),
+            `ck_${t.name}_code_not_blank`,
+          );
+      },
+    );
 
     it('keeps codes unique per farm, ignoring case and outer whitespace', async () => {
       await insert(t, 'legacy-01');

@@ -27,7 +27,7 @@ export class StockCountItemDto {
 }
 export class CreateStockCountDto {
   @IsUUID() warehouseId!: string;
-  @IsString() @Length(1, 50) countCode!: string;
+  @IsString() @Length(1, 50) @Matches(/\S/) countCode!: string;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
   @IsArray()
   @ValidateNested({ each: true })

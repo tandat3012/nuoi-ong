@@ -680,9 +680,11 @@ export const stockReceipts = pgTable(
       table.farmId,
       sql`upper(btrim(${table.receiptCode}))`,
     ),
+    // An uncoded draft stores NULL, never an empty string.
+    check('ck_receipt_code_not_blank', sql`btrim(receipt_code) <> ''`),
     check(
       'ck_receipt_confirmed_code',
-      sql`(status <> 'CONFIRMED'::document_status) OR ((receipt_code IS NOT NULL) AND (btrim(receipt_code) <> ''))`,
+      sql`(status <> 'CONFIRMED'::document_status) OR (receipt_code IS NOT NULL)`,
     ),
     check(
       'ck_receipt_confirm_fields',
@@ -1120,9 +1122,11 @@ export const stockIssues = pgTable(
       table.farmId,
       sql`upper(btrim(${table.issueCode}))`,
     ),
+    // An uncoded draft stores NULL, never an empty string.
+    check('ck_issue_code_not_blank', sql`btrim(issue_code) <> ''`),
     check(
       'ck_issue_confirmed_code',
-      sql`(status <> 'CONFIRMED'::document_status) OR ((issue_code IS NOT NULL) AND (btrim(issue_code) <> ''))`,
+      sql`(status <> 'CONFIRMED'::document_status) OR (issue_code IS NOT NULL)`,
     ),
     check(
       'ck_issue_maintenance_reference',
@@ -1257,9 +1261,11 @@ export const stockTransfers = pgTable(
       table.farmId,
       sql`upper(btrim(${table.transferCode}))`,
     ),
+    // An uncoded draft stores NULL, never an empty string.
+    check('ck_transfer_code_not_blank', sql`btrim(transfer_code) <> ''`),
     check(
       'ck_transfer_confirmed_code',
-      sql`(status <> 'CONFIRMED'::document_status) OR ((transfer_code IS NOT NULL) AND (btrim(transfer_code) <> ''))`,
+      sql`(status <> 'CONFIRMED'::document_status) OR (transfer_code IS NOT NULL)`,
     ),
     check(
       'ck_transfer_confirm_fields',
@@ -1384,9 +1390,11 @@ export const stockCounts = pgTable(
       table.farmId,
       sql`upper(btrim(${table.countCode}))`,
     ),
+    // An uncoded draft stores NULL, never an empty string.
+    check('ck_count_code_not_blank', sql`btrim(count_code) <> ''`),
     check(
       'ck_count_confirmed_code',
-      sql`(status <> 'CONFIRMED'::stock_count_status) OR ((count_code IS NOT NULL) AND (btrim(count_code) <> ''))`,
+      sql`(status <> 'CONFIRMED'::stock_count_status) OR (count_code IS NOT NULL)`,
     ),
     check(
       'ck_count_confirm_fields',

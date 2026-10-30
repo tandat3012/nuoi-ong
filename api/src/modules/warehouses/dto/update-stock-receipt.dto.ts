@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsOptional,
   IsString,
+  Matches,
   IsUUID,
   Length,
   MaxLength,
@@ -29,6 +30,7 @@ export class UpdateStockReceiptDto {
   @IsOptional()
   @IsString()
   @Length(1, 50)
+  @Matches(/\S/)
   receiptCode?: string;
 
   @IsOptional()

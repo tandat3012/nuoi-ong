@@ -112,6 +112,7 @@ export class CreateStockReceiptDto {
   @ApiProperty({ example: 'RCV-2026-001' })
   @IsString()
   @Length(1, 50)
+  @Matches(/\S/)
   receiptCode!: string;
 
   @IsOptional()

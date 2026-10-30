@@ -287,6 +287,19 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     );
   });
 
+  it('rejects a whitespace-only transfer code instead of storing it', async () => {
+    await http()
+      .post('/api/v1/stock-transfers')
+      .query({ farmId: farm })
+      .send({
+        fromWarehouseId: source,
+        toWarehouseId: destination,
+        transferCode: '   ',
+        items: [{ itemId: item, quantity: '1' }],
+      })
+      .expect(400);
+  });
+
   it.each(['0', '0.000'])(
     'rejects a zero transfer quantity %s before creating a document',
     async (quantity) => {

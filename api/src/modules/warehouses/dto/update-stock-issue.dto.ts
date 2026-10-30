@@ -5,6 +5,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  Matches,
   IsUUID,
   Length,
   MaxLength,
@@ -15,7 +16,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateStockIssueDto {
   @IsOptional() @IsUUID() warehouseId?: string;
-  @IsOptional() @IsString() @Length(1, 50) issueCode?: string;
+  @IsOptional() @IsString() @Length(1, 50) @Matches(/\S/) issueCode?: string;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()

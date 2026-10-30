@@ -1,5 +1,5 @@
 {
-  "id": "934d4a65-bac2-48c1-ab53-882cbcd13cfc",
+  "id": "eea07181-ad56-47f9-a591-f5cf6dd3a353",
   "prevId": "774134d8-eb94-4f36-924f-05d67f916b09",
   "version": "7",
   "dialect": "postgresql",
@@ -4586,9 +4586,13 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "ck_count_code_not_blank": {
+          "name": "ck_count_code_not_blank",
+          "value": "btrim(count_code) <> ''"
+        },
         "ck_count_confirmed_code": {
           "name": "ck_count_confirmed_code",
-          "value": "(status <> 'CONFIRMED'::stock_count_status) OR ((count_code IS NOT NULL) AND (btrim(count_code) <> ''))"
+          "value": "(status <> 'CONFIRMED'::stock_count_status) OR (count_code IS NOT NULL)"
         },
         "ck_count_confirm_fields": {
           "name": "ck_count_confirm_fields",
@@ -5088,9 +5092,13 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "ck_issue_code_not_blank": {
+          "name": "ck_issue_code_not_blank",
+          "value": "btrim(issue_code) <> ''"
+        },
         "ck_issue_confirmed_code": {
           "name": "ck_issue_confirmed_code",
-          "value": "(status <> 'CONFIRMED'::document_status) OR ((issue_code IS NOT NULL) AND (btrim(issue_code) <> ''))"
+          "value": "(status <> 'CONFIRMED'::document_status) OR (issue_code IS NOT NULL)"
         },
         "ck_issue_maintenance_reference": {
           "name": "ck_issue_maintenance_reference",
@@ -5554,9 +5562,13 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "ck_receipt_code_not_blank": {
+          "name": "ck_receipt_code_not_blank",
+          "value": "btrim(receipt_code) <> ''"
+        },
         "ck_receipt_confirmed_code": {
           "name": "ck_receipt_confirmed_code",
-          "value": "(status <> 'CONFIRMED'::document_status) OR ((receipt_code IS NOT NULL) AND (btrim(receipt_code) <> ''))"
+          "value": "(status <> 'CONFIRMED'::document_status) OR (receipt_code IS NOT NULL)"
         },
         "ck_receipt_confirm_fields": {
           "name": "ck_receipt_confirm_fields",
@@ -5931,9 +5943,13 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "ck_transfer_code_not_blank": {
+          "name": "ck_transfer_code_not_blank",
+          "value": "btrim(transfer_code) <> ''"
+        },
         "ck_transfer_confirmed_code": {
           "name": "ck_transfer_confirmed_code",
-          "value": "(status <> 'CONFIRMED'::document_status) OR ((transfer_code IS NOT NULL) AND (btrim(transfer_code) <> ''))"
+          "value": "(status <> 'CONFIRMED'::document_status) OR (transfer_code IS NOT NULL)"
         },
         "ck_transfer_confirm_fields": {
           "name": "ck_transfer_confirm_fields",
