@@ -76,6 +76,10 @@ async function removeConcurrentReceiptFixtures(
     ]);
     await cleanup.query('DELETE FROM categories WHERE id=$1', [categoryId]);
     await cleanup.query('DELETE FROM units WHERE id=$1', [unitId]);
+    await cleanup.query(
+      'DELETE FROM stock_document_counters WHERE farm_id=$1',
+      [farmId],
+    );
     await cleanup.query('DELETE FROM farms WHERE id=$1', [farmId]);
     await cleanup.query('COMMIT');
   } catch (error: unknown) {
@@ -397,7 +401,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       })
       .expect(200);
     const updatedData = (updated.body as ReceiptResponse).data;
-    expect(updatedData.receipt.receiptCode).toBe(`${tag}-UPDATED`);
+    expect(updatedData.receipt.receiptCode).toBeNull();
     expect(updatedData.items).toHaveLength(1);
     expect(updatedData.items[0].quantity).toBe('2.500');
     const detail = await post()
@@ -447,32 +451,24 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     await post().get('/api/v1/locations').query({ farmId: farmB }).expect(403);
   });
 
-  it('maps duplicate receipt codes on draft update to a conflict', async () => {
-    const first = await createReceipt(farmA, receiptInput(`${tag}-DUP-PATCH`));
-    const second = await createReceipt(farmA, receiptInput(`${tag}-PATCH-ME`));
-    await post()
-      .patch(`/api/v1/stock-receipts/${second.receipt.id}`)
-      .query({ farmId: farmA })
-      .send({ receiptCode: first.receipt.receiptCode })
-      .expect(409);
-  });
-
-  it('rejects a null receipt code on draft update and keeps the existing code', async () => {
-    const draft = await createReceipt(farmA, receiptInput(`${tag}-NULL-CODE`));
-    await post()
-      .patch(`/api/v1/stock-receipts/${draft.receipt.id}`)
-      .query({ farmId: farmA })
-      .send({ receiptCode: null })
-      .expect(400);
-    const updated = await post()
-      .patch(`/api/v1/stock-receipts/${draft.receipt.id}`)
-      .query({ farmId: farmA })
-      .send({ note: 'code untouched' })
-      .expect(200);
-    expect((updated.body as ReceiptResponse).data.receipt).toMatchObject({
-      receiptCode: draft.receipt.receiptCode,
-      note: 'code untouched',
-    });
+  it('ignores client-supplied receipt codes on create and update', async () => {
+    const first = await createReceipt(farmA, receiptInput(`${tag}-LEGACY`));
+    const second = await createReceipt(farmA, receiptInput(`${tag}-LEGACY`));
+    expect([first.receipt.receiptCode, second.receipt.receiptCode]).toEqual([
+      null,
+      null,
+    ]);
+    for (const receiptCode of [`${tag}-PATCHED`, null, 'PN-2026-000001']) {
+      const updated = await post()
+        .patch(`/api/v1/stock-receipts/${first.receipt.id}`)
+        .query({ farmId: farmA })
+        .send({ receiptCode, note: 'code ignored' })
+        .expect(200);
+      expect((updated.body as ReceiptResponse).data.receipt).toMatchObject({
+        receiptCode: null,
+        note: 'code ignored',
+      });
+    }
   });
 
   it('rejects invalid payloads and cross-farm warehouse, supplier, and item references', async () => {
@@ -803,20 +799,6 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .expect(404);
   });
 
-  it('returns a conflict for duplicate receipt codes', async () => {
-    await createReceipt(farmA, receiptInput(`${tag}-DUP-CODE`));
-    const response = await post()
-      .post('/api/v1/stock-receipts')
-      .query({ farmId: farmA })
-      .send(receiptInput(`${tag}-DUP-CODE`));
-    const stored = await client!.query<{ count: number }>(
-      'SELECT count(*)::int AS count FROM stock_receipts WHERE farm_id=$1 AND receipt_code=$2',
-      [farmA, `${tag}-DUP-CODE`],
-    );
-    expect(stored.rows[0].count).toBe(1);
-    expect(response.status).toBe(409);
-  });
-
   it('returns a conflict for duplicate LOT numbers without partially confirming', async () => {
     const draft = await createReceipt(
       farmA,
@@ -946,12 +928,13 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
         .query({ farmId: farmA })
         .send(
           receiptInput(code, {
+            note: code,
             items: [{ itemId: quantityItemId, quantity }],
           }),
         )
         .expect(400);
       const stored = await client!.query<{ count: number }>(
-        'SELECT count(*)::int AS count FROM stock_receipts WHERE farm_id=$1 AND receipt_code=$2',
+        'SELECT count(*)::int AS count FROM stock_receipts WHERE farm_id=$1 AND note=$2',
         [farmA, code],
       );
       expect(stored.rows[0].count).toBe(0);

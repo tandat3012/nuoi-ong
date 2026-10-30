@@ -214,6 +214,11 @@ export async function cleanupOrders(
       ]),
     );
   await db
+    .delete(schema.stockDocumentCounters)
+    .where(
+      inArray(schema.stockDocumentCounters.farmId, [ids.farm, ids.otherFarm]),
+    );
+  await db
     .delete(schema.farms)
     .where(inArray(schema.farms.id, [ids.farm, ids.otherFarm]));
   await db

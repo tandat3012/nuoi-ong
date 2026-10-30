@@ -1,11 +1,10 @@
 import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   Matches,
   MaxLength,
   ValidateNested,
@@ -27,7 +26,13 @@ export class StockCountItemDto {
 }
 export class CreateStockCountDto {
   @IsUUID() warehouseId!: string;
-  @IsString() @Length(1, 50) @Matches(/\S/) countCode!: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  countCode?: unknown;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
   @IsArray()
   @ValidateNested({ each: true })

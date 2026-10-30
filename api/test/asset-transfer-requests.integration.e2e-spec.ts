@@ -223,6 +223,10 @@ describe('Asset transfer requests', () => {
         await pool.query('DELETE FROM users WHERE id=ANY($1::uuid[])', [
           userIds,
         ]);
+        await pool.query(
+          'DELETE FROM stock_document_counters WHERE farm_id=$1',
+          [farm],
+        );
         await pool.query('DELETE FROM farms WHERE id=$1', [farm]);
       }
     } finally {

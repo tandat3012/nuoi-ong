@@ -697,6 +697,9 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       );
       expect(count.rows[0].value).toBe(0);
     } finally {
+      await pool.query('DELETE FROM stock_document_counters WHERE farm_id=$1', [
+        foreignFarm,
+      ]);
       await pool.query('DELETE FROM farms WHERE id=$1', [foreignFarm]);
     }
     expect(await balance()).toBe('10.000');
@@ -739,47 +742,31 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     },
   );
 
-  it('rejects a null issue code on draft update and keeps the existing code', async () => {
-    const draft = await create([line('0.125')]);
-    await http()
-      .patch(`/stock-issues/${draft.issue.id}`)
-      .query({ farmId: farm })
-      .send({ issueCode: null })
-      .expect(400);
-    const updated = await http()
-      .patch(`/stock-issues/${draft.issue.id}`)
-      .query({ farmId: farm })
-      .send({ note: 'code untouched' })
-      .expect(200);
-    expect((updated.body as { data: Detail }).data.issue).toMatchObject({
-      issueCode: draft.issue.issueCode,
-      note: 'code untouched',
-    });
-  });
-
   it('assigns PX codes to uncoded drafts on confirmation and keeps legacy codes', async () => {
     const legacy = await create([line('0.125')]);
     const first = await create([line('0.125')]);
     const second = await create([line('0.125')]);
-    await pool.query(
-      'UPDATE stock_issues SET issue_code = NULL WHERE id = ANY($1)',
-      [[first.issue.id, second.issue.id]],
-    );
+    // Drafts saved before automatic numbering already carry a code.
+    const legacyCode = `ISS-${randomUUID()}`;
+    await pool.query('UPDATE stock_issues SET issue_code = $2 WHERE id = $1', [
+      legacy.issue.id,
+      legacyCode,
+    ]);
     const year = numberingYear(new Date());
     const codes: (string | null)[] = [];
     for (const draft of [first, legacy, second]) {
       const response = await confirm(draft.issue.id).expect(201);
       codes.push((response.body as { data: Detail }).data.issue.issueCode);
     }
-    // Issues answer a repeat confirmation with 409; the code must not change.
-    await confirm(first.issue.id).expect(409);
+    // A repeat confirmation must not change the assigned code.
+    await confirm(first.issue.id).expect(201);
     const stored = await pool.query<{ code: string }>(
       'SELECT issue_code AS code FROM stock_issues WHERE id = $1',
       [first.issue.id],
     );
     expect([...codes, stored.rows[0].code]).toEqual([
       `PX-${year}-000001`,
-      legacy.issue.issueCode,
+      legacyCode,
       `PX-${year}-000002`,
       `PX-${year}-000001`,
     ]);
@@ -1028,6 +1015,9 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       await pool.query('DELETE FROM locations WHERE id=$1', [foreignLocation]);
       await pool.query('DELETE FROM warehouses WHERE id=$1', [
         foreignWarehouse,
+      ]);
+      await pool.query('DELETE FROM stock_document_counters WHERE farm_id=$1', [
+        foreignFarm,
       ]);
       await pool.query('DELETE FROM farms WHERE id=$1', [foreignFarm]);
     }
@@ -1281,6 +1271,9 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       await pool.query('DELETE FROM warehouses WHERE farm_id=$1', [
         foreignFarm,
       ]);
+      await pool.query('DELETE FROM stock_document_counters WHERE farm_id=$1', [
+        foreignFarm,
+      ]);
       await pool.query('DELETE FROM farms WHERE id=$1', [foreignFarm]);
     }
   });
@@ -1349,71 +1342,25 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     });
   });
 
-  it('maps a duplicate issue code to 409 on create without inserting a partial issue', async () => {
-    const issueCode = `DUP-${randomUUID()}`;
-    const original = await create([line('1.250')], { issueCode });
-    const balanceBefore = await balance();
-
-    await http()
-      .post('/stock-issues')
-      .query({ farmId: farm })
-      .send(input([line('2.500')], { issueCode }))
-      .expect(409);
-
-    const result = await pool.query<{ count: number }>(
-      'SELECT count(*)::int AS count FROM stock_issues WHERE farm_id=$1 AND issue_code=$2',
-      [farm, issueCode],
-    );
-    const after = await http()
-      .get(`/stock-issues/${original.issue.id}`)
-      .query({ farmId: farm })
-      .expect(200);
-    expect(result.rows[0].count).toBe(1);
-    expect(
-      (after.body as { data: Detail }).data.items.map((item) => item.quantity),
-    ).toEqual(['1.250']);
-    expect(await balance()).toBe(balanceBefore);
-    expect(await state(original.issue.id)).toMatchObject({
-      status: 'DRAFT',
-      transactions: 0,
-    });
-  });
-
-  it('rolls back replacement lines when an update collides with the issue-code constraint', async () => {
-    const existingCode = `EXISTING-${randomUUID()}`;
-    const originalCode = `EDIT-${randomUUID()}`;
-    await create([line('1.250')], { issueCode: existingCode });
-    const draft = await create([line('2.500')], { issueCode: originalCode });
-    const balanceBefore = await balance();
-
-    await http()
-      .patch(`/stock-issues/${draft.issue.id}`)
-      .query({ farmId: farm })
-      .send({
-        issueCode: existingCode,
-        items: [line('3.750'), { ...line('4.125'), note: 'replacement' }],
-      })
-      .expect(409);
-
-    const after = await http()
-      .get(`/stock-issues/${draft.issue.id}`)
-      .query({ farmId: farm })
-      .expect(200);
-    const detail = (after.body as { data: Detail }).data;
-    const count = await pool.query<{ count: number }>(
-      'SELECT count(*)::int AS count FROM stock_issues WHERE farm_id=$1',
-      [farm],
-    );
-    expect(detail.issue.issueCode).toBe(originalCode);
-    expect(detail.items.map((item) => [item.quantity, item.note])).toEqual([
-      ['2.500', null],
+  it('ignores client-supplied issue codes on create and update', async () => {
+    const issueCode = `LEGACY-${randomUUID()}`;
+    const first = await create([line('1.250')], { issueCode });
+    const second = await create([line('2.500')], { issueCode });
+    expect([first.issue.issueCode, second.issue.issueCode]).toEqual([
+      null,
+      null,
     ]);
-    expect(count.rows[0].count).toBe(2);
-    expect(await balance()).toBe(balanceBefore);
-    expect(await state(draft.issue.id)).toMatchObject({
-      status: 'DRAFT',
-      transactions: 0,
-    });
+    for (const code of [`PATCHED-${randomUUID()}`, null, 'PX-2026-000001']) {
+      const updated = await http()
+        .patch(`/stock-issues/${first.issue.id}`)
+        .query({ farmId: farm })
+        .send({ issueCode: code, note: 'code ignored' })
+        .expect(200);
+      expect((updated.body as { data: Detail }).data.issue).toMatchObject({
+        issueCode: null,
+        note: 'code ignored',
+      });
+    }
   });
 
   it('does not map an unrelated PostgreSQL unique-constraint error to 409', async () => {
@@ -1535,6 +1482,9 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
         assetItem,
         farm,
       ]);
+      await pool.query('DELETE FROM stock_document_counters WHERE farm_id=$1', [
+        otherFarm,
+      ]);
       await pool.query('DELETE FROM farms WHERE id=$1', [otherFarm]);
     }
   });
@@ -1557,7 +1507,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       .expect(404);
   });
 
-  it('confirms QUANTITY once and rejects repeat confirmation, editing, and cancellation', async () => {
+  it('confirms QUANTITY once, answers a repeat confirmation unchanged, and rejects editing and cancellation', async () => {
     const draft = await create([line('1.250')]);
     await confirm(draft.issue.id).expect(201);
     expect(await balance()).toBe('8.750');
@@ -1565,7 +1515,8 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       status: 'CONFIRMED',
       transactions: 1,
     });
-    await confirm(draft.issue.id).expect(409);
+    await confirm(draft.issue.id).expect(201);
+    expect(await state(draft.issue.id)).toMatchObject({ transactions: 1 });
     await http()
       .patch(`/stock-issues/${draft.issue.id}`)
       .query({ farmId: farm })
@@ -2013,14 +1964,14 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     return results;
   };
 
-  it('allows exactly one of two concurrent confirmations of the same issue', async () => {
+  it('applies stock once for two concurrent confirmations of the same issue', async () => {
     const draft = await create([line('7')]);
     const results = await race(
       'SELECT id FROM stock_issues WHERE id=$1 FOR UPDATE',
       [draft.issue.id],
       [() => confirm(draft.issue.id), () => confirm(draft.issue.id)],
     );
-    expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+    expect(results.map((result) => result.status)).toEqual([201, 201]);
     expect(await balance()).toBe('3.000');
     expect(await state(draft.issue.id)).toMatchObject({
       status: 'CONFIRMED',

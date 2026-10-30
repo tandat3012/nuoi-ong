@@ -599,6 +599,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
           ],
         ],
       );
+      await pool.query(
+        'DELETE FROM stock_document_counters WHERE farm_id=ANY($1::uuid[])',
+        [[farmId, foreignFarmId]],
+      );
       await pool.query('DELETE FROM farms WHERE id=ANY($1::uuid[])', [
         [farmId, foreignFarmId],
       ]);

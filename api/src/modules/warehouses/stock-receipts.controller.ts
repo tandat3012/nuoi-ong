@@ -48,7 +48,12 @@ const receiptSchema = {
     farmId: { type: 'string', format: 'uuid' },
     warehouseId: { type: 'string', format: 'uuid' },
     supplierId: { type: 'string', format: 'uuid', nullable: true },
-    receiptCode: { type: 'string', example: 'RCV-2026-001' },
+    receiptCode: {
+      type: 'string',
+      nullable: true,
+      example: 'PN-2026-000001',
+      description: 'Null on drafts; assigned on confirmation.',
+    },
     receiptDate: { type: 'string', format: 'date' },
     status: { type: 'string', enum: [...documentStatus.enumValues] },
     rejectionReason: { type: 'string', nullable: true },
@@ -170,7 +175,6 @@ export class StockReceiptsController {
         summary: 'Nhập vật tư theo lô',
         value: {
           warehouseId: '550e8400-e29b-41d4-a716-446655440000',
-          receiptCode: 'RCV-2026-001',
           receiptDate: '2026-10-08',
           items: [
             {

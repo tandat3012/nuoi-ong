@@ -761,7 +761,6 @@ describe('Inventory ledger HTTP and PostgreSQL contract', () => {
       .query({ farmId: farmA })
       .send({
         warehouseId: warehouseA,
-        receiptCode: `${tag}-ACCEPT-PN`,
         items: [{ itemId: itemA, quantity: '10', unitPrice: '0' }],
       })
       .expect(201);
@@ -788,7 +787,6 @@ describe('Inventory ledger HTTP and PostgreSQL contract', () => {
       .query({ farmId: farmA })
       .send({
         warehouseId: warehouseA,
-        issueCode: `${tag}-ACCEPT-PX`,
         items: [{ itemId: itemA, quantity: '3' }],
       })
       .expect(201);
@@ -822,7 +820,7 @@ describe('Inventory ledger HTTP and PostgreSQL contract', () => {
       source: {
         type: 'STOCK_RECEIPT',
         id: createdReceipt.id,
-        code: `${tag}-ACCEPT-PN`,
+        code: expect.stringMatching(/^PN-\d{4}-\d{6}$/) as string,
       },
     });
     expect(
@@ -833,7 +831,7 @@ describe('Inventory ledger HTTP and PostgreSQL contract', () => {
       source: {
         type: 'STOCK_ISSUE',
         id: createdIssue.id,
-        code: `${tag}-ACCEPT-PX`,
+        code: expect.stringMatching(/^PX-\d{4}-\d{6}$/) as string,
       },
     });
   });

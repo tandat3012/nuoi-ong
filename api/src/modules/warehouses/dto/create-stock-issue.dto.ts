@@ -6,7 +6,6 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   Matches,
   MaxLength,
   ValidateNested,
@@ -57,7 +56,13 @@ export class CreateStockIssueItemDto {
 
 export class CreateStockIssueDto {
   @IsUUID() warehouseId!: string;
-  @IsString() @Length(1, 50) @Matches(/\S/) issueCode!: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  issueCode?: unknown;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()

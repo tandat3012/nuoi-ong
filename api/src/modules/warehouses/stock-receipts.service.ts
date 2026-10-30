@@ -24,10 +24,7 @@ import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import {
-  allocateDocumentCode,
-  lockManualCodeScope,
-} from './stock-document-code';
+import { allocateDocumentCode, ignoreLegacyCode } from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -121,14 +118,13 @@ export class StockReceiptsService {
     const transaction = this.databaseService.db.transaction(async (tx) => {
       await this.assertActiveWarehouse(tx, input.warehouseId, farmId);
       await this.assertReferences(tx, farmId, input);
-      await lockManualCodeScope(tx, farmId, 'PN', input.receiptCode);
+      ignoreLegacyCode('receiptCode', input.receiptCode);
       const [receipt] = await tx
         .insert(stockReceipts)
         .values({
           farmId,
           warehouseId: input.warehouseId,
           supplierId: input.supplierId,
-          receiptCode: input.receiptCode,
           receiptDate: input.receiptDate,
           note: input.note,
           createdByMemberId: memberId,
@@ -200,7 +196,6 @@ export class StockReceiptsService {
       for (const key of [
         'warehouseId',
         'supplierId',
-        'receiptCode',
         'receiptDate',
         'note',
       ] as const) {
@@ -215,7 +210,7 @@ export class StockReceiptsService {
       } as CreateStockReceiptDto);
       changes.updatedAt = new Date().toISOString();
       if (Object.keys(changes).length > 0) {
-        await lockManualCodeScope(tx, farmId, 'PN', input.receiptCode);
+        ignoreLegacyCode('receiptCode', input.receiptCode);
         await tx
           .update(stockReceipts)
           .set(changes)

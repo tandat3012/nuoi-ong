@@ -38,10 +38,7 @@ import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import {
-  allocateDocumentCode,
-  lockManualCodeScope,
-} from './stock-document-code';
+import { allocateDocumentCode, ignoreLegacyCode } from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -141,13 +138,12 @@ export class StockIssuesService {
       .transaction(async (tx) => {
         await this.assertWarehouse(tx, farmId, input.warehouseId);
         await this.validateLines(tx, farmId, input.items, issueType);
-        await lockManualCodeScope(tx, farmId, 'PX', input.issueCode);
+        ignoreLegacyCode('issueCode', input.issueCode);
         const [issue] = await tx
           .insert(stockIssues)
           .values({
             farmId,
             warehouseId: input.warehouseId,
-            issueCode: input.issueCode,
             issueDate: input.issueDate,
             issueType,
             maintenanceRecordId: input.maintenanceRecordId,
@@ -217,11 +213,10 @@ export class StockIssuesService {
         if (current.orderId) {
           if (
             (input.warehouseId && input.warehouseId !== current.warehouseId) ||
-            (input.issueType && input.issueType !== 'SALE') ||
-            (input.issueCode && input.issueCode !== current.issueCode)
+            (input.issueType && input.issueType !== 'SALE')
           )
             throw new ConflictException(
-              'Order issue warehouse, type and code cannot change',
+              'Order issue warehouse and type cannot change',
             );
           await this.assertOrderLines(tx, current.orderId, lines);
         } else if (issueType === 'SALE') {
@@ -254,7 +249,6 @@ export class StockIssuesService {
         const changes: Partial<typeof stockIssues.$inferInsert> = {};
         for (const key of [
           'warehouseId',
-          'issueCode',
           'issueDate',
           'issueType',
           'maintenanceRecordId',
@@ -263,7 +257,7 @@ export class StockIssuesService {
         ] as const)
           if (input[key] !== undefined) changes[key] = input[key] as never;
         changes.updatedAt = new Date().toISOString();
-        await lockManualCodeScope(tx, farmId, 'PX', input.issueCode);
+        ignoreLegacyCode('issueCode', input.issueCode);
         if (Object.keys(changes).length)
           await tx
             .update(stockIssues)
@@ -417,6 +411,8 @@ export class StockIssuesService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
+      // A repeated confirmation returns the confirmed issue unchanged.
+      if (issue.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(issue.status))
         throw new ConflictException(
           'Only DRAFT or PENDING_APPROVAL issues can be confirmed',

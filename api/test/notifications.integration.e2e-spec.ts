@@ -66,6 +66,10 @@ describe('In-app notifications with PostgreSQL', () => {
   afterAll(async () => {
     try {
       if (fixturesCreated) {
+        await pool.query(
+          'DELETE FROM stock_document_counters WHERE farm_id = ANY($1::uuid[])',
+          [[farm, otherFarm]],
+        );
         await pool.query('DELETE FROM farms WHERE id = ANY($1::uuid[])', [
           [farm, otherFarm],
         ]);

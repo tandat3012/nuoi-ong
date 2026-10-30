@@ -475,43 +475,35 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     },
   );
 
-  it('rejects a whitespace-only transfer code instead of storing it', async () => {
-    await http()
-      .post('/api/v1/stock-transfers')
-      .query({ farmId: farm })
-      .send({
-        fromWarehouseId: source,
-        toWarehouseId: destination,
-        transferCode: '   ',
-        items: [{ itemId: item, quantity: '1' }],
-      })
-      .expect(400);
-  });
+  it.each([
+    ['transfers', 'stock_transfers', 'transfer_code'],
+    ['counts', 'stock_counts', 'count_code'],
+  ])(
+    // create() sends a random code, as legacy clients do.
+    'ignores client-supplied %s codes on create',
+    async (kind, table, column) => {
+      const id = await create(kind as 'transfers' | 'counts', '1');
+      const stored = await pool.query<{ code: string | null }>(
+        `SELECT ${column} AS code FROM ${table} WHERE id = $1`,
+        [id],
+      );
+      expect(stored.rows[0].code).toBeNull();
+    },
+  );
 
-  it('rejects a null transfer code on draft update and keeps the existing code', async () => {
+  it('ignores a client-supplied transfer code on update', async () => {
     const id = await create('transfers', '1');
-    const before = await pool.query<{ transfer_code: string }>(
-      'SELECT transfer_code FROM stock_transfers WHERE id=$1',
+    for (const transferCode of ['   ', null, 'CK-2026-000001'])
+      await http()
+        .patch(`/api/v1/stock-transfers/${id}`)
+        .query({ farmId: farm })
+        .send({ transferCode, note: 'code ignored' })
+        .expect(200);
+    const stored = await pool.query<{ code: string | null; note: string }>(
+      'SELECT transfer_code AS code, note FROM stock_transfers WHERE id = $1',
       [id],
     );
-    await http()
-      .patch(`/api/v1/stock-transfers/${id}`)
-      .query({ farmId: farm })
-      .send({ transferCode: null })
-      .expect(400);
-    await http()
-      .patch(`/api/v1/stock-transfers/${id}`)
-      .query({ farmId: farm })
-      .send({ note: 'code untouched' })
-      .expect(200);
-    const after = await pool.query<{ transfer_code: string; note: string }>(
-      'SELECT transfer_code, note FROM stock_transfers WHERE id=$1',
-      [id],
-    );
-    expect(after.rows[0]).toEqual({
-      transfer_code: before.rows[0].transfer_code,
-      note: 'code untouched',
-    });
+    expect(stored.rows[0]).toEqual({ code: null, note: 'code ignored' });
   });
 
   it('rejects ASSET items on create, update, and confirmation of legacy drafts', async () => {
