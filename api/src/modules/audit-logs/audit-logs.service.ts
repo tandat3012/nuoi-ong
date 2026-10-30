@@ -262,7 +262,9 @@ export class AuditLogsService {
         ),
     ]);
     return Object.fromEntries(
-      groups.flat().flatMap(({ id, label }) => (label ? [[id, label]] : [])),
+      groups
+        .flat()
+        .map(({ id, label }) => [id, label ?? `(nháp #${id.slice(0, 8)})`]),
     );
   }
 

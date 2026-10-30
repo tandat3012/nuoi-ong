@@ -166,7 +166,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
       const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
       expect(confirmed.stockIssue).toMatchObject({
         status: 'DRAFT',
-        issueCode: `XB-${order.code}`,
+        issueCode: null,
       });
       const issue = await issues.get(
         confirmed.stockIssue.id,
@@ -197,7 +197,12 @@ describe('Store orders (migrated PostgreSQL)', () => {
       await expect(
         issues.confirm(issue.issue.id, ids.farm, ids.staff),
       ).rejects.toThrow('write permission');
-      await issues.confirm(issue.issue.id, ids.farm, ids.admin);
+      const approved = await issues.confirm(
+        issue.issue.id,
+        ids.farm,
+        ids.admin,
+      );
+      expect(approved.issue.issueCode).toMatch(/^PX-\d{4}-\d{6}$/);
       expect(
         (
           await tx
@@ -238,7 +243,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
       expect(confirmed.order.total).toBe('555000');
     }));
 
-  it('returns a conflict and leaves the order pending when its issue code is already used', () =>
+  it('confirms an order next to a legacy XB- issue code without reusing it', () =>
     inRollback(async ({ ids, service, input }, tx) => {
       const { order } = await service.create(ids.customer, input());
       await tx.insert(schema.stockIssues).values({
@@ -247,13 +252,9 @@ describe('Store orders (migrated PostgreSQL)', () => {
         issueCode: `XB-${order.code}`,
         createdByMemberId: ids.adminMember,
       });
-      await expect(
-        service.confirm(ids.farm, ids.staff, order.id),
-      ).rejects.toThrow('code already exists');
-      expect((await service.staffGet(ids.farm, order.id)).order).toMatchObject({
-        status: 'PENDING',
-        stockIssueId: null,
-      });
+      const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
+      expect(confirmed.order.status).toBe('CONFIRMED');
+      expect(confirmed.stockIssue).toMatchObject({ issueCode: null });
     }));
 
   it('blocks linked issue cancellation and edits that differ from order items or quantities', () =>

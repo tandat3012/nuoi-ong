@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import type { DatabaseService } from '../../db/database.service';
 import {
@@ -22,6 +23,14 @@ const DOCUMENTS = {
   KK: { table: stockCounts, code: stockCounts.countCode },
   CK: { table: stockTransfers, code: stockTransfers.transferCode },
 };
+
+const legacyCodes = new Logger('LegacyDocumentCode');
+
+// shortcut: stale web bundles may still send a code; it is logged and dropped.
+// Reject the field once these warnings stop.
+export function ignoreLegacyCode(field: string, value: unknown) {
+  if (value !== undefined) legacyCodes.warn(`Ignored client-supplied ${field}`);
+}
 
 const yearInVietnam = new Intl.DateTimeFormat('en-US', {
   timeZone: 'Asia/Ho_Chi_Minh',

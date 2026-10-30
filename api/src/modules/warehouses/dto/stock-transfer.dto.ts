@@ -6,11 +6,9 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   Matches,
   MaxLength,
   ValidateNested,
-  ValidateIf,
 } from 'class-validator';
 const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 export class StockTransferItemDto {
@@ -44,7 +42,13 @@ export class StockTransferItemDto {
 export class CreateStockTransferDto {
   @IsUUID() fromWarehouseId!: string;
   @IsUUID() toWarehouseId!: string;
-  @IsString() @Length(1, 50) @Matches(/\S/) transferCode!: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  transferCode?: unknown;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()
@@ -58,12 +62,13 @@ export class CreateStockTransferDto {
 export class UpdateStockTransferDto {
   @IsOptional() @IsUUID() fromWarehouseId?: string;
   @IsOptional() @IsUUID() toWarehouseId?: string;
-  // null must fail: a draft keeps its code until confirmation assigns one.
-  @ValidateIf((_, value) => value !== undefined)
-  @IsString()
-  @Length(1, 50)
-  @Matches(/\S/)
-  transferCode?: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  transferCode?: unknown;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()

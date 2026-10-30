@@ -5,13 +5,13 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import { formatQuantity } from '@/src/shared/format-quantity';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
-import { listItems, listWarehouses, unwrap } from '@/src/features/inventory/api';
+import { documentCodeLabel, listItems, listWarehouses, unwrap } from '@/src/features/inventory/api';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
 import NotificationBell from './NotificationBell';
 import { AppShell, Card, Icon, Pill, SectionTitle } from '@/src/shared/ui/MobileShell';
 
 type TransferDetail = {
-  transfer: { id: string; transferCode: string; status: string; fromWarehouseId: string; toWarehouseId: string; note?: string | null; rejectionReason?: string | null; createdAt?: string; transferDate?: string | null };
+  transfer: { id: string; transferCode: string | null; status: string; fromWarehouseId: string; toWarehouseId: string; note?: string | null; rejectionReason?: string | null; createdAt?: string; transferDate?: string | null };
   items: { id: string; itemId: string; quantity: string; lotId?: string | null; assetId?: string | null; note?: string | null }[];
 };
 
@@ -55,7 +55,7 @@ export default function TransferNotificationDetailScreen() {
     {loading ? <Text style={styles.message}>Đang tải chi tiết phiếu...</Text> : error ? <Text style={styles.error}>{error}</Text> : transfer ? <>
       <Card style={styles.card}>
         <SectionTitle title="Thông tin phiếu" />
-        <View style={styles.codeRow}><Text style={styles.code}>{transfer.transferCode}</Text><Pill tone={transfer.status === 'CONFIRMED' ? 'success' : transfer.status === 'REJECTED' ? 'danger' : 'amber'}><Text style={styles.status}>{transfer.status}</Text></Pill></View>
+        <View style={styles.codeRow}><Text style={styles.code}>{documentCodeLabel(transfer.transferCode, transfer.id)}</Text><Pill tone={transfer.status === 'CONFIRMED' ? 'success' : transfer.status === 'REJECTED' ? 'danger' : 'amber'}><Text style={styles.status}>{transfer.status}</Text></Pill></View>
         <Text style={styles.label}>Thời gian</Text><Text style={styles.value}>{new Date(transfer.transferDate ?? transfer.createdAt ?? '').toLocaleString('vi-VN')}</Text>
       </Card>
       <Card style={styles.card}>

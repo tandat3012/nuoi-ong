@@ -136,6 +136,10 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
       await pool.query('DELETE FROM users WHERE id = ANY($1)', [
         Object.values(people).map((person) => person.user),
       ]);
+      await pool.query(
+        'DELETE FROM stock_document_counters WHERE farm_id = ANY($1)',
+        [[farm, otherFarm]],
+      );
       await pool.query('DELETE FROM farms WHERE id = ANY($1)', [
         [farm, otherFarm],
       ]);

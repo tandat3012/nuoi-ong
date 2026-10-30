@@ -333,6 +333,10 @@ describe('Personnel HTTP, provisioning and PostgreSQL consistency', () => {
         farmA,
         farmB,
       ]);
+    await pool.query(
+      'DELETE FROM stock_document_counters WHERE farm_id IN ($1,$2)',
+      [farmA, farmB],
+    );
     await pool.query('DELETE FROM farms WHERE id IN ($1,$2)', [farmA, farmB]);
     await pool.query('DELETE FROM users WHERE auth_provider_user_id LIKE $1', [
       `${tag}-%`,

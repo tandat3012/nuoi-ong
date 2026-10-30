@@ -31,10 +31,7 @@ import {
 } from './dto/stock-count.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import {
-  allocateDocumentCode,
-  lockManualCodeScope,
-} from './stock-document-code';
+import { allocateDocumentCode, ignoreLegacyCode } from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -128,13 +125,12 @@ export class StockCountsService {
           note: line.note,
         });
       }
-      await lockManualCodeScope(tx, farmId, 'KK', input.countCode);
+      ignoreLegacyCode('countCode', input.countCode);
       const [row] = await tx
         .insert(stockCounts)
         .values({
           farmId,
           warehouseId: input.warehouseId,
-          countCode: input.countCode,
           note: input.note,
           createdByMemberId: member,
         })

@@ -6,7 +6,6 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   Matches,
   MaxLength,
   Min,
@@ -109,11 +108,13 @@ export class CreateStockReceiptDto {
   @IsDateString()
   receiptDate?: string;
 
-  @ApiProperty({ example: 'RCV-2026-001' })
-  @IsString()
-  @Length(1, 50)
-  @Matches(/\S/)
-  receiptCode!: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  receiptCode?: unknown;
 
   @IsOptional()
   @IsString()

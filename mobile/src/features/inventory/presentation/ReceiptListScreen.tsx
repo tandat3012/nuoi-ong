@@ -7,7 +7,7 @@ import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
-import { formatDate, statusLabel, type Paginated, type StockCount, type StockIssue, type StockReceipt } from '@/src/features/inventory/api';
+import { documentCodeLabel, formatDate, statusLabel, type Paginated, type StockCount, type StockIssue, type StockReceipt } from '@/src/features/inventory/api';
 
 type Filter = 'COUNT' | 'RECEIPT' | 'ISSUE' | 'MAINTENANCE';
 type DocumentCard = { id: string; code: string; title: string; type: Filter; status: string; date?: string | null; warehouseId?: string; reason?: string | null; assetId?: string; assetCode?: string; description?: string };
@@ -86,9 +86,9 @@ export default function ReceiptListScreen() {
     }).then(([receipts, issues, counts, maintenanceRequests]) => {
       if (cancelled) return;
       setDocuments([
-        ...receipts.data.map((row) => ({ id: row.id, code: row.receiptCode, title: row.note || 'Phiếu nhập kho', type: 'RECEIPT' as const, status: row.status, date: row.receiptDate ?? row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
-        ...issues.data.map((row) => ({ id: row.id, code: row.issueCode, title: row.reason || 'Phiếu xuất kho', type: 'ISSUE' as const, status: row.status, date: row.issueDate ?? row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
-        ...counts.data.map((row) => ({ id: row.id, code: row.countCode, title: row.note || 'Phiếu kiểm kê kho', type: 'COUNT' as const, status: row.status, date: row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
+        ...receipts.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.receiptCode, row.id), title: row.note || 'Phiếu nhập kho', type: 'RECEIPT' as const, status: row.status, date: row.receiptDate ?? row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
+        ...issues.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.issueCode, row.id), title: row.reason || 'Phiếu xuất kho', type: 'ISSUE' as const, status: row.status, date: row.issueDate ?? row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
+        ...counts.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.countCode, row.id), title: row.note || 'Phiếu kiểm kê kho', type: 'COUNT' as const, status: row.status, date: row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
         ...maintenanceRequests.data.map((row) => ({ id: row.id, code: `MNT-${row.id.slice(0, 8).toUpperCase()}`, title: row.itemName, description: row.description, type: 'MAINTENANCE' as const, status: row.status, date: row.createdAt, reason: row.rejectionReason, assetId: row.assetId, assetCode: row.assetCode })),
       ]);
       setError(null);

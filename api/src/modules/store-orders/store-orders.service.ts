@@ -412,93 +412,86 @@ export class StoreOrdersService {
 
   async confirm(farmId: string, clerkUserId: string, id: string) {
     const memberId = await this.staffMember(farmId, clerkUserId);
-    await this.databaseService.db
-      .transaction(async (tx) => {
-        const order = await this.lockOrder(
-          tx,
-          id,
-          eq(storeOrders.farmId, farmId),
-        );
-        if (order.status !== 'PENDING')
-          throw new ConflictException('Only PENDING orders can be confirmed');
-        const [warehouse] = await tx
-          .select({ id: warehouses.id })
-          .from(warehouses)
-          .where(
-            and(
-              eq(warehouses.id, order.warehouseId),
-              eq(warehouses.farmId, farmId),
-              eq(warehouses.status, 'ACTIVE'),
+    await this.databaseService.db.transaction(async (tx) => {
+      const order = await this.lockOrder(
+        tx,
+        id,
+        eq(storeOrders.farmId, farmId),
+      );
+      if (order.status !== 'PENDING')
+        throw new ConflictException('Only PENDING orders can be confirmed');
+      const [warehouse] = await tx
+        .select({ id: warehouses.id })
+        .from(warehouses)
+        .where(
+          and(
+            eq(warehouses.id, order.warehouseId),
+            eq(warehouses.farmId, farmId),
+            eq(warehouses.status, 'ACTIVE'),
+          ),
+        )
+        .limit(1);
+      if (!warehouse)
+        throw new ConflictException('Order warehouse is not active');
+      const orderItems = await tx
+        .select()
+        .from(storeOrderItems)
+        .where(eq(storeOrderItems.orderId, id))
+        .orderBy(asc(storeOrderItems.itemId));
+      // Serialize confirmations of the same stock so each sees drafts committed by the other.
+      await tx
+        .select({ id: inventoryBalances.id })
+        .from(inventoryBalances)
+        .where(
+          and(
+            eq(inventoryBalances.farmId, farmId),
+            eq(inventoryBalances.warehouseId, order.warehouseId),
+            inArray(
+              inventoryBalances.itemId,
+              orderItems.map((line) => line.itemId),
             ),
-          )
-          .limit(1);
-        if (!warehouse)
-          throw new ConflictException('Order warehouse is not active');
-        const orderItems = await tx
-          .select()
-          .from(storeOrderItems)
-          .where(eq(storeOrderItems.orderId, id))
-          .orderBy(asc(storeOrderItems.itemId));
-        // Serialize confirmations of the same stock so each sees drafts committed by the other.
-        await tx
-          .select({ id: inventoryBalances.id })
-          .from(inventoryBalances)
-          .where(
-            and(
-              eq(inventoryBalances.farmId, farmId),
-              eq(inventoryBalances.warehouseId, order.warehouseId),
-              inArray(
-                inventoryBalances.itemId,
-                orderItems.map((line) => line.itemId),
-              ),
-            ),
-          )
-          .orderBy(asc(inventoryBalances.id))
-          .for('update');
-        const allocations: Omit<
-          typeof stockIssueItems.$inferInsert,
-          'stockIssueId'
-        >[] = [];
-        for (const line of orderItems) {
-          allocations.push(...(await this.allocate(tx, order, line)));
-          if (allocations.length > 1000)
-            throw new BadRequestException(
-              'Order requires more than 1000 stock issue lines',
-            );
-        }
-        const [issue] = await tx
-          .insert(stockIssues)
-          .values({
-            farmId,
-            warehouseId: order.warehouseId,
-            issueType: 'SALE',
-            issueCode: `XB-${orderCode(order.orderNumber)}`,
-            createdByMemberId: memberId,
-            reason: `Xuất bán đơn ${orderCode(order.orderNumber)}`,
-          })
-          .returning({ id: stockIssues.id });
-        await tx
-          .insert(stockIssueItems)
-          .values(
-            allocations.map((line) => ({ ...line, stockIssueId: issue.id })),
+          ),
+        )
+        .orderBy(asc(inventoryBalances.id))
+        .for('update');
+      const allocations: Omit<
+        typeof stockIssueItems.$inferInsert,
+        'stockIssueId'
+      >[] = [];
+      for (const line of orderItems) {
+        allocations.push(...(await this.allocate(tx, order, line)));
+        if (allocations.length > 1000)
+          throw new BadRequestException(
+            'Order requires more than 1000 stock issue lines',
           );
-        const now = new Date().toISOString();
-        await tx
-          .update(storeOrders)
-          .set({
-            status: 'CONFIRMED',
-            stockIssueId: issue.id,
-            confirmedAt: now,
-            handledByMemberId: memberId,
-            updatedAt: now,
-          })
-          .where(eq(storeOrders.id, id));
-      })
-      .catch((error: unknown) => {
-        if (this.databaseConstraint(error) === 'uq_issue_code_per_farm')
-          throw new ConflictException('Order stock issue code already exists');
-        throw error;
-      });
+      }
+      const [issue] = await tx
+        .insert(stockIssues)
+        .values({
+          farmId,
+          warehouseId: order.warehouseId,
+          issueType: 'SALE',
+          createdByMemberId: memberId,
+          reason: `Xuất bán đơn ${orderCode(order.orderNumber)}`,
+        })
+        .returning({ id: stockIssues.id });
+      await tx
+        .insert(stockIssueItems)
+        .values(
+          allocations.map((line) => ({ ...line, stockIssueId: issue.id })),
+        );
+      const now = new Date().toISOString();
+      await tx
+        .update(storeOrders)
+        .set({
+          status: 'CONFIRMED',
+          stockIssueId: issue.id,
+          confirmedAt: now,
+          handledByMemberId: memberId,
+          updatedAt: now,
+        })
+        .where(eq(storeOrders.id, id));
+    });
     return this.staffGet(farmId, id);
   }
 

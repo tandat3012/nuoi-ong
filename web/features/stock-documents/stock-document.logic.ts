@@ -144,3 +144,11 @@ export function stockDocumentHref(
   const query = next.toString();
   return query ? `${pathname}?${query}` : pathname;
 }
+
+export const DOCUMENT_CODE_HINT =
+  "Mã phiếu được cấp tự động khi phiếu được xác nhận.";
+
+/** Drafts have no permanent code until confirmation; name them by a short id. */
+export function documentCodeLabel(code: string | null | undefined, id: string) {
+  return code ?? `Nháp #${id.slice(0, 8)}`;
+}

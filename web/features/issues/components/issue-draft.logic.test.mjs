@@ -11,7 +11,6 @@ const draft = (
   line = { itemId: "item", assetId: "asset", quantity: "1" },
 ) => ({
   warehouseId: "warehouse",
-  issueCode: "ISS-001",
   issueType,
   maintenanceRecordId: issueType === "MAINTENANCE" ? "record" : null,
   items: [line],

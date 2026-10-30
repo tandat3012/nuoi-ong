@@ -439,6 +439,10 @@ describe('Document push outbox and bounded device catch-up', () => {
         await pool.query('DELETE FROM users WHERE id=ANY($1::uuid[])', [
           userIds,
         ]);
+        await pool.query(
+          'DELETE FROM stock_document_counters WHERE farm_id=ANY($1::uuid[])',
+          [[farm, otherFarm]],
+        );
         await pool.query('DELETE FROM farms WHERE id=ANY($1::uuid[])', [
           [farm, otherFarm],
         ]);

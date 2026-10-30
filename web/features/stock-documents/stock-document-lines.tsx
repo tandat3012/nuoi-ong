@@ -10,6 +10,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
+  documentCodeLabel,
   shouldReloadAfterFailure,
   stockDocumentActions,
   stockDocumentErrorMessage,
@@ -38,8 +39,8 @@ type Line = EditableLine & {
 };
 type Header = StockDocumentState & {
   note: string | null;
-  transferCode?: string;
-  countCode?: string;
+  transferCode?: string | null;
+  countCode?: string | null;
   warehouseId?: string;
   fromWarehouseId?: string;
 };
@@ -224,7 +225,7 @@ export function StockDocumentLines({
     <section ref={panel} aria-label="Dòng hàng của phiếu" className="space-y-3 rounded-xl border bg-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-semibold">
-          Dòng hàng phiếu {detail?.header.transferCode ?? detail?.header.countCode ?? ""}
+          Dòng hàng phiếu {detail ? documentCodeLabel(detail.header.transferCode ?? detail.header.countCode, id) : ""}
         </h2>
         <div className="flex gap-2">
           {canEdit && !draft && (

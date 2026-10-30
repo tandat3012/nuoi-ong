@@ -21,6 +21,7 @@ import {
   RejectionNotice,
   StockDocumentReview,
   stockDocumentActions,
+  documentCodeLabel,
 } from "@/features/stock-documents";
 import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 
@@ -137,7 +138,7 @@ export function IssueDetail({
         detail && (
           <>
             <PageHeader
-              title={`Phiếu xuất ${detail.issue.issueCode}`}
+              title={`Phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)}`}
               badge={
                 <Badge variant="outline">
                   {ISSUE_STATUS_LABELS[detail.issue.status]}
@@ -160,7 +161,7 @@ export function IssueDetail({
                     kind="stock-issues"
                     farmId={farmId}
                     id={id}
-                    code={detail.issue.issueCode}
+                    code={documentCodeLabel(detail.issue.issueCode, detail.issue.id)}
                     canSubmit={actions.submit}
                     canReject={actions.reject}
                     disabled={isProcessing}
@@ -173,7 +174,7 @@ export function IssueDetail({
                       onClick={() =>
                         void runAction(
                           confirm,
-                          `Xác nhận phiếu xuất ${detail.issue.issueCode} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
+                          `Xác nhận phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
                         )
                       }
                     >
@@ -186,7 +187,7 @@ export function IssueDetail({
                       onClick={() =>
                         void runAction(
                           cancel,
-                          `Hủy phiếu xuất nháp ${detail.issue.issueCode}? Thao tác này không thay đổi tồn kho.`,
+                          `Hủy phiếu xuất nháp ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)}? Thao tác này không thay đổi tồn kho.`,
                         )
                       }
                       variant="outline"
@@ -265,7 +266,7 @@ export function IssueDetail({
               <div className="overflow-x-auto rounded-xl border bg-card">
                 <table className="w-full text-left text-sm">
                   <caption className="sr-only">
-                    Các dòng hàng trong phiếu xuất {detail.issue.issueCode}
+                    Các dòng hàng trong phiếu xuất {documentCodeLabel(detail.issue.issueCode, detail.issue.id)}
                   </caption>
                   <thead className="border-b bg-muted/50">
                     <tr>

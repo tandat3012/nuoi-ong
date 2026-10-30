@@ -229,6 +229,7 @@ async function ensureReceipt(
   services: Services,
   farmId: string,
   owner: string,
+  code: string,
   input: Parameters<StockReceiptsService['createReceipt']>[2],
 ) {
   if (input.items.length === 0) return 'skipped (no matching items)';
@@ -242,12 +243,17 @@ async function ensureReceipt(
       .where(
         and(
           eq(schema.stockReceipts.farmId, farmId),
-          eq(schema.stockReceipts.receiptCode, input.receiptCode),
+          eq(schema.stockReceipts.receiptCode, code),
         ),
       );
   let [receipt] = await find();
   if (!receipt) {
-    await services.receipts.createReceipt(farmId, owner, input);
+    // Seed documents keep a fixed DEMO-* code so a re-run finds them.
+    const created = await services.receipts.createReceipt(farmId, owner, input);
+    await db
+      .update(schema.stockReceipts)
+      .set({ receiptCode: code })
+      .where(eq(schema.stockReceipts.id, created.receipt.id));
     [receipt] = await find();
   }
   if (receipt.status === 'DRAFT') {
@@ -262,6 +268,7 @@ async function ensureIssue(
   services: Services,
   farmId: string,
   owner: string,
+  code: string,
   input: Parameters<StockIssuesService['create']>[2],
 ) {
   if (input.items.length === 0) return 'skipped (no matching items)';
@@ -272,12 +279,17 @@ async function ensureIssue(
       .where(
         and(
           eq(schema.stockIssues.farmId, farmId),
-          eq(schema.stockIssues.issueCode, input.issueCode),
+          eq(schema.stockIssues.issueCode, code),
         ),
       );
   let [issue] = await find();
   if (!issue) {
-    await services.issues.create(farmId, owner, input);
+    // Seed documents keep a fixed DEMO-* code so a re-run finds them.
+    const created = await services.issues.create(farmId, owner, input);
+    await db
+      .update(schema.stockIssues)
+      .set({ issueCode: code })
+      .where(eq(schema.stockIssues.id, created.issue.id));
     [issue] = await find();
   }
   if (issue.status === 'DRAFT') {
@@ -339,10 +351,9 @@ async function seed(db: Db, farmCode?: string) {
   ];
   log(
     'DEMO-PN-001 (vật tư theo số lượng)',
-    await ensureReceipt(db, services, farm.id, owner, {
+    await ensureReceipt(db, services, farm.id, owner, 'DEMO-PN-001', {
       warehouseId,
       supplierId: supplierA,
-      receiptCode: 'DEMO-PN-001',
       receiptDate: isoDate(-21),
       note: DEMO_NOTE,
       items: items.quantity.map((item, index) => ({
@@ -368,10 +379,9 @@ async function seed(db: Db, farmCode?: string) {
   ];
   log(
     'DEMO-PN-002 (vật tư theo lô)',
-    await ensureReceipt(db, services, farm.id, owner, {
+    await ensureReceipt(db, services, farm.id, owner, 'DEMO-PN-002', {
       warehouseId,
       supplierId: supplierA,
-      receiptCode: 'DEMO-PN-002',
       receiptDate: isoDate(-14),
       note: DEMO_NOTE,
       items: items.lot.map((item, index) => ({
@@ -388,10 +398,9 @@ async function seed(db: Db, farmCode?: string) {
 
   log(
     'DEMO-PN-003 (tài sản)',
-    await ensureReceipt(db, services, farm.id, owner, {
+    await ensureReceipt(db, services, farm.id, owner, 'DEMO-PN-003', {
       warehouseId,
       supplierId: supplierB,
-      receiptCode: 'DEMO-PN-003',
       receiptDate: isoDate(-10),
       note: DEMO_NOTE,
       items: items.asset.map((item, index) => ({
@@ -408,9 +417,8 @@ async function seed(db: Db, farmCode?: string) {
   const freshLot = items.lot[0] && (await lotId(db, farm.id, 'DEMO-LO-001'));
   log(
     'DEMO-PX-001 (phiếu xuất)',
-    await ensureIssue(db, services, farm.id, owner, {
+    await ensureIssue(db, services, farm.id, owner, 'DEMO-PX-001', {
       warehouseId,
-      issueCode: 'DEMO-PX-001',
       issueDate: isoDate(-5),
       issueType: 'CONSUMPTION',
       reason: 'Dữ liệu mẫu: xuất dùng cho đàn ong',

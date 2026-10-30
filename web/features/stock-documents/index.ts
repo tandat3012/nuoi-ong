@@ -1,6 +1,8 @@
 export {
   canApproveStockDocuments,
   canCreateStockDocuments,
+  DOCUMENT_CODE_HINT,
+  documentCodeLabel,
   stockDocumentActions,
   type StockDocumentStatus,
 } from "./stock-document.logic";

@@ -12,8 +12,6 @@ export function validateIssueDraft(
   linkedSale = false,
 ): string | null {
   if (!input.warehouseId) return "Vui lòng chọn kho xuất.";
-  if (!input.issueCode.trim() || input.issueCode.trim().length > 50)
-    return "Mã phiếu phải có từ 1 đến 50 ký tự.";
   if (input.issueType === "SALE" && !linkedSale)
     return "Phiếu bán hàng chỉ được chỉnh sửa từ đơn hàng liên kết.";
   if (

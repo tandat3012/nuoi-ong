@@ -5,24 +5,22 @@ import {
   IsIn,
   IsOptional,
   IsString,
-  Matches,
   IsUUID,
-  Length,
   MaxLength,
   ValidateNested,
-  ValidateIf,
 } from 'class-validator';
 import { CreateStockIssueItemDto } from './create-stock-issue.dto';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateStockIssueDto {
   @IsOptional() @IsUUID() warehouseId?: string;
-  // null must fail: a draft keeps its code until confirmation assigns one.
-  @ValidateIf((_, value) => value !== undefined)
-  @IsString()
-  @Length(1, 50)
-  @Matches(/\S/)
-  issueCode?: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  issueCode?: unknown;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()
