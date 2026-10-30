@@ -141,3 +141,24 @@ test("labels an uncoded draft by its short id and keeps a permanent code", async
   );
   assert.equal(documentCodeLabel("PN-2026-000001", "1a2b3c4d"), "PN-2026-000001");
 });
+
+test("normalizes owner numbering options like the API and requires a reason with a code", async () => {
+  const { numberingOptionsPayload, numberingOptionsError, isFarmOwner } = await import(
+    "./stock-document.logic.ts"
+  );
+  assert.deepEqual(
+    numberingOptionsPayload({ externalReference: "  HĐ 12 ", requestedCode: " pn-2026-000123 ", requestedCodeReason: " Khớp giấy " }),
+    { externalReference: "HĐ 12", requestedCode: "PN-2026-000123", requestedCodeReason: "Khớp giấy" },
+  );
+  assert.deepEqual(
+    numberingOptionsPayload({ externalReference: " ", requestedCode: "  ", requestedCodeReason: "ignored" }),
+    { externalReference: null, requestedCode: null },
+  );
+  assert.equal(
+    numberingOptionsError(numberingOptionsPayload({ externalReference: "", requestedCode: "X", requestedCodeReason: " " })),
+    "Cần nhập lý do khi yêu cầu mã phiếu.",
+  );
+  assert.equal(numberingOptionsError({ requestedCode: "X".repeat(51), requestedCodeReason: "r" }), "Mã phiếu yêu cầu không được quá 50 ký tự.");
+  assert.equal(isFarmOwner(["ADMIN"]), false);
+  assert.equal(isFarmOwner(["EMPLOYEE", "FARM_OWNER"]), true);
+});

@@ -152,3 +152,50 @@ export const DOCUMENT_CODE_HINT =
 export function documentCodeLabel(code: string | null | undefined, id: string) {
   return code ?? `Nháp #${id.slice(0, 8)}`;
 }
+
+/** Only the farm owner may set document numbering options; the API enforces it too. */
+export function isFarmOwner(roles: readonly string[]) {
+  return roles.includes("FARM_OWNER");
+}
+
+export interface NumberingOptions {
+  externalReference?: string | null;
+  requestedCode?: string | null;
+  requestedCodeReason?: string | null;
+}
+
+export interface NumberingDraft {
+  externalReference: string;
+  requestedCode: string;
+  requestedCodeReason: string;
+}
+
+export function numberingDraft(saved?: NumberingOptions | null): NumberingDraft {
+  return {
+    externalReference: saved?.externalReference ?? "",
+    requestedCode: saved?.requestedCode ?? "",
+    requestedCodeReason: saved?.requestedCodeReason ?? "",
+  };
+}
+
+/** Normalized like the API: trimmed, code uppercased, empty clears; a reason only goes with a code. */
+export function numberingOptionsPayload(draft: NumberingDraft): NumberingOptions {
+  const requestedCode = draft.requestedCode.trim().toUpperCase() || null;
+  return {
+    externalReference: draft.externalReference.trim() || null,
+    requestedCode,
+    ...(requestedCode ? { requestedCodeReason: draft.requestedCodeReason.trim() } : {}),
+  };
+}
+
+export function numberingOptionsError(options: NumberingOptions): string | null {
+  if ((options.externalReference?.length ?? 0) > 100)
+    return "Số chứng từ giấy không được quá 100 ký tự.";
+  if ((options.requestedCode?.length ?? 0) > 50)
+    return "Mã phiếu yêu cầu không được quá 50 ký tự.";
+  if (options.requestedCode && !options.requestedCodeReason)
+    return "Cần nhập lý do khi yêu cầu mã phiếu.";
+  if ((options.requestedCodeReason?.length ?? 0) > 500)
+    return "Lý do yêu cầu mã không được quá 500 ký tự.";
+  return null;
+}

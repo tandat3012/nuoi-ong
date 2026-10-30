@@ -6,6 +6,7 @@ import { ApiError } from "@/shared/api/client";
 import { createIssue, updateIssue } from "../api/issues.api";
 import { validateIssueDraft } from "../components/issue-draft.logic";
 import type { CreateIssueInput, IssueDraftTrackingMode } from "../types/issue";
+import { numberingOptionsError } from "@/features/stock-documents";
 
 export function useSaveIssueDraft(
   farmId: string,
@@ -32,7 +33,8 @@ export function useSaveIssueDraft(
   ) {
     if (submitting.current) return;
     const validation = canWrite
-      ? validateIssueDraft(input, trackingModes, linkedSale)
+      ? (validateIssueDraft(input, trackingModes, linkedSale) ??
+        numberingOptionsError(input))
       : "Bạn không có quyền lưu phiếu xuất.";
     if (validation) {
       setError(validation);

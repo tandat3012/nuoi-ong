@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useSaveReceiptDraft } from '../hooks/use-save-receipt-draft';
+import { useFarmMembership } from '@/features/auth/hooks/use-farm-membership';
 import { expiryBeforeManufactured } from './receipt-draft.logic';
 import type { ReceiptDraftInitial } from '../types/receipt';
 import {
@@ -16,6 +17,10 @@ import { Input } from '@/shared/components/ui/input';
 import {
   DOCUMENT_CODE_HINT,
   documentCodeLabel,
+  isFarmOwner,
+  numberingDraft,
+  numberingOptionsPayload,
+  NumberingOptionsFields,
 } from '@/features/stock-documents';
 
 type DraftLine = DraftChoice & {
@@ -69,6 +74,10 @@ export function ReceiptDraftForm({
       : null,
   );
   const [date, setDate] = useState(initial?.detail.receipt.receiptDate ?? '');
+  const isOwner = isFarmOwner(useFarmMembership().membership?.roles ?? []);
+  const [numbering, setNumbering] = useState(() =>
+    numberingDraft(initial?.detail.receipt),
+  );
   const [note, setNote] = useState(initial?.detail.receipt.note ?? '');
   const [lines, setLines] = useState<DraftLine[]>(() =>
     initial
@@ -187,6 +196,7 @@ export function ReceiptDraftForm({
           supplierId: supplier?.id ?? null,
           receiptDate: date || undefined,
           note: note.trim() || null,
+          ...(isOwner ? numberingOptionsPayload(numbering) : {}),
           items: lines.map((line) => ({
             itemId: line.id,
             quantity:
@@ -249,6 +259,9 @@ export function ReceiptDraftForm({
               className="w-full"
             />
           </label>
+          {isOwner && (
+            <NumberingOptionsFields value={numbering} onChange={setNumbering} />
+          )}
         </div>
         <div>
           <p>Kho nhập *: {warehouse?.label ?? 'Chưa chọn'}</p>

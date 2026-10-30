@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useSaveIssueDraft } from "../hooks/use-save-issue-draft";
+import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 import {
   ISSUE_TYPE_LABELS,
   type CreateIssueInput,
@@ -26,6 +27,10 @@ import { Input } from "@/shared/components/ui/input";
 import {
   DOCUMENT_CODE_HINT,
   documentCodeLabel,
+  isFarmOwner,
+  numberingDraft,
+  numberingOptionsPayload,
+  NumberingOptionsFields,
 } from "@/features/stock-documents";
 
 type DraftLine = IssueChoice & {
@@ -62,6 +67,8 @@ export function IssueDraftForm({
       : null,
   );
   const [date, setDate] = useState(initial?.issue.issueDate ?? "");
+  const isOwner = isFarmOwner(useFarmMembership().membership?.roles ?? []);
+  const [numbering, setNumbering] = useState(() => numberingDraft(initial?.issue));
   const [issueType, setIssueType] = useState<CreateIssueInput["issueType"]>(
     initial?.issue.issueType ?? "CONSUMPTION",
   );
@@ -202,6 +209,7 @@ export function IssueDraftForm({
               issueType === "MAINTENANCE" ? maintenanceRecordId : null,
             reason: reason.trim() || null,
             note: note.trim() || null,
+            ...(isOwner ? numberingOptionsPayload(numbering) : {}),
             items: lines.map((line) => ({
               itemId: line.id,
               quantity:
@@ -266,6 +274,9 @@ export function IssueDraftForm({
               Để trống để dùng ngày hiện tại khi tạo phiếu.
             </p>
           </div>
+          {isOwner && (
+            <NumberingOptionsFields value={numbering} onChange={setNumbering} />
+          )}
           <div>
             <p className="mb-1 text-sm font-medium">Kho xuất *</p>
             <p className="mb-2">{warehouse?.label ?? "Chưa chọn kho"}</p>
