@@ -21,6 +21,7 @@ import { StockTransfersController } from '../src/modules/warehouses/stock-transf
 import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 
+import { numberingYear } from '../src/modules/warehouses/stock-document-code';
 describe('Warehouse count and transfer UI HTTP contracts', () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const db = drizzle(pool, { schema });
@@ -214,6 +215,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       'inventory_transactions',
       'stock_counts',
       'stock_transfers',
+      'stock_document_counters',
       'inventory_balances',
     ]) {
       await pool.query(`DELETE FROM ${table} WHERE farm_id=$1`, [farm]);
@@ -347,6 +349,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         'inventory_transactions',
         'stock_counts',
         'stock_transfers',
+        'stock_document_counters',
         'inventory_balances',
         'assets',
         'inventory_lots',
@@ -449,6 +452,28 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       ]),
     );
   });
+
+  it.each([
+    ['transfers', 'stock_transfers', 'transfer_code', 'CK'],
+    ['counts', 'stock_counts', 'count_code', 'KK'],
+  ])(
+    'assigns the next code to an uncoded %s draft on confirmation',
+    async (kind, table, column, prefix) => {
+      const id = await create(kind as 'transfers' | 'counts', '1');
+      await pool.query(`UPDATE ${table} SET ${column} = NULL WHERE id = $1`, [
+        id,
+      ]);
+      await confirm(kind, id).expect(201);
+      await confirm(kind, id).expect(201);
+      const row = await pool.query<{ code: string }>(
+        `SELECT ${column} AS code FROM ${table} WHERE id = $1`,
+        [id],
+      );
+      expect(row.rows[0].code).toBe(
+        `${prefix}-${numberingYear(new Date())}-000001`,
+      );
+    },
+  );
 
   it('rejects a whitespace-only transfer code instead of storing it', async () => {
     await http()

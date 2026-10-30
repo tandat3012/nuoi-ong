@@ -39,6 +39,10 @@ import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
+  allocateDocumentCode,
+  lockManualCodeScope,
+} from './stock-document-code';
+import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
@@ -137,6 +141,7 @@ export class StockIssuesService {
       .transaction(async (tx) => {
         await this.assertWarehouse(tx, farmId, input.warehouseId);
         await this.validateLines(tx, farmId, input.items, issueType);
+        await lockManualCodeScope(tx, farmId, 'PX', input.issueCode);
         const [issue] = await tx
           .insert(stockIssues)
           .values({
@@ -258,6 +263,7 @@ export class StockIssuesService {
         ] as const)
           if (input[key] !== undefined) changes[key] = input[key] as never;
         changes.updatedAt = new Date().toISOString();
+        await lockManualCodeScope(tx, farmId, 'PX', input.issueCode);
         if (Object.keys(changes).length)
           await tx
             .update(stockIssues)
@@ -573,23 +579,34 @@ export class StockIssuesService {
           performedByMemberId: memberId,
         });
       }
+      const confirmedAt = new Date();
+      // Legacy drafts keep their code; uncoded drafts take the next number.
+      const issueCode =
+        issue.issueCode ??
+        (await allocateDocumentCode(tx, farmId, 'PX', confirmedAt));
       await tx
         .update(stockIssues)
         .set({
           status: 'CONFIRMED',
+          issueCode,
           confirmedByMemberId: memberId,
-          confirmedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          confirmedAt: confirmedAt.toISOString(),
+          updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockIssues.id, id));
-      await auditStockDocument(tx, memberId, 'STOCK_ISSUE', 'CONFIRM', issue, {
-        ...issue,
-        status: 'CONFIRMED',
-      });
+      const confirmed = { ...issue, issueCode, status: 'CONFIRMED' as const };
+      await auditStockDocument(
+        tx,
+        memberId,
+        'STOCK_ISSUE',
+        'CONFIRM',
+        issue,
+        confirmed,
+      );
       if (issue.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,
-          this.notification(issue, 'CONFIRMED'),
+          this.notification(confirmed, 'CONFIRMED'),
           issue.createdByMemberId,
         );
     });

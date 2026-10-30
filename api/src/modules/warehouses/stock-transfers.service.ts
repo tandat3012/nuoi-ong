@@ -36,6 +36,10 @@ import {
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
+  allocateDocumentCode,
+  lockManualCodeScope,
+} from './stock-document-code';
+import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
@@ -104,6 +108,7 @@ export class StockTransfersService {
       await this.assertWarehouse(tx, farmId, input.fromWarehouseId);
       await this.assertWarehouse(tx, farmId, input.toWarehouseId);
       await this.validateLines(tx, farmId, input.items);
+      await lockManualCodeScope(tx, farmId, 'CK', input.transferCode);
       const [row] = await tx
         .insert(stockTransfers)
         .values({
@@ -196,6 +201,7 @@ export class StockTransfersService {
       ] as const)
         if (input[k] !== undefined) changes[k] = input[k] as never;
       changes.updatedAt = new Date().toISOString();
+      await lockManualCodeScope(tx, farmId, 'CK', input.transferCode);
       await tx
         .update(stockTransfers)
         .set(changes)
@@ -414,23 +420,34 @@ export class StockTransfersService {
           },
         ]);
       }
+      const confirmedAt = new Date();
+      // Legacy drafts keep their code; uncoded drafts take the next number.
+      const transferCode =
+        row.transferCode ??
+        (await allocateDocumentCode(tx, farmId, 'CK', confirmedAt));
       await tx
         .update(stockTransfers)
         .set({
           status: 'CONFIRMED',
+          transferCode,
           confirmedByMemberId: member,
-          confirmedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          confirmedAt: confirmedAt.toISOString(),
+          updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockTransfers.id, id));
-      await auditStockDocument(tx, member, 'STOCK_TRANSFER', 'CONFIRM', row, {
-        ...row,
-        status: 'CONFIRMED',
-      });
+      const confirmed = { ...row, transferCode, status: 'CONFIRMED' as const };
+      await auditStockDocument(
+        tx,
+        member,
+        'STOCK_TRANSFER',
+        'CONFIRM',
+        row,
+        confirmed,
+      );
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,
-          this.notification(row, 'CONFIRMED'),
+          this.notification(confirmed, 'CONFIRMED'),
           row.createdByMemberId,
         );
     });

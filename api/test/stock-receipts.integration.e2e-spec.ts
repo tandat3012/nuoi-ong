@@ -88,6 +88,7 @@ async function removeConcurrentReceiptFixtures(
 
 // Exercises the real controller, DTOs, services, and PostgreSQL. All writes are
 // inside one transaction that is rolled back after the suite.
+import { numberingYear } from '../src/modules/warehouses/stock-document-code';
 describe('Stock receipts HTTP contract with local PostgreSQL', () => {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -547,6 +548,30 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
         }),
       )
       .expect(400);
+  });
+
+  it('assigns the next PN code to an uncoded draft on confirmation and keeps it on repeat', async () => {
+    const draft = await createReceipt(farmA, receiptInput(`${tag}-UNCODED`));
+    await client!.query(
+      'UPDATE stock_receipts SET receipt_code = NULL WHERE id = $1',
+      [draft.receipt.id],
+    );
+    const code = `PN-${numberingYear(new Date())}-000001`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const confirmed = await post()
+        .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
+        .query({ farmId: farmA })
+        .expect(201);
+      expect((confirmed.body as ReceiptResponse).data.receipt).toMatchObject({
+        receiptCode: code,
+        status: 'CONFIRMED',
+      });
+    }
+    const audit = await client!.query<{ new_data: { receiptCode: string } }>(
+      `SELECT new_data FROM audit_logs WHERE entity_id = $1 AND action = 'CONFIRM'`,
+      [draft.receipt.id],
+    );
+    expect(audit.rows.map((row) => row.new_data.receiptCode)).toEqual([code]);
   });
 
   it('keeps drafts out of inventory, confirms QUANTITY once, and makes repeat confirmation idempotent', async () => {
