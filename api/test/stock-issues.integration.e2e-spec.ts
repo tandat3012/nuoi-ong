@@ -45,6 +45,7 @@ type Detail = {
 
 // Real PostgreSQL transactions on separate connections; only farm authorization
 // is stubbed. Fixtures belong to a unique farm and are removed after the suite.
+import { numberingYear } from '../src/modules/warehouses/stock-document-code';
 describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   const tag = `issue-test-${randomUUID().slice(0, 8)}`;
   const pool = new Pool({
@@ -256,6 +257,9 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       farm,
     ]);
     await pool.query('DELETE FROM stock_issues WHERE farm_id=$1', [farm]);
+    await pool.query('DELETE FROM stock_document_counters WHERE farm_id=$1', [
+      farm,
+    ]);
     await pool.query('DELETE FROM maintenance_records WHERE farm_id=$1', [
       farm,
     ]);
@@ -300,6 +304,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
           'audit_logs',
           'inventory_transactions',
           'stock_issues',
+          'stock_document_counters',
           'maintenance_records',
           'inventory_balances',
           'assets',
@@ -750,6 +755,34 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       issueCode: draft.issue.issueCode,
       note: 'code untouched',
     });
+  });
+
+  it('assigns PX codes to uncoded drafts on confirmation and keeps legacy codes', async () => {
+    const legacy = await create([line('0.125')]);
+    const first = await create([line('0.125')]);
+    const second = await create([line('0.125')]);
+    await pool.query(
+      'UPDATE stock_issues SET issue_code = NULL WHERE id = ANY($1)',
+      [[first.issue.id, second.issue.id]],
+    );
+    const year = numberingYear(new Date());
+    const codes: (string | null)[] = [];
+    for (const draft of [first, legacy, second]) {
+      const response = await confirm(draft.issue.id).expect(201);
+      codes.push((response.body as { data: Detail }).data.issue.issueCode);
+    }
+    // Issues answer a repeat confirmation with 409; the code must not change.
+    await confirm(first.issue.id).expect(409);
+    const stored = await pool.query<{ code: string }>(
+      'SELECT issue_code AS code FROM stock_issues WHERE id = $1',
+      [first.issue.id],
+    );
+    expect([...codes, stored.rows[0].code]).toEqual([
+      `PX-${year}-000001`,
+      legacy.issue.issueCode,
+      `PX-${year}-000002`,
+      `PX-${year}-000001`,
+    ]);
   });
 
   it('preserves a maintenance link on draft edits and clears it when the issue type changes', async () => {

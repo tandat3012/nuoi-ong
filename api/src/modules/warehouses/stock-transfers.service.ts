@@ -35,6 +35,7 @@ import {
 } from './dto/stock-transfer.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
+import { allocateDocumentCode } from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -414,23 +415,34 @@ export class StockTransfersService {
           },
         ]);
       }
+      const confirmedAt = new Date();
+      // Legacy drafts keep their code; uncoded drafts take the next number.
+      const transferCode =
+        row.transferCode ??
+        (await allocateDocumentCode(tx, farmId, 'CK', confirmedAt));
       await tx
         .update(stockTransfers)
         .set({
           status: 'CONFIRMED',
+          transferCode,
           confirmedByMemberId: member,
-          confirmedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          confirmedAt: confirmedAt.toISOString(),
+          updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockTransfers.id, id));
-      await auditStockDocument(tx, member, 'STOCK_TRANSFER', 'CONFIRM', row, {
-        ...row,
-        status: 'CONFIRMED',
-      });
+      const confirmed = { ...row, transferCode, status: 'CONFIRMED' as const };
+      await auditStockDocument(
+        tx,
+        member,
+        'STOCK_TRANSFER',
+        'CONFIRM',
+        row,
+        confirmed,
+      );
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,
-          this.notification(row, 'CONFIRMED'),
+          this.notification(confirmed, 'CONFIRMED'),
           row.createdByMemberId,
         );
     });
