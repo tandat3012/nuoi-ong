@@ -1,3 +1,4 @@
+import type { NumberingOptions } from "@/features/stock-documents";
 export type IssueStatus = "DRAFT" | "PENDING_APPROVAL" | "CONFIRMED" | "REJECTED" | "CANCELLED";
 export type IssueDraftTrackingMode = "QUANTITY" | "LOT" | "ASSET";
 export type IssueType =
@@ -26,6 +27,10 @@ export interface Issue {
   warehouseCode: string | null;
   warehouseName: string | null;
   issueCode: string | null;
+  externalReference?: string | null;
+  requestedCode?: string | null;
+  requestedCodeReason?: string | null;
+  codeSource?: 'AUTO' | 'MANUAL' | null;
   issueDate: string;
   issueType: IssueType;
   maintenanceRecordId: string | null;
@@ -72,7 +77,7 @@ export interface IssueFilters {
   status?: IssueStatus;
 }
 
-export interface CreateIssueInput {
+export interface CreateIssueInput extends NumberingOptions {
   warehouseId: string;
   issueDate?: string;
   issueType: IssueType;

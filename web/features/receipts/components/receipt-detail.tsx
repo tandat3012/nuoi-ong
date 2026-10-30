@@ -19,7 +19,7 @@ import {
   stockDocumentActions,
 } from "@/features/stock-documents";
 import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
-import { documentCodeLabel } from '@/features/stock-documents';
+import { documentCodeLabel, NumberingDetails } from '@/features/stock-documents';
 
 const date = (value: string | null) =>
   value ? value.split("-").reverse().join("/") : "—";
@@ -225,6 +225,7 @@ export function ReceiptDetail({
                   {documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id)}
                 </dd>
               </div>
+              <NumberingDetails document={detail.receipt} />
               <div>
                 <dt className="text-sm text-muted-foreground">Ngày nhập</dt>
                 <dd>{date(detail.receipt.receiptDate)}</dd>

@@ -7,7 +7,7 @@ import * as rules from "./stock-document.logic.ts";
 import * as linesRules from "./stock-document-lines.logic.ts";
 
 // Run the real event handlers with delayed requests, without a browser or another test dependency.
-function fixture(kind) {
+function fixture(kind, roles = ["ADMIN"], headerPatch = {}) {
   let active;
   const lock = rules.createStockDocumentLock(() => {});
   const calls = [];
@@ -63,7 +63,7 @@ function fixture(kind) {
       if (name.includes("features/auth")) return {
         useAuthenticatedRequest: () => request,
         useAuthContext: () => ({ selectedFarmId: "farm" }),
-        useFarmMembership: () => ({ membership: { roles: ["ADMIN"], memberId: "creator" } }),
+        useFarmMembership: () => ({ membership: { roles, memberId: "creator" } }),
       };
       if (name === "@/shared/api/client") return { ApiError };
       return new Proxy({}, { get: (_, key) => key });
@@ -97,7 +97,7 @@ function fixture(kind) {
   };
   const header = {
     id: "doc", countCode: "COUNT", transferCode: "TRANSFER", status: "DRAFT",
-    createdByMemberId: "creator", warehouseId: "warehouse", note: null,
+    createdByMemberId: "creator", warehouseId: "warehouse", note: null, ...headerPatch,
   };
   const screen = render(Screen, {}, [
     [header], [], [], "ALL", 1, 0, 1, 1, "farm", false, false, null, null, "doc",
@@ -207,5 +207,26 @@ for (const kind of ["counts", "transfers"]) {
       assert.ok(f.screen.state[12]);
       assert.equal(f.screen.state[5], status === 401 || status === 403 ? 0 : 1);
     }
+  });
+}
+
+for (const kind of ["counts", "transfers"]) {
+  test(`${kind}: an owner can clear a requested code while editing the draft`, () => {
+    const f = fixture(kind, ["FARM_OWNER"], { requestedCode: "DUP-1", requestedCodeReason: "Giấy" });
+    button(f.panel.tree(), "Sửa nháp").props.onClick();
+    const fields = nodes(f.panel.tree()).find((node) => node.type === "NumberingOptionsFields");
+    assert.deepEqual(fields.props.value, { externalReference: "", requestedCode: "DUP-1", requestedCodeReason: "Giấy" });
+    fields.props.onChange({ ...fields.props.value, requestedCode: "" });
+    button(f.panel.tree(), "Lưu thay đổi").props.onClick();
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].options.data.requestedCode, null);
+  });
+
+  test(`${kind}: other approvers neither see nor send numbering options`, () => {
+    const f = fixture(kind, ["ADMIN"], { requestedCode: "DUP-1", requestedCodeReason: "Giấy" });
+    button(f.panel.tree(), "Sửa nháp").props.onClick();
+    assert.equal(nodes(f.panel.tree()).some((node) => node.type === "NumberingOptionsFields"), false);
+    button(f.panel.tree(), "Lưu thay đổi").props.onClick();
+    assert.equal("requestedCode" in f.calls[0].options.data, false);
   });
 }

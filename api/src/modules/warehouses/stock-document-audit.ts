@@ -18,7 +18,16 @@ type DocumentRow = {
   createdByMemberId: string | null;
 };
 
-const COMMON_FIELDS = ['status', 'rejectionReason', 'createdByMemberId'];
+const COMMON_FIELDS = [
+  'status',
+  'rejectionReason',
+  'createdByMemberId',
+  'externalReference',
+  'requestedCode',
+  'requestedCodeReason',
+  'requestedByMemberId',
+  'codeSource',
+];
 const DOCUMENT_FIELDS: Record<StockDocumentType, string[]> = {
   STOCK_RECEIPT: [
     'receiptCode',

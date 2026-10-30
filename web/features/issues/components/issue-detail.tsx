@@ -22,6 +22,7 @@ import {
   StockDocumentReview,
   stockDocumentActions,
   documentCodeLabel,
+  NumberingDetails,
 } from "@/features/stock-documents";
 import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 
@@ -239,6 +240,7 @@ export function IssueDetail({
                 <dt className="text-sm text-muted-foreground">Ngày xuất</dt>
                 <dd>{detail.issue.issueDate.split("-").reverse().join("/")}</dd>
               </div>
+              <NumberingDetails document={detail.issue} />
               <div>
                 <dt className="text-sm text-muted-foreground">Loại phiếu</dt>
                 <dd>{ISSUE_TYPE_LABELS[detail.issue.issueType]}</dd>

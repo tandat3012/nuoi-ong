@@ -31,7 +31,12 @@ import {
 } from './dto/stock-count.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import { allocateDocumentCode, ignoreLegacyCode } from './stock-document-code';
+import {
+  confirmationCode,
+  ignoreLegacyCode,
+  numberingOptionChanges,
+  rethrowCodeConflict,
+} from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -101,8 +106,12 @@ export class StockCountsService {
   }
 
   async create(farmId: string, user: string, input: CreateStockCountDto) {
-    const { memberId: member } =
-      await this.warehousesService.assertDocumentWriter(farmId, user);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
+    const member = writer.memberId;
+    const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
     const id = await this.dbService.db.transaction(async (tx) => {
       await this.assertWarehouse(tx, farmId, input.warehouseId);
@@ -129,6 +138,7 @@ export class StockCountsService {
       const [row] = await tx
         .insert(stockCounts)
         .values({
+          ...numbering,
           farmId,
           warehouseId: input.warehouseId,
           note: input.note,
@@ -156,6 +166,7 @@ export class StockCountsService {
       farmId,
       user,
     );
+    const numbering = numberingOptionChanges(input, writer);
     await this.dbService.db.transaction(async (tx) => {
       const current = await this.only(id, farmId, tx, true);
       assertOwnDocument(writer, current.createdByMemberId);
@@ -197,6 +208,7 @@ export class StockCountsService {
       }
       const changes = {
         ...(input.note !== undefined ? { note: input.note } : {}),
+        ...numbering,
         status: 'COUNTING' as const,
       };
       await tx
@@ -340,7 +352,7 @@ export class StockCountsService {
       user,
       true,
     );
-    await this.dbService.db.transaction(async (tx) => {
+    const confirmation = this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'COUNTING', 'PENDING_APPROVAL'].includes(row.status))
@@ -398,21 +410,30 @@ export class StockCountsService {
         });
       }
       const confirmedAt = new Date();
-      // Legacy drafts keep their code; uncoded drafts take the next number.
-      const countCode =
-        row.countCode ??
-        (await allocateDocumentCode(tx, farmId, 'KK', confirmedAt));
+      const { code: countCode, codeSource } = await confirmationCode(
+        tx,
+        farmId,
+        'KK',
+        { code: row.countCode, requestedCode: row.requestedCode },
+        confirmedAt,
+      );
       await tx
         .update(stockCounts)
         .set({
           status: 'CONFIRMED',
           countCode,
+          codeSource,
           confirmedByMemberId: member,
           confirmedAt: confirmedAt.toISOString(),
           updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockCounts.id, id));
-      const confirmed = { ...row, countCode, status: 'CONFIRMED' as const };
+      const confirmed = {
+        ...row,
+        countCode,
+        codeSource: codeSource ?? row.codeSource,
+        status: 'CONFIRMED' as const,
+      };
       await auditStockDocument(
         tx,
         member,
@@ -428,6 +449,7 @@ export class StockCountsService {
           row.createdByMemberId,
         );
     });
+    await confirmation.catch(rethrowCodeConflict);
     return this.withItems(id, farmId);
   }
 

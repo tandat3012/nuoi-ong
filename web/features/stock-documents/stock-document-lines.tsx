@@ -11,13 +11,20 @@ import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
   documentCodeLabel,
+  isFarmOwner,
+  numberingDraft,
+  numberingOptionsError,
+  numberingOptionsPayload,
   shouldReloadAfterFailure,
   stockDocumentActions,
   stockDocumentErrorMessage,
   type createStockDocumentLock,
   type StockDocumentState,
+  type NumberingDraft,
+  type NumberingOptions,
   type StockDocumentViewer,
 } from "./stock-document.logic";
+import { NumberingOptionsFields } from "./numbering-options-fields";
 import {
   documentLinesPayload,
   validateDocumentLines,
@@ -37,7 +44,7 @@ type Line = EditableLine & {
   actualQuantity?: string;
   difference?: string | null;
 };
-type Header = StockDocumentState & {
+type Header = StockDocumentState & NumberingOptions & {
   note: string | null;
   transferCode?: string | null;
   countCode?: string | null;
@@ -89,7 +96,7 @@ export function StockDocumentLines({
   const request = useAuthenticatedRequest();
   const counts = kind === "stock-counts";
   const [result, setResult] = useState<{ revision: number; detail?: Detail; error?: string } | null>(null);
-  const [draft, setDraft] = useState<{ note: string; lines: Line[] } | null>(null);
+  const [draft, setDraft] = useState<{ note: string; lines: Line[]; numbering: NumberingDraft } | null>(null);
   const [added, setAdded] = useState({ itemId: "", lotId: "" });
   const [formError, setFormError] = useState<string | null>(null);
   const saving = useRef(false);
@@ -143,6 +150,7 @@ export function StockDocumentLines({
   const detail = current?.detail;
   const canEdit = detail ? stockDocumentActions(viewer, detail.header).edit : false;
   const warehouseId = detail?.header.warehouseId ?? detail?.header.fromWarehouseId ?? "";
+  const isOwner = isFarmOwner(viewer.roles);
   const addedItem = items.find((item) => item.id === added.itemId);
 
   function stopEditing() {
@@ -191,7 +199,10 @@ export function StockDocumentLines({
 
   async function save() {
     if (!draft || !editing.current || saving.current) return;
-    const invalid = validateDocumentLines(kind, draft.lines);
+    // Owners can change or clear a requested code, e.g. after a 409 on confirmation.
+    const numberingOptions = isOwner ? numberingOptionsPayload(draft.numbering) : {};
+    const invalid =
+      validateDocumentLines(kind, draft.lines) ?? numberingOptionsError(numberingOptions);
     if (invalid) {
       setFormError(invalid);
       return;
@@ -207,6 +218,7 @@ export function StockDocumentLines({
         data: {
           note: draft.note.trim() || null,
           items: documentLinesPayload(kind, draft.lines),
+          ...numberingOptions,
         },
       });
       onChanged();
@@ -235,7 +247,11 @@ export function StockDocumentLines({
               onClick={() => {
                 if (!detail || !lock.acquire()) return;
                 editing.current = true;
-                setDraft({ note: detail.header.note ?? "", lines: detail.lines });
+                setDraft({
+                  note: detail.header.note ?? "",
+                  lines: detail.lines,
+                  numbering: numberingDraft(detail.header),
+                });
               }}
             >
               Sửa nháp
@@ -367,6 +383,12 @@ export function StockDocumentLines({
                   onChange={(event) => setDraft({ ...draft, note: event.target.value })}
                 />
               </label>
+              {isOwner && (
+                <NumberingOptionsFields
+                  value={draft.numbering}
+                  onChange={(numbering) => setDraft({ ...draft, numbering })}
+                />
+              )}
               <div className="flex gap-2">
                 <Button onClick={() => void save()}>{isSaving ? "Đang lưu..." : "Lưu thay đổi"}</Button>
                 <Button variant="outline" onClick={stopEditing}>

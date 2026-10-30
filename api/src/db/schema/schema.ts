@@ -126,6 +126,11 @@ export const trackingMode = pgEnum('tracking_mode', [
   'LOT',
   'ASSET',
 ]);
+// How a stock document got its permanent code; NULL means a legacy code.
+export const documentCodeSource = pgEnum('document_code_source', [
+  'AUTO',
+  'MANUAL',
+]);
 // Code prefixes of the stock documents: receipt, issue, count, transfer.
 export const stockDocumentPrefix = pgEnum('stock_document_prefix', [
   'PN',
@@ -596,6 +601,17 @@ export const materialProfiles = pgTable(
   ],
 );
 
+// Owner-only numbering options shared by the four stock document tables.
+const documentNumberingColumns = () => ({
+  // Paper reference only; never changes the permanent code.
+  externalReference: varchar('external_reference', { length: 100 }),
+  // Requested permanent code, checked again (not reserved) at confirmation.
+  requestedCode: varchar('requested_code', { length: 50 }),
+  requestedCodeReason: varchar('requested_code_reason', { length: 500 }),
+  requestedByMemberId: uuid('requested_by_member_id'),
+  codeSource: documentCodeSource('code_source'),
+});
+
 export const stockReceipts = pgTable(
   'stock_receipts',
   {
@@ -605,6 +621,7 @@ export const stockReceipts = pgTable(
     supplierId: uuid('supplier_id'),
     // Null on drafts: the permanent code is assigned at confirmation.
     receiptCode: varchar('receipt_code', { length: 50 }),
+    ...documentNumberingColumns(),
     receiptDate: date('receipt_date')
       .default(sql`CURRENT_DATE`)
       .notNull(),
@@ -674,6 +691,15 @@ export const stockReceipts = pgTable(
       foreignColumns: [warehouses.id],
       name: 'stock_receipts_warehouse_id_fkey',
     }),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_receipts_requested_by_member_id_fkey',
+    }),
+    check(
+      'ck_receipt_requested_code',
+      sql`(requested_code IS NULL) OR ((btrim(requested_code) <> '') AND (coalesce(btrim(requested_code_reason), '') <> '') AND (requested_by_member_id IS NOT NULL))`,
+    ),
     // Case/whitespace-insensitive so mixed-case legacy codes stay occupied.
     uniqueIndex('uq_receipt_code_per_farm').using(
       'btree',
@@ -1041,6 +1067,7 @@ export const stockIssues = pgTable(
     warehouseId: uuid('warehouse_id').notNull(),
     // Null on drafts: the permanent code is assigned at confirmation.
     issueCode: varchar('issue_code', { length: 50 }),
+    ...documentNumberingColumns(),
     issueDate: date('issue_date')
       .default(sql`CURRENT_DATE`)
       .notNull(),
@@ -1116,6 +1143,15 @@ export const stockIssues = pgTable(
       foreignColumns: [maintenanceRecords.id],
       name: 'fk_stock_issues_maintenance_record',
     }),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_issues_requested_by_member_id_fkey',
+    }),
+    check(
+      'ck_issue_requested_code',
+      sql`(requested_code IS NULL) OR ((btrim(requested_code) <> '') AND (coalesce(btrim(requested_code_reason), '') <> '') AND (requested_by_member_id IS NOT NULL))`,
+    ),
     // Case/whitespace-insensitive so mixed-case legacy codes stay occupied.
     uniqueIndex('uq_issue_code_per_farm').using(
       'btree',
@@ -1191,6 +1227,7 @@ export const stockTransfers = pgTable(
     toWarehouseId: uuid('to_warehouse_id').notNull(),
     // Null on drafts: the permanent code is assigned at confirmation.
     transferCode: varchar('transfer_code', { length: 50 }),
+    ...documentNumberingColumns(),
     transferDate: date('transfer_date')
       .default(sql`CURRENT_DATE`)
       .notNull(),
@@ -1255,6 +1292,15 @@ export const stockTransfers = pgTable(
       foreignColumns: [warehouses.id],
       name: 'stock_transfers_to_warehouse_id_fkey',
     }),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_transfers_requested_by_member_id_fkey',
+    }),
+    check(
+      'ck_transfer_requested_code',
+      sql`(requested_code IS NULL) OR ((btrim(requested_code) <> '') AND (coalesce(btrim(requested_code_reason), '') <> '') AND (requested_by_member_id IS NOT NULL))`,
+    ),
     // Case/whitespace-insensitive so mixed-case legacy codes stay occupied.
     uniqueIndex('uq_transfer_code_per_farm').using(
       'btree',
@@ -1329,6 +1375,7 @@ export const stockCounts = pgTable(
     warehouseId: uuid('warehouse_id').notNull(),
     // Null on drafts: the permanent code is assigned at confirmation.
     countCode: varchar('count_code', { length: 50 }),
+    ...documentNumberingColumns(),
     countDate: date('count_date')
       .default(sql`CURRENT_DATE`)
       .notNull(),
@@ -1384,6 +1431,15 @@ export const stockCounts = pgTable(
       foreignColumns: [warehouses.id],
       name: 'stock_counts_warehouse_id_fkey',
     }),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_counts_requested_by_member_id_fkey',
+    }),
+    check(
+      'ck_count_requested_code',
+      sql`(requested_code IS NULL) OR ((btrim(requested_code) <> '') AND (coalesce(btrim(requested_code_reason), '') <> '') AND (requested_by_member_id IS NOT NULL))`,
+    ),
     // Case/whitespace-insensitive so mixed-case legacy codes stay occupied.
     uniqueIndex('uq_count_code_per_farm').using(
       'btree',

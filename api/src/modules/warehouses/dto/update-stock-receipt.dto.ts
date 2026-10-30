@@ -10,8 +10,9 @@ import {
 } from 'class-validator';
 import { CreateStockReceiptItemDto } from './create-stock-receipt.dto';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 
-export class UpdateStockReceiptDto {
+export class UpdateStockReceiptDto extends DocumentNumberingOptionsDto {
   @IsOptional()
   @IsUUID()
   warehouseId?: string;

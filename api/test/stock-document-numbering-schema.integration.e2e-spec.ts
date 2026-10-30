@@ -148,6 +148,26 @@ describe('Stock document numbering schema', () => {
       await insert(t, 'legacy-01', { farm: 'other' });
     });
 
+    it('requires a reason and a requester with a requested code', async () => {
+      await insert(t, null);
+      const request = (reason: string | null, requester: string | null) =>
+        db.query(
+          `UPDATE ${t.table} SET requested_code = 'REQ-1', requested_code_reason = $2,
+             requested_by_member_id = $3 WHERE farm_id = $1`,
+          [farmId, reason, requester],
+        );
+      for (const [reason, requester] of [
+        [null, memberId],
+        ['   ', memberId],
+        ['Khớp phiếu giấy', null],
+      ])
+        await expectViolation(
+          () => request(reason, requester),
+          `ck_${t.name}_requested_code`,
+        );
+      await request('Khớp phiếu giấy', memberId);
+    });
+
     it('still requires confirmation metadata', async () => {
       await expectViolation(
         () =>

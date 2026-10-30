@@ -38,7 +38,12 @@ import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
-import { allocateDocumentCode, ignoreLegacyCode } from './stock-document-code';
+import {
+  confirmationCode,
+  ignoreLegacyCode,
+  numberingOptionChanges,
+  rethrowCodeConflict,
+} from './stock-document-code';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
@@ -119,10 +124,12 @@ export class StockIssuesService {
     clerkUserId: string,
     input: CreateStockIssueDto,
   ) {
-    const { memberId } = await this.warehousesService.assertDocumentWriter(
+    const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
     );
+    const { memberId } = writer;
+    const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
     const issueType = input.issueType ?? 'CONSUMPTION';
     if (issueType === 'SALE')
@@ -142,6 +149,7 @@ export class StockIssuesService {
         const [issue] = await tx
           .insert(stockIssues)
           .values({
+            ...numbering,
             farmId,
             warehouseId: input.warehouseId,
             issueDate: input.issueDate,
@@ -189,6 +197,7 @@ export class StockIssuesService {
       farmId,
       clerkUserId,
     );
+    const numbering = numberingOptionChanges(input, writer);
     await this.databaseService.db
       .transaction(async (tx) => {
         const current = await this.getOnly(id, farmId, tx, true);
@@ -257,6 +266,7 @@ export class StockIssuesService {
         ] as const)
           if (input[key] !== undefined) changes[key] = input[key] as never;
         changes.updatedAt = new Date().toISOString();
+        Object.assign(changes, numbering);
         ignoreLegacyCode('issueCode', input.issueCode);
         if (Object.keys(changes).length)
           await tx
@@ -409,7 +419,7 @@ export class StockIssuesService {
       clerkUserId,
       true,
     );
-    await this.databaseService.db.transaction(async (tx) => {
+    const confirmation = this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
       // A repeated confirmation returns the confirmed issue unchanged.
       if (issue.status === 'CONFIRMED') return;
@@ -576,21 +586,30 @@ export class StockIssuesService {
         });
       }
       const confirmedAt = new Date();
-      // Legacy drafts keep their code; uncoded drafts take the next number.
-      const issueCode =
-        issue.issueCode ??
-        (await allocateDocumentCode(tx, farmId, 'PX', confirmedAt));
+      const { code: issueCode, codeSource } = await confirmationCode(
+        tx,
+        farmId,
+        'PX',
+        { code: issue.issueCode, requestedCode: issue.requestedCode },
+        confirmedAt,
+      );
       await tx
         .update(stockIssues)
         .set({
           status: 'CONFIRMED',
           issueCode,
+          codeSource,
           confirmedByMemberId: memberId,
           confirmedAt: confirmedAt.toISOString(),
           updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockIssues.id, id));
-      const confirmed = { ...issue, issueCode, status: 'CONFIRMED' as const };
+      const confirmed = {
+        ...issue,
+        issueCode,
+        codeSource: codeSource ?? issue.codeSource,
+        status: 'CONFIRMED' as const,
+      };
       await auditStockDocument(
         tx,
         memberId,
@@ -606,6 +625,7 @@ export class StockIssuesService {
           issue.createdByMemberId,
         );
     });
+    await confirmation.catch(rethrowCodeConflict);
     return this.withItems(id, farmId);
   }
 

@@ -1,3 +1,4 @@
+import type { NumberingOptions } from '@/features/stock-documents';
 export type ReceiptStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
 
 export const RECEIPT_STATUS_LABELS: Record<ReceiptStatus, string> = {
@@ -14,6 +15,10 @@ export interface Receipt {
   warehouseId: string;
   supplierId: string | null;
   receiptCode: string | null;
+  externalReference?: string | null;
+  requestedCode?: string | null;
+  requestedCodeReason?: string | null;
+  codeSource?: 'AUTO' | 'MANUAL' | null;
   receiptDate: string;
   status: ReceiptStatus;
   note: string | null;
@@ -37,7 +42,7 @@ export interface ReceiptFilters {
   warehouseId?: string;
 }
 
-export interface CreateReceiptInput {
+export interface CreateReceiptInput extends NumberingOptions {
   warehouseId: string;
   supplierId?: string | null;
   receiptDate?: string;
