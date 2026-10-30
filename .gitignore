@@ -14,3 +14,6 @@ coverage/
 
 docs/
 graphify-out/
+
+# Local agent instructions
+CLAUDE.md
