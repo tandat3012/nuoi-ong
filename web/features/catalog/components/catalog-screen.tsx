@@ -126,7 +126,7 @@ function CatalogTable({ farmId, resource, canWrite }: { farmId: string; resource
     <section className="space-y-4 rounded-xl border bg-card p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <Input aria-label={`Tìm ${resource.label.toLowerCase()}`} placeholder="Tìm theo mã hoặc tên" value={search} onChange={(event) => { setPage(1); setSearch(event.target.value); }} className="md:max-w-xs" />
-        {canWrite ? <Button onClick={() => setEditing('new')}>Thêm {resource.label.toLowerCase()}</Button> : <p className="text-sm text-muted-foreground">{resource.shared ? 'Chỉ quản trị viên (ADMIN) được sửa danh mục dùng chung.' : 'Chỉ quản trị viên hoặc chủ trang trại được sửa.'}</p>}
+        {canWrite ? <Button onClick={() => setEditing('new')}>Thêm {resource.label.toLowerCase()}</Button> : <p className="text-sm text-muted-foreground">{resource.shared ? 'Chỉ quản trị viên (ADMIN) được sửa danh mục dùng chung.' : 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho được sửa.'}</p>}
       </div>
       {actionError && <ErrorAlert message={actionError} />}
       {!result ? <BeeLoader label="Đang tải…" size="sm" /> : result.error ? <ErrorAlert message={result.error} /> : result.rows.length === 0 ? <p className="text-sm text-muted-foreground">Chưa có dữ liệu.</p> : (

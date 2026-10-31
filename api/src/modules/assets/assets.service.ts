@@ -33,6 +33,7 @@ import {
 } from '../../db/schema';
 import { ReturnAssetDto } from './dto/return-asset.dto';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 
 type AssetStatus = (typeof assetStatus.enumValues)[number];
 
@@ -62,6 +63,7 @@ export class AssetsService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const [actor] = await this.databaseService.db
       .select({ userId: users.id })

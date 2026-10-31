@@ -1,15 +1,34 @@
 'use client';
 
 import { useAuthContext } from '../context/auth-context';
+import {
+  FARM_ADMIN_ROLES,
+  FARM_AREA_ROLES,
+  HISTORY_ROLES,
+  STORE_MANAGE_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+  hasAnyRole,
+} from '../farm-roles';
 
-/** Membership of the selected farm; ADMIN and FARM_OWNER may manage (write) farm data. */
+/** Membership of the selected farm and what its roles allow; see farm-roles.ts. */
 export function useFarmMembership() {
   const { data, selectedFarmId } = useAuthContext();
   const membership = data.memberships.find(({ farm }) => farm.id === selectedFarmId);
-  const canManageFarm = membership?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER') ?? false;
+  const roles = membership?.roles ?? [];
   const storeFarm = data.storeFarm;
   const isStoreFarm = !!storeFarm && storeFarm.id === selectedFarmId;
-  const canManageOrders =
-    membership?.roles.some((role) => ['ADMIN', 'FARM_OWNER', 'EMPLOYEE'].includes(role)) ?? false;
-  return { selectedFarmId, membership, canManageFarm, canManageOrders, storeFarm, isStoreFarm };
+  return {
+    selectedFarmId,
+    membership,
+    /** Personnel, assets and maintenance management. */
+    canManageFarm: hasAnyRole(roles, FARM_ADMIN_ROLES),
+    canManageWarehouse: hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES),
+    canManageStore: hasAnyRole(roles, STORE_MANAGE_ROLES),
+    canAccessFarmArea: hasAnyRole(roles, FARM_AREA_ROLES),
+    /** Own activity unless farm admin; same staff set as the dashboard metrics. */
+    canViewHistory: hasAnyRole(roles, HISTORY_ROLES),
+    canViewMetrics: hasAnyRole(roles, HISTORY_ROLES),
+    storeFarm,
+    isStoreFarm,
+  };
 }

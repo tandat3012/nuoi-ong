@@ -34,6 +34,7 @@ import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 
 export interface StockReceiptListFilters extends PaginationParams {
   farmId: string;
@@ -354,6 +355,7 @@ export class StockReceiptsService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
@@ -404,6 +406,7 @@ export class StockReceiptsService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);

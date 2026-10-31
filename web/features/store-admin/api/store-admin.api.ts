@@ -170,12 +170,8 @@ export function searchStoreItems(
   farmId: string,
   search: string,
 ) {
-  return request<PaginatedResponse<ReceiptItemReference>>("/items", {
-    params: {
-      farmId,
-      status: "ACTIVE",
-      pageSize: 20,
-      search: search.trim() || undefined,
-    },
+  // Restricted lookup: store-only managers have no access to /items.
+  return request<{ data: ReceiptItemReference[] }>("/store-admin/items", {
+    params: { farmId, search: search.trim() || undefined },
   });
 }

@@ -46,6 +46,10 @@ import {
   OPENAPI_DECIMAL_STRING,
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
+import {
+  FARM_AREA_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 const materialItemSchema = {
   type: 'object',
@@ -101,6 +105,8 @@ const materialSchema = {
 };
 
 @Controller('materials')
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @UseGuards(FarmAccessGuard)
 @ApiTags('Vật tư')
 @ApiBearerAuth('clerk-jwt')
@@ -108,7 +114,7 @@ export class MaterialsController {
   constructor(private readonly materialsService: MaterialsService) {}
 
   @Post()
-  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
   @ApiOperation({ summary: 'Tạo vật tư' })
   @ApiFarmIdQuery()
   @ApiBody({
@@ -405,7 +411,7 @@ export class MaterialsController {
   }
 
   @Patch(':id')
-  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
   @ApiOperation({ summary: 'Cập nhật vật tư' })
   @ApiUuidParam('id', 'ID vật tư.')
   @ApiFarmIdQuery()

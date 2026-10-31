@@ -1,7 +1,8 @@
 import type { AssetFilters, AssetStatus } from "./types/asset";
+import { WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
 
 export function canWriteAssets(roles: readonly string[]) {
-  return roles.some((role) => role === "ADMIN" || role === "FARM_OWNER");
+  return hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES);
 }
 
 export function assetActions(status: AssetStatus) {

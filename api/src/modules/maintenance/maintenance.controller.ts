@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -41,6 +42,9 @@ import {
   UpdateMaintenanceRecordDto,
 } from './dto/maintenance.dto';
 import { MaintenanceService } from './maintenance.service';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const recordSchema = {
   type: 'object',
@@ -80,6 +84,9 @@ const recordWithAssetSchema = {
 };
 
 @Controller('maintenance-records')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Bảo trì')
 @ApiBearerAuth('clerk-jwt')
 export class MaintenanceController {

@@ -314,7 +314,8 @@ describe('Store orders (migrated PostgreSQL)', () => {
     inRollback(async ({ ids, service, issues, input }) => {
       const { order } = await service.create(ids.customer, input());
       const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
-      await issues.submit(confirmed.stockIssue.id, ids.farm, ids.staff);
+      // Warehouse staff submit the linked issue; store managers cannot.
+      await issues.submit(confirmed.stockIssue.id, ids.farm, ids.admin);
       await expect(
         issues.reject(confirmed.stockIssue.id, ids.farm, ids.admin, 'Hết hàng'),
       ).rejects.toThrow('Cancel the linked order instead');

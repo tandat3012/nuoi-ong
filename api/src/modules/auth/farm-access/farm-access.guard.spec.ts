@@ -3,6 +3,7 @@ import type { ExecutionContext } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
 import type { DatabaseService } from '../../../db/database.service';
 import { FarmAccessGuard } from './farm-access.guard';
+import { FARM_AREA_ROLES } from './farm-role-groups';
 
 describe('FarmAccessGuard', () => {
   const getAllAndOverride = jest.fn();
@@ -14,6 +15,7 @@ describe('FarmAccessGuard', () => {
   const request: {
     query: { farmId?: string };
     auth: { clerkUserId: string; sessionId: string };
+    farmRoleCodes?: string[];
   } = {
     query: { farmId: '6a8ac800-8daa-4e25-9ef8-57af547f8784' },
     auth: { clerkUserId: 'user_123', sessionId: 'sess_123' },
@@ -159,5 +161,28 @@ describe('FarmAccessGuard', () => {
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+
+  it('keeps a store-only manager out of farm-area modules and exposes roles', async () => {
+    const row = {
+      userStatus: 'ACTIVE',
+      memberStatus: 'ACTIVE',
+      farmStatus: 'ACTIVE',
+    };
+    getAllAndOverride.mockReturnValue(FARM_AREA_ROLES);
+    mockMembershipRows([{ ...row, roleCode: 'STORE_MANAGER' }]);
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+
+    mockMembershipRows([
+      { ...row, roleCode: 'STORE_MANAGER' },
+      { ...row, roleCode: 'WAREHOUSE_MANAGER' },
+    ]);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.farmRoleCodes).toEqual([
+      'STORE_MANAGER',
+      'WAREHOUSE_MANAGER',
+    ]);
   });
 });

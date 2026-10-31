@@ -166,3 +166,11 @@ test("normalizes owner numbering options like the API and requires a reason with
   assert.equal(isFarmOwner(["ADMIN"]), false);
   assert.equal(isFarmOwner(["EMPLOYEE", "FARM_OWNER"]), true);
 });
+
+test("warehouse managers approve; employees only create; store managers do neither", async () => {
+  const { canApproveStockDocuments, canCreateStockDocuments } = await import("./stock-document.logic.ts");
+  assert.equal(canApproveStockDocuments(["WAREHOUSE_MANAGER"]), true);
+  assert.equal(canApproveStockDocuments(["EMPLOYEE"]), false);
+  assert.equal(canCreateStockDocuments(["EMPLOYEE"]), true);
+  assert.equal(canCreateStockDocuments(["STORE_MANAGER"]), false);
+});

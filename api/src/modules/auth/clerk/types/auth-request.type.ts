@@ -5,4 +5,6 @@ export type AuthRequest = Request & {
     clerkUserId: string;
     sessionId: string | null;
   };
+  /** Active role codes in the request's farm, set by FarmAccessGuard. */
+  farmRoleCodes?: string[];
 };

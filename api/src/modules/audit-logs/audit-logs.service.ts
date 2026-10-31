@@ -34,6 +34,11 @@ import {
   warehouses,
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import {
+  FARM_ADMIN_ROLES,
+  STOCK_WRITE_ROLES,
+  hasAnyRole,
+} from '../auth/farm-access/farm-role-groups';
 
 export interface AuditLogFilters extends PaginationParams {
   farmId: string;
@@ -113,14 +118,13 @@ export class AuditLogsService {
     return this.present(row);
   }
 
-  /** Approvers read the whole farm history; employees only that of documents they created. */
+  /** Owners read the whole farm history; other staff only that of documents they created. */
   private async scope(farmId: string, clerkUserId: string): Promise<SQL[]> {
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
     const conditions = [eq(auditLogs.farmId, farmId)];
-    if (roleCodes.some((code) => ['ADMIN', 'FARM_OWNER'].includes(code)))
-      return conditions;
-    if (!roleCodes.includes('EMPLOYEE'))
+    if (hasAnyRole(roleCodes, FARM_ADMIN_ROLES)) return conditions;
+    if (!hasAnyRole(roleCodes, [...STOCK_WRITE_ROLES, 'STORE_MANAGER']))
       throw new ForbiddenException('Audit history permission is required');
     // shortcut: unindexed JSON filter, scans the farm's audit rows; add a column or expression index when history grows.
     conditions.push(

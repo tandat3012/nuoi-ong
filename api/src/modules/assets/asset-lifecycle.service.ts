@@ -24,6 +24,7 @@ import {
   warehouses,
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import {
   AssignAssetDto,
   CreateAssetDto,
@@ -963,6 +964,7 @@ export class AssetLifecycleService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const [actor] = await this.databaseService.db
       .select({ userId: users.id })

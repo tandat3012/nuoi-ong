@@ -63,11 +63,17 @@ export async function seedOrders(db: OrderTestDb) {
     .insert(schema.roles)
     .values([
       { code: 'EMPLOYEE', name: 'Employee', scope: 'FARM' },
+      { code: 'STORE_MANAGER', name: 'Store manager', scope: 'FARM' },
       { code: 'ADMIN', name: 'Admin', scope: 'FARM' },
     ])
     .onConflictDoNothing()
     .returning();
   void roles;
+  // Staff holds both store and warehouse-employee roles, like a small-farm worker.
+  const [storeManagerRole] = await db
+    .select()
+    .from(schema.roles)
+    .where(eq(schema.roles.code, 'STORE_MANAGER'));
   const [employeeRole] = await db
     .select()
     .from(schema.roles)
@@ -77,6 +83,7 @@ export async function seedOrders(db: OrderTestDb) {
     .from(schema.roles)
     .where(eq(schema.roles.code, 'ADMIN'));
   await db.insert(schema.farmMemberRoles).values([
+    { farmMemberId: ids.member, roleId: storeManagerRole.id },
     { farmMemberId: ids.member, roleId: employeeRole.id },
     { farmMemberId: ids.adminMember, roleId: adminRole.id },
   ]);

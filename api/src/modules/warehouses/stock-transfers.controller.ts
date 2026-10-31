@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -41,6 +42,9 @@ import {
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
 import { StockTransfersService } from './stock-transfers.service';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const transferSchema = {
   type: 'object',
@@ -93,6 +97,9 @@ const transferDetailSchema = {
 };
 
 @Controller('stock-transfers')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Điều chuyển kho')
 @ApiBearerAuth('clerk-jwt')
 export class StockTransfersController {

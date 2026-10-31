@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { SidebarNavigation } from './sidebar-navigation';
 import { HeaderBar } from './header-bar';
 import { BrandMark } from './brand-mark';
+import { RouteAccessGate } from './route-access-gate';
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
@@ -36,7 +37,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
         <div className="flex min-w-0 flex-col">
           <HeaderBar />
           <main id="main-content" className="flex-1 p-4 sm:p-6 lg:p-8">
-            {children}
+            <RouteAccessGate>{children}</RouteAccessGate>
           </main>
         </div>
       </div>
