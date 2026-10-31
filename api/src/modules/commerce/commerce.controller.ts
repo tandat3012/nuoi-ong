@@ -17,6 +17,7 @@ import {
 import { parsePagination } from '../../common/query-params';
 import { ApiPageQueries } from '../../common/swagger-docs';
 import { Public } from '../auth/clerk/public.decorator';
+import { storeBankAccount } from '../payments/bank-account';
 import { CommerceService } from './commerce.service';
 
 function parsePrice(value: string | undefined, field: string) {
@@ -153,5 +154,25 @@ export class CommerceController {
     @Query('pageSize') pageSize?: string,
   ) {
     return this.commerceService.listCategories(parsePagination(page, pageSize));
+  }
+
+  @Get('payment-methods')
+  @Public()
+  @ApiOperation({ summary: 'Phương thức thanh toán đang mở' })
+  @ApiOkResponse({
+    description:
+      'bankTransfer là null khi cửa hàng chưa cấu hình tài khoản nhận tiền.',
+  })
+  paymentMethods() {
+    const account = storeBankAccount();
+    return {
+      data: {
+        bankTransfer: account && {
+          bankName: account.bankName,
+          accountNumber: account.accountNumber,
+          accountName: account.accountName,
+        },
+      },
+    };
   }
 }
