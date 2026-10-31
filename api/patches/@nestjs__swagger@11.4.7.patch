@@ -1,0 +1,18 @@
+diff --git a/dist/plugin/utils/plugin-utils.js b/dist/plugin/utils/plugin-utils.js
+index 7bc7c6cc13a11ce7ad1ea962c8ea2df6b27d89ce..64caaca6a10b0c66b5c102ddb2c3dccd9484b014 100644
+--- a/dist/plugin/utils/plugin-utils.js
++++ b/dist/plugin/utils/plugin-utils.js
+@@ -214,9 +214,11 @@ function replaceImportPath(typeReference, fileName, options) {
+     if (!importPath) {
+         return { typeReference: undefined, importPath: null };
+     }
+-    importPath = convertPath(importPath);
+     importPath = importPath.slice(2, importPath.length - 1);
+-    const decodedImportPath = safeDecodeURIComponent(importPath);
++    // TypeScript escapes Unicode in import type string literals. Decode the
++    // literal before normalizing separators, and retain its original spelling
++    // for the replacement below (for example, Kho\\u00E1 versus Khoá).
++    const decodedImportPath = safeDecodeURIComponent(convertPath(JSON.parse(`"${importPath}"`)));
+     try {
+         if ((0, path_1.isAbsolute)(decodedImportPath)) {
+             throw {};

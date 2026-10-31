@@ -2,3 +2,5 @@ allowBuilds:
   '@scarf/scarf': false
   esbuild: false
   unrs-resolver: false
+patchedDependencies:
+  '@nestjs/swagger@11.4.7': patches/@nestjs__swagger@11.4.7.patch

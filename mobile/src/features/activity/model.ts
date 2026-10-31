@@ -1,5 +1,6 @@
 import type { AuditLog } from './api';
 import { formatQuantity } from '@/src/shared/format-quantity';
+import { formatApiDateTime } from '@/src/shared/format-date-time';
 
 export const actionLabels: Record<string, string> = {
   CREATE: 'Tạo mới', UPDATE: 'Cập nhật', SUBMIT: 'Gửi duyệt',
@@ -53,8 +54,7 @@ export function statusTone(value: string | null): 'success' | 'amber' | 'danger'
   return 'cream';
 }
 export function formatDateTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('vi-VN');
+  return formatApiDateTime(value, value);
 }
 function canonicalKey(key: string) {
   return key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
