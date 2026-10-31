@@ -11,6 +11,7 @@ import {
 } from "@/features/commerce/orders/order.logic";
 import type { StoreOrderCustomerProfile } from "@/features/commerce/orders/types/order";
 import { StoreOrdersList } from "./store-orders-list";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function StoreOrderCustomer({
   farmId,
@@ -47,7 +48,7 @@ export function StoreOrderCustomer({
       <Link href="/store-orders" className="text-sm text-primary underline">
         ← Danh sách đơn hàng
       </Link>
-      {!current && <p role="status">Đang tải hồ sơ khách hàng…</p>}
+      {!current && <BeeLoader label="Đang tải hồ sơ khách hàng…" size="sm" />}
       {current?.error && (
         <ErrorAlert
           message={current.error}

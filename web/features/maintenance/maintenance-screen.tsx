@@ -10,6 +10,7 @@ import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Pagination } from "@/shared/components/ui/pagination";
 import { Select } from "@/shared/components/ui/select";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 type Maintenance = {
   id: string;
@@ -103,9 +104,7 @@ function MaintenanceList({ farmId }: { farmId: string }) {
         aria-label="Danh sách bảo trì"
       >
         {!current ? (
-          <p role="status" className="p-5">
-            Đang tải bảo trì…
-          </p>
+          <BeeLoader label="Đang tải bảo trì…" />
         ) : current.error ? (
           <ErrorAlert
             className="m-4"
@@ -187,7 +186,7 @@ function MaintenanceList({ farmId }: { farmId: string }) {
 
 export function MaintenanceScreen() {
   const { selectedFarmId, isLoading, error } = useAuthContext();
-  if (isLoading) return <p role="status">Đang tải trang trại…</p>;
+  if (isLoading) return <BeeLoader label="Đang tải trang trại…" />;
   if (error)
     return (
       <ErrorAlert message="Không tải được quyền truy cập trang trại. Vui lòng tải lại trang." />

@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { matchesSearch } from "@/shared/lib/search";
+import { BeeLoader } from "./bee-loader";
 
 export interface ComboboxOption {
   value: string;
@@ -180,11 +181,14 @@ export function Combobox({
               )}
             </li>
           ))}
-          {visible.length === 0 && (
-            <li className="px-3 py-2 text-muted-foreground">
-              {loading ? "Đang tải..." : emptyText}
-            </li>
-          )}
+          {visible.length === 0 &&
+            (loading ? (
+              <li>
+                <BeeLoader size="sm" />
+              </li>
+            ) : (
+              <li className="px-3 py-2 text-muted-foreground">{emptyText}</li>
+            ))}
           {matchCount > visible.length && (
             <li className="px-3 py-2 text-xs text-muted-foreground">
               Hiển thị {visible.length}/{matchCount} kết quả. Gõ thêm để thu

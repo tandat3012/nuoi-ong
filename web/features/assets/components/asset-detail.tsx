@@ -32,6 +32,7 @@ import {
 import { AssetHistory } from "./asset-history";
 import { AssetHolderCard } from "./asset-holder";
 import { AssetLabelDialog } from "./asset-label-dialog";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function AssetDetail({
   farmId,
@@ -230,7 +231,7 @@ export function AssetDetail({
         />
       )}
       {!current ? (
-        <p role="status">Đang tải tài sản…</p>
+        <BeeLoader label="Đang tải tài sản…" />
       ) : current.error ? (
         <ErrorAlert message={current.error} onRetry={reload} />
       ) : (

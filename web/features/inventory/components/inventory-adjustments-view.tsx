@@ -25,6 +25,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import { ConfirmDialog } from "@/shared/components/ui/confirm-dialog";
 import { Combobox } from "@/shared/components/ui/combobox";
 import { useInventoryReferences } from "../hooks/use-inventory-references";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 const STATUS_LABELS: Record<
   InventoryAdjustmentStatus,
@@ -251,7 +252,7 @@ export function InventoryAdjustmentsView({
       )}
 
       {!current ? (
-        <p role="status">Đang tải đề xuất điều chỉnh...</p>
+        <BeeLoader label="Đang tải đề xuất điều chỉnh..." />
       ) : current.error ? (
         <div
           role="alert"

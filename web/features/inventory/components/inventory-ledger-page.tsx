@@ -11,6 +11,7 @@ import { InventoryLedgerTable } from "./inventory-ledger-table";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Select } from "@/shared/components/ui/select";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 const TRANSACTION_TYPES: {
   value: InventoryTransactionType;
@@ -150,7 +151,7 @@ export function InventoryLedgerPage({
       )}
 
       {ledger.isLoading ? (
-        <p role="status">Đang tải lịch sử biến động...</p>
+        <BeeLoader label="Đang tải lịch sử biến động..." />
       ) : ledger.error ? (
         <div
           role="alert"
