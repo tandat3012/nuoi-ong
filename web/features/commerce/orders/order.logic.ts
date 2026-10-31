@@ -285,6 +285,10 @@ export function orderErrorMessage(error: unknown) {
       "Cửa hàng không thuộc trại đang chọn. Hãy chuyển sang trại sở hữu cửa hàng.",
     "Order item no longer exists in the farm":
       "Vật tư của đơn không còn thuộc trại này.",
+    "Only customer accounts can place storefront orders":
+      "Tài khoản nhân viên trang trại không thể đặt hàng. Hãy đăng nhập bằng tài khoản khách hàng.",
+    "Bank transfer is not available":
+      "Cửa hàng chưa mở thanh toán chuyển khoản. Vui lòng chọn COD.",
   };
   if (failure?.message && serverMessages[failure.message])
     return serverMessages[failure.message];

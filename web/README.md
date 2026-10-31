@@ -20,7 +20,7 @@ pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Configure Clerk keys in `.env.local` using `.env.example`. The API defaults to `http://localhost:5050`; set `NEXT_PUBLIC_API_URL` for other environments. Server-side storefront reads prefer `API_INTERNAL_URL` when set, then use `NEXT_PUBLIC_API_URL` or the default. API paths append `/api/v1`. The `NEXT_PUBLIC_STORE_BANK_*` variables fill the bank-transfer details shown at checkout.
+Open [http://localhost:3000](http://localhost:3000). Configure Clerk keys in `.env.local` using `.env.example`. The API defaults to `http://localhost:5050`; set `NEXT_PUBLIC_API_URL` for other environments. Server-side storefront reads prefer `API_INTERNAL_URL` when set, then use `NEXT_PUBLIC_API_URL` or the default. API paths append `/api/v1`. Bank-transfer details and the order VietQR come from the API (`STORE_BANK_*` in `api/.env`).
 
 ## Routes
 

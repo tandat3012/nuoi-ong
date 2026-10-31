@@ -24,6 +24,32 @@ export const OPENAPI_DECIMAL_STRING = {
     'Số thập phân được trả về dưới dạng chuỗi để giữ nguyên độ chính xác.',
 } as const;
 
+// Lot identity fields shared by every lot-bearing response.
+export const LOT_IDENTITY_PROPERTIES = {
+  lotCode: {
+    type: 'string',
+    example: 'LOT-000000001',
+    description: 'Mã lô nội bộ duy nhất, do hệ thống cấp.',
+  },
+  supplierLotNumber: {
+    type: 'string',
+    nullable: true,
+    example: 'BATCH-0425',
+    description: 'Số lô in trên hàng; không bắt buộc, có thể trùng.',
+  },
+  legacyLotNumber: {
+    type: 'string',
+    nullable: true,
+    description:
+      'Số lô cũ trước khi tách mã lô; chỉ để tham chiếu, không chắc là số của nhà cung cấp.',
+  },
+  lotNumber: {
+    type: 'string',
+    deprecated: true,
+    description: 'Bí danh cũ của lotCode cho client đời trước.',
+  },
+} as const;
+
 export function ApiFarmIdQuery() {
   return ApiQuery({
     name: 'farmId',

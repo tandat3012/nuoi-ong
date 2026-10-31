@@ -93,7 +93,7 @@ test('permits quantity and valid LOT drafts without losing line metadata', () =>
       {
         itemId: 'item-a',
         lotId: null,
-        lotNumber: null,
+        supplierLotNumber: null,
         manufacturedDate: null,
         expiryDate: null,
         assetId: null,
@@ -117,7 +117,7 @@ test('permits quantity and valid LOT drafts without losing line metadata', () =>
   for (const patch of [
     { receipt: { status: 'CONFIRMED' } },
     { items: [] },
-    { items: [{ ...detail.items[0], lotNumber: 'LOT-1' }] },
+    { items: [{ ...detail.items[0], supplierLotNumber: 'LOT-1' }] },
     { items: [{ ...detail.items[0], assetCode: 'ASSET-1' }] },
   ]) {
     assert.equal(
@@ -137,7 +137,7 @@ test('permits quantity and valid LOT drafts without losing line metadata', () =>
     items: [
       {
         ...detail.items[0],
-        lotNumber: 'LOT-1',
+        supplierLotNumber: 'LOT-1',
         manufacturedDate: '2026-01-01',
         expiryDate: '2027-01-01',
       },
@@ -148,16 +148,17 @@ test('permits quantity and valid LOT drafts without losing line metadata', () =>
   };
   assert.equal(supportsQuantityDraftEdit(lot, lotReferences), true);
   assert.equal(supportsQuantityDraftConfirm(lot, lotReferences), true);
+  // The internal lot code is assigned on confirmation, so no supplier number is needed.
   assert.equal(
     supportsQuantityDraftConfirm(
-      { ...lot, items: [{ ...lot.items[0], lotNumber: null }] },
+      { ...lot, items: [{ ...lot.items[0], supplierLotNumber: null }] },
       lotReferences,
     ),
-    false,
+    true,
   );
   assert.equal(
     supportsQuantityDraftEdit(
-      { ...lot, items: [{ ...lot.items[0], lotNumber: null }] },
+      { ...lot, items: [{ ...lot.items[0], supplierLotNumber: null }] },
       lotReferences,
     ),
     true,
@@ -171,7 +172,7 @@ test('permits quantity and valid LOT drafts without losing line metadata', () =>
   );
 });
 
-test('validates LOT number and dates before saving a draft', () => {
+test('validates optional supplier lot number and dates before saving a draft', () => {
   const withLot = (line) => ({
     ...draft(),
     items: [{ ...draft().items[0], ...line }],
@@ -179,35 +180,37 @@ test('validates LOT number and dates before saving a draft', () => {
   assert.equal(
     validateReceiptDraft(
       withLot({
-        lotNumber: 'LOT-1',
+        supplierLotNumber: 'LOT-1',
         manufacturedDate: '2026-01-01',
         expiryDate: '2027-01-01',
       }),
     ),
     null,
   );
+  for (const line of [{ supplierLotNumber: '' }, { expiryDate: '2027-01-01' }, {}])
+    assert.equal(validateReceiptDraft(withLot(line)), null);
   for (const line of [
-    { lotNumber: '' },
-    { lotNumber: 'a'.repeat(101) },
-    { lotNumber: 'LOT-1', manufacturedDate: '2026-02-30' },
-    { lotNumber: 'LOT-1', expiryDate: '2026-13-01' },
+    { supplierLotNumber: 'a'.repeat(101) },
+    { supplierLotNumber: 'LOT-1', manufacturedDate: '2026-02-30' },
+    { supplierLotNumber: 'LOT-1', expiryDate: '2026-13-01' },
     {
-      lotNumber: 'LOT-1',
+      supplierLotNumber: 'LOT-1',
       manufacturedDate: '2027-01-01',
       expiryDate: '2026-01-01',
     },
-    { expiryDate: '2027-01-01' },
   ]) {
     assert.ok(validateReceiptDraft(withLot(line)));
   }
-  assert.ok(
+  // Equal supplier numbers are separate lots, never a validation error.
+  assert.equal(
     validateReceiptDraft({
       ...draft(),
       items: [
-        { itemId: 'item-a', quantity: '1', lotNumber: 'LOT-1' },
-        { itemId: 'item-a', quantity: '2', lotNumber: 'LOT-1' },
+        { itemId: 'item-a', quantity: '1', supplierLotNumber: 'LOT-1' },
+        { itemId: 'item-a', quantity: '2', supplierLotNumber: 'LOT-1' },
       ],
     }),
+    null,
   );
 });
 
@@ -219,7 +222,7 @@ test('validates and allows draft edits for ASSET lines', () => {
         itemId: 'asset-a',
         quantity: '1.000',
         lotId: null,
-        lotNumber: null,
+        supplierLotNumber: null,
         manufacturedDate: null,
         expiryDate: null,
         assetId: null,
@@ -252,7 +255,7 @@ test('validates and allows draft edits for ASSET lines', () => {
     assert.equal(supportsQuantityDraftEdit(value, references), false);
     assert.equal(supportsQuantityDraftConfirm(value, references), false);
   }
-  for (const patch of [{ assetCode: '' }, { lotNumber: 'LOT-1' }]) {
+  for (const patch of [{ assetCode: '' }, { supplierLotNumber: 'LOT-1' }]) {
     assert.equal(
       supportsQuantityDraftConfirm(
         { ...detail, items: [{ ...detail.items[0], ...patch }] },
@@ -314,7 +317,7 @@ test('only exposes quantity confirmation for quantity tracked lines', () => {
       {
         itemId: 'item-a',
         lotId: null,
-        lotNumber: null,
+        supplierLotNumber: null,
         manufacturedDate: null,
         expiryDate: null,
         assetId: null,
@@ -330,11 +333,12 @@ test('only exposes quantity confirmation for quantity tracked lines', () => {
     }),
     true,
   );
+  // A new LOT line without a supplier number is confirmable now.
   assert.equal(
     supportsQuantityDraftConfirm(detail, {
       'item-a': { item: { trackingMode: 'LOT' } },
     }),
-    false,
+    true,
   );
   assert.equal(
     supportsQuantityDraftConfirm({ ...detail, items: [] }, {}),
@@ -350,7 +354,7 @@ test('existing-lot lines send only lotId and confirm without a lot number', () =
   assert.equal(validateReceiptDraft(line({ lotId: 'lot-a' })), null);
   for (const patch of [
     { lotId: '' },
-    { lotId: 'lot-a', lotNumber: 'LOT-1' },
+    { lotId: 'lot-a', supplierLotNumber: 'LOT-1' },
     { lotId: 'lot-a', manufacturedDate: '2026-01-01' },
     { lotId: 'lot-a', expiryDate: '2027-01-01' },
   ])
@@ -364,7 +368,7 @@ test('existing-lot lines send only lotId and confirm without a lot number', () =
         quantity: '2',
         trackingMode: 'LOT',
         lotId: 'lot-a',
-        lotNumber: null,
+        supplierLotNumber: null,
         manufacturedDate: null,
         expiryDate: null,
         assetId: null,
@@ -377,7 +381,7 @@ test('existing-lot lines send only lotId and confirm without a lot number', () =
   assert.equal(editable(detail), true);
   assert.equal(confirmable(detail), true);
   for (const patch of [
-    { lotNumber: 'LOT-1' },
+    { supplierLotNumber: 'LOT-1' },
     { expiryDate: '2027-01-01' },
     { trackingMode: 'QUANTITY' },
     { trackingMode: 'ASSET', assetCode: 'A-1', quantity: '1' },

@@ -277,7 +277,7 @@ function CurrentBalancesView({
                 : selectedLotItem
                   ? references.lotsLoading
                     ? "Đang tải lô..."
-                    : "Tìm theo số lô"
+                    : "Tìm theo mã lô"
                   : "Vật tư này không theo dõi lô"
             }
             emptyText="Không có lô khớp từ khóa."
@@ -286,8 +286,13 @@ function CurrentBalancesView({
               ...(selectedLotItem ? [{ value: "", label: "Tất cả lô" }] : []),
               ...references.lots.map((lot) => ({
                 value: lot.id,
-                label: lot.lotNumber,
-                hint: `HSD ${lot.expiryDate ?? "không có"}`,
+                label: lot.lotCode,
+                hint: [
+                  lot.supplierLotNumber && `Số lô ${lot.supplierLotNumber}`,
+                  `HSD ${lot.expiryDate ?? "không có"}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
               })),
             ]}
           />

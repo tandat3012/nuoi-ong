@@ -9,7 +9,13 @@ import { AuthService } from '../src/modules/auth/accounts/auth.service';
 import { StoreOrdersService } from '../src/modules/store-orders/store-orders.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 import * as schema from '../src/db/schema';
-import { cleanupOrders, OrderTestDb, seedOrders } from './store-orders.fixture';
+import {
+  cleanupOrders,
+  OrderTestDb,
+  seedOrders,
+  testBankAccount,
+  withEnv,
+} from './store-orders.fixture';
 
 describe('Store orders (migrated PostgreSQL)', () => {
   const pool = new Pool({
@@ -32,7 +38,14 @@ describe('Store orders (migrated PostgreSQL)', () => {
       if (error !== ROLLBACK) throw error;
     }
   };
-  afterAll(() => pool.end());
+  let restoreEnv: () => void;
+  beforeAll(() => {
+    restoreEnv = withEnv(testBankAccount);
+  });
+  afterAll(async () => {
+    restoreEnv();
+    await pool.end();
+  });
 
   it('keeps order tables behind the API rather than direct Supabase Data API access', async () => {
     const result = await pool.query<{
@@ -363,6 +376,43 @@ describe('Store orders (migrated PostgreSQL)', () => {
       ).rejects.toThrow('refund');
     }));
 
+  it('offers a VietQR of the stored total only while a bank transfer is unpaid', () =>
+    inRollback(async ({ ids, service, input }) => {
+      const cod = await service.create(ids.customer, input());
+      expect(cod.payment).toBeNull();
+      const { order, payment } = await service.create(ids.customer, {
+        ...input(),
+        paymentMethod: 'BANK_TRANSFER',
+      });
+      expect(payment).toMatchObject({
+        accountNumber: testBankAccount.STORE_BANK_ACCOUNT_NUMBER,
+        amount: '555000',
+        content: order.code,
+      });
+      expect(payment?.qrSvg).toMatch(/^<svg/);
+      await service.shippingFee(ids.farm, ids.staff, order.id, '30000');
+      expect(
+        (await service.customerGet(ids.customer, order.id)).payment?.amount,
+      ).toBe('585000');
+      expect(order).not.toHaveProperty('paymentTransactionId');
+      expect((await service.staffGet(ids.farm, order.id)).payments).toEqual([]);
+      await service.markPaid(ids.farm, ids.staff, order.id);
+      expect(
+        (await service.customerGet(ids.customer, order.id)).payment,
+      ).toBeNull();
+      const restore = withEnv({ STORE_BANK_ACCOUNT_NUMBER: undefined });
+      try {
+        await expect(
+          service.create(ids.customer, {
+            ...input(),
+            paymentMethod: 'BANK_TRANSFER',
+          }),
+        ).rejects.toThrow('Bank transfer is not available');
+      } finally {
+        restore();
+      }
+    }));
+
   it('picks unexpired lots FEFO, permits equivalent lot reassignment and keeps shortages pending', () =>
     inRollback(async ({ ids, service, issues, input }, tx) => {
       await tx
@@ -380,7 +430,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
           id,
           farmId: ids.farm,
           itemId: ids.item,
-          lotNumber: id,
+          supplierLotNumber: id,
           initialQuantity: '99',
           expiryDate: i === 3 ? null : future(i === 0 ? -1 : i * 20),
         })),
@@ -540,7 +590,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
         id: lotId,
         farmId: ids.farm,
         itemId: ids.item,
-        lotNumber: lotId,
+        supplierLotNumber: lotId,
         initialQuantity: '0.375',
       });
       await tx.insert(schema.inventoryBalances).values({

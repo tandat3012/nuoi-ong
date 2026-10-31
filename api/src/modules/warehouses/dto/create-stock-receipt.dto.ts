@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
@@ -17,6 +17,15 @@ import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 
 export class CreateStockReceiptItemDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Khi sửa nháp: id của dòng hiện có mà dòng này thay thế, để giữ số lô cũ (legacyLotNumber). Bỏ trống với dòng mới.',
+  })
+  @IsOptional()
+  @IsUUID()
+  lineId?: string;
+
   @IsUUID()
   itemId!: string;
 
@@ -45,20 +54,27 @@ export class CreateStockReceiptItemDto {
   @ApiPropertyOptional({
     format: 'uuid',
     description:
-      'Nhập thêm vào lô đã có (cùng farm và mặt hàng LOT); khi đó bỏ trống lotNumber, manufacturedDate, expiryDate.',
+      'Nhập thêm vào lô đã có (cùng farm và mặt hàng LOT); khi đó bỏ trống supplierLotNumber, manufacturedDate, expiryDate.',
   })
   @IsOptional()
   @IsUUID()
   lotId?: string;
 
   @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 100,
+    example: 'BATCH-0425',
     description:
-      'Bắt buộc khi xác nhận dòng trackingMode LOT không chọn lotId; dòng nháp có thể bỏ trống.',
+      'Số lô in trên hàng (nhà sản xuất/nhà cung cấp) cho dòng LOT tạo lô mới. Không bắt buộc, không duy nhất; mã lô nội bộ (lotCode) do hệ thống cấp khi xác nhận.',
   })
   @IsOptional()
+  // Blank is stored as NULL; case, punctuation and leading zeros are kept.
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() || null : value,
+  )
   @IsString()
   @MaxLength(100)
-  lotNumber?: string;
+  supplierLotNumber?: string | null;
 
   @ApiPropertyOptional({ format: 'date', example: '2026-01-15' })
   @IsOptional()

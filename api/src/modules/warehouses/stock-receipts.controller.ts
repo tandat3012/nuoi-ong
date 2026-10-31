@@ -82,7 +82,33 @@ const receiptItemSchema = {
     quantity: OPENAPI_DECIMAL_STRING,
     unitPrice: { type: 'string', example: '25000.00' },
     lotId: { type: 'string', format: 'uuid', nullable: true },
-    lotNumber: { type: 'string', nullable: true },
+    supplierLotNumber: { type: 'string', nullable: true },
+    legacyLotNumber: {
+      type: 'string',
+      nullable: true,
+      description: 'Số lô cũ trước khi tách mã lô; chỉ để tham chiếu.',
+    },
+    lotCode: {
+      type: 'string',
+      nullable: true,
+      example: 'LOT-000000001',
+      description:
+        'Mã lô nội bộ của lô đã chọn/đã tạo; null với dòng nháp lô mới.',
+    },
+    lotSupplierLotNumber: { type: 'string', nullable: true },
+    lotLegacyLotNumber: { type: 'string', nullable: true },
+    lotNumber: {
+      type: 'string',
+      nullable: true,
+      deprecated: true,
+      description: 'Bí danh cũ: supplierLotNumber ?? legacyLotNumber.',
+    },
+    lotNumberFromLot: {
+      type: 'string',
+      nullable: true,
+      deprecated: true,
+      description: 'Bí danh cũ của lotCode.',
+    },
     manufacturedDate: { type: 'string', format: 'date', nullable: true },
     expiryDate: { type: 'string', format: 'date', nullable: true },
     locationId: { type: 'string', format: 'uuid', nullable: true },
@@ -172,7 +198,7 @@ export class StockReceiptsController {
   @ApiOperation({
     summary: 'Tạo phiếu nhập kho nháp',
     description:
-      'Khi xác nhận, dòng LOT cần lotNumber; dòng ASSET cần assetCode và quantity bằng 1. Dòng QUANTITY không dùng metadata LOT/ASSET.',
+      'Dòng LOT không chọn lotId sẽ tạo lô mới với mã lô nội bộ tự cấp khi xác nhận; supplierLotNumber không bắt buộc. Dòng ASSET cần assetCode và quantity bằng 1. Dòng QUANTITY không dùng metadata LOT/ASSET.',
   })
   @ApiFarmIdQuery()
   @ApiBody({
@@ -188,7 +214,7 @@ export class StockReceiptsController {
               itemId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',
               quantity: '10.000',
               unitPrice: '25000.00',
-              lotNumber: 'LOT-2026-001',
+              supplierLotNumber: 'BATCH-0425',
               expiryDate: '2027-10-08',
             },
           ],

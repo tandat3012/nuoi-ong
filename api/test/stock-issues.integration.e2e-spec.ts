@@ -36,7 +36,7 @@ type Detail = {
     trackingMode: string | null;
     unitName: string | null;
     unitSymbol: string | null;
-    lotNumber: string | null;
+    lotSupplierLotNumber: string | null;
     lotExpiryDate: string | null;
     assetCode: string | null;
     serialNumber: string | null;
@@ -186,7 +186,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
         id: lot,
         farmId: farm,
         itemId: lotItem,
-        lotNumber: tag,
+        supplierLotNumber: tag,
         initialQuantity: '10',
       });
       await tx.insert(schema.assets).values(
@@ -452,7 +452,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     expect(detail.items.find((item) => item.lotId === lot)).toMatchObject({
       quantity: '0.001',
       trackingMode: 'LOT',
-      lotNumber: tag,
+      lotSupplierLotNumber: tag,
       note: 'Keep LOT note',
     });
     expect(
@@ -1090,31 +1090,31 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
       {
         id: todayLot,
         itemId: lotItem,
-        lotNumber: `${tag}-TODAY`,
+        supplierLotNumber: `${tag}-TODAY`,
         expiryDate: today,
       },
       {
         id: expiredLot,
         itemId: lotItem,
-        lotNumber: `${tag}-EXPIRED`,
+        supplierLotNumber: `${tag}-EXPIRED`,
         expiryDate: '2000-01-01',
       },
       {
         id: emptyLot,
         itemId: lotItem,
-        lotNumber: `${tag}-EMPTY`,
+        supplierLotNumber: `${tag}-EMPTY`,
         expiryDate: null,
       },
       {
         id: otherWarehouseLot,
         itemId: lotItem,
-        lotNumber: `${tag}-OTHER-WH`,
+        supplierLotNumber: `${tag}-OTHER-WH`,
         expiryDate: null,
       },
       {
         id: otherItemLot,
         itemId: otherLotItem,
-        lotNumber: `${tag}-OTHER-ITEM`,
+        supplierLotNumber: `${tag}-OTHER-ITEM`,
         expiryDate: null,
       },
     ];
@@ -1190,7 +1190,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
           id: foreignLot,
           farmId: foreignFarm,
           itemId: foreignItem,
-          lotNumber: `${tag}-FOREIGN`,
+          supplierLotNumber: `${tag}-FOREIGN`,
           initialQuantity: '10',
         });
         await tx.insert(schema.inventoryBalances).values({
@@ -1292,7 +1292,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     expect(draft.items.find((item) => item.itemId === lotItem)).toMatchObject({
       quantity: '0.001',
       lotId: lot,
-      lotNumber: tag,
+      lotSupplierLotNumber: tag,
       trackingMode: 'LOT',
       note: 'LOT note',
       assetId: null,
@@ -1330,7 +1330,7 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     expect(detail.items.find((item) => item.itemId === lotItem)).toMatchObject({
       quantity: '0.125',
       lotId: lot,
-      lotNumber: tag,
+      lotSupplierLotNumber: tag,
       trackingMode: 'LOT',
       note: 'LOT updated',
       assetId: null,

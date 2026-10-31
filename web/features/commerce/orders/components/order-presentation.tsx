@@ -2,12 +2,23 @@ import { Badge } from "@/shared/components/ui/badge";
 import { formatOrderMoney } from "../order.logic";
 import {
   ORDER_STATUS_LABELS,
+  PAYMENT_RESULT_LABELS,
   PAYMENT_STATUS_LABELS,
   type CustomerOrder,
+  type PaymentResult,
   type CustomerOrderItem,
   type OrderStatus,
 } from "../types/order";
 import { formatInventoryQuantity } from "@/features/inventory";
+
+import {
+  Clock,
+  ShieldCheck,
+  Truck,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+} from "lucide-react";
 
 const statusVariant = {
   PENDING: "warning",
@@ -18,15 +29,48 @@ const statusVariant = {
 } as const;
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
+  const Icon = {
+    PENDING: Clock,
+    CONFIRMED: ShieldCheck,
+    SHIPPING: Truck,
+    COMPLETED: CheckCircle2,
+    CANCELLED: XCircle,
+  }[status];
+
   return (
-    <Badge variant={statusVariant[status]}>{ORDER_STATUS_LABELS[status]}</Badge>
+    <Badge variant={statusVariant[status]} className="inline-flex items-center gap-1.5 font-medium">
+      <Icon className="size-3.5" />
+      <span>{ORDER_STATUS_LABELS[status]}</span>
+    </Badge>
+  );
+}
+
+const paymentResultVariant = {
+  MATCHED: "success",
+  AMOUNT_MISMATCH: "warning",
+  ORDER_NOT_FOUND: "warning",
+  ORDER_NOT_PAYABLE: "destructive",
+  ALREADY_PAID: "info",
+  WRONG_ACCOUNT: "destructive",
+} as const;
+
+export function PaymentResultBadge({ result }: { result: PaymentResult }) {
+  return (
+    <Badge variant={paymentResultVariant[result]}>
+      {PAYMENT_RESULT_LABELS[result]}
+    </Badge>
   );
 }
 
 export function PaymentStatusBadge({ order }: { order: CustomerOrder }) {
+  const isPaid = order.paymentStatus === "PAID";
   return (
-    <Badge variant={order.paymentStatus === "PAID" ? "success" : "warning"}>
-      {PAYMENT_STATUS_LABELS[order.paymentStatus]}
+    <Badge
+      variant={isPaid ? "success" : "warning"}
+      className="inline-flex items-center gap-1.5 font-medium"
+    >
+      {isPaid ? <CheckCircle2 className="size-3.5" /> : <AlertCircle className="size-3.5" />}
+      <span>{PAYMENT_STATUS_LABELS[order.paymentStatus]}</span>
     </Badge>
   );
 }

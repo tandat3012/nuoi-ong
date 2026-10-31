@@ -17,6 +17,7 @@ import {
   primaryKey,
   pgEnum,
   boolean,
+  pgSequence,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
@@ -732,7 +733,9 @@ export const stockReceiptItems = pgTable(
     lotId: uuid('lot_id').references((): AnyPgColumn => inventoryLots.id, {
       onDelete: 'set null',
     }),
-    lotNumber: varchar('lot_number', { length: 100 }),
+    supplierLotNumber: varchar('supplier_lot_number', { length: 100 }),
+    // Pre-split mixed-purpose number; read-only evidence copied to the new lot.
+    legacyLotNumber: varchar('legacy_lot_number', { length: 100 }),
     manufacturedDate: date('manufactured_date'),
     expiryDate: date('expiry_date'),
     locationId: uuid('location_id').references(() => locations.id, {
@@ -772,6 +775,9 @@ export const stockReceiptItems = pgTable(
   ],
 );
 
+// Global, gap-tolerant source of inventory_lots.lot_code (see next_inventory_lot_code()).
+export const inventoryLotCodeSeq = pgSequence('inventory_lot_code_seq');
+
 export const inventoryLots = pgTable(
   'inventory_lots',
   {
@@ -779,7 +785,14 @@ export const inventoryLots = pgTable(
     farmId: uuid('farm_id').notNull(),
     itemId: uuid('item_id').notNull(),
     sourceReceiptItemId: uuid('source_receipt_item_id'),
-    lotNumber: varchar('lot_number', { length: 100 }).notNull(),
+    // Server-assigned internal code, e.g. LOT-000000001; never client-supplied.
+    lotCode: varchar('lot_code', { length: 30 })
+      .default(sql`next_inventory_lot_code()`)
+      .notNull(),
+    // Number printed on the goods; optional and intentionally not unique.
+    supplierLotNumber: varchar('supplier_lot_number', { length: 100 }),
+    // Pre-split mixed-purpose number of unknown provenance.
+    legacyLotNumber: varchar('legacy_lot_number', { length: 100 }),
     manufacturedDate: date('manufactured_date'),
     expiryDate: date('expiry_date'),
     initialQuantity: numeric('initial_quantity', {
@@ -813,10 +826,13 @@ export const inventoryLots = pgTable(
       foreignColumns: [stockReceiptItems.id],
       name: 'inventory_lots_source_receipt_item_id_fkey',
     }),
-    unique('uq_lot_per_item_farm').on(
+    unique('uq_inventory_lot_code').on(table.lotCode),
+    check('ck_lot_code_not_blank', sql`btrim(lot_code) <> ''`),
+    index('idx_inventory_lots_supplier_number').using(
+      'btree',
       table.farmId,
       table.itemId,
-      table.lotNumber,
+      table.supplierLotNumber,
     ),
     check(
       'ck_lot_expiry_after_manufacture',

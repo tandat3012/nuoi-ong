@@ -29,7 +29,11 @@ type LedgerRow = {
     unit: { id: string; name: string; symbol: string | null };
   };
   warehouse: { id: string; code: string; name: string };
-  lot: { id: string; lotNumber: string; expiryDate: string | null } | null;
+  lot: {
+    id: string;
+    supplierLotNumber: string | null;
+    expiryDate: string | null;
+  } | null;
   asset: {
     id: string;
     assetCode: string;
@@ -240,11 +244,11 @@ describe('Inventory ledger HTTP and PostgreSQL contract', () => {
       ],
     );
     await client.query(
-      'INSERT INTO inventory_lots (id,farm_id,item_id,lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,10,$5)',
+      'INSERT INTO inventory_lots (id,farm_id,item_id,supplier_lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,10,$5)',
       [lotId, farmA, itemA, `${tag}-LOT-1`, '2026-12-31'],
     );
     await client.query(
-      'INSERT INTO inventory_lots (id,farm_id,item_id,lot_number,initial_quantity) VALUES ($1,$2,$3,$4,10)',
+      'INSERT INTO inventory_lots (id,farm_id,item_id,supplier_lot_number,initial_quantity) VALUES ($1,$2,$3,$4,10)',
       [lotOtherFarmId, farmB, itemOtherFarm, `${tag}-OTHER-LOT`],
     );
     await client.query(
@@ -578,7 +582,11 @@ describe('Inventory ledger HTTP and PostgreSQL contract', () => {
       quantityChange: '123456789012345.678',
       reason: 'Received stock from supplier',
       item: { id: itemA, code: `${tag}-QTY`, name: `${tag} Quantity item` },
-      lot: { id: lotId, lotNumber: `${tag}-LOT-1`, expiryDate: '2026-12-31' },
+      lot: {
+        id: lotId,
+        supplierLotNumber: `${tag}-LOT-1`,
+        expiryDate: '2026-12-31',
+      },
       source: { type: 'STOCK_RECEIPT', id: receiptId, code: `${tag}-PN-001` },
     });
     expect(receipt.createdAt).toContain('2026-01-01');

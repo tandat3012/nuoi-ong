@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
-import { Input } from "@/shared/components/ui/input";
+import { DateInput } from "@/shared/components/ui/date-input";
 import {
   ORDER_STATUS_LABELS,
   type OrderStatus,
@@ -65,21 +65,19 @@ export function StoreOrderReports({ farmId }: { farmId: string }) {
       <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-4">
         <label className="space-y-1 text-sm">
           <span>Từ ngày</span>
-          <Input
-            type="date"
+          <DateInput
             value={range.from}
-            onChange={(event) =>
-              setRange((value) => ({ ...value, from: event.target.value }))
+            onValueChange={(value) =>
+              setRange((current) => ({ ...current, from: value }))
             }
           />
         </label>
         <label className="space-y-1 text-sm">
           <span>Đến ngày</span>
-          <Input
-            type="date"
+          <DateInput
             value={range.to}
-            onChange={(event) =>
-              setRange((value) => ({ ...value, to: event.target.value }))
+            onValueChange={(value) =>
+              setRange((current) => ({ ...current, to: value }))
             }
           />
         </label>

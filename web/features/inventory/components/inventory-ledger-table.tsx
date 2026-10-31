@@ -49,7 +49,7 @@ export function InventoryLedgerTable({
               <td className="px-4 py-3">
                 {row.lot ? (
                   <>
-                    <div>{row.lot.lotNumber}</div>
+                    <div>{row.lot.lotCode}</div>
                     <div className="text-muted-foreground">
                       HSD {formatInventoryExpiry(row.lot.expiryDate)}
                     </div>

@@ -76,7 +76,9 @@ describe('Warehouse business flow across documents and ledger', () => {
               {
                 itemId: ids.item,
                 quantity: '100.125',
-                ...(trackingMode === 'LOT' ? { lotNumber: 'DEMO-LOT' } : {}),
+                ...(trackingMode === 'LOT'
+                  ? { supplierLotNumber: 'DEMO-LOT' }
+                  : {}),
               },
             ],
           });

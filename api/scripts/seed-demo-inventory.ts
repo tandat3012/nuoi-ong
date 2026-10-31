@@ -299,14 +299,24 @@ async function ensureIssue(
   return issue.status === 'CONFIRMED' ? 'already confirmed' : issue.status;
 }
 
-async function lotId(db: Db, farmId: string, lotNumber: string) {
+// Demo lots are identified by their source line in DEMO-PN-002, never by the printed number.
+async function lotId(db: Db, farmId: string, itemId: string) {
   const [lot] = await db
     .select({ id: schema.inventoryLots.id })
     .from(schema.inventoryLots)
+    .innerJoin(
+      schema.stockReceiptItems,
+      eq(schema.stockReceiptItems.id, schema.inventoryLots.sourceReceiptItemId),
+    )
+    .innerJoin(
+      schema.stockReceipts,
+      eq(schema.stockReceipts.id, schema.stockReceiptItems.stockReceiptId),
+    )
     .where(
       and(
         eq(schema.inventoryLots.farmId, farmId),
-        eq(schema.inventoryLots.lotNumber, lotNumber),
+        eq(schema.inventoryLots.itemId, itemId),
+        eq(schema.stockReceipts.receiptCode, 'DEMO-PN-002'),
       ),
     );
   return lot?.id;
@@ -387,7 +397,7 @@ async function seed(db: Db, farmCode?: string) {
       items: items.lot.map((item, index) => ({
         itemId: item.id,
         quantity: lotPlan[index].quantity,
-        lotNumber: `DEMO-LO-${String(index + 1).padStart(3, '0')}`,
+        supplierLotNumber: `DEMO-LO-${String(index + 1).padStart(3, '0')}`,
         manufacturedDate: isoDate(-60),
         ...(lotPlan[index].offset === null
           ? {}
@@ -414,7 +424,7 @@ async function seed(db: Db, farmCode?: string) {
     }),
   );
 
-  const freshLot = items.lot[0] && (await lotId(db, farm.id, 'DEMO-LO-001'));
+  const freshLot = items.lot[0] && (await lotId(db, farm.id, items.lot[0].id));
   log(
     'DEMO-PX-001 (phiếu xuất)',
     await ensureIssue(db, services, farm.id, owner, 'DEMO-PX-001', {
@@ -452,7 +462,7 @@ async function seed(db: Db, farmCode?: string) {
     items.lot[2] && {
       key: 'DEMO-DC-003',
       itemId: items.lot[2].id,
-      lotNumber: 'DEMO-LO-003',
+      lotItemId: items.lot[2].id,
       quantityChange: '-2',
       reasonCode: 'EXPIRED' as const,
       note: 'Dữ liệu mẫu: hủy hàng hết hạn',
@@ -461,8 +471,8 @@ async function seed(db: Db, farmCode?: string) {
   for (const adjustment of adjustments) {
     if (!adjustment) continue;
     const lot =
-      'lotNumber' in adjustment && adjustment.lotNumber
-        ? await lotId(db, farm.id, adjustment.lotNumber)
+      'lotItemId' in adjustment && adjustment.lotItemId
+        ? await lotId(db, farm.id, adjustment.lotItemId)
         : undefined;
     const result = await services.adjustments.create(farm.id, owner, {
       idempotencyKey: stableUuid(`${farm.code}:${adjustment.key}`),

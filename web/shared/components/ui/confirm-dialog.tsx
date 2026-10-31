@@ -84,3 +84,47 @@ export function ConfirmDialog({
     </Dialog>
   );
 }
+
+export type ConfirmOptions = Pick<
+  ConfirmDialogProps,
+  'title' | 'description' | 'confirmLabel' | 'cancelLabel' | 'variant'
+>;
+
+/**
+ * In-page replacement for `window.confirm`: `await ask({...})` resolves true on confirm,
+ * false on cancel, Escape or backdrop click. Render the returned element once.
+ */
+export function useConfirm() {
+  const [state, setState] = React.useState<{
+    open: boolean;
+    options: ConfirmOptions;
+    resolve: (answer: boolean) => void;
+  } | null>(null);
+  const ask = React.useCallback(
+    (options: ConfirmOptions) =>
+      new Promise<boolean>((resolve) =>
+        setState({ open: true, options, resolve }),
+      ),
+    [],
+  );
+  const close = (answer: boolean) => {
+    if (!state?.open) return;
+    state.resolve(answer);
+    // Keep the options while the dialog animates out.
+    setState({ ...state, open: false });
+  };
+  const dialog = (
+    <ConfirmDialog
+      variant="default"
+      title=""
+      description=""
+      {...state?.options}
+      open={Boolean(state?.open)}
+      onOpenChange={(open) => {
+        if (!open) close(false);
+      }}
+      onConfirm={() => close(true)}
+    />
+  );
+  return [ask, dialog] as const;
+}

@@ -184,3 +184,17 @@ test("explains server validation errors per field instead of a generic message",
     /Yêu cầu chưa được chấp nhận/,
   );
 });
+
+test("tells farm staff why they cannot check out", () => {
+  assert.match(
+    orderErrorMessage({
+      status: 403,
+      message: "Only customer accounts can place storefront orders",
+    }),
+    /nhân viên trang trại không thể đặt hàng/,
+  );
+  assert.match(
+    orderErrorMessage({ status: 403, message: "Forbidden resource" }),
+    /không có quyền/,
+  );
+});

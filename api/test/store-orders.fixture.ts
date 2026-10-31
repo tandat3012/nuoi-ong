@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../src/db/schema';
 import { DatabaseService } from '../src/db/database.service';
@@ -150,6 +150,27 @@ export async function seedOrders(db: OrderTestDb) {
   return { ids, database, service, issues, commerce, input };
 }
 
+export const testBankAccount = {
+  STORE_BANK_BIN: '970436',
+  STORE_BANK_NAME: 'Vietcombank',
+  STORE_BANK_ACCOUNT_NUMBER: '0011001234567',
+  STORE_BANK_ACCOUNT_NAME: 'NUOI ONG TEST',
+};
+
+/** Sets env vars for the test and returns a restore function. */
+export function withEnv(values: Record<string, string | undefined>) {
+  const previous = Object.fromEntries(
+    Object.keys(values).map((key) => [key, process.env[key]]),
+  );
+  const apply = (next: Record<string, string | undefined>) => {
+    for (const [key, value] of Object.entries(next))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  };
+  apply(values);
+  return () => apply(previous);
+}
+
 export async function cleanupOrders(
   db: OrderTestDb,
   ids: Awaited<ReturnType<typeof seedOrders>>['ids'],
@@ -171,9 +192,13 @@ export async function cleanupOrders(
   await db
     .delete(schema.storeOrderItems)
     .where(inArray(schema.storeOrderItems.orderId, orders));
-  await db
-    .delete(schema.storeOrders)
-    .where(eq(schema.storeOrders.farmId, ids.farm));
+  // Orders and bank transactions reference each other; one statement deletes both.
+  await db.execute(sql`
+    WITH payments AS (
+      DELETE FROM ${schema.paymentTransactions}
+      WHERE ${schema.paymentTransactions.farmId} = ${ids.farm}
+    )
+    DELETE FROM ${schema.storeOrders} WHERE ${schema.storeOrders.farmId} = ${ids.farm}`);
   await db
     .delete(schema.stockIssueItems)
     .where(inArray(schema.stockIssueItems.stockIssueId, issues));

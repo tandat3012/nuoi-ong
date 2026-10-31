@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { Input } from "@/shared/components/ui/input";
+import { DateInput } from "@/shared/components/ui/date-input";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { createAsset, updateAsset } from "../api/assets.api";
 import type { Asset, AssetChoice, AssetMetadataInput } from "../types/asset";
@@ -106,8 +107,7 @@ export function AssetEditor({
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block space-y-2 text-sm font-medium">
           Ngày mua
-          <Input
-            type="date"
+          <DateInput
             name="purchaseDate"
             defaultValue={asset?.purchaseDate ?? ""}
           />
@@ -124,16 +124,14 @@ export function AssetEditor({
         </label>
         <label className="block space-y-2 text-sm font-medium">
           Hết hạn bảo hành
-          <Input
-            type="date"
+          <DateInput
             name="warrantyExpiryDate"
             defaultValue={asset?.warrantyExpiryDate ?? ""}
           />
         </label>
         <label className="block space-y-2 text-sm font-medium">
           Bảo trì tiếp theo
-          <Input
-            type="date"
+          <DateInput
             name="nextMaintenanceDate"
             min={asset?.lastMaintenanceDate ?? undefined}
             defaultValue={asset?.nextMaintenanceDate ?? ""}
