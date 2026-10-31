@@ -18,6 +18,7 @@ import { Button } from '@/shared/components/ui/button';
 import { Select } from '@/shared/components/ui/select';
 import { canCreateStockDocuments, useStockDocumentQuery } from '@/features/stock-documents';
 import { useNotificationRefresh } from '@/features/notifications';
+import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
 export function ReceiptsPage() {
   const { selectedFarmId } = useAuthContext();
@@ -155,7 +156,7 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
         </div>
       </div>
       {isLoading ? (
-        <p role="status">Đang tải danh sách phiếu nhập...</p>
+        <BeeLoader label="Đang tải danh sách phiếu nhập..." />
       ) : error ? (
         <div
           role="alert"

@@ -37,6 +37,7 @@ import { StoreProductImages } from "./store-product-images";
 import { statusVariant } from "./store-product-list";
 import { StoreVariantForm } from "./store-variant-form";
 import { formatInventoryQuantity } from "@/features/inventory";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 const statusActions: Record<
   StoreProductStatus,
@@ -90,7 +91,7 @@ export function StoreProductDetail({
 
   if (error)
     return <ErrorAlert message={error} onRetry={() => setReload((n) => n + 1)} />;
-  if (!product) return <p role="status">Đang tải sản phẩm…</p>;
+  if (!product) return <BeeLoader label="Đang tải sản phẩm…" />;
 
   const changeStatus = async (status: StoreProductStatus) => {
     setPendingStatus(status);

@@ -301,6 +301,90 @@ a {
   outline-offset: 2px;
 }
 
+/* Bee loader (shared/components/ui/bee-loader.tsx). Only transform and
+   opacity animate, so the compositor runs it without main-thread work. Under
+   reduced motion the rule below stops it on a still frame: comb, centre cell
+   full of honey, bee parked at the top. */
+.bee-loader {
+  animation: bee-loader-in 240ms ease-out 300ms both;
+}
+
+.bee-loader-cell {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 27.7px;
+  margin: -13.85px 0 0 -12px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: color-mix(in srgb, var(--primary) 14%, var(--muted));
+}
+
+.bee-loader-honey {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, #fcd34d, var(--primary));
+  opacity: 0.2;
+  animation: bee-loader-honey 2.8s ease-in-out infinite;
+}
+
+.bee-loader-cell:nth-child(7) .bee-loader-honey {
+  opacity: 1;
+}
+
+.bee-loader-orbit {
+  position: absolute;
+  inset: 0;
+  animation: bee-loader-orbit 3.2s linear infinite;
+}
+
+.bee-loader-bee {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  margin-left: -16px;
+  animation: bee-loader-bob 0.8s ease-in-out infinite alternate;
+}
+
+.bee-loader-wings {
+  fill: color-mix(in srgb, #ffffff 75%, transparent);
+  stroke: color-mix(in srgb, var(--foreground) 35%, transparent);
+  stroke-width: 0.5;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: bee-loader-flap 0.12s linear infinite alternate;
+}
+
+@keyframes bee-loader-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes bee-loader-honey {
+  0%, 100% { opacity: 0.2; }
+  35%, 65% { opacity: 1; }
+}
+
+@keyframes bee-loader-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes bee-loader-bob {
+  from { transform: translateY(-2px) rotate(-6deg); }
+  to { transform: translateY(2px) rotate(6deg); }
+}
+
+@keyframes bee-loader-flap {
+  to { transform: scaleY(0.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bee-loader *,
+  .bee-loader {
+    animation: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   *,

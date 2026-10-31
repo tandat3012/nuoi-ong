@@ -16,6 +16,7 @@ import {
   formatOrderMoney,
   orderErrorMessage,
 } from "@/features/commerce/orders/order.logic";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 function hcmDate(date: Date) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -95,7 +96,7 @@ export function StoreOrderReports({ farmId }: { farmId: string }) {
           </p>
         )}
       </div>
-      {!current && rangeValid && <p role="status">Đang tải báo cáo…</p>}
+      {!current && rangeValid && <BeeLoader label="Đang tải báo cáo…" />}
       {current?.error && (
         <ErrorAlert
           message={current.error}

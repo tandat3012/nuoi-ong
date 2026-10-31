@@ -16,6 +16,7 @@ import { Combobox } from "@/shared/components/ui/combobox";
 import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function InventoryPage({
   initialFilters,
@@ -324,7 +325,7 @@ function CurrentBalancesView({
       )}
 
       {isLoading ? (
-        <p role="status">Đang tải tồn kho...</p>
+        <BeeLoader label="Đang tải tồn kho..." />
       ) : error ? (
         <div
           role="alert"

@@ -20,6 +20,7 @@ import {
   API_UNAUTHORIZED_EVENT,
   ApiError,
 } from '@/shared/api/client';
+import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
 type AuthContextValue = {
   data: AuthContextResponse;
@@ -38,7 +39,7 @@ export function AuthContextProvider({
   children: React.ReactNode;
 }) {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
-  if (!isLoaded) return <p>Đang tải...</p>;
+  if (!isLoaded) return <BeeLoader label="Đang tải..." className="min-h-screen justify-center" />;
   if (!isSignedIn || !userId) return null;
   return (
     <SessionContextProvider key={`${userId}:${sessionId}`} userId={userId}>
@@ -168,7 +169,7 @@ function SessionContextProvider({
       },
     };
   }, [data, selectedFarmId, error, refresh, applyFarm]);
-  if (!isLoaded || (isSignedIn && !data && !error)) return <p>Đang tải...</p>;
+  if (!isLoaded || (isSignedIn && !data && !error)) return <BeeLoader label="Đang tải..." className="min-h-screen justify-center" />;
   if (!isSignedIn) return null;
   const retry = () => {
     setError(null);

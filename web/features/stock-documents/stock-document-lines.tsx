@@ -36,6 +36,7 @@ import {
   type EditableLine,
   type LineDocumentKind,
 } from "./stock-document-lines.logic";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 type Line = EditableLine & {
   id: string;
@@ -314,7 +315,7 @@ export function StockDocumentLines({
         </div>
       </div>
       {!current ? (
-        <p role="status">Đang tải dòng hàng...</p>
+        <BeeLoader label="Đang tải dòng hàng..." size="sm" />
       ) : current.error ? (
         <p role="alert" className="text-sm text-destructive">
           {current.error}

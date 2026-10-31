@@ -14,7 +14,8 @@ import {
 import { Badge } from '@/shared/components/ui/badge';
 import { Button } from '@/shared/components/ui/button';
 import { EmptyState } from '@/shared/components/ui/empty-state';
-import { Loader2, Warehouse as WarehouseIcon, Eye, Edit } from 'lucide-react';
+import { Warehouse as WarehouseIcon, Eye, Edit } from 'lucide-react';
+import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
 export function WarehouseTable({
   warehouses,
@@ -62,10 +63,7 @@ export function WarehouseTable({
         {isLoading ? (
           <TableRow>
             <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
-              <div className="inline-flex items-center justify-center gap-2">
-                <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" />
-                <span role="status">Đang tải danh sách kho...</span>
-              </div>
+              <BeeLoader label="Đang tải danh sách kho..." size="sm" />
             </TableCell>
           </TableRow>
         ) : errorMessage ? (

@@ -33,6 +33,7 @@ import {
 } from "@/features/stock-documents";
 import { shouldReloadAfterFailure } from "@/features/stock-documents/stock-document.logic";
 import { useNotificationRefresh } from "@/features/notifications";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 type Warehouse = { id: string; code: string; name: string };
 type Item = {
@@ -295,7 +296,7 @@ function FarmTransfersScreen() {
     }
   }
 
-  if (authLoading) return <p>Đang tải trang trại...</p>;
+  if (authLoading) return <BeeLoader label="Đang tải trang trại..." />;
   if (authError) return <p role="alert">{authError.message}</p>;
   if (!selectedFarmId)
     return <p>Vui lòng chọn trang trại để xem điều chuyển kho.</p>;
@@ -489,7 +490,7 @@ function FarmTransfersScreen() {
           </div>
         </div>
         {loading || (!error && loadedFarmId !== selectedFarmId) ? (
-          <p className="p-5 text-sm text-muted-foreground">Đang tải phiếu...</p>
+          <BeeLoader label="Đang tải phiếu..." />
         ) : visibleTransfers.length === 0 ? (
           <p className="p-5 text-sm text-muted-foreground">
             Chưa có phiếu điều chuyển.

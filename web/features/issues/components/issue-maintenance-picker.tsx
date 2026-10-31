@@ -10,6 +10,7 @@ import {
 } from "../api/issues.api";
 import type { IssueMaintenanceReference } from "../types/issue";
 import { Button } from "@/shared/components/ui/button";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 const TYPE_LABELS = {
   INSPECTION: "Kiểm tra",
@@ -118,7 +119,7 @@ export function IssueMaintenancePicker({
         <>
           <p className="break-all text-sm">Hồ sơ đã chọn: {selectedId}</p>
           {!selected ? (
-            <p role="status">Đang tải hồ sơ đã lưu...</p>
+            <BeeLoader label="Đang tải hồ sơ đã lưu..." size="sm" />
           ) : selected.error ? (
             <div role="status">
               <p>{selected.error} Liên kết đã lưu vẫn được giữ lại.</p>
@@ -176,7 +177,7 @@ export function IssueMaintenancePicker({
       {open &&
         onSelect &&
         (!current ? (
-          <p role="status">Đang tải danh sách hồ sơ...</p>
+          <BeeLoader label="Đang tải danh sách hồ sơ..." size="sm" />
         ) : current.error ? (
           <div role="alert">
             <p>{current.error}</p>

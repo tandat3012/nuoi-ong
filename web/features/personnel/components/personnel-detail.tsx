@@ -17,6 +17,7 @@ import {
   type PersonnelHistory,
 } from "../types";
 import { PersonnelEdit, type PersonnelEditKind } from "./personnel-edit";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function PersonnelDetailView({
   farmId,
@@ -80,7 +81,7 @@ export function PersonnelDetailView({
           </Button>
         }
       />
-      {!current && <p role="status">Đang tải hồ sơ…</p>}
+      {!current && <BeeLoader label="Đang tải hồ sơ…" />}
       {current?.error && (
         <ErrorAlert message={current.error} onRetry={reload} />
       )}
@@ -291,9 +292,7 @@ function PersonnelRecords({
         </p>
       )}
       {!current && (
-        <p role="status" className="p-5">
-          Đang tải…
-        </p>
+        <BeeLoader label="Đang tải…" size="sm" />
       )}
       {current?.error && (
         <ErrorAlert
