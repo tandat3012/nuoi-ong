@@ -11,12 +11,14 @@ import {
   type DraftChoice,
   type DraftPickerKind,
 } from "./receipt-draft-picker";
+import { SupplierLotMatches } from "./supplier-lot-matches";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { AddLineTile } from "@/shared/components/ui/add-line-tile";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { Input } from "@/shared/components/ui/input";
+import { DateInput } from "@/shared/components/ui/date-input";
 import {
   DOCUMENT_CODE_HINT,
   documentCodeLabel,
@@ -31,12 +33,15 @@ const SECTION = "space-y-4 rounded-xl border bg-card p-4 text-sm font-medium sm:
 
 type DraftLine = DraftChoice & {
   rowKey: string;
+  // Saved line id for rows loaded from the draft; new rows have none.
+  lineId?: string;
   quantity: string;
   unitPrice: string;
   lotMode: "new" | "existing";
   lotId: string | null;
   lotLabel: string;
-  lotNumber: string;
+  supplierLotNumber: string;
+  legacyLotNumber: string | null;
   manufacturedDate: string;
   expiryDate: string;
   assetCode: string;
@@ -91,6 +96,7 @@ export function ReceiptDraftForm({
           return {
             id: line.itemId,
             rowKey: line.id,
+            lineId: line.id,
             trackingMode: line.trackingMode ?? "QUANTITY",
             label: line.itemCode
               ? `${line.itemCode} — ${line.itemName} (${line.unitSymbol || line.unitName || "—"})`
@@ -99,9 +105,9 @@ export function ReceiptDraftForm({
             unitPrice: line.unitPrice,
             lotMode: line.lotId ? "existing" : "new",
             lotId: line.lotId,
-            lotLabel:
-              line.lotNumberFromLot ?? (line.lotId ? `Lô (${line.lotId})` : ""),
-            lotNumber: line.lotNumber ?? "",
+            lotLabel: line.lotCode ?? (line.lotId ? `Lô (${line.lotId})` : ""),
+            supplierLotNumber: line.supplierLotNumber ?? "",
+            legacyLotNumber: line.legacyLotNumber,
             manufacturedDate: line.manufacturedDate ?? "",
             expiryDate: line.expiryDate ?? "",
             assetCode: line.assetCode ?? "",
@@ -166,7 +172,8 @@ export function ReceiptDraftForm({
                 lotMode: "new",
                 lotId: null,
                 lotLabel: "",
-                lotNumber: "",
+                supplierLotNumber: "",
+                legacyLotNumber: null,
                 manufacturedDate: "",
                 expiryDate: "",
                 assetCode: "",
@@ -199,6 +206,7 @@ export function ReceiptDraftForm({
           note: note.trim() || null,
           ...(isOwner ? numberingOptionsPayload(numbering) : {}),
           items: lines.map((line) => ({
+            lineId: line.lineId,
             itemId: line.id,
             quantity:
               line.trackingMode === "ASSET" ? "1" : line.quantity.trim(),
@@ -208,7 +216,7 @@ export function ReceiptDraftForm({
               ? { lotId: line.lotId ?? "" }
               : line.trackingMode === "LOT"
                 ? {
-                    lotNumber: line.lotNumber.trim(),
+                    supplierLotNumber: line.supplierLotNumber.trim() || undefined,
                     manufacturedDate: line.manufacturedDate || undefined,
                     expiryDate: line.expiryDate || undefined,
                   }
@@ -255,10 +263,9 @@ export function ReceiptDraftForm({
             </div>
             <label className="space-y-1">
               Ngày nhập
-              <Input
-                type="date"
+              <DateInput
                 value={date}
-                onChange={(event) => setDate(event.target.value)}
+                onValueChange={(value) => setDate(value)}
                 className="w-full"
               />
             </label>
@@ -391,7 +398,7 @@ export function ReceiptDraftForm({
                             )
                           }
                         />
-                        {mode === "new" ? "Lô mới" : "Lô có sẵn"}
+                        {mode === "new" ? "Tạo lô mới" : "Nhập thêm vào lô có sẵn"}
                       </label>
                     ))}
                   </fieldset>
@@ -413,34 +420,51 @@ export function ReceiptDraftForm({
                 )}
                 {line.trackingMode === "LOT" && line.lotMode === "new" && (
                   <div className="grid gap-3 sm:grid-cols-3">
+                    <p className="sm:col-span-3">
+                      Mã lô nội bộ{" "}
+                      <span className="font-normal text-muted-foreground">
+                        Tự cấp khi xác nhận phiếu
+                      </span>
+                    </p>
+                    {line.legacyLotNumber && (
+                      <p className="font-normal text-muted-foreground sm:col-span-3">
+                        Số lô cũ (tham khảo, chưa xác minh là số trên hàng):{" "}
+                        {line.legacyLotNumber}
+                      </p>
+                    )}
                     <label>
-                      Số lô *
+                      Số lô trên hàng
                       <Input
-                        required
                         maxLength={100}
-                        value={line.lotNumber}
+                        value={line.supplierLotNumber}
+                        aria-describedby={`supplier-lot-hint-${line.rowKey}`}
                         onChange={(event) =>
                           setLines((previous) =>
                             previous.map((row) =>
                               row.rowKey === line.rowKey
-                                ? { ...row, lotNumber: event.target.value }
+                                ? { ...row, supplierLotNumber: event.target.value }
                                 : row,
                             ),
                           )
                         }
                         className="w-full"
                       />
+                      <span
+                        id={`supplier-lot-hint-${line.rowKey}`}
+                        className="text-xs font-normal text-muted-foreground"
+                      >
+                        Số lô do nhà sản xuất/nhà cung cấp ghi trên hàng.
+                      </span>
                     </label>
                     <label>
                       Ngày sản xuất
-                      <Input
-                        type="date"
+                      <DateInput
                         value={line.manufacturedDate}
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           setLines((previous) =>
                             previous.map((row) =>
                               row.rowKey === line.rowKey
-                                ? { ...row, manufacturedDate: event.target.value }
+                                ? { ...row, manufacturedDate: value }
                                 : row,
                             ),
                           )
@@ -450,16 +474,15 @@ export function ReceiptDraftForm({
                     </label>
                     <label>
                       Hạn sử dụng
-                      <Input
-                        type="date"
+                      <DateInput
                         min={line.manufacturedDate || undefined}
                         aria-invalid={expiryBeforeManufactured(line)}
                         value={line.expiryDate}
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           setLines((previous) =>
                             previous.map((row) =>
                               row.rowKey === line.rowKey
-                                ? { ...row, expiryDate: event.target.value }
+                                ? { ...row, expiryDate: value }
                                 : row,
                             ),
                           )
@@ -475,6 +498,25 @@ export function ReceiptDraftForm({
                         Hạn sử dụng phải từ ngày sản xuất trở đi.
                       </p>
                     )}
+                    <SupplierLotMatches
+                      farmId={farmId}
+                      itemId={line.id}
+                      supplierLotNumber={line.supplierLotNumber}
+                      onUse={(choice) =>
+                        setLines((previous) =>
+                          previous.map((row) =>
+                            row.rowKey === line.rowKey
+                              ? {
+                                  ...row,
+                                  lotMode: "existing",
+                                  lotId: choice.id,
+                                  lotLabel: choice.label,
+                                }
+                              : row,
+                          ),
+                        )
+                      }
+                    />
                   </div>
                 )}
                 {line.trackingMode === "ASSET" && (

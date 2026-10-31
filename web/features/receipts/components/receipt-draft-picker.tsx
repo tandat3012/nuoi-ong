@@ -11,6 +11,7 @@ import {
   getReceiptLots,
   getReceiptSuppliers,
 } from '../api/receipts.api';
+import type { ReceiptLotReference } from '../types/receipt';
 import { Combobox } from '@/shared/components/ui/combobox';
 
 export type DraftChoice = {
@@ -34,6 +35,21 @@ const PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 250;
 
 const formatDate = (value: string) => value.split('-').reverse().join('/');
+
+/** Rows are told apart by internal code; the printed number and dates are secondary. */
+export function lotChoice(lot: ReceiptLotReference): DraftChoice {
+  return {
+    id: lot.id,
+    label: lot.lotCode,
+    hint: [
+      lot.supplierLotNumber && `Số lô ${lot.supplierLotNumber}`,
+      lot.manufacturedDate && `NSX ${formatDate(lot.manufacturedDate)}`,
+      lot.expiryDate && `HSD ${formatDate(lot.expiryDate)}`,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  };
+}
 
 /** Searchable dropdown backed by the paged API; typing searches by code or name. */
 export function ReceiptDraftPicker({
@@ -115,16 +131,7 @@ export function ReceiptDraftPicker({
           });
           response = {
             page,
-            choices: data.map((lot) => ({
-              id: lot.id,
-              label: [
-                lot.lotNumber,
-                lot.manufacturedDate && `NSX ${formatDate(lot.manufacturedDate)}`,
-                lot.expiryDate && `HSD ${formatDate(lot.expiryDate)}`,
-              ]
-                .filter(Boolean)
-                .join(' · '),
-            })),
+            choices: data.map(lotChoice),
           };
         } else if (kind === 'location' && !warehouseId) {
           if (!cancelled)

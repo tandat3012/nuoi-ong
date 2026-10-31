@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { Input } from "@/shared/components/ui/input";
+import { DateInput } from "@/shared/components/ui/date-input";
 import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { assetAction, maintenanceAction } from "../api/assets.api";
@@ -128,7 +129,7 @@ export function AssetActionDialog({
           />
           <label className="block space-y-2 text-sm font-medium">
             Dự kiến trả (không bắt buộc)
-            <Input name="expectedReturnAt" type="datetime-local" />
+            <DateInput name="expectedReturnAt" mode="datetime" />
           </label>
           {member && location && (
             <p className="rounded-lg bg-muted p-3 text-sm break-words">
@@ -200,7 +201,7 @@ export function AssetActionDialog({
           </label>
           <label className="block space-y-2 text-sm font-medium">
             Lịch dự kiến (không bắt buộc)
-            <Input name="scheduledAt" type="datetime-local" />
+            <DateInput name="scheduledAt" mode="datetime" />
           </label>
           <div className="grid gap-3 sm:grid-cols-3">
             {[

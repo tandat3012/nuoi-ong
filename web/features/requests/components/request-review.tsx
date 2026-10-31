@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { Button } from "@/shared/components/ui/button";
 import { FormDialog } from "@/shared/components/ui/form-dialog";
-import { Input } from "@/shared/components/ui/input";
+import { DateInput } from "@/shared/components/ui/date-input";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
   approveMaintenanceRequest,
@@ -80,7 +80,7 @@ export function RequestReview({
           ) : maintenance ? (
             <label className="block space-y-2 text-sm font-medium">
               Ngày và giờ bảo trì
-              <Input name="scheduledAt" type="datetime-local" required />
+              <DateInput name="scheduledAt" mode="datetime" required />
             </label>
           ) : null}
         </FormDialog>

@@ -43,7 +43,14 @@ export function InventoryTable({ rows }: { rows: InventoryBalance[] }) {
               <td className="px-4 py-3">
                 {trackingLabels[row.item.trackingMode]}
               </td>
-              <td className="px-4 py-3">{row.lot?.lotNumber ?? "—"}</td>
+              <td className="px-4 py-3">
+                {row.lot?.lotCode ?? "—"}
+                {row.lot?.supplierLotNumber && (
+                  <div className="text-xs text-muted-foreground">
+                    Số lô trên hàng: {row.lot.supplierLotNumber}
+                  </div>
+                )}
+              </td>
               <td className="px-4 py-3">
                 {formatInventoryExpiry(row.lot?.expiryDate ?? null)}
               </td>

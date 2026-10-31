@@ -459,7 +459,7 @@ export function InventoryAdjustmentDialog({
               </option>
               {references.lots.map((lot) => (
                 <option key={lot.id} value={lot.id}>
-                  {lot.lotNumber} · HSD {formatInventoryExpiry(lot.expiryDate)}
+                  {lot.lotCode} · HSD {formatInventoryExpiry(lot.expiryDate)}
                   {stockRows?.balances && selectedItem
                     ? ` · Tồn ${formatInventoryQuantity(
                         stockRows.balances.find(

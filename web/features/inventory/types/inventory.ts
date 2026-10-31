@@ -14,7 +14,12 @@ export interface InventoryBalance {
     unit: { id: string; name: string; symbol: string | null };
   };
   warehouse: { id: string; code: string; name: string };
-  lot: { id: string; lotNumber: string; expiryDate: string | null } | null;
+  lot: {
+    id: string;
+    lotCode: string;
+    supplierLotNumber: string | null;
+    expiryDate: string | null;
+  } | null;
 }
 
 export interface InventoryFilters {
@@ -57,7 +62,12 @@ export interface InventoryTransaction {
     unit: { id: string; name: string; symbol: string | null };
   };
   warehouse: { id: string; code: string; name: string };
-  lot: { id: string; lotNumber: string; expiryDate: string | null } | null;
+  lot: {
+    id: string;
+    lotCode: string;
+    supplierLotNumber: string | null;
+    expiryDate: string | null;
+  } | null;
   asset: {
     id: string;
     assetCode: string;
@@ -118,7 +128,7 @@ export interface InventoryAdjustmentListItem {
   item: { id: string; code: string; name: string };
   unit: { name: string; symbol: string | null };
   warehouse: { id: string; code: string; name: string };
-  lot: { id: string; lotNumber: string | null } | null;
+  lot: { id: string; lotCode: string | null } | null;
   requester: { id: string; displayName: string | null };
   reviewer: { id: string; displayName: string | null } | null;
 }
@@ -151,6 +161,7 @@ export interface InventoryAdjustmentResponse {
 
 export interface InventoryLotOption {
   id: string;
-  lotNumber: string;
+  lotCode: string;
+  supplierLotNumber: string | null;
   expiryDate: string | null;
 }

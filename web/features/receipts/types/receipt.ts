@@ -48,11 +48,13 @@ export interface CreateReceiptInput extends NumberingOptions {
   receiptDate?: string;
   note?: string | null;
   items: {
+    /** Existing draft line this row replaces; keeps its legacy lot number. */
+    lineId?: string;
     itemId: string;
     quantity: string;
     unitPrice?: string;
     lotId?: string;
-    lotNumber?: string;
+    supplierLotNumber?: string;
     manufacturedDate?: string;
     expiryDate?: string;
     assetCode?: string;
@@ -71,7 +73,9 @@ export interface ReceiptLine {
   quantity: string;
   unitPrice: string;
   lotId: string | null;
-  lotNumber: string | null;
+  supplierLotNumber: string | null;
+  // Pre-split number of unknown provenance; shown for review only.
+  legacyLotNumber: string | null;
   manufacturedDate: string | null;
   expiryDate: string | null;
   locationId: string | null;
@@ -86,7 +90,9 @@ export interface ReceiptLine {
   trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' | null;
   unitName: string | null;
   unitSymbol: string | null;
-  lotNumberFromLot: string | null;
+  lotCode: string | null;
+  lotSupplierLotNumber: string | null;
+  lotLegacyLotNumber: string | null;
   lotManufacturedDate: string | null;
   lotExpiryDate: string | null;
   assetCodeFromAsset: string | null;
@@ -119,9 +125,12 @@ export interface ReceiptDraftInitial {
 
 export interface ReceiptLotReference {
   id: string;
-  lotNumber: string;
+  lotCode: string;
+  supplierLotNumber: string | null;
+  legacyLotNumber: string | null;
   manufacturedDate: string | null;
   expiryDate: string | null;
+  sourceSupplierName: string | null;
 }
 
 export interface ReceiptSupplierReference {

@@ -290,7 +290,7 @@ export function InventoryAdjustmentsView({
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {row.warehouse.code} · {row.warehouse.name}
-                      {row.lot ? ` · Lô ${row.lot.lotNumber ?? "—"}` : ""}
+                      {row.lot ? ` · Lô ${row.lot.lotCode ?? "—"}` : ""}
                     </p>
                     <p className="text-sm">
                       {inventoryAdjustmentReasonLabel(row.reasonCode)}
