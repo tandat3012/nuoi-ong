@@ -41,6 +41,7 @@ export interface Order {
   cancelledAt: string | null;
   paidAt: string | null;
   paidByMemberId: string | null;
+  paymentTransactionId: string | null;
   handledByMemberId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -66,6 +67,7 @@ type StaffOrderField =
   | "warehouseId"
   | "stockIssueId"
   | "paidByMemberId"
+  | "paymentTransactionId"
   | "handledByMemberId";
 export type CustomerOrder = Omit<Order, StaffOrderField>;
 export type CustomerOrderItem = Omit<OrderItem, "itemId">;
@@ -76,17 +78,80 @@ export interface OrderCustomer {
   email: string;
 }
 
+export type PaymentProvider = "SEPAY" | "SIMULATOR";
+export type PaymentResult =
+  | "MATCHED"
+  | "AMOUNT_MISMATCH"
+  | "ORDER_NOT_FOUND"
+  | "ORDER_NOT_PAYABLE"
+  | "ALREADY_PAID"
+  | "WRONG_ACCOUNT";
+
+export const PAYMENT_RESULT_LABELS: Record<PaymentResult, string> = {
+  MATCHED: "Khớp đơn",
+  AMOUNT_MISMATCH: "Sai số tiền",
+  ORDER_NOT_FOUND: "Không tìm thấy đơn",
+  ORDER_NOT_PAYABLE: "Đơn không nhận chuyển khoản",
+  ALREADY_PAID: "Đơn đã thanh toán",
+  WRONG_ACCOUNT: "Sai tài khoản nhận",
+};
+
+export const PAYMENT_PROVIDER_LABELS: Record<PaymentProvider, string> = {
+  SEPAY: "SePay",
+  SIMULATOR: "Giả lập",
+};
+
+/** A bank transfer reported to the store, matched to an order or not. */
+export interface PaymentTransaction {
+  id: string;
+  farmId: string;
+  provider: PaymentProvider;
+  providerTxId: string;
+  accountNumber: string;
+  amount: string;
+  content: string;
+  transactionAt: string;
+  orderId: string | null;
+  orderCode: string | null;
+  result: PaymentResult;
+  createdByMemberId: string | null;
+  createdAt: string;
+}
+
+export type OrderPaymentTransaction = Pick<
+  PaymentTransaction,
+  | "id"
+  | "provider"
+  | "amount"
+  | "content"
+  | "result"
+  | "transactionAt"
+  | "createdAt"
+>;
+
+/** VietQR and account details while a bank-transfer order awaits payment. */
+export interface OrderTransferInstructions {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  amount: string;
+  content: string;
+  qrSvg: string;
+}
+
 export interface OrderDetail {
   order: Order;
   items: OrderItem[];
   stockIssue: { id: string; issueCode: string | null; status: string } | null;
   customer: OrderCustomer;
+  payments: OrderPaymentTransaction[];
 }
 
 export interface CustomerOrderDetail {
   order: CustomerOrder;
   items: CustomerOrderItem[];
   customer: OrderCustomer;
+  payment: OrderTransferInstructions | null;
 }
 
 export interface CreateOrderInput {

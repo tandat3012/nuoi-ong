@@ -4,15 +4,18 @@ import {
   check,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   farms,
   farmMembers,
@@ -112,6 +115,11 @@ export const storeOrders = pgTable(
     paidByMemberId: uuid('paid_by_member_id').references(() => farmMembers.id, {
       onDelete: 'restrict',
     }),
+    // Set when a verified bank transaction paid the order instead of a staff member.
+    paymentTransactionId: uuid('payment_transaction_id').references(
+      (): AnyPgColumn => paymentTransactions.id,
+      { onDelete: 'restrict' },
+    ),
     handledByMemberId: uuid('handled_by_member_id').references(
       () => farmMembers.id,
       { onDelete: 'restrict' },
@@ -130,6 +138,9 @@ export const storeOrders = pgTable(
       table.idempotencyKey,
     ),
     unique('uq_store_orders_stock_issue').on(table.stockIssueId),
+    unique('uq_store_orders_payment_transaction').on(
+      table.paymentTransactionId,
+    ),
     index('idx_store_orders_status_created').on(
       table.farmId,
       table.status,
@@ -152,7 +163,7 @@ export const storeOrders = pgTable(
     ),
     check(
       'ck_store_orders_payment',
-      sql`(${table.paymentStatus} = 'UNPAID' AND ${table.paidAt} IS NULL AND ${table.paidByMemberId} IS NULL) OR (${table.paymentStatus} = 'PAID' AND ${table.paidAt} IS NOT NULL AND ${table.paidByMemberId} IS NOT NULL)`,
+      sql`(${table.paymentStatus} = 'UNPAID' AND ${table.paidAt} IS NULL AND ${table.paidByMemberId} IS NULL AND ${table.paymentTransactionId} IS NULL) OR (${table.paymentStatus} = 'PAID' AND ${table.paidAt} IS NOT NULL AND (${table.paidByMemberId} IS NOT NULL OR ${table.paymentTransactionId} IS NOT NULL))`,
     ),
     check(
       'ck_store_orders_status_fields',
@@ -335,6 +346,75 @@ export const storeOrderItems = pgTable(
     check(
       'ck_store_order_items_money',
       sql`${table.unitPrice} >= 0 AND ${table.lineTotal} = ${table.unitPrice} * ${table.quantity} AND ${table.lineTotal} <= 9007199254740991`,
+    ),
+  ],
+).enableRLS();
+
+export const paymentProvider = pgEnum('payment_provider', [
+  'SEPAY',
+  'SIMULATOR',
+]);
+export const paymentTransactionResult = pgEnum('payment_transaction_result', [
+  'MATCHED',
+  'AMOUNT_MISMATCH',
+  'ORDER_NOT_FOUND',
+  'ORDER_NOT_PAYABLE',
+  'ALREADY_PAID',
+  'WRONG_ACCOUNT',
+]);
+
+/** Every incoming bank transfer the store was told about, matched or not. */
+export const paymentTransactions = pgTable(
+  'payment_transactions',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    farmId: uuid('farm_id')
+      .notNull()
+      .references(() => farms.id, { onDelete: 'restrict' }),
+    provider: paymentProvider().notNull(),
+    providerTxId: varchar('provider_tx_id', { length: 100 }).notNull(),
+    accountNumber: varchar('account_number', { length: 50 }).notNull(),
+    amount: numeric({ precision: 18, scale: 0 }).notNull(),
+    content: text().notNull(),
+    transactionAt: timestamp('transaction_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    orderId: uuid('order_id').references(() => storeOrders.id, {
+      onDelete: 'restrict',
+    }),
+    result: paymentTransactionResult().notNull(),
+    rawPayload: jsonb('raw_payload').notNull(),
+    createdByMemberId: uuid('created_by_member_id').references(
+      () => farmMembers.id,
+      { onDelete: 'restrict' },
+    ),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique('uq_payment_transactions_provider_tx').on(
+      table.provider,
+      table.providerTxId,
+    ),
+    // One bank transfer can settle an order; later ones are ALREADY_PAID.
+    uniqueIndex('ux_payment_transactions_matched_order')
+      .on(table.orderId)
+      .where(sql`result = 'MATCHED'`),
+    index('idx_payment_transactions_farm_created').on(
+      table.farmId,
+      table.createdAt.desc(),
+      table.id,
+    ),
+    index('idx_payment_transactions_order').on(table.orderId),
+    check(
+      'ck_payment_transactions_amount',
+      sql`${table.amount} >= 0 AND ${table.amount} <= 9007199254740991`,
+    ),
+    check(
+      'ck_payment_transactions_order',
+      sql`${table.result} IN ('ORDER_NOT_FOUND', 'WRONG_ACCOUNT') OR ${table.orderId} IS NOT NULL`,
     ),
   ],
 ).enableRLS();
