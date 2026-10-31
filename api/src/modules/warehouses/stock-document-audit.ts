@@ -60,7 +60,7 @@ const LINE_FIELDS = [
   'actualQuantity',
   'unitPrice',
   'lotId',
-  'lotNumber',
+  'supplierLotNumber',
   'assetId',
   'assetCode',
 ];

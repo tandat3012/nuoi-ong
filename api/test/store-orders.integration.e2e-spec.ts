@@ -380,7 +380,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
           id,
           farmId: ids.farm,
           itemId: ids.item,
-          lotNumber: id,
+          supplierLotNumber: id,
           initialQuantity: '99',
           expiryDate: i === 3 ? null : future(i === 0 ? -1 : i * 20),
         })),
@@ -540,7 +540,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
         id: lotId,
         farmId: ids.farm,
         itemId: ids.item,
-        lotNumber: lotId,
+        supplierLotNumber: lotId,
         initialQuantity: '0.375',
       });
       await tx.insert(schema.inventoryBalances).values({

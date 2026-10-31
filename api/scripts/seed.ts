@@ -555,15 +555,15 @@ async function seed(client: PoolClient) {
 
   const lotIds: Record<string, string> = {};
   for (const [key, number, manufactured, expiry, quantity] of [
-    ['feed', 'LOT-FEED-2026-08', '2026-07-15', '2027-07-15', '100'],
-    ['treatment', 'LOT-TREAT-2026-01', '2026-01-10', '2028-01-10', '40'],
+    ['feed', 'NCC-FEED-2608', '2026-07-15', '2027-07-15', '100'],
+    ['treatment', 'NCC-TREAT-2601', '2026-01-10', '2028-01-10', '40'],
   ]) {
     lotIds[key] = await id(
       client,
       `INSERT INTO inventory_lots
-      (id,farm_id,item_id,source_receipt_item_id,lot_number,manufactured_date,expiry_date,initial_quantity,created_at)
+      (id,farm_id,item_id,source_receipt_item_id,supplier_lot_number,manufactured_date,expiry_date,initial_quantity,created_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      ON CONFLICT (farm_id,item_id,lot_number) DO UPDATE SET source_receipt_item_id=EXCLUDED.source_receipt_item_id,
+      ON CONFLICT (id) DO UPDATE SET source_receipt_item_id=EXCLUDED.source_receipt_item_id,supplier_lot_number=EXCLUDED.supplier_lot_number,
         manufactured_date=EXCLUDED.manufactured_date,expiry_date=EXCLUDED.expiry_date,initial_quantity=EXCLUDED.initial_quantity RETURNING id`,
       [
         uuid(`lot:${key}`),

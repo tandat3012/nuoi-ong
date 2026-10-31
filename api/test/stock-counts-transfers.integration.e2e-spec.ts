@@ -138,7 +138,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
           id: lot,
           farmId: farm,
           itemId: lotItem,
-          lotNumber: 'L-1',
+          supplierLotNumber: 'L-1',
           initialQuantity: '5',
         },
         // Belongs to a different item, so it must never match lotItem lines.
@@ -146,7 +146,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
           id: otherLot,
           farmId: farm,
           itemId: item,
-          lotNumber: 'L-X',
+          supplierLotNumber: 'L-X',
           initialQuantity: '1',
         },
       ]);

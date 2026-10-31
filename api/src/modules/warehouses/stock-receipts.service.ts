@@ -147,7 +147,7 @@ export class StockReceiptsService {
           quantity: item.quantity,
           unitPrice: item.unitPrice ?? '0',
           lotId: item.lotId,
-          lotNumber: item.lotNumber,
+          supplierLotNumber: item.supplierLotNumber,
           locationId: item.locationId,
           manufacturedDate: item.manufacturedDate,
           expiryDate: item.expiryDate,
@@ -228,6 +228,18 @@ export class StockReceiptsService {
           .where(eq(stockReceipts.id, id));
       }
       if (input.items) {
+        // Legacy numbers follow the replaced line by id, so removing or reordering lines cannot shift them.
+        const legacyByLine = new Map(
+          currentItems.map((line) => [line.id, line] as const),
+        );
+        const legacyLotNumber = (item: (typeof input.items)[number]) => {
+          const source = item.lineId && legacyByLine.get(item.lineId);
+          if (!source) return null;
+          legacyByLine.delete(source.id);
+          return !item.lotId && source.itemId === item.itemId
+            ? source.legacyLotNumber
+            : null;
+        };
         await tx
           .delete(stockReceiptItems)
           .where(eq(stockReceiptItems.stockReceiptId, id));
@@ -238,7 +250,8 @@ export class StockReceiptsService {
             quantity: item.quantity,
             unitPrice: item.unitPrice ?? '0',
             lotId: item.lotId,
-            lotNumber: item.lotNumber,
+            supplierLotNumber: item.supplierLotNumber,
+            legacyLotNumber: legacyLotNumber(item),
             locationId: item.locationId,
             manufacturedDate: item.manufacturedDate,
             expiryDate: item.expiryDate,
@@ -440,15 +453,10 @@ export class StockReceiptsService {
             receipt.warehouseId,
           );
         }
-        if (item.trackingMode === 'LOT' && !line.lotId && !line.lotNumber) {
-          throw new BadRequestException(
-            'LOT receipt lines require an existing lotId or a lotNumber',
-          );
-        }
         if (
           line.lotId &&
           (item.trackingMode !== 'LOT' ||
-            line.lotNumber ||
+            line.supplierLotNumber ||
             line.manufacturedDate ||
             line.expiryDate)
         ) {
@@ -475,7 +483,7 @@ export class StockReceiptsService {
         }
         if (
           item.trackingMode === 'ASSET' &&
-          (line.lotNumber || line.manufacturedDate || line.expiryDate)
+          (line.supplierLotNumber || line.manufacturedDate || line.expiryDate)
         ) {
           throw new BadRequestException(
             'ASSET receipt lines cannot contain LOT metadata',
@@ -483,7 +491,7 @@ export class StockReceiptsService {
         }
         if (
           item.trackingMode === 'QUANTITY' &&
-          (line.lotNumber ||
+          (line.supplierLotNumber ||
             line.manufacturedDate ||
             line.expiryDate ||
             line.assetCode ||
@@ -499,29 +507,21 @@ export class StockReceiptsService {
         if (item.trackingMode === 'LOT' && lotId)
           await this.assertLot(tx, lotId, farmId, line.itemId, true);
         if (item.trackingMode === 'LOT' && !lotId) {
-          let createdLotId: string;
-          try {
-            const [lot] = await tx
-              .insert(inventoryLots)
-              .values({
-                farmId,
-                itemId: line.itemId,
-                sourceReceiptItemId: line.id,
-                lotNumber: line.lotNumber!,
-                manufacturedDate: line.manufacturedDate,
-                expiryDate: line.expiryDate,
-                initialQuantity: line.quantity,
-              })
-              .returning({ id: inventoryLots.id });
-            createdLotId = lot.id;
-          } catch (error: unknown) {
-            this.throwMappedUniqueConflict(
-              error,
-              'uq_lot_per_item_farm',
-              'Lot number already exists for this item',
-            );
-          }
-          lotId = createdLotId;
+          // lot_code comes from the database sequence; equal supplier numbers never merge lots.
+          const [lot] = await tx
+            .insert(inventoryLots)
+            .values({
+              farmId,
+              itemId: line.itemId,
+              sourceReceiptItemId: line.id,
+              supplierLotNumber: line.supplierLotNumber,
+              legacyLotNumber: line.legacyLotNumber,
+              manufacturedDate: line.manufacturedDate,
+              expiryDate: line.expiryDate,
+              initialQuantity: line.quantity,
+            })
+            .returning({ id: inventoryLots.id });
+          lotId = lot.id;
           await tx
             .update(stockReceiptItems)
             .set({ lotId })
@@ -690,7 +690,14 @@ export class StockReceiptsService {
         unitId: units.id,
         unitName: units.name,
         unitSymbol: units.symbol,
-        lotNumberFromLot: inventoryLots.lotNumber,
+        lotCode: inventoryLots.lotCode,
+        lotSupplierLotNumber: inventoryLots.supplierLotNumber,
+        lotLegacyLotNumber: inventoryLots.legacyLotNumber,
+        // Deprecated aliases for clients built before the lot identity split.
+        lotNumber: sql<
+          string | null
+        >`coalesce(${stockReceiptItems.supplierLotNumber}, ${stockReceiptItems.legacyLotNumber})`,
+        lotNumberFromLot: inventoryLots.lotCode,
         lotManufacturedDate: inventoryLots.manufacturedDate,
         lotExpiryDate: inventoryLots.expiryDate,
         assetCodeFromAsset: assets.assetCode,
@@ -777,7 +784,7 @@ export class StockReceiptsService {
       if (line.lotId) {
         if (
           item.trackingMode !== 'LOT' ||
-          line.lotNumber ||
+          line.supplierLotNumber ||
           line.manufacturedDate ||
           line.expiryDate
         )

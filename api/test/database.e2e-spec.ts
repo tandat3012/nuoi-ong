@@ -353,19 +353,19 @@ describe('PostgreSQL schema, constraints, functions and triggers', () => {
   it('enforces lot, inventory balance, and transaction quantity rules', async () => {
     await client.query(
       `INSERT INTO inventory_lots
-        (id, farm_id, item_id, lot_number, initial_quantity)
+        (id, farm_id, item_id, supplier_lot_number, initial_quantity)
        VALUES ($1, $2, $3, 'DB-TEST-LOT-001', 20)`,
       [ids.lot, ids.farmA, ids.materialItem],
     );
     await expectDatabaseError(
       `INSERT INTO inventory_lots
-        (farm_id, item_id, lot_number, manufactured_date, expiry_date, initial_quantity)
+        (farm_id, item_id, supplier_lot_number, manufactured_date, expiry_date, initial_quantity)
        VALUES ($1, $2, 'DB-TEST-LOT-BAD-DATE', DATE '2026-12-31', DATE '2026-01-01', 5)`,
       [ids.farmA, ids.materialItem],
     );
     await expectDatabaseError(
       `INSERT INTO inventory_lots
-        (farm_id, item_id, lot_number, initial_quantity)
+        (farm_id, item_id, supplier_lot_number, initial_quantity)
        VALUES ($1, $2, 'DB-TEST-LOT-ZERO', 0)`,
       [ids.farmA, ids.materialItem],
     );

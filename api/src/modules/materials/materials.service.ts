@@ -10,6 +10,7 @@ import {
   asc,
   count,
   eq,
+  getTableColumns,
   gte,
   ilike,
   isNotNull,
@@ -353,7 +354,10 @@ export class MaterialsService {
 
     const data = await this.databaseService.db
       .select({
-        lot: inventoryLots,
+        lot: {
+          ...getTableColumns(inventoryLots),
+          lotNumber: inventoryLots.lotCode, // deprecated alias of lotCode
+        },
         quantityOnHand: sql<string>`COALESCE(SUM(${inventoryBalances.quantityOnHand}), 0)::text`,
       })
       .from(inventoryLots)
@@ -380,7 +384,10 @@ export class MaterialsService {
         itemCode: items.code,
         itemName: items.name,
         expiryWarningDays: materialProfiles.expiryWarningDays,
-        lot: inventoryLots,
+        lot: {
+          ...getTableColumns(inventoryLots),
+          lotNumber: inventoryLots.lotCode, // deprecated alias of lotCode
+        },
         quantityOnHand: sql<string>`COALESCE(SUM(${inventoryBalances.quantityOnHand}), 0)::text`,
       })
       .from(inventoryLots)
