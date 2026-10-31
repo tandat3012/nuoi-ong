@@ -10,7 +10,7 @@ import { formatQuantity } from '@/src/shared/format-quantity';
 import { formatApiDateTime as formatDateTime } from '@/src/shared/format-date-time';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
-import { listBalances, listWarehouses, type Paginated, type StockIssue, type StockReceipt } from '@/src/features/inventory/api';
+import { documentCodeLabel, listBalances, listWarehouses, type Paginated, type StockIssue, type StockReceipt } from '@/src/features/inventory/api';
 import { listAuditLogs, type AuditLog } from '@/src/features/activity/api';
 
 const honeyImage = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBcFTg3NHhZT19Pgto7IjhPfrsqK7lAsHctJe-0YtEaBDDigmmrx8Lxtt17FslOR8ksf7XQCeEjtqMzDJoaWsi1jZ43c6SBfYE10cgNAYRixQzSa0Jh3i9t1N4hQWj6ZA1N0XvwHyj-kRho2h2L2a6_mwaqcszJI-_KgHpcym0A-6foeyTQFanrB3CRTQkTbB02LiKrcRrQhVkqeiDoAEqHvUOqaE93PofHmRMHoTEoanwHHjSqSK7m1Q';
@@ -88,7 +88,7 @@ export default function DashboardScreen() {
         positiveItemIds.add(row.balance.itemId);
         return total + quantity;
       }, 0);
-      const docs = [...receipts.data.map((row) => ({ code: row.receiptCode, status: row.status, title: row.note || 'Phiếu nhập kho', detail: `Kho: ${row.warehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const })), ...issues.data.map((row) => ({ code: row.issueCode, status: row.status, title: row.reason || 'Phiếu xuất kho', detail: `Kho: ${row.warehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const }))];
+      const docs = [...receipts.data.map((row) => ({ code: documentCodeLabel(row.receiptCode, row.id), status: row.status, title: row.note || 'Phiếu nhập kho', detail: `Kho: ${row.warehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const })), ...issues.data.map((row) => ({ code: documentCodeLabel(row.issueCode, row.id), status: row.status, title: row.reason || 'Phiếu xuất kho', detail: `Kho: ${row.warehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const }))];
       setSummary({ warehouseCount: warehouses.data.length, itemCount: positiveItemIds.size, balanceCount: positiveItemIds.size, totalQuantity, pendingCount: docs.filter((row) => row.status === 'DRAFT' || row.status === 'PENDING_APPROVAL').length, activities: docs.slice(0, 3) });
       setSummaryError(null);
     }).catch((cause: unknown) => { if (!cancelled) setSummaryError(cause instanceof Error ? cause.message : 'Không thể tải tổng quan.'); });

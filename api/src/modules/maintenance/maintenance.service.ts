@@ -35,6 +35,7 @@ import {
 } from '../../db/schema';
 import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import {
   CreateMaintenanceRecordDto,
   CompleteMaintenanceRecordDto,
@@ -583,6 +584,7 @@ export class MaintenanceService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const [actor] = await this.databaseService.db
       .select({ userId: users.id })

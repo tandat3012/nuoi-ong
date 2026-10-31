@@ -32,9 +32,16 @@ import {
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
+  confirmationCode,
+  ignoreLegacyCode,
+  numberingOptionChanges,
+  rethrowCodeConflict,
+} from './stock-document-code';
+import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 
 type Filters = {
   farmId: string;
@@ -100,8 +107,12 @@ export class StockCountsService {
   }
 
   async create(farmId: string, user: string, input: CreateStockCountDto) {
-    const { memberId: member } =
-      await this.warehousesService.assertDocumentWriter(farmId, user);
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      user,
+    );
+    const member = writer.memberId;
+    const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
     const id = await this.dbService.db.transaction(async (tx) => {
       await this.assertWarehouse(tx, farmId, input.warehouseId);
@@ -124,12 +135,13 @@ export class StockCountsService {
           note: line.note,
         });
       }
+      ignoreLegacyCode('countCode', input.countCode);
       const [row] = await tx
         .insert(stockCounts)
         .values({
+          ...numbering,
           farmId,
           warehouseId: input.warehouseId,
-          countCode: input.countCode,
           note: input.note,
           createdByMemberId: member,
         })
@@ -155,6 +167,7 @@ export class StockCountsService {
       farmId,
       user,
     );
+    const numbering = numberingOptionChanges(input, writer);
     await this.dbService.db.transaction(async (tx) => {
       const current = await this.only(id, farmId, tx, true);
       assertOwnDocument(writer, current.createdByMemberId);
@@ -196,6 +209,7 @@ export class StockCountsService {
       }
       const changes = {
         ...(input.note !== undefined ? { note: input.note } : {}),
+        ...numbering,
         status: 'COUNTING' as const,
       };
       await tx
@@ -298,6 +312,7 @@ export class StockCountsService {
       farmId,
       user,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
@@ -338,8 +353,9 @@ export class StockCountsService {
       farmId,
       user,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
-    await this.dbService.db.transaction(async (tx) => {
+    const confirmation = this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'COUNTING', 'PENDING_APPROVAL'].includes(row.status))
@@ -396,26 +412,47 @@ export class StockCountsService {
           reason: line.note,
         });
       }
+      const confirmedAt = new Date();
+      const { code: countCode, codeSource } = await confirmationCode(
+        tx,
+        farmId,
+        'KK',
+        { code: row.countCode, requestedCode: row.requestedCode },
+        confirmedAt,
+      );
       await tx
         .update(stockCounts)
         .set({
           status: 'CONFIRMED',
+          countCode,
+          codeSource,
           confirmedByMemberId: member,
-          confirmedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          confirmedAt: confirmedAt.toISOString(),
+          updatedAt: confirmedAt.toISOString(),
         })
         .where(eq(stockCounts.id, id));
-      await auditStockDocument(tx, member, 'STOCK_COUNT', 'CONFIRM', row, {
+      const confirmed = {
         ...row,
-        status: 'CONFIRMED',
-      });
+        countCode,
+        codeSource: codeSource ?? row.codeSource,
+        status: 'CONFIRMED' as const,
+      };
+      await auditStockDocument(
+        tx,
+        member,
+        'STOCK_COUNT',
+        'CONFIRM',
+        row,
+        confirmed,
+      );
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,
-          this.notification(row, 'CONFIRMED'),
+          this.notification(confirmed, 'CONFIRMED'),
           row.createdByMemberId,
         );
     });
+    await confirmation.catch(rethrowCodeConflict);
     return this.withItems(id, farmId);
   }
 

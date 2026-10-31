@@ -1,4 +1,5 @@
 import type { StoreProductStatus } from "./types/store-admin";
+import { STORE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
 
 export const STORE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export const STORE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -10,7 +11,7 @@ export const storeStatusLabels: Record<StoreProductStatus, string> = {
 };
 
 export function canManageStore(roles: readonly string[]) {
-  return roles.some((role) => role === "ADMIN" || role === "FARM_OWNER");
+  return hasAnyRole(roles, STORE_MANAGE_ROLES);
 }
 
 export function slugify(value: string) {

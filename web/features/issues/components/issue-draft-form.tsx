@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useSaveIssueDraft } from "../hooks/use-save-issue-draft";
+import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 import {
   ISSUE_TYPE_LABELS,
   type CreateIssueInput,
@@ -14,6 +15,7 @@ import {
   splitIssueQuantity,
   supportsIssueDraftEdit,
 } from "./issue-draft.logic";
+import { AddLineTile } from "@/shared/components/ui/add-line-tile";
 import { IssueDraftPicker, type IssueChoice } from "./issue-draft-picker";
 import { IssueLotPicker, type IssueLotChoice } from "./issue-lot-picker";
 import { IssueAssetPicker, type IssueAssetChoice } from "./issue-asset-picker";
@@ -23,6 +25,14 @@ import { Button } from "@/shared/components/ui/button";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { Select } from "@/shared/components/ui/select";
 import { Input } from "@/shared/components/ui/input";
+import {
+  DOCUMENT_CODE_HINT,
+  documentCodeLabel,
+  isFarmOwner,
+  numberingDraft,
+  numberingOptionsPayload,
+  NumberingOptionsFields,
+} from "@/features/stock-documents";
 
 type DraftLine = IssueChoice & {
   rowKey: string;
@@ -57,8 +67,9 @@ export function IssueDraftForm({
         }
       : null,
   );
-  const [code, setCode] = useState(initial?.issue.issueCode ?? "");
   const [date, setDate] = useState(initial?.issue.issueDate ?? "");
+  const isOwner = isFarmOwner(useFarmMembership().membership?.roles ?? []);
+  const [numbering, setNumbering] = useState(() => numberingDraft(initial?.issue));
   const [issueType, setIssueType] = useState<CreateIssueInput["issueType"]>(
     initial?.issue.issueType ?? "CONSUMPTION",
   );
@@ -96,7 +107,6 @@ export function IssueDraftForm({
           : null,
       })) ?? [],
   );
-  const [picker, setPicker] = useState<"warehouse" | "item" | null>(null);
   const { submit, isSaving, error } = useSaveIssueDraft(
     farmId,
     canWrite,
@@ -105,8 +115,8 @@ export function IssueDraftForm({
     isLinkedSale,
   );
 
-  function select(choice: IssueChoice) {
-    if (picker === "warehouse") {
+  function select(kind: "warehouse" | "item", choice: IssueChoice) {
+    if (kind === "warehouse") {
       if (warehouse?.id !== choice.id)
         setLines((previous) =>
           previous.map((line) =>
@@ -133,7 +143,6 @@ export function IssueDraftForm({
         },
       ]);
     }
-    setPicker(null);
   }
   function updateLine(
     rowKey: string,
@@ -190,16 +199,15 @@ export function IssueDraftForm({
       className="space-y-6"
       onSubmit={(event) => {
         event.preventDefault();
-        if (picker) return;
         const input: CreateIssueInput = {
             warehouseId: warehouse?.id ?? "",
-            issueCode: code.trim(),
             issueDate: date || undefined,
             issueType,
             maintenanceRecordId:
               issueType === "MAINTENANCE" ? maintenanceRecordId : null,
             reason: reason.trim() || null,
             note: note.trim() || null,
+            ...(isOwner ? numberingOptionsPayload(numbering) : {}),
             items: lines.map((line) => ({
               itemId: line.id,
               quantity:
@@ -229,7 +237,7 @@ export function IssueDraftForm({
       <PageHeader
         title={
           initial
-            ? `Sửa phiếu xuất ${initial.issue.issueCode}`
+            ? `Sửa phiếu xuất ${documentCodeLabel(initial.issue.issueCode, initial.issue.id)}`
             : "Tạo phiếu xuất nháp"
         }
         description={isLinkedSale ? "Phiếu bán hàng liên kết đơn; chỉ phân bổ lại lô/tài sản và giữ nguyên tổng từng vật tư." : "Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho."}
@@ -238,21 +246,12 @@ export function IssueDraftForm({
         <legend className="sr-only">Thông tin phiếu xuất</legend>
         <div className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2">
           <div>
-            <label
-              htmlFor="issue-code"
-              className="mb-1 block text-sm font-medium"
-            >
-              Mã phiếu *
-            </label>
-            <Input
-              id="issue-code"
-              value={code}
-              readOnly={isLinkedSale}
-              onChange={(event) => setCode(event.target.value)}
-              maxLength={50}
-              required
-              className="w-full"
-            />
+            <p className="mb-1 block text-sm font-medium">Mã phiếu</p>
+            <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+              {initial
+                ? documentCodeLabel(initial.issue.issueCode, initial.issue.id)
+                : DOCUMENT_CODE_HINT}
+            </p>
           </div>
           <div>
             <label
@@ -273,15 +272,18 @@ export function IssueDraftForm({
               Để trống để dùng ngày hiện tại khi tạo phiếu.
             </p>
           </div>
+          {isOwner && (
+            <NumberingOptionsFields value={numbering} onChange={setNumbering} />
+          )}
           <div>
             <p className="mb-1 text-sm font-medium">Kho xuất *</p>
-            <p className="mb-2">{warehouse?.label ?? "Chưa chọn kho"}</p>
-            <Button type="button" variant="outline"
+            <IssueDraftPicker
+              farmId={farmId}
+              kind="warehouse"
+              value={warehouse}
               disabled={isLinkedSale}
-              onClick={() => setPicker("warehouse")}
-            >
-              Chọn kho xuất
-            </Button>
+              onSelect={(choice) => select("warehouse", choice)}
+            />
           </div>
           <div>
             <label
@@ -362,142 +364,141 @@ export function IssueDraftForm({
             onSelect={setMaintenanceRecordId}
           />
         )}
-        {picker && (
-          <IssueDraftPicker
-            key={picker}
-            farmId={farmId}
-            kind={picker}
-            onSelect={select}
-            onClose={() => setPicker(null)}
-          />
-        )}
         <section aria-label="Các dòng vật tư" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Vật tư trong phiếu xuất</h2>
-            <Button type="button" variant="outline"
-              disabled={isLinkedSale}
-              onClick={() => setPicker("item")}
-            >
-              Thêm vật tư
-            </Button>
           </div>
-          {lines.length === 0 && (
-            <p role="status">Chưa có vật tư. Vui lòng thêm ít nhất một dòng.</p>
-          )}
-          {lines.map((line, index) => (
-            <fieldset
-              key={line.rowKey}
-              className="space-y-3 rounded-xl border bg-card p-4"
-            >
-              <legend className="px-1 text-sm font-medium">
-                Dòng {index + 1}
-              </legend>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium">{line.label}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Theo{" "}
-                    {line.trackingMode === "LOT"
-                      ? "lô"
-                      : line.trackingMode === "ASSET"
-                        ? "tài sản"
-                        : "số lượng"}
-                  </p>
-                </div>
-                <Button type="button" variant="outline"
-                  disabled={isLinkedSale}
-                  aria-label={`Xóa dòng ${index + 1}`}
-                  onClick={() =>
-                    setLines((previous) =>
-                      previous.filter((row) => row.rowKey !== line.rowKey),
-                    )
-                  }
-                >
-                  Xóa
-                </Button>
-              </div>
-              {line.trackingMode === "LOT" && (
-                <IssueLotPicker
-                  key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
-                  farmId={farmId}
-                  warehouseId={warehouse?.id ?? null}
-                  itemId={line.id}
-                  selected={line.lot}
-                  onSelect={(lot) => updateLine(line.rowKey, { lot })}
-                />
-              )}
-              {line.trackingMode === "ASSET" && (
-                <IssueAssetPicker
-                  key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
-                  farmId={farmId}
-                  warehouseId={warehouse?.id ?? null}
-                  itemId={line.id}
-                  selected={line.asset}
-                  excludedIds={lines
-                    .filter((row) => row.rowKey !== line.rowKey && row.asset)
-                    .map((row) => row.asset!.id)}
-                  onSelect={(asset) => updateLine(line.rowKey, { asset })}
-                />
-              )}
-              <div className="grid gap-4 sm:grid-cols-[12rem_1fr]">
-                <div>
-                  <label
-                    htmlFor={`quantity-${line.rowKey}`}
-                    className="mb-1 block text-sm"
-                  >
-                    Số lượng *
-                  </label>
-                  <Input
-                    id={`quantity-${line.rowKey}`}
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    required
-                    value={line.trackingMode === "ASSET" ? "1" : line.quantity}
-                    readOnly={isLinkedSale || line.trackingMode === "ASSET"}
-                    onChange={(event) =>
-                      updateLine(line.rowKey, { quantity: event.target.value })
+          <div className="grid gap-4 lg:grid-cols-2">
+            {lines.map((line, index) => (
+              <fieldset
+                key={line.rowKey}
+                className="min-w-0 space-y-3 rounded-xl border bg-card p-4"
+              >
+                <legend className="px-1 text-sm font-medium">
+                  Dòng {index + 1}
+                </legend>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{line.label}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Theo{" "}
+                      {line.trackingMode === "LOT"
+                        ? "lô"
+                        : line.trackingMode === "ASSET"
+                          ? "tài sản"
+                          : "số lượng"}
+                    </p>
+                  </div>
+                  <Button type="button" variant="outline"
+                    disabled={isLinkedSale}
+                    aria-label={`Xóa dòng ${index + 1}`}
+                    onClick={() =>
+                      setLines((previous) =>
+                        previous.filter((row) => row.rowKey !== line.rowKey),
+                      )
                     }
-                    aria-describedby="issue-quantity-help"
-                    className="w-full"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor={`note-${line.rowKey}`}
-                    className="mb-1 block text-sm"
                   >
-                    Ghi chú dòng
-                  </label>
-                  <Input
-                    id={`note-${line.rowKey}`}
-                    value={line.note}
-                    readOnly={isLinkedSale}
-                    onChange={(event) =>
-                      updateLine(line.rowKey, { note: event.target.value })
-                    }
-                    maxLength={4000}
-                    className="w-full"
-                  />
+                    Xóa
+                  </Button>
                 </div>
-              </div>
-              {isLinkedSale && line.trackingMode === "LOT" && (
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                  <label htmlFor={`split-${line.rowKey}`} className="space-y-1 text-sm">
-                    <span>Số lượng tách sang lô khác</span>
+                {line.trackingMode === "LOT" && (
+                  <IssueLotPicker
+                    key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
+                    farmId={farmId}
+                    warehouseId={warehouse?.id ?? null}
+                    itemId={line.id}
+                    selected={line.lot}
+                    onSelect={(lot) => updateLine(line.rowKey, { lot })}
+                  />
+                )}
+                {line.trackingMode === "ASSET" && (
+                  <IssueAssetPicker
+                    key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
+                    farmId={farmId}
+                    warehouseId={warehouse?.id ?? null}
+                    itemId={line.id}
+                    selected={line.asset}
+                    excludedIds={lines
+                      .filter((row) => row.rowKey !== line.rowKey && row.asset)
+                      .map((row) => row.asset!.id)}
+                    onSelect={(asset) => updateLine(line.rowKey, { asset })}
+                  />
+                )}
+                <div className="grid gap-4 sm:grid-cols-[12rem_1fr]">
+                  <div>
+                    <label
+                      htmlFor={`quantity-${line.rowKey}`}
+                      className="mb-1 block text-sm"
+                    >
+                      Số lượng *
+                    </label>
                     <Input
-                      id={`split-${line.rowKey}`}
+                      id={`quantity-${line.rowKey}`}
+                      type="text"
                       inputMode="decimal"
-                      value={line.splitQuantity ?? ""}
-                      onChange={(event) => updateLine(line.rowKey, { splitQuantity: event.target.value })}
-                      placeholder="Ví dụ 1.250"
+                      autoComplete="off"
+                      required
+                      value={line.trackingMode === "ASSET" ? "1" : line.quantity}
+                      readOnly={isLinkedSale || line.trackingMode === "ASSET"}
+                      onChange={(event) =>
+                        updateLine(line.rowKey, { quantity: event.target.value })
+                      }
+                      aria-describedby="issue-quantity-help"
+                      className="w-full"
                     />
-                  </label>
-                  <Button type="button" variant="outline" onClick={() => splitLotLine(line)}>Tách dòng</Button>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor={`note-${line.rowKey}`}
+                      className="mb-1 block text-sm"
+                    >
+                      Ghi chú dòng
+                    </label>
+                    <Input
+                      id={`note-${line.rowKey}`}
+                      value={line.note}
+                      readOnly={isLinkedSale}
+                      onChange={(event) =>
+                        updateLine(line.rowKey, { note: event.target.value })
+                      }
+                      maxLength={4000}
+                      className="w-full"
+                    />
+                  </div>
                 </div>
-              )}
-            </fieldset>
-          ))}
+                {isLinkedSale && line.trackingMode === "LOT" && (
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <label htmlFor={`split-${line.rowKey}`} className="space-y-1 text-sm">
+                      <span>Số lượng tách sang lô khác</span>
+                      <Input
+                        id={`split-${line.rowKey}`}
+                        inputMode="decimal"
+                        value={line.splitQuantity ?? ""}
+                        onChange={(event) => updateLine(line.rowKey, { splitQuantity: event.target.value })}
+                        placeholder="Ví dụ 1.250"
+                      />
+                    </label>
+                    <Button type="button" variant="outline" onClick={() => splitLotLine(line)}>Tách dòng</Button>
+                  </div>
+                )}
+              </fieldset>
+            ))}
+            {!isLinkedSale && (
+              <AddLineTile label="Thêm vật tư">
+                {(close) => (
+                  <IssueDraftPicker
+                    farmId={farmId}
+                    kind="item"
+                    autoFocus
+                    onSelect={(choice) => {
+                      select("item", choice);
+                      close();
+                    }}
+                  />
+                )}
+              </AddLineTile>
+            )}
+          </div>
           <p id="issue-quantity-help" className="text-sm text-muted-foreground">
             Số lượng phải lớn hơn 0, tối đa 3 chữ số thập phân. Dùng dấu chấm,
             ví dụ 1.250. Lưu nháp không giữ chỗ tồn kho.
@@ -524,7 +525,7 @@ export function IssueDraftForm({
       <div className="flex flex-wrap gap-3">
         <Button
           type="submit"
-          disabled={isSaving || !!picker}
+          disabled={isSaving}
         >
           {isSaving ? "Đang lưu..." : "Lưu phiếu nháp"}
         </Button>

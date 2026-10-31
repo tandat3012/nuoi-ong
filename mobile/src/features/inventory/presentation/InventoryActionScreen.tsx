@@ -243,7 +243,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
         const quantity = selected.trackingMode === 'ASSET' ? '1' : form.quantity;
         const parsedQuantity = Number(quantity);
         if (!/^\d+(\.\d{1,3})?$/.test(quantity) || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || parsedQuantity > selected.quantity) throw new Error(`Số lượng phải lớn hơn 0, tối đa 3 chữ số thập phân và không vượt quá tồn khả dụng (${formatQuantity(selected.quantity)}).`);
-        await apiRequest('/stock-transfers', { method: 'POST', token, params: { farmId: currentFarmId }, body: { fromWarehouseId: selectedWarehouse, toWarehouseId: selectedDestination, transferCode: form.code || `TRANSFER-${Date.now()}`, items: [{ itemId: selected.itemId, quantity: String(quantity), lotId: selected.lotId, assetId: selected.assetId }] } });
+        await apiRequest('/stock-transfers', { method: 'POST', token, params: { farmId: currentFarmId }, body: { fromWarehouseId: selectedWarehouse, toWarehouseId: selectedDestination, items: [{ itemId: selected.itemId, quantity: String(quantity), lotId: selected.lotId, assetId: selected.assetId }] } });
       } else if (mode === 'assetReturn') {
         if (!selectedAsset || !selectedDestination) throw new Error('Cần chọn tài sản và kho nhận.');
         await apiRequest(`/assets/${selectedAsset}/return`, { method: 'POST', token, params: { farmId: currentFarmId }, body: { warehouseId: selectedDestination, note: form.note || null } });

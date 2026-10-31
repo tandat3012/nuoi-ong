@@ -5,14 +5,14 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { CreateStockReceiptItemDto } from './create-stock-receipt.dto';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 
-export class UpdateStockReceiptDto {
+export class UpdateStockReceiptDto extends DocumentNumberingOptionsDto {
   @IsOptional()
   @IsUUID()
   warehouseId?: string;
@@ -26,10 +26,13 @@ export class UpdateStockReceiptDto {
   @IsDateString()
   receiptDate?: string;
 
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
   @IsOptional()
-  @IsString()
-  @Length(1, 50)
-  receiptCode?: string;
+  receiptCode?: unknown;
 
   @IsOptional()
   @IsString()

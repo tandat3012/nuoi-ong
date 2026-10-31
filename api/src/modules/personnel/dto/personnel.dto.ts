@@ -14,7 +14,13 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-export const personnelRoleCodes = ['FARM_OWNER', 'EMPLOYEE', 'GUEST'] as const;
+export const personnelRoleCodes = [
+  'FARM_OWNER',
+  'WAREHOUSE_MANAGER',
+  'STORE_MANAGER',
+  'EMPLOYEE',
+  'GUEST',
+] as const;
 const nullableText = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() || null : value;
 

@@ -38,6 +38,7 @@ import {
   pendingMaintenanceRequest,
 } from '../maintenance/maintenance-requests.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { AssetLifecycleService } from './asset-lifecycle.service';
 import { CreateAssetTransferRequestDto } from './dto/asset-lifecycle.dto';
 
@@ -319,7 +320,7 @@ export class AssetTransferRequestsService {
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
     const conditions = [eq(assetTransferRequests.farmId, farmId)];
-    if (!roleCodes.some((code) => ['ADMIN', 'FARM_OWNER'].includes(code)))
+    if (!roleCodes.some((code) => WAREHOUSE_MANAGE_ROLES.includes(code)))
       conditions.push(eq(assetTransferRequests.requestedByMemberId, memberId));
     return conditions;
   }
@@ -329,6 +330,7 @@ export class AssetTransferRequestsService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const [member] = await this.databaseService.db
       .select({ userId: farmMembers.userId })

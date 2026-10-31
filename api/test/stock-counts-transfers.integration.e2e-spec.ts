@@ -21,6 +21,7 @@ import { StockTransfersController } from '../src/modules/warehouses/stock-transf
 import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 
+import { numberingYear } from '../src/modules/warehouses/stock-document-code';
 describe('Warehouse count and transfer UI HTTP contracts', () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const db = drizzle(pool, { schema });
@@ -31,6 +32,11 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
   const source = randomUUID(),
     destination = randomUUID(),
     item = randomUUID();
+  const assetItem = randomUUID();
+  const assetId = randomUUID();
+  const lotItem = randomUUID(),
+    lot = randomUUID(),
+    otherLot = randomUUID();
   const category = randomUUID(),
     unit = randomUUID();
   let canWrite = true;
@@ -107,6 +113,49 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         itemType: 'TOOL',
         trackingMode: 'QUANTITY',
       });
+      await tx.insert(schema.items).values({
+        id: assetItem,
+        farmId: farm,
+        categoryId: category,
+        unitId: unit,
+        code: `${tag}-asset`,
+        name: `${tag}-asset`,
+        itemType: 'TOOL',
+        trackingMode: 'ASSET',
+      });
+      await tx.insert(schema.items).values({
+        id: lotItem,
+        farmId: farm,
+        categoryId: category,
+        unitId: unit,
+        code: `${tag}-lot`,
+        name: `${tag}-lot`,
+        itemType: 'MATERIAL',
+        trackingMode: 'LOT',
+      });
+      await tx.insert(schema.inventoryLots).values([
+        {
+          id: lot,
+          farmId: farm,
+          itemId: lotItem,
+          lotNumber: 'L-1',
+          initialQuantity: '5',
+        },
+        // Belongs to a different item, so it must never match lotItem lines.
+        {
+          id: otherLot,
+          farmId: farm,
+          itemId: item,
+          lotNumber: 'L-X',
+          initialQuantity: '1',
+        },
+      ]);
+      await tx.insert(schema.assets).values({
+        id: assetId,
+        farmId: farm,
+        itemId: assetItem,
+        assetCode: `${tag}-asset-1`,
+      });
     });
     const module = await Test.createTestingModule({
       controllers: [
@@ -166,6 +215,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       'inventory_transactions',
       'stock_counts',
       'stock_transfers',
+      'stock_document_counters',
       'inventory_balances',
     ]) {
       await pool.query(`DELETE FROM ${table} WHERE farm_id=$1`, [farm]);
@@ -178,6 +228,119 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     });
   });
 
+  const lotBalances = async () =>
+    (
+      await pool.query<{ warehouse_id: string; quantity_on_hand: string }>(
+        'SELECT warehouse_id, quantity_on_hand FROM inventory_balances WHERE farm_id=$1 AND lot_id=$2 ORDER BY warehouse_id',
+        [farm, lot],
+      )
+    ).rows;
+  const seedLotBalance = () =>
+    db.insert(schema.inventoryBalances).values({
+      farmId: farm,
+      warehouseId: source,
+      itemId: lotItem,
+      lotId: lot,
+      quantityOnHand: '5',
+    });
+
+  it('counts a LOT item against the balance of the selected lot', async () => {
+    await seedLotBalance();
+    const response = await http()
+      .post('/api/v1/stock-counts')
+      .query({ farmId: farm })
+      .send({
+        warehouseId: source,
+        countCode: randomUUID(),
+        items: [{ itemId: lotItem, lotId: lot, actualQuantity: '4.5' }],
+      })
+      .expect(201);
+    const body = response.body as {
+      data: { count: { id: string }; items: { systemQuantity: string }[] };
+    };
+    expect(body.data.items[0].systemQuantity).toBe('5.000');
+    await confirm('counts', body.data.count.id).expect(201);
+    expect(await lotBalances()).toEqual([
+      { warehouse_id: source, quantity_on_hand: '4.500' },
+    ]);
+    // The lot-less balance of the QUANTITY item is untouched.
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '10.000' },
+      ]),
+    );
+  });
+
+  it.each([
+    ['a LOT item without lotId', { itemId: lotItem }, 400],
+    ['a QUANTITY item with lotId', { itemId: item, lotId: lot }, 400],
+    ['a lot of another item', { itemId: lotItem, lotId: otherLot }, 404],
+    ['an ASSET item', { itemId: assetItem }, 400],
+    ['an assetId', { itemId: assetItem, assetId }, 400],
+  ])('rejects counting %s', async (_label, line, status) => {
+    await http()
+      .post('/api/v1/stock-counts')
+      .query({ farmId: farm })
+      .send({
+        warehouseId: source,
+        countCode: randomUUID(),
+        items: [{ ...line, actualQuantity: '1' }],
+      })
+      .expect(status);
+  });
+
+  it('refuses to confirm a legacy count draft with an ASSET line', async () => {
+    const legacyDraft = randomUUID();
+    await pool.query(
+      'INSERT INTO stock_counts (id,farm_id,warehouse_id,count_code,created_by_member_id) VALUES ($1,$2,$3,$4,$5)',
+      [legacyDraft, farm, source, randomUUID(), member],
+    );
+    await pool.query(
+      'INSERT INTO stock_count_items (stock_count_id,item_id,asset_id,system_quantity,actual_quantity) VALUES ($1,$2,$3,0,1)',
+      [legacyDraft, assetItem, assetId],
+    );
+    await confirm('counts', legacyDraft).expect(409);
+    expect(await ledger()).toEqual([]);
+  });
+
+  it('transfers a LOT item between warehouses by lot', async () => {
+    await seedLotBalance();
+    const response = await http()
+      .post('/api/v1/stock-transfers')
+      .query({ farmId: farm })
+      .send({
+        fromWarehouseId: source,
+        toWarehouseId: destination,
+        transferCode: randomUUID(),
+        items: [{ itemId: lotItem, lotId: lot, quantity: '2' }],
+      })
+      .expect(201);
+    const body = response.body as { data: { transfer: { id: string } } };
+    await confirm('transfers', body.data.transfer.id).expect(201);
+    expect(await lotBalances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '3.000' },
+        { warehouse_id: destination, quantity_on_hand: '2.000' },
+      ]),
+    );
+  });
+
+  it.each([
+    ['a LOT item without lotId', { itemId: lotItem }],
+    ['a QUANTITY item with lotId', { itemId: item, lotId: lot }],
+  ])('rejects transferring %s', async (_label, line) => {
+    await http()
+      .post('/api/v1/stock-transfers')
+      .query({ farmId: farm })
+      .send({
+        fromWarehouseId: source,
+        toWarehouseId: destination,
+        transferCode: randomUUID(),
+        items: [{ ...line, quantity: '1' }],
+      })
+      .expect(400);
+  });
+
   afterAll(async () => {
     await app?.close();
     try {
@@ -186,7 +349,10 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         'inventory_transactions',
         'stock_counts',
         'stock_transfers',
+        'stock_document_counters',
         'inventory_balances',
+        'assets',
+        'inventory_lots',
         'items',
         'warehouses',
         'farm_members',
@@ -228,6 +394,162 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       ]),
     );
     expect(await ledger()).toEqual(['-3.125', '3.125']);
+  });
+
+  const createTransfer = async (from: string, to: string, quantity: string) => {
+    const response = await http()
+      .post('/api/v1/stock-transfers')
+      .query({ farmId: farm })
+      .send({
+        fromWarehouseId: from,
+        toWarehouseId: to,
+        transferCode: randomUUID(),
+        items: [{ itemId: item, quantity }],
+      })
+      .expect(201);
+    return (response.body as { data: { transfer: { id: string } } }).data
+      .transfer.id;
+  };
+
+  it('confirms concurrent first-time transfers into a missing destination balance', async () => {
+    const ids = await Promise.all(
+      [1, 2, 3, 4].map(() => createTransfer(source, destination, '1')),
+    );
+    const statuses = await Promise.all(
+      ids.map(async (id) => (await confirm('transfers', id)).status),
+    );
+    expect(statuses).toEqual([201, 201, 201, 201]);
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '6.000' },
+        { warehouse_id: destination, quantity_on_hand: '4.000' },
+      ]),
+    );
+  });
+
+  it('confirms concurrent opposite-direction transfers without deadlock', async () => {
+    await db.insert(schema.inventoryBalances).values({
+      farmId: farm,
+      warehouseId: destination,
+      itemId: item,
+      quantityOnHand: '10',
+    });
+    const ids = await Promise.all(
+      [0, 1, 2, 3, 4, 5, 6, 7].map((n) =>
+        n % 2
+          ? createTransfer(destination, source, '1')
+          : createTransfer(source, destination, '1'),
+      ),
+    );
+    const statuses = await Promise.all(
+      ids.map(async (id) => (await confirm('transfers', id)).status),
+    );
+    expect(statuses).toEqual(Array(8).fill(201));
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '10.000' },
+        { warehouse_id: destination, quantity_on_hand: '10.000' },
+      ]),
+    );
+  });
+
+  it.each([
+    ['transfers', 'stock_transfers', 'transfer_code', 'CK'],
+    ['counts', 'stock_counts', 'count_code', 'KK'],
+  ])(
+    'assigns the next code to an uncoded %s draft on confirmation',
+    async (kind, table, column, prefix) => {
+      const id = await create(kind as 'transfers' | 'counts', '1');
+      await pool.query(`UPDATE ${table} SET ${column} = NULL WHERE id = $1`, [
+        id,
+      ]);
+      await confirm(kind, id).expect(201);
+      await confirm(kind, id).expect(201);
+      const row = await pool.query<{ code: string }>(
+        `SELECT ${column} AS code FROM ${table} WHERE id = $1`,
+        [id],
+      );
+      expect(row.rows[0].code).toBe(
+        `${prefix}-${numberingYear(new Date())}-000001`,
+      );
+    },
+  );
+
+  it.each([
+    ['transfers', 'stock_transfers', 'transfer_code'],
+    ['counts', 'stock_counts', 'count_code'],
+  ])(
+    // create() sends a random code, as legacy clients do.
+    'ignores client-supplied %s codes on create',
+    async (kind, table, column) => {
+      const id = await create(kind as 'transfers' | 'counts', '1');
+      const stored = await pool.query<{ code: string | null }>(
+        `SELECT ${column} AS code FROM ${table} WHERE id = $1`,
+        [id],
+      );
+      expect(stored.rows[0].code).toBeNull();
+    },
+  );
+
+  it('ignores a client-supplied transfer code on update', async () => {
+    const id = await create('transfers', '1');
+    for (const transferCode of ['   ', null, 'CK-2026-000001'])
+      await http()
+        .patch(`/api/v1/stock-transfers/${id}`)
+        .query({ farmId: farm })
+        .send({ transferCode, note: 'code ignored' })
+        .expect(200);
+    const stored = await pool.query<{ code: string | null; note: string }>(
+      'SELECT transfer_code AS code, note FROM stock_transfers WHERE id = $1',
+      [id],
+    );
+    expect(stored.rows[0]).toEqual({ code: null, note: 'code ignored' });
+  });
+
+  it('rejects ASSET items on create, update, and confirmation of legacy drafts', async () => {
+    await http()
+      .post('/api/v1/stock-transfers')
+      .query({ farmId: farm })
+      .send({
+        fromWarehouseId: source,
+        toWarehouseId: destination,
+        transferCode: randomUUID(),
+        items: [{ itemId: assetItem, assetId, quantity: '1' }],
+      })
+      .expect(400);
+
+    const normalDraft = await create('transfers', '1');
+    await http()
+      .patch(`/api/v1/stock-transfers/${normalDraft}`)
+      .query({ farmId: farm })
+      .send({ items: [{ itemId: assetItem, assetId, quantity: '1' }] })
+      .expect(400);
+
+    const legacyDraft = randomUUID();
+    await pool.query(
+      'INSERT INTO stock_transfers (id,farm_id,from_warehouse_id,to_warehouse_id,transfer_code,created_by_member_id) VALUES ($1,$2,$3,$4,$5,$6)',
+      [legacyDraft, farm, source, destination, randomUUID(), member],
+    );
+    await pool.query(
+      'INSERT INTO stock_transfer_items (stock_transfer_id,item_id,asset_id,quantity) VALUES ($1,$2,$3,1)',
+      [legacyDraft, assetItem, assetId],
+    );
+    await http()
+      .patch(`/api/v1/stock-transfers/${legacyDraft}`)
+      .query({ farmId: farm })
+      .send({ note: 'metadata only update' })
+      .expect(400);
+    const response = await http()
+      .post(`/api/v1/stock-transfers/${legacyDraft}/confirm`)
+      .query({ farmId: farm })
+      .expect(409);
+    expect(response.body).toMatchObject({
+      message: 'ASSET items must be moved using the asset transfer endpoint',
+    });
+    expect(await balances()).toEqual([
+      { warehouse_id: source, quantity_on_hand: '10.000' },
+    ]);
+    expect(await ledger()).toEqual([]);
   });
 
   it.each(['0', '0.000'])(

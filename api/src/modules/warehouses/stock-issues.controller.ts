@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   parseOptionalEnum,
@@ -39,6 +40,9 @@ import {
   OPENAPI_DECIMAL_STRING,
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const issueSchema = {
   type: 'object',
@@ -46,7 +50,12 @@ const issueSchema = {
     id: { type: 'string', format: 'uuid' },
     farmId: { type: 'string', format: 'uuid' },
     warehouseId: { type: 'string', format: 'uuid' },
-    issueCode: { type: 'string', example: 'ISS-2026-001' },
+    issueCode: {
+      type: 'string',
+      nullable: true,
+      example: 'PX-2026-000001',
+      description: 'Null on drafts; assigned on confirmation.',
+    },
     issueDate: { type: 'string', format: 'date' },
     issueType: {
       type: 'string',
@@ -99,6 +108,9 @@ const issueDetailSchema = {
 };
 
 @Controller('stock-issues')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Phiếu xuất kho')
 @ApiBearerAuth('clerk-jwt')
 export class StockIssuesController {
@@ -160,7 +172,6 @@ export class StockIssuesController {
         summary: 'Xuất vật tư tiêu hao',
         value: {
           warehouseId: '550e8400-e29b-41d4-a716-446655440000',
-          issueCode: 'ISS-2026-001',
           issueType: 'CONSUMPTION',
           reason: 'Sử dụng tại vườn ong',
           items: [

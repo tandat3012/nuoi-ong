@@ -14,6 +14,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Card } from "@/shared/components/ui/card";
 import { RotateCcw, Plus, AlertCircle } from "lucide-react";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function MaterialsPage() {
   const { selectedFarmId } = useAuthContext();
@@ -152,7 +153,7 @@ function FarmMaterialsPage() {
         (isDetailLoading || detailError || !selectedMaterial) ? (
         <Card className="p-6">
           {isDetailLoading ? (
-            <p role="status" className="text-sm text-muted-foreground">Đang tải chi tiết vật tư...</p>
+            <BeeLoader label="Đang tải chi tiết vật tư..." size="sm" />
           ) : (
             <div role="alert" className="space-y-3">
               <div className="flex items-center gap-2 text-destructive font-medium text-sm">
@@ -190,7 +191,7 @@ function FarmMaterialsPage() {
         referencesLoading || referencesError ? (
           <Card className="p-6">
             {referencesLoading && (
-              <p role="status" className="text-sm text-muted-foreground">Đang tải danh mục và đơn vị tính...</p>
+              <BeeLoader label="Đang tải danh mục và đơn vị tính..." size="sm" />
             )}
             <Button
               type="button"

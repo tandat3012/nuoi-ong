@@ -2,8 +2,30 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   adjustmentIncreaseBlocked,
+  formatInventoryMovement,
+  formatInventoryQuantity,
   sumInventoryByItem,
 } from "./inventory.logic.ts";
+
+test("quantities drop trailing zeros and use Vietnamese separators without losing precision", () => {
+  for (const [quantity, expected] of [
+    ["95.000", "95"],
+    ["35.125", "35,125"],
+    ["0.500", "0,5"],
+    ["1.250", "1,25"],
+    ["0.005", "0,005"],
+    ["0.000", "0"],
+    ["100", "100"],
+    ["1234.500", "1.234,5"],
+    ["-1234.500", "-1.234,5"],
+    ["999999999999999.990", "999.999.999.999.999,99"],
+  ]) {
+    assert.equal(formatInventoryQuantity(quantity), expected, quantity);
+  }
+  assert.equal(formatInventoryMovement("2.500"), "+2,5");
+  assert.equal(formatInventoryMovement("-2.500"), "-2,5");
+  assert.equal(formatInventoryMovement("0.000"), "0");
+});
 
 test("adjustmentIncreaseBlocked only blocks increases on inactive items or expired lots", () => {
   const today = "2026-10-26";
@@ -32,8 +54,8 @@ test("sumInventoryByItem adds lots per item without float drift", () => {
     { quantityOnHand: "-0.5", item: { id: "c" } },
     { quantityOnHand: "999999999999999.999", item: { id: "d" } },
   ]);
-  assert.equal(totals.get("a"), "0.3");
+  assert.equal(totals.get("a"), "0,3");
   assert.equal(totals.get("b"), "12");
-  assert.equal(totals.get("c"), "-0.5");
-  assert.equal(totals.get("d"), "999999999999999.999");
+  assert.equal(totals.get("c"), "-0,5");
+  assert.equal(totals.get("d"), "999.999.999.999.999,999");
 });

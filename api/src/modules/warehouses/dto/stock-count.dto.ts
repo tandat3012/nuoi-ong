@@ -1,15 +1,15 @@
 import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 const DECIMAL = /^(0|[1-9]\d{0,14})(\.\d{1,3})?$/;
 export class StockCountItemDto {
   @IsUUID() itemId!: string;
@@ -25,16 +25,22 @@ export class StockCountItemDto {
   actualQuantity!: string;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
 }
-export class CreateStockCountDto {
+export class CreateStockCountDto extends DocumentNumberingOptionsDto {
   @IsUUID() warehouseId!: string;
-  @IsString() @Length(1, 50) countCode!: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  countCode?: unknown;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => StockCountItemDto)
   items!: StockCountItemDto[];
 }
-export class UpdateStockCountDto {
+export class UpdateStockCountDto extends DocumentNumberingOptionsDto {
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
   @IsOptional()
   @IsArray()

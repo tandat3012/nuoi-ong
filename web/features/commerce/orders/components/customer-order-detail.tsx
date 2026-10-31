@@ -25,6 +25,7 @@ import {
   PaymentStatusBadge,
   paymentMethodLabel,
 } from "./order-presentation";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function CustomerOrderDetail({ id }: { id: string }) {
   const request = useAuthenticatedRequest();
@@ -96,7 +97,7 @@ export function CustomerOrderDetail({ id }: { id: string }) {
       <Link href="/orders" className="text-sm text-primary underline">
         ← Đơn hàng của tôi
       </Link>
-      {!loaded && <p role="status">Đang tải chi tiết đơn hàng…</p>}
+      {!loaded && <BeeLoader label="Đang tải chi tiết đơn hàng…" />}
       {loadError && (
         <ErrorAlert
           message={loadError}

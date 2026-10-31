@@ -28,6 +28,8 @@ import {
   PaymentStatusBadge,
   paymentMethodLabel,
 } from "@/features/commerce/orders/components/order-presentation";
+import { documentCodeLabel } from "@/features/stock-documents";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function StoreOrderDetail({
   farmId,
@@ -155,7 +157,7 @@ export function StoreOrderDetail({
       <Link href="/store-orders" className="text-sm text-primary underline">
         ← Danh sách đơn hàng
       </Link>
-      {!loaded && <p role="status">Đang tải chi tiết đơn hàng…</p>}
+      {!loaded && <BeeLoader label="Đang tải chi tiết đơn hàng…" />}
       {loadError && (
         <ErrorAlert
           message={loadError}
@@ -227,7 +229,7 @@ export function StoreOrderDetail({
                       className="text-primary underline"
                       href={`/issues/${encodeURIComponent(detail.stockIssue.id)}`}
                     >
-                      {detail.stockIssue.issueCode} · {detail.stockIssue.status}
+                      {documentCodeLabel(detail.stockIssue.issueCode, detail.stockIssue.id)} · {detail.stockIssue.status}
                     </Link>
                   </p>
                 ) : (

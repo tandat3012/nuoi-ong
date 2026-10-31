@@ -9,6 +9,7 @@ import { Input } from "@/shared/components/ui/input";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { parseScan, scanPath } from "./scan.logic";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 function Scanner({ farmId }: { farmId: string }) {
   const router = useRouter();
@@ -162,7 +163,7 @@ function Scanner({ farmId }: { farmId: string }) {
 
 export function QrScanner() {
   const { selectedFarmId, isLoading, error } = useAuthContext();
-  if (isLoading) return <p role="status">Đang tải trang trại…</p>;
+  if (isLoading) return <BeeLoader label="Đang tải trang trại…" />;
   if (error)
     return (
       <ErrorAlert message="Không tải được quyền truy cập trang trại. Vui lòng tải lại trang." />

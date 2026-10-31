@@ -20,6 +20,7 @@ import { getCustomers } from "../personnel.api";
 import { personnelError } from "../personnel.logic";
 import type { CustomerAccount } from "../types";
 import { PersonnelCreate } from "./personnel-create";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 type Filters = { page: number; pageSize: number; search?: string };
 
@@ -74,7 +75,7 @@ export function CustomerList({
           Tải lại
         </Button>
       </div>
-      {!current && <p role="status">Đang tải khách hàng…</p>}
+      {!current && <BeeLoader label="Đang tải khách hàng…" />}
       {current?.error && (
         <ErrorAlert
           message={current.error}

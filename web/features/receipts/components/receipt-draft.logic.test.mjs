@@ -22,15 +22,12 @@ const supportsQuantityDraftConfirm = (detail, references) =>
 
 const draft = () => ({
   warehouseId: 'warehouse-a',
-  receiptCode: 'PN-01',
   items: [{ itemId: 'item-a', quantity: '1.001', unitPrice: '0' }],
 });
 
-test('requires warehouse, nonblank code, and at least one identified item', () => {
+test('requires a warehouse and at least one identified item; no code is entered', () => {
   for (const patch of [
     { warehouseId: '' },
-    { receiptCode: '   ' },
-    { receiptCode: 'a'.repeat(51) },
     { items: [] },
     { items: [{ itemId: '', quantity: '1' }] },
     { note: 'x'.repeat(4001) },

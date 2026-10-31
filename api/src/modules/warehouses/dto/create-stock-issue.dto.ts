@@ -6,12 +6,12 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { DocumentNumberingOptionsDto } from './document-numbering.dto';
 
 const DECIMAL = /^(?=.*[1-9])(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
 const ISSUE_TYPES = [
@@ -55,9 +55,15 @@ export class CreateStockIssueItemDto {
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
 }
 
-export class CreateStockIssueDto {
+export class CreateStockIssueDto extends DocumentNumberingOptionsDto {
   @IsUUID() warehouseId!: string;
-  @IsString() @Length(1, 50) issueCode!: string;
+  // Legacy field: ignored, the code is assigned on confirmation.
+  @ApiPropertyOptional({
+    deprecated: true,
+    description: 'Ignored. The permanent code is assigned on confirmation.',
+  })
+  @IsOptional()
+  issueCode?: unknown;
   @ApiPropertyOptional({ format: 'date', example: '2026-10-08' })
   @IsOptional()
   @IsDateString()

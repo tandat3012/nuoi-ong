@@ -18,12 +18,13 @@ import type { RequestDetail, RequestRow, RequestStatusFilter } from "../types/re
 import { RequestCard } from "./request-card";
 import { requestFailureMessage } from "./request-error";
 import { RequestReview } from "./request-review";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function RequestsScreen() {
   const { selectedFarmId, isLoading, error } = useAuthContext();
   const notificationRevision = useNotificationRefresh();
   const { membership } = useFarmMembership();
-  if (isLoading) return <p role="status">Đang tải thông tin trang trại…</p>;
+  if (isLoading) return <BeeLoader label="Đang tải thông tin trang trại…" />;
   if (error) return <ErrorAlert message="Không thể tải quyền truy cập trang trại. Vui lòng tải lại trang." />;
   if (!selectedFarmId || !membership) return <p role="status">Vui lòng chọn trang trại để xem yêu cầu.</p>;
   return <FarmRequestsScreen key={`${selectedFarmId}:${membership.roles.join(",")}:${notificationRevision}`} farmId={selectedFarmId} roles={membership.roles} />;
@@ -114,7 +115,7 @@ function FarmRequestsScreen({ farmId, roles }: { farmId: string; roles: readonly
             <h2 className="font-semibold">Chi tiết yêu cầu</h2>
             <Link href={requestsHref({ ...query, id: undefined })} className="text-sm text-primary underline">Đóng chi tiết</Link>
           </div>
-          {!currentDetail ? <p role="status" className="p-5">Đang tải yêu cầu…</p>
+          {!currentDetail ? <BeeLoader label="Đang tải yêu cầu…" size="sm" />
             : currentDetail.error ? <ErrorAlert className="m-4" message={currentDetail.error} onRetry={reload} />
               : currentDetail.row && <RequestCard row={currentDetail.row} detail>
                 <RequestReview farmId={farmId} row={currentDetail.row} roles={roles} onChanged={reload} onError={setActionError} />
@@ -126,7 +127,7 @@ function FarmRequestsScreen({ farmId, roles }: { farmId: string; roles: readonly
       )}
       <section aria-label="Danh sách yêu cầu" className="min-w-0 rounded-xl border bg-card">
         <h2 className="border-b p-5 font-semibold">Danh sách yêu cầu</h2>
-        {!currentList ? <p role="status" className="p-5">Đang tải danh sách…</p>
+        {!currentList ? <BeeLoader label="Đang tải danh sách…" />
           : currentList.error ? <ErrorAlert className="m-4" message={currentList.error} onRetry={reload} />
             : currentList.response && <>
               {!currentList.response.data.length && <p role="status" className="p-5 text-sm text-muted-foreground">Chưa có yêu cầu phù hợp.</p>}

@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   parseOptionalEnum,
@@ -40,6 +41,9 @@ import {
   OPENAPI_DECIMAL_STRING,
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const receiptSchema = {
   type: 'object',
@@ -48,7 +52,12 @@ const receiptSchema = {
     farmId: { type: 'string', format: 'uuid' },
     warehouseId: { type: 'string', format: 'uuid' },
     supplierId: { type: 'string', format: 'uuid', nullable: true },
-    receiptCode: { type: 'string', example: 'RCV-2026-001' },
+    receiptCode: {
+      type: 'string',
+      nullable: true,
+      example: 'PN-2026-000001',
+      description: 'Null on drafts; assigned on confirmation.',
+    },
     receiptDate: { type: 'string', format: 'date' },
     status: { type: 'string', enum: [...documentStatus.enumValues] },
     rejectionReason: { type: 'string', nullable: true },
@@ -94,6 +103,9 @@ const receiptDetailSchema = {
 };
 
 @Controller('stock-receipts')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Phiếu nhập kho')
 @ApiBearerAuth('clerk-jwt')
 export class StockReceiptsController {
@@ -170,7 +182,6 @@ export class StockReceiptsController {
         summary: 'Nhập vật tư theo lô',
         value: {
           warehouseId: '550e8400-e29b-41d4-a716-446655440000',
-          receiptCode: 'RCV-2026-001',
           receiptDate: '2026-10-08',
           items: [
             {

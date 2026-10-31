@@ -26,6 +26,7 @@ import {
   OrderStatusBadge,
   PaymentStatusBadge,
 } from "@/features/commerce/orders/components/order-presentation";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function StoreOrdersList({
   farmId,
@@ -154,7 +155,7 @@ export function StoreOrdersList({
           Tải lại
         </Button>
       </div>
-      {!current && <p role="status">Đang tải đơn hàng…</p>}
+      {!current && <BeeLoader label="Đang tải đơn hàng…" />}
       {current?.error && (
         <ErrorAlert
           message={current.error}

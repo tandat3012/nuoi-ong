@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { SidebarNavigation } from './sidebar-navigation';
 import { HeaderBar } from './header-bar';
 import { BrandMark } from './brand-mark';
+import { RouteAccessGate } from './route-access-gate';
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
@@ -14,7 +15,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
         Đi tới nội dung chính
       </a>
 
-      <div className="min-h-screen bg-background lg:grid lg:grid-cols-[16rem_1fr]">
+      <div className="min-h-screen bg-muted dark:bg-background lg:grid lg:grid-cols-[16rem_1fr]">
         {/* Desktop persistent sidebar */}
         <aside className="hidden border-r border-border bg-card lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
           <div className="flex h-14 items-center gap-2.5 border-b border-border px-5">
@@ -36,7 +37,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
         <div className="flex min-w-0 flex-col">
           <HeaderBar />
           <main id="main-content" className="flex-1 p-4 sm:p-6 lg:p-8">
-            {children}
+            <RouteAccessGate>{children}</RouteAccessGate>
           </main>
         </div>
       </div>

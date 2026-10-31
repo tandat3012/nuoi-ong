@@ -79,7 +79,7 @@ export interface OrderCustomer {
 export interface OrderDetail {
   order: Order;
   items: OrderItem[];
-  stockIssue: { id: string; issueCode: string; status: string } | null;
+  stockIssue: { id: string; issueCode: string | null; status: string } | null;
   customer: OrderCustomer;
 }
 

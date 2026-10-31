@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   normalizeSearch,
@@ -40,6 +41,9 @@ import {
   ApiUuidParam,
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const warehouseSchema = {
   type: 'object',
@@ -57,6 +61,9 @@ const warehouseSchema = {
 };
 
 @Controller('warehouses')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Kho')
 @ApiBearerAuth('clerk-jwt')
 export class WarehousesController {

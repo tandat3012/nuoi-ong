@@ -19,6 +19,7 @@ import {
 } from '../api/notifications.api';
 import { notificationBadgeText, notificationErrorMessage, notificationHref, notificationTargetsCurrentPage } from '../notifications.logic';
 import { NOTIFICATION_REFRESH_EVENT } from '../use-notification-refresh';
+import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
 type NotificationError = { message: string; status: number | null };
 
@@ -165,7 +166,7 @@ function FarmNotificationBell({ farmId }: { farmId: string }) {
         <div className="min-h-0 flex-1 overflow-y-auto">
           {actionError && <ErrorAlert className="m-4" title="" message={actionError.message}
             onRetry={shouldReloadAfterFailure(actionError.status) ? retry : undefined} />}
-          {!current ? <p role="status" className="p-5 text-sm text-muted-foreground">Đang tải thông báo…</p>
+          {!current ? <BeeLoader label="Đang tải thông báo…" size="sm" />
             : current.error ? <ErrorAlert className="m-4" title="" message={current.error.message}
               onRetry={shouldReloadAfterFailure(current.error.status) ? reload : undefined} />
               : current.response && (

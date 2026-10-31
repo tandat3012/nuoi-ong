@@ -24,6 +24,7 @@ import {
   AssetMutationDialog,
   type AssetMutationFeedback,
 } from "./asset-mutation-dialog";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function AssetHistory({
   farmId,
@@ -112,9 +113,7 @@ export function AssetHistory({
         ))}
       </div>
       {!current ? (
-        <p role="status" className="p-5 text-sm">
-          Đang tải lịch sử…
-        </p>
+        <BeeLoader label="Đang tải lịch sử…" size="sm" />
       ) : current.error ? (
         <ErrorAlert
           className="m-4"

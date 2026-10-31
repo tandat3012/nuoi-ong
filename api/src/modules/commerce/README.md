@@ -18,11 +18,19 @@ Các endpoint này dùng `@Public()`; API nội bộ vẫn giữ xác thực và
 - Giá được so sánh bằng numeric trong DB, chỉ chuyển thành `number` khi trả response. Giá hiển thị vượt số nguyên an toàn của JavaScript trả `500` thay vì làm tròn âm thầm.
 - `inStock` đúng khi có variant hợp lệ đủ tồn cho ít nhất một `quantityStep` tại kho bán. Hết hàng vẫn được hiển thị.
 - `QUANTITY` dùng balance không gắn lô. `LOT` chỉ cộng lô đúng item/trang trại và chưa hết hạn; ngày hết hạn bằng hôm nay vẫn hợp lệ, ngày tính theo UTC như module kho.
-- `ASSET` cần balance đủ và cá thể `AVAILABLE` có vị trí thuộc kho bán. Dữ liệu thiếu vị trí được coi là chưa sẵn hàng.
+- `ASSET` cần balance đủ và cá thể `AVAILABLE` có vị trí thuộc kho bán. Dữ liệu thiếu vị trí được coi là chưa sẵn hàng. Cá thể đang bảo trì hoặc đã nằm trong phiếu xuất chưa duyệt (vd. đơn đã xác nhận) không được tính.
 - Ảnh đại diện là ảnh có `position` nhỏ nhất, trả `image: { src, alt }`; thiếu ảnh thì bỏ trường `image`.
 - Chỉ trả trường catalog công khai, không trả giá vốn, item nội bộ hoặc serial. ID là UUID từ DB.
 
-Sản phẩm gồm `id`, `slug`, `name`, `description`, `category: { id, name, slug }`, `price`, `inStock` và `image` nếu có. Chi tiết dùng cùng quy tắc hiển thị với danh sách.
+Sản phẩm gồm `id`, `slug`, `name`, `description`, `category: { id, name, slug }`, `price`, `inStock` và `image` nếu có. Chi tiết dùng cùng quy tắc hiển thị với danh sách. Chi tiết trả thêm `images: { src, alt }[]` theo `position` (rỗng nếu chưa có ảnh).
+
+## Quản trị cửa hàng
+
+Module `store-admin` (`/api/v1/store-admin/...`) cho `ADMIN` / `FARM_OWNER` quản lý sản phẩm mọi trạng thái, biến thể, danh mục và ảnh. Mọi request cần `?farmId=` của trang trại sở hữu kho bán (`store_settings`); farm khác trả `403`, chưa cấu hình kho bán trả `503`.
+
+- Sản phẩm tạo ở `DRAFT`; `PUBLISHED` cần ít nhất một biến thể active gắn item/đơn vị đang hoạt động cùng farm. Không xóa sản phẩm/biến thể: dùng `ARCHIVED` và `active=false`.
+- Ảnh tải qua `POST products/:id/images` (multipart `file`, `alt`), JPEG/PNG/WebP ≤ 10MB, lưu lên Cloudinary thư mục `nuoi-ong/products` dưới dạng WebP, cạnh dài tối đa 2000px, `quality: auto:good` (ảnh cũ không được nén lại). Web hiển thị qua loader `web/shared/lib/cloudinary-image.ts` (`f_auto,q_auto,w_<width>`). DB giữ `url` (`secure_url`) và `public_id`; lưu DB lỗi thì xóa file vừa tải. Xóa ảnh xóa dòng DB trước rồi xóa trên Cloudinary (lỗi chỉ log). `PUT products/:id/images/order` nhận đủ danh sách ID theo thứ tự mới.
+- Kiểm tra: `test/store-admin.e2e-spec.ts` (HTTP/multipart) và `test/store-admin.integration.e2e-spec.ts` (DB thật, Cloudinary mock).
 
 ## Query và phân trang
 

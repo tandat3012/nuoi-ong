@@ -126,6 +126,18 @@ export const trackingMode = pgEnum('tracking_mode', [
   'LOT',
   'ASSET',
 ]);
+// How a stock document got its permanent code; NULL means a legacy code.
+export const documentCodeSource = pgEnum('document_code_source', [
+  'AUTO',
+  'MANUAL',
+]);
+// Code prefixes of the stock documents: receipt, issue, count, transfer.
+export const stockDocumentPrefix = pgEnum('stock_document_prefix', [
+  'PN',
+  'PX',
+  'KK',
+  'CK',
+]);
 
 export const roles = pgTable(
   'roles',
@@ -589,6 +601,17 @@ export const materialProfiles = pgTable(
   ],
 );
 
+// Owner-only numbering options shared by the four stock document tables.
+const documentNumberingColumns = () => ({
+  // Paper reference only; never changes the permanent code.
+  externalReference: varchar('external_reference', { length: 100 }),
+  // Requested permanent code, checked again (not reserved) at confirmation.
+  requestedCode: varchar('requested_code', { length: 50 }),
+  requestedCodeReason: varchar('requested_code_reason', { length: 500 }),
+  requestedByMemberId: uuid('requested_by_member_id'),
+  codeSource: documentCodeSource('code_source'),
+});
+
 export const stockReceipts = pgTable(
   'stock_receipts',
   {
@@ -596,7 +619,9 @@ export const stockReceipts = pgTable(
     farmId: uuid('farm_id').notNull(),
     warehouseId: uuid('warehouse_id').notNull(),
     supplierId: uuid('supplier_id'),
-    receiptCode: varchar('receipt_code', { length: 50 }).notNull(),
+    // Null on drafts: the permanent code is assigned at confirmation.
+    receiptCode: varchar('receipt_code', { length: 50 }),
+    ...documentNumberingColumns(),
     receiptDate: date('receipt_date')
       .default(sql`CURRENT_DATE`)
       .notNull(),
@@ -666,7 +691,27 @@ export const stockReceipts = pgTable(
       foreignColumns: [warehouses.id],
       name: 'stock_receipts_warehouse_id_fkey',
     }),
-    unique('uq_receipt_code_per_farm').on(table.farmId, table.receiptCode),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_receipts_requested_by_member_id_fkey',
+    }),
+    check(
+      'ck_receipt_requested_code',
+      sql`(requested_code IS NULL) OR ((btrim(requested_code) <> '') AND (coalesce(btrim(requested_code_reason), '') <> '') AND (requested_by_member_id IS NOT NULL))`,
+    ),
+    // Case/whitespace-insensitive so mixed-case legacy codes stay occupied.
+    uniqueIndex('uq_receipt_code_per_farm').using(
+      'btree',
+      table.farmId,
+      sql`upper(btrim(${table.receiptCode}))`,
+    ),
+    // An uncoded draft stores NULL, never an empty string.
+    check('ck_receipt_code_not_blank', sql`btrim(receipt_code) <> ''`),
+    check(
+      'ck_receipt_confirmed_code',
+      sql`(status <> 'CONFIRMED'::document_status) OR (receipt_code IS NOT NULL)`,
+    ),
     check(
       'ck_receipt_confirm_fields',
       sql`(status <> 'CONFIRMED'::document_status) OR ((confirmed_by_member_id IS NOT NULL) AND (confirmed_at IS NOT NULL))`,
@@ -1020,7 +1065,9 @@ export const stockIssues = pgTable(
     id: uuid().defaultRandom().primaryKey().notNull(),
     farmId: uuid('farm_id').notNull(),
     warehouseId: uuid('warehouse_id').notNull(),
-    issueCode: varchar('issue_code', { length: 50 }).notNull(),
+    // Null on drafts: the permanent code is assigned at confirmation.
+    issueCode: varchar('issue_code', { length: 50 }),
+    ...documentNumberingColumns(),
     issueDate: date('issue_date')
       .default(sql`CURRENT_DATE`)
       .notNull(),
@@ -1096,7 +1143,27 @@ export const stockIssues = pgTable(
       foreignColumns: [maintenanceRecords.id],
       name: 'fk_stock_issues_maintenance_record',
     }),
-    unique('uq_issue_code_per_farm').on(table.farmId, table.issueCode),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_issues_requested_by_member_id_fkey',
+    }),
+    check(
+      'ck_issue_requested_code',
+      sql`(requested_code IS NULL) OR ((btrim(requested_code) <> '') AND (coalesce(btrim(requested_code_reason), '') <> '') AND (requested_by_member_id IS NOT NULL))`,
+    ),
+    // Case/whitespace-insensitive so mixed-case legacy codes stay occupied.
+    uniqueIndex('uq_issue_code_per_farm').using(
+      'btree',
+      table.farmId,
+      sql`upper(btrim(${table.issueCode}))`,
+    ),
+    // An uncoded draft stores NULL, never an empty string.
+    check('ck_issue_code_not_blank', sql`btrim(issue_code) <> ''`),
+    check(
+      'ck_issue_confirmed_code',
+      sql`(status <> 'CONFIRMED'::document_status) OR (issue_code IS NOT NULL)`,
+    ),
     check(
       'ck_issue_maintenance_reference',
       sql`((issue_type = 'MAINTENANCE'::issue_type) AND (maintenance_record_id IS NOT NULL)) OR ((issue_type <> 'MAINTENANCE'::issue_type) AND (maintenance_record_id IS NULL))`,
@@ -1158,7 +1225,9 @@ export const stockTransfers = pgTable(
     farmId: uuid('farm_id').notNull(),
     fromWarehouseId: uuid('from_warehouse_id').notNull(),
     toWarehouseId: uuid('to_warehouse_id').notNull(),
-    transferCode: varchar('transfer_code', { length: 50 }).notNull(),
+    // Null on drafts: the permanent code is assigned at confirmation.
+    transferCode: varchar('transfer_code', { length: 50 }),
+    ...documentNumberingColumns(),
     transferDate: date('transfer_date')
       .default(sql`CURRENT_DATE`)
       .notNull(),
@@ -1223,7 +1292,27 @@ export const stockTransfers = pgTable(
       foreignColumns: [warehouses.id],
       name: 'stock_transfers_to_warehouse_id_fkey',
     }),
-    unique('uq_transfer_code_per_farm').on(table.farmId, table.transferCode),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_transfers_requested_by_member_id_fkey',
+    }),
+    check(
+      'ck_transfer_requested_code',
+      sql`(requested_code IS NULL) OR ((btrim(requested_code) <> '') AND (coalesce(btrim(requested_code_reason), '') <> '') AND (requested_by_member_id IS NOT NULL))`,
+    ),
+    // Case/whitespace-insensitive so mixed-case legacy codes stay occupied.
+    uniqueIndex('uq_transfer_code_per_farm').using(
+      'btree',
+      table.farmId,
+      sql`upper(btrim(${table.transferCode}))`,
+    ),
+    // An uncoded draft stores NULL, never an empty string.
+    check('ck_transfer_code_not_blank', sql`btrim(transfer_code) <> ''`),
+    check(
+      'ck_transfer_confirmed_code',
+      sql`(status <> 'CONFIRMED'::document_status) OR (transfer_code IS NOT NULL)`,
+    ),
     check(
       'ck_transfer_confirm_fields',
       sql`(status <> 'CONFIRMED'::document_status) OR ((confirmed_by_member_id IS NOT NULL) AND (confirmed_at IS NOT NULL))`,
@@ -1284,7 +1373,9 @@ export const stockCounts = pgTable(
     id: uuid().defaultRandom().primaryKey().notNull(),
     farmId: uuid('farm_id').notNull(),
     warehouseId: uuid('warehouse_id').notNull(),
-    countCode: varchar('count_code', { length: 50 }).notNull(),
+    // Null on drafts: the permanent code is assigned at confirmation.
+    countCode: varchar('count_code', { length: 50 }),
+    ...documentNumberingColumns(),
     countDate: date('count_date')
       .default(sql`CURRENT_DATE`)
       .notNull(),
@@ -1340,11 +1431,57 @@ export const stockCounts = pgTable(
       foreignColumns: [warehouses.id],
       name: 'stock_counts_warehouse_id_fkey',
     }),
-    unique('uq_count_code_per_farm').on(table.countCode, table.farmId),
+    foreignKey({
+      columns: [table.requestedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_counts_requested_by_member_id_fkey',
+    }),
+    check(
+      'ck_count_requested_code',
+      sql`(requested_code IS NULL) OR ((btrim(requested_code) <> '') AND (coalesce(btrim(requested_code_reason), '') <> '') AND (requested_by_member_id IS NOT NULL))`,
+    ),
+    // Case/whitespace-insensitive so mixed-case legacy codes stay occupied.
+    uniqueIndex('uq_count_code_per_farm').using(
+      'btree',
+      table.farmId,
+      sql`upper(btrim(${table.countCode}))`,
+    ),
+    // An uncoded draft stores NULL, never an empty string.
+    check('ck_count_code_not_blank', sql`btrim(count_code) <> ''`),
+    check(
+      'ck_count_confirmed_code',
+      sql`(status <> 'CONFIRMED'::stock_count_status) OR (count_code IS NOT NULL)`,
+    ),
     check(
       'ck_count_confirm_fields',
       sql`(status <> 'CONFIRMED'::stock_count_status) OR ((confirmed_by_member_id IS NOT NULL) AND (confirmed_at IS NOT NULL))`,
     ),
+  ],
+);
+
+// Last automatic number used per farm, document prefix and confirmation year.
+export const stockDocumentCounters = pgTable(
+  'stock_document_counters',
+  {
+    farmId: uuid('farm_id').notNull(),
+    prefix: stockDocumentPrefix().notNull(),
+    year: integer().notNull(),
+    lastValue: integer('last_value').default(0).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.farmId, table.prefix, table.year],
+      name: 'stock_document_counters_pkey',
+    }),
+    foreignKey({
+      columns: [table.farmId],
+      foreignColumns: [farms.id],
+      name: 'stock_document_counters_farm_id_fkey',
+    }),
+    check('ck_stock_document_counter_nonnegative', sql`last_value >= 0`),
   ],
 );
 

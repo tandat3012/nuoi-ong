@@ -7,6 +7,8 @@ import { getIssueLotSuggestions } from "../api/issues.api";
 import type { IssueLotSuggestion } from "../types/issue";
 import { selectableIssueLotSuggestions } from "./issue-draft.logic";
 import { Button } from "@/shared/components/ui/button";
+import { formatInventoryQuantity } from "@/features/inventory";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export type IssueLotChoice = {
   id: string;
@@ -99,20 +101,23 @@ export function IssueLotPicker({
         <p className="text-sm text-muted-foreground">
           Hạn dùng: {selected.expiryDate ?? "Không có hạn"}
           {selectedSuggestion
-            ? ` · Tồn hiện tại: ${selectedSuggestion.balance.quantityOnHand}`
+            ? ` · Tồn hiện tại: ${formatInventoryQuantity(selectedSuggestion.balance.quantityOnHand)}`
             : current?.error && selected.quantityOnHand
-              ? ` · Số tồn lần chọn trước: ${selected.quantityOnHand}`
+              ? ` · Số tồn lần chọn trước: ${formatInventoryQuantity(selected.quantityOnHand)}`
               : ""}
         </p>
       )}
       {!warehouseId ? (
         <p role="status">Chọn kho xuất trước khi chọn lô.</p>
       ) : !current ? (
-        <p role="status">
-          {selected
-            ? "Đang kiểm tra tình trạng lô đã lưu..."
-            : "Đang tải lô khả dụng..."}
-        </p>
+        <BeeLoader
+          size="sm"
+          label={
+            selected
+              ? "Đang kiểm tra tình trạng lô đã lưu..."
+              : "Đang tải lô khả dụng..."
+          }
+        />
       ) : current.error ? (
         <div role="status" className="space-y-1">
           <p>{current.error}</p>
@@ -167,7 +172,7 @@ export function IssueLotPicker({
                     className="text-left underline"
                   >
                     {lot.lotNumber} · Hạn: {lot.expiryDate ?? "Không có hạn"} ·
-                    Tồn: {balance.quantityOnHand}
+                    Tồn: {formatInventoryQuantity(balance.quantityOnHand)}
                   </button>
                 </li>
               ))}

@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -41,6 +42,9 @@ import {
   UpdateStockCountDto,
 } from './dto/stock-count.dto';
 import { StockCountsService } from './stock-counts.service';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const countSchema = {
   type: 'object',
@@ -48,7 +52,12 @@ const countSchema = {
     id: { type: 'string', format: 'uuid' },
     farmId: { type: 'string', format: 'uuid' },
     warehouseId: { type: 'string', format: 'uuid' },
-    countCode: { type: 'string', example: 'CNT-2026-001' },
+    countCode: {
+      type: 'string',
+      nullable: true,
+      example: 'KK-2026-000001',
+      description: 'Null on drafts; assigned on confirmation.',
+    },
     countDate: { type: 'string', format: 'date' },
     status: { type: 'string', enum: [...stockCountStatus.enumValues] },
     rejectionReason: { type: 'string', nullable: true },
@@ -88,6 +97,9 @@ const countDetailSchema = {
 };
 
 @Controller('stock-counts')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Kiểm kê')
 @ApiBearerAuth('clerk-jwt')
 export class StockCountsController {
@@ -146,7 +158,6 @@ export class StockCountsController {
         summary: 'Kiểm kê kho chính',
         value: {
           warehouseId: '550e8400-e29b-41d4-a716-446655440000',
-          countCode: 'CNT-2026-001',
           items: [
             {
               itemId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',

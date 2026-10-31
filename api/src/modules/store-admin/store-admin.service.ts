@@ -8,7 +8,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { and, asc, count, desc, eq, sql, SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, or, sql, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 import { DatabaseService } from '../../db/database.service';
@@ -446,6 +446,37 @@ export class StoreAdminService {
     if (!deleted) throw new NotFoundException('Image not found');
     // The row is gone either way; a failed remote delete only leaves an orphan file.
     if (deleted.publicId) await this.deleteRemoteImage(deleted.publicId);
+  }
+
+  /** Item picker for variants: display fields only, no cost, location or stock history. */
+  async lookupItems(farmId: string, search?: string) {
+    await this.assertStoreFarm(farmId);
+    const conditions = [eq(items.farmId, farmId), eq(items.status, 'ACTIVE')];
+    if (search)
+      conditions.push(
+        or(ilike(items.code, `%${search}%`), ilike(items.name, `%${search}%`))!,
+      );
+    const rows = await this.databaseService.db
+      .select({
+        id: items.id,
+        code: items.code,
+        name: items.name,
+        trackingMode: items.trackingMode,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+      })
+      .from(items)
+      .innerJoin(units, eq(units.id, items.unitId))
+      .where(and(...conditions))
+      .orderBy(asc(items.name), asc(items.id))
+      .limit(20);
+    return {
+      data: rows.map(({ unitName, unitSymbol, ...item }) => ({
+        item,
+        unitName,
+        unitSymbol,
+      })),
+    };
   }
 
   async listCategories(farmId: string) {

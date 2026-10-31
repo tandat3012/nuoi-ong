@@ -9,6 +9,7 @@ import {
   validateReceiptDraft,
 } from "../components/receipt-draft.logic";
 import type { CreateReceiptInput } from "../types/receipt";
+import { numberingOptionsError } from "@/features/stock-documents";
 
 export function useSaveReceiptDraft(
   farmId: string,
@@ -32,7 +33,7 @@ export function useSaveReceiptDraft(
   async function submit(input: CreateReceiptInput) {
     if (submitting.current) return;
     const validation = canWrite
-      ? validateReceiptDraft(input)
+      ? (validateReceiptDraft(input) ?? numberingOptionsError(input))
       : "Bạn không có quyền lưu phiếu nhập.";
     if (validation) {
       setError(validation);

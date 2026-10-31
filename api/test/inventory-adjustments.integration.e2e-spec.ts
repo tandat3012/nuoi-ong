@@ -461,6 +461,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
           ],
         ],
       );
+      await cleanup.query(
+        'DELETE FROM stock_document_counters WHERE farm_id = ANY($1::uuid[])',
+        [[farmId, otherFarmId]],
+      );
       await cleanup.query('DELETE FROM farms WHERE id = ANY($1::uuid[])', [
         [farmId, otherFarmId],
       ]);
@@ -535,7 +539,6 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       .query({ farmId })
       .send({
         warehouseId,
-        receiptCode: `${tag}-FLOW-PN`,
         items: [{ itemId: receiptIssueItemId, quantity: '10', unitPrice: '0' }],
       })
       .expect(201);
@@ -560,7 +563,6 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       .query({ farmId })
       .send({
         warehouseId,
-        issueCode: `${tag}-FLOW-PX`,
         items: [{ itemId: receiptIssueItemId, quantity: '3' }],
       })
       .expect(201);
@@ -609,7 +611,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     expect(receiptMovement?.source).toEqual({
       type: 'STOCK_RECEIPT',
       id: receiptId,
-      code: `${tag}-FLOW-PN`,
+      code: expect.stringMatching(/^PN-\d{4}-\d{6}$/) as string,
     });
 
     const issueMovement = movements.find(({ source }) => source.id === issueId);
@@ -618,7 +620,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     expect(issueMovement?.source).toEqual({
       type: 'STOCK_ISSUE',
       id: issueId,
-      code: `${tag}-FLOW-PX`,
+      code: expect.stringMatching(/^PX-\d{4}-\d{6}$/) as string,
     });
 
     const adjustmentMovement = movements.find(

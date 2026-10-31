@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -41,6 +42,9 @@ import {
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
 import { StockTransfersService } from './stock-transfers.service';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const transferSchema = {
   type: 'object',
@@ -49,7 +53,12 @@ const transferSchema = {
     farmId: { type: 'string', format: 'uuid' },
     fromWarehouseId: { type: 'string', format: 'uuid' },
     toWarehouseId: { type: 'string', format: 'uuid' },
-    transferCode: { type: 'string', example: 'TRF-2026-001' },
+    transferCode: {
+      type: 'string',
+      nullable: true,
+      example: 'CK-2026-000001',
+      description: 'Null on drafts; assigned on confirmation.',
+    },
     transferDate: { type: 'string', format: 'date' },
     status: { type: 'string', enum: [...documentStatus.enumValues] },
     rejectionReason: { type: 'string', nullable: true },
@@ -88,6 +97,9 @@ const transferDetailSchema = {
 };
 
 @Controller('stock-transfers')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Điều chuyển kho')
 @ApiBearerAuth('clerk-jwt')
 export class StockTransfersController {
@@ -147,7 +159,6 @@ export class StockTransfersController {
         value: {
           fromWarehouseId: '550e8400-e29b-41d4-a716-446655440000',
           toWarehouseId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',
-          transferCode: 'TRF-2026-001',
           transferDate: '2026-10-08',
           items: [
             {

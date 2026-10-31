@@ -8,8 +8,6 @@ const ASSET_QUANTITY = /^1(?:\.0{1,3})?$/;
 
 export function validateReceiptDraft(input: CreateReceiptInput): string | null {
   if (!input.warehouseId) return 'Vui lòng chọn kho nhập.';
-  if (!input.receiptCode.trim() || input.receiptCode.trim().length > 50)
-    return 'Mã phiếu phải có từ 1 đến 50 ký tự.';
   if ((input.note?.length ?? 0) > 4000)
     return 'Ghi chú không được quá 4.000 ký tự.';
   if (input.receiptDate) {
