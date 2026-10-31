@@ -77,6 +77,13 @@ Seeds change data; check the target database and the storefront seed requirement
 
 ## Checks
 
+The Swagger CLI plugin has a pnpm patch in `patches/` to decode TypeScript's
+escaped Unicode import paths before resolving DTO references. This keeps builds
+portable when the checkout path contains characters such as `Khoá Luận`.
+`pnpm install` applies the patch automatically; keep `pnpm-workspace.yaml`,
+`pnpm-lock.yaml`, and the patch together. Run `pnpm test:swagger-plugin` after
+updating Swagger to check both same-file and cross-file DTO references.
+
 ```bash
 pnpm exec eslint "{src,apps,libs,test}/**/*.ts"
 pnpm test --runInBand

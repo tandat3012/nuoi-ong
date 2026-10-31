@@ -20,7 +20,6 @@ export function validateReceiptDraft(input: CreateReceiptInput): string | null {
       return 'Ngày nhập không hợp lệ.';
   }
   if (!input.items.length) return 'Vui lòng thêm ít nhất một vật tư.';
-  const seenLots = new Set<string>();
   const seenAssets = new Set<string>();
   const seenSerials = new Set<string>();
   for (const [index, line] of input.items.entries()) {
@@ -39,23 +38,22 @@ export function validateReceiptDraft(input: CreateReceiptInput): string | null {
       return `Dòng ${index + 1}: ghi chú không được quá 4.000 ký tự.`;
     if (line.lotId !== undefined) {
       if (!line.lotId) return `Dòng ${index + 1}: chưa chọn lô có sẵn.`;
-      if (line.lotNumber !== undefined || line.manufacturedDate || line.expiryDate)
-        return `Dòng ${index + 1}: lô có sẵn không nhận số lô hoặc ngày mới.`;
-    } else if (line.lotNumber !== undefined) {
-      if (!line.lotNumber.trim() || line.lotNumber.trim().length > 100)
-        return `Dòng ${index + 1}: số lô phải có từ 1 đến 100 ký tự.`;
-      const key = `${line.itemId}\u0000${line.lotNumber.trim()}`;
-      if (seenLots.has(key))
-        return `Dòng ${index + 1}: vật tư đã có số lô này trong phiếu.`;
-      seenLots.add(key);
+      if (
+        line.supplierLotNumber !== undefined ||
+        line.manufacturedDate ||
+        line.expiryDate
+      )
+        return `Dòng ${index + 1}: lô có sẵn không nhận số lô trên hàng hoặc ngày mới.`;
+    } else {
+      // Supplier numbers are optional and may repeat, even within one receipt.
+      if ((line.supplierLotNumber?.trim().length ?? 0) > 100)
+        return `Dòng ${index + 1}: số lô trên hàng không được quá 100 ký tự.`;
       for (const value of [line.manufacturedDate, line.expiryDate]) {
         if (value && !isValidDate(value))
           return `Dòng ${index + 1}: ngày của lô không hợp lệ.`;
       }
       if (expiryBeforeManufactured(line))
         return `Dòng ${index + 1}: hạn sử dụng phải từ ngày sản xuất trở đi.`;
-    } else if (line.manufacturedDate || line.expiryDate) {
-      return `Dòng ${index + 1}: cần có số lô khi nhập ngày của lô.`;
     }
     if (line.assetCode !== undefined) {
       const assetCode = line.assetCode.trim();
@@ -101,7 +99,7 @@ export function supportsQuantityDraftEdit(detail: ReceiptDetail) {
   return (
     detail.receipt.status === 'DRAFT' &&
     detail.items.length > 0 &&
-    detail.items.every((line) => supportedLine(line, false))
+    detail.items.every(supportedLine)
   );
 }
 
@@ -109,17 +107,17 @@ export function supportsQuantityDraftConfirm(detail: ReceiptDetail) {
   return (
     ['DRAFT', 'PENDING_APPROVAL'].includes(detail.receipt.status) &&
     detail.items.length > 0 &&
-    detail.items.every((line) => supportedLine(line, true))
+    detail.items.every(supportedLine)
   );
 }
 
-function supportedLine(line: ReceiptLine, requireLot: boolean) {
+function supportedLine(line: ReceiptLine) {
   const mode = line.trackingMode;
   if (!mode || line.assetId) return false;
   if (mode === 'QUANTITY')
     return (
       !line.lotId &&
-      !line.lotNumber &&
+      !line.supplierLotNumber &&
       !line.manufacturedDate &&
       !line.expiryDate &&
       !line.assetCode &&
@@ -131,18 +129,20 @@ function supportedLine(line: ReceiptLine, requireLot: boolean) {
       !line.lotId &&
         line.assetCode?.trim() &&
         ASSET_QUANTITY.test(line.quantity) &&
-        !line.lotNumber &&
+        !line.supplierLotNumber &&
         !line.manufacturedDate &&
         !line.expiryDate &&
         (line.serialNumber?.length ?? 0) <= 255,
     );
   if (line.assetCode || line.serialNumber || line.locationId) return false;
-  // An existing lot carries its own number and dates.
+  // An existing lot carries its own numbers and dates.
   if (line.lotId)
-    return !line.lotNumber && !line.manufacturedDate && !line.expiryDate;
+    return (
+      !line.supplierLotNumber && !line.manufacturedDate && !line.expiryDate
+    );
+  // A new lot needs no supplier number: its internal code is assigned on confirmation.
   return Boolean(
-    (!requireLot || line.lotNumber?.trim()) &&
-      (!line.manufacturedDate || isValidDate(line.manufacturedDate)) &&
+    (!line.manufacturedDate || isValidDate(line.manufacturedDate)) &&
       (!line.expiryDate || isValidDate(line.expiryDate)) &&
       (!line.manufacturedDate ||
         !line.expiryDate ||
@@ -157,7 +157,7 @@ const SAVE_ERRORS: [RegExp, string][] = [
   ],
   [
     /lotId only selects/,
-    'Lô có sẵn chỉ dùng cho vật tư theo lô và không kèm số lô hoặc ngày mới.',
+    'Lô có sẵn chỉ dùng cho vật tư theo lô và không kèm số lô trên hàng hoặc ngày mới.',
   ],
   [/Expiry date cannot be earlier/, 'Hạn sử dụng phải từ ngày sản xuất trở đi.'],
 ];

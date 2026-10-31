@@ -73,6 +73,8 @@ COPY api/package.json \
      api/pnpm-workspace.yaml* \
      ./
 
+COPY api/patches/ ./patches/
+
 RUN --mount=type=cache,id=pnpm-api,target=/pnpm/store \
     pnpm install --frozen-lockfile
 

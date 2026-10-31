@@ -7,6 +7,7 @@ import type { PaginatedResponse } from "@/shared/api/contracts";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Input } from "@/shared/components/ui/input";
+import { DateInput } from "@/shared/components/ui/date-input";
 import { Pagination } from "@/shared/components/ui/pagination";
 import { Select } from "@/shared/components/ui/select";
 import { getStoreOrders } from "../store-orders.api";
@@ -128,21 +129,19 @@ export function StoreOrdersList({
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1 text-sm">
             <span>Từ ngày</span>
-            <Input
-              type="date"
+            <DateInput
               value={filters.from ?? ""}
-              onChange={(event) =>
-                change({ from: event.target.value || undefined })
+              onValueChange={(value) =>
+                change({ from: value || undefined })
               }
             />
           </label>
           <label className="space-y-1 text-sm">
             <span>Đến ngày</span>
-            <Input
-              type="date"
+            <DateInput
               value={filters.to ?? ""}
-              onChange={(event) =>
-                change({ to: event.target.value || undefined })
+              onValueChange={(value) =>
+                change({ to: value || undefined })
               }
             />
           </label>

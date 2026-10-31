@@ -24,7 +24,11 @@ type BalanceRow = {
     unit: { id: string; name: string; symbol: string | null };
   };
   warehouse: { id: string; code: string; name: string };
-  lot: { id: string; lotNumber: string; expiryDate: string | null } | null;
+  lot: {
+    id: string;
+    supplierLotNumber: string | null;
+    expiryDate: string | null;
+  } | null;
 };
 type ListResponse = {
   data: BalanceRow[];
@@ -165,7 +169,7 @@ describe('Current inventory HTTP and PostgreSQL contract', () => {
       ],
     );
     await client.query(
-      'INSERT INTO inventory_lots (id,farm_id,item_id,lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,10,$5),($6,$2,$3,$7,10,$8),($9,$2,$3,$10,10,NULL),($11,$12,$13,$14,10,$15)',
+      'INSERT INTO inventory_lots (id,farm_id,item_id,supplier_lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,10,$5),($6,$2,$3,$7,10,$8),($9,$2,$3,$10,10,NULL),($11,$12,$13,$14,10,$15)',
       [
         lotEarly,
         farmA,
@@ -353,7 +357,7 @@ describe('Current inventory HTTP and PostgreSQL contract', () => {
     expect(body.data[0]).toMatchObject({
       item: { name: `${tag} Lot` },
       warehouse: { name: `${tag} Warehouse A` },
-      lot: { id: lotEarly, lotNumber: `${tag}-EARLY` },
+      lot: { id: lotEarly, supplierLotNumber: `${tag}-EARLY` },
     });
   });
 

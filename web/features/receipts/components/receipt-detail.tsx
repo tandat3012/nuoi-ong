@@ -22,6 +22,7 @@ import type { StockDocumentViewer } from "@/features/stock-documents/stock-docum
 import { documentCodeLabel, NumberingDetails } from '@/features/stock-documents';
 import { formatInventoryQuantity } from "@/features/inventory";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 const date = (value: string | null) =>
   value ? value.split("-").reverse().join("/") : "—";
@@ -43,6 +44,7 @@ export function ReceiptDetail({
   onCancelled: () => void;
   onConfirmed: () => void;
 }) {
+  const [ask, confirmDialog] = useConfirm();
   const {
     detail,
     warehouse,
@@ -85,6 +87,7 @@ export function ReceiptDetail({
 
   return (
     <section className="space-y-5" aria-label="Chi tiết phiếu nhập">
+      {confirmDialog}
       <PageHeader
         title="Chi tiết phiếu nhập"
         actions={
@@ -114,8 +117,16 @@ export function ReceiptDetail({
           )}
           {actions.cancel && (
             <Button
-              onClick={() => {
-                if (window.confirm("Bạn có chắc muốn hủy phiếu nhập nháp này?"))
+              onClick={async () => {
+                if (
+                  await ask({
+                    title: "Hủy phiếu nhập nháp",
+                    description: "Bạn có chắc muốn hủy phiếu nhập nháp này?",
+                    confirmLabel: "Hủy phiếu",
+                    cancelLabel: "Giữ phiếu",
+                    variant: "destructive",
+                  })
+                )
                   void cancel();
               }}
               disabled={isCancelling || isConfirming}
@@ -140,11 +151,14 @@ export function ReceiptDetail({
           )}
           {actions.confirm && canConfirm && (
             <Button
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  window.confirm(
-                    "Xác nhận phiếu nhập này? Sau khi xác nhận, hệ thống sẽ cập nhật tồn kho và không thể sửa hoặc hủy phiếu.",
-                  )
+                  await ask({
+                    title: "Xác nhận nhập kho",
+                    description:
+                      "Xác nhận phiếu nhập này? Sau khi xác nhận, hệ thống sẽ cập nhật tồn kho và không thể sửa hoặc hủy phiếu.",
+                    confirmLabel: "Xác nhận nhập kho",
+                  })
                 )
                   void confirm();
               }}
@@ -284,7 +298,12 @@ export function ReceiptDetail({
                   </thead>
                   <tbody className="divide-y">
                     {detail.items.map((line) => {
-                      const lotNumber = line.lotNumber ?? line.lotNumberFromLot;
+                      const supplierLotNumber =
+                        line.lotSupplierLotNumber ?? line.supplierLotNumber;
+                      const legacyLotNumber =
+                        line.lotLegacyLotNumber ?? line.legacyLotNumber;
+                      const isNewLot = line.trackingMode === "LOT" && !line.lotCode;
+                      const hasLot = Boolean(line.lotCode || isNewLot);
                       const manufacturedDate =
                         line.manufacturedDate ?? line.lotManufacturedDate;
                       const expiryDate = line.expiryDate ?? line.lotExpiryDate;
@@ -312,10 +331,20 @@ export function ReceiptDetail({
                             {line.unitPrice}
                           </td>
                           <td className="px-4 py-3">
-                            {lotNumber && (
-                              <p>
-                                Lô: {lotNumber}
-                                {line.lotId && !line.lotNumber && " (lô có sẵn)"}
+                            {line.lotCode && (
+                              <p className="font-medium">Mã lô: {line.lotCode}</p>
+                            )}
+                            {isNewLot && (
+                              <p className="text-muted-foreground">
+                                Mã lô: tự cấp khi xác nhận phiếu
+                              </p>
+                            )}
+                            {supplierLotNumber && (
+                              <p>Số lô trên hàng: {supplierLotNumber}</p>
+                            )}
+                            {legacyLotNumber && (
+                              <p className="text-muted-foreground">
+                                Số lô cũ (tham khảo): {legacyLotNumber}
                               </p>
                             )}
                             {manufacturedDate && (
@@ -332,7 +361,7 @@ export function ReceiptDetail({
                                   : `Không tìm thấy vị trí (${line.locationId})`}
                               </p>
                             )}
-                            {!lotNumber &&
+                            {!hasLot &&
                               !manufacturedDate &&
                               !expiryDate &&
                               !assetCode &&

@@ -15,6 +15,7 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { PersonnelModule } from './modules/personnel/personnel.module';
 import { StoreAdminModule } from './modules/store-admin/store-admin.module';
 import { StoreOrdersModule } from './modules/store-orders/store-orders.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
@@ -34,6 +35,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     PersonnelModule,
     StoreAdminModule,
     StoreOrdersModule,
+    PaymentsModule,
     DashboardModule,
     NotificationsModule,
     AuditLogsModule,

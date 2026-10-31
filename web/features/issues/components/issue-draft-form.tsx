@@ -25,6 +25,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { Select } from "@/shared/components/ui/select";
 import { Input } from "@/shared/components/ui/input";
+import { DateInput } from "@/shared/components/ui/date-input";
 import {
   DOCUMENT_CODE_HINT,
   documentCodeLabel,
@@ -93,7 +94,7 @@ export function IssueDraftForm({
         lot: line.lotId
           ? {
               id: line.lotId,
-              lotNumber: line.lotNumber ?? line.lotId,
+              lotCode: line.lotCode ?? line.lotId,
               expiryDate: line.lotExpiryDate,
               quantityOnHand: null,
             }
@@ -260,12 +261,11 @@ export function IssueDraftForm({
             >
               Ngày xuất
             </label>
-            <Input
+            <DateInput
               id="issue-date"
-              type="date"
               value={date}
               readOnly={isLinkedSale}
-              onChange={(event) => setDate(event.target.value)}
+              onValueChange={(value) => setDate(value)}
               className="w-full"
             />
             <p className="mt-1 text-xs text-muted-foreground">

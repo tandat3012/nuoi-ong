@@ -306,7 +306,7 @@ describe('Materials HTTP contract with local PostgreSQL', () => {
       .expect(201);
     const lotItemId = (created.body as DetailResponse).data.item.id;
     await client!.query(
-      'INSERT INTO inventory_lots (farm_id,item_id,lot_number,initial_quantity) VALUES ($1,$2,$3,1)',
+      'INSERT INTO inventory_lots (farm_id,item_id,supplier_lot_number,initial_quantity) VALUES ($1,$2,$3,1)',
       [farmA, lotItemId, tag],
     );
     await request(app!.getHttpServer())

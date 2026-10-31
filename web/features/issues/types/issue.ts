@@ -61,7 +61,7 @@ export interface IssueLine {
   trackingMode: "QUANTITY" | "LOT" | "ASSET" | null;
   unitName: string | null;
   unitSymbol: string | null;
-  lotNumber: string | null;
+  lotCode: string | null;
   lotExpiryDate: string | null;
   assetCode: string | null;
   serialNumber: string | null;
@@ -109,7 +109,8 @@ export interface IssueLotSuggestion {
     id: string;
     farmId: string;
     itemId: string;
-    lotNumber: string;
+    lotCode: string;
+    supplierLotNumber: string | null;
     expiryDate: string | null;
   };
   balance: {

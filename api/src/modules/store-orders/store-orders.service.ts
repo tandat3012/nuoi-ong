@@ -26,6 +26,7 @@ import {
   inventoryLots,
   items,
   locations,
+  paymentTransactions,
   stockIssueItems,
   stockIssues,
   storeOrderItems,
@@ -38,6 +39,9 @@ import {
   warehouses,
 } from '../../db/schema';
 import { PaginationParams } from '../../common/query-params';
+import { qrSvg } from '../../common/qr';
+import { storeBankAccount } from '../payments/bank-account';
+import { vietQrPayload } from '../payments/vietqr';
 import { CommerceService } from '../commerce/commerce.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { CreateStoreOrderDto } from './dto/store-order.dto';
@@ -82,6 +86,8 @@ export class StoreOrdersService {
       fingerprint,
     );
     if (replay) return this.customerDetail(replay.id, userId);
+    if (input.paymentMethod === 'BANK_TRANSFER' && !storeBankAccount())
+      throw new BadRequestException('Bank transfer is not available');
 
     let id: string;
     try {
@@ -245,7 +251,21 @@ export class StoreOrdersService {
 
   async staffGet(farmId: string, id: string) {
     await this.assertStoreFarm(farmId);
-    return this.detail(id, eq(storeOrders.farmId, farmId));
+    const detail = await this.detail(id, eq(storeOrders.farmId, farmId));
+    const payments = await this.databaseService.db
+      .select({
+        id: paymentTransactions.id,
+        provider: paymentTransactions.provider,
+        amount: paymentTransactions.amount,
+        content: paymentTransactions.content,
+        result: paymentTransactions.result,
+        transactionAt: paymentTransactions.transactionAt,
+        createdAt: paymentTransactions.createdAt,
+      })
+      .from(paymentTransactions)
+      .where(eq(paymentTransactions.orderId, id))
+      .orderBy(desc(paymentTransactions.createdAt));
+    return { ...detail, payments };
   }
 
   async customerProfile(farmId: string, userId: string) {
@@ -877,6 +897,40 @@ export class StoreOrdersService {
         return line;
       }),
       customer,
+      payment: await this.transferInstructions(order),
+    };
+  }
+
+  /** QR and account details while a bank-transfer order still awaits payment; the amount is always the stored total. */
+  private async transferInstructions(order: {
+    paymentMethod: Order['paymentMethod'];
+    paymentStatus: Order['paymentStatus'];
+    status: Order['status'];
+    total: string;
+    code: string;
+  }) {
+    const account = storeBankAccount();
+    if (
+      !account ||
+      order.paymentMethod !== 'BANK_TRANSFER' ||
+      order.paymentStatus !== 'UNPAID' ||
+      order.status === 'CANCELLED'
+    )
+      return null;
+    return {
+      bankName: account.bankName,
+      accountNumber: account.accountNumber,
+      accountName: account.accountName,
+      amount: order.total,
+      content: order.code,
+      qrSvg: await qrSvg(
+        vietQrPayload({
+          bin: account.bin,
+          accountNumber: account.accountNumber,
+          amount: order.total,
+          content: order.code,
+        }),
+      ),
     };
   }
 
@@ -887,9 +941,17 @@ export class StoreOrdersService {
       stockIssueId,
       paidByMemberId,
       handledByMemberId,
+      paymentTransactionId,
       ...data
     } = order;
-    void [farmId, warehouseId, stockIssueId, paidByMemberId, handledByMemberId];
+    void [
+      farmId,
+      warehouseId,
+      stockIssueId,
+      paidByMemberId,
+      handledByMemberId,
+      paymentTransactionId,
+    ];
     return data;
   }
 

@@ -67,6 +67,8 @@ function fixture(kind, roles = ["ADMIN"], headerPatch = {}) {
         useFarmMembership: () => ({ membership: { roles, memberId: "creator" } }),
       };
       if (name === "@/shared/api/client") return { ApiError };
+      // The user always accepts the in-page confirmation dialog.
+      if (name.endsWith("confirm-dialog")) return { useConfirm: () => [async () => true, null] };
       if (name === "@/features/inventory") return {
         ...inventoryRules, WarehouseLotSelect: "WarehouseLotSelect",
       };
@@ -200,6 +202,8 @@ for (const kind of ["counts", "transfers"]) {
     for (const status of [401, 403, 409, null]) {
       const f = fixture(kind);
       button(f.review.tree(), "Gửi duyệt").props.onClick();
+      // The confirmation dialog answers asynchronously; its modal covers the page meanwhile.
+      await setImmediate();
       button(f.panel.tree(), "Sửa nháp").props.onClick();
       button(f.initial, "Xác nhận").props.onClick();
       assert.equal(f.lock.locked, true);

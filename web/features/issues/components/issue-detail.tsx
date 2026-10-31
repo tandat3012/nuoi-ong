@@ -26,6 +26,7 @@ import {
 } from "@/features/stock-documents";
 import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
+import { type ConfirmOptions, useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 export function IssueDetail({
   farmId,
@@ -68,10 +69,17 @@ export function IssueDetail({
     refresh,
   );
   const isProcessing = isCancelling || isConfirming;
-  async function runAction(action: () => Promise<void>, message: string) {
+  const [ask, confirmDialog] = useConfirm();
+  async function runAction(
+    action: () => Promise<void>,
+    options: ConfirmOptions,
+  ) {
     if (actionPending.current || isProcessing) return;
-    if (!window.confirm(message)) return;
     actionPending.current = true;
+    if (!(await ask(options))) {
+      actionPending.current = false;
+      return;
+    }
     try {
       await action();
     } finally {
@@ -80,6 +88,7 @@ export function IssueDetail({
   }
   return (
     <section className="space-y-6" aria-label="Chi tiết phiếu xuất">
+      {confirmDialog}
       <div className="flex flex-wrap gap-3">
         <Button variant="outline"
           onClick={() => {
@@ -174,10 +183,11 @@ export function IssueDetail({
                     <Button
                       disabled={isProcessing}
                       onClick={() =>
-                        void runAction(
-                          confirm,
-                          `Xác nhận phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
-                        )
+                        void runAction(confirm, {
+                          title: "Xác nhận phiếu xuất",
+                          confirmLabel: "Xác nhận xuất kho",
+                          description: `Xác nhận phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
+                        })
                       }
                     >
                       Xác nhận phiếu xuất
@@ -187,10 +197,13 @@ export function IssueDetail({
                     <Button
                       disabled={isProcessing}
                       onClick={() =>
-                        void runAction(
-                          cancel,
-                          `Hủy phiếu xuất nháp ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)}? Thao tác này không thay đổi tồn kho.`,
-                        )
+                        void runAction(cancel, {
+                          title: "Hủy phiếu xuất nháp",
+                          confirmLabel: "Hủy phiếu",
+                          cancelLabel: "Giữ phiếu",
+                          variant: "destructive",
+                          description: `Hủy phiếu xuất nháp ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)}? Thao tác này không thay đổi tồn kho.`,
+                        })
                       }
                       variant="outline"
                       className="border-destructive/40 text-destructive hover:bg-destructive/10"
@@ -314,8 +327,8 @@ export function IssueDetail({
                         <td className="px-4 py-3">
                           {line.lotId && (
                             <>
-                              <p>{line.lotNumber || "Không có thông tin lô"}</p>
-                              {!line.lotNumber && (
+                              <p>{line.lotCode || "Không có thông tin lô"}</p>
+                              {!line.lotCode && (
                                 <p className="break-all text-xs text-muted-foreground">
                                   {line.lotId}
                                 </p>

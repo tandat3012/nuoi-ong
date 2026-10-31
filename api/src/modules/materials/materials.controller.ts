@@ -43,6 +43,7 @@ import {
   ApiSearchQuery,
   ApiUuidParam,
   ApiUuidQuery,
+  LOT_IDENTITY_PROPERTIES,
   OPENAPI_DECIMAL_STRING,
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
@@ -273,7 +274,7 @@ export class MaterialsController {
                     format: 'uuid',
                     nullable: true,
                   },
-                  lotNumber: { type: 'string' },
+                  ...LOT_IDENTITY_PROPERTIES,
                   manufacturedDate: {
                     type: 'string',
                     format: 'date',
@@ -334,7 +335,7 @@ export class MaterialsController {
                     format: 'uuid',
                     nullable: true,
                   },
-                  lotNumber: { type: 'string' },
+                  ...LOT_IDENTITY_PROPERTIES,
                   manufacturedDate: {
                     type: 'string',
                     format: 'date',

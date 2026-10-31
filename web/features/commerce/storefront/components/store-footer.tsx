@@ -3,9 +3,12 @@ import Link from 'next/link';
 import { Phone, Mail, MapPin, Clock } from 'lucide-react';
 import { STOREFRONT_CONFIG } from '../config/storefront-config';
 import { StoreBrand } from './store-brand';
-import { hasStoreBankTransferInstructions } from '@/features/commerce/orders/store-bank-transfer';
+import { getStorePaymentMethods } from '@/features/commerce/orders/payment-methods.api';
 
-export function StoreFooter() {
+export async function StoreFooter() {
+  const bankTransfer = await getStorePaymentMethods()
+    .then(({ bankTransfer }) => Boolean(bankTransfer))
+    .catch(() => false);
   const { brand, footer } = STOREFRONT_CONFIG;
 
   return (
@@ -123,8 +126,8 @@ export function StoreFooter() {
             <span className="text-xs text-muted-foreground mr-1">Hình thức thanh toán:</span>
             {[
               'COD (Tiền mặt)',
-              ...(hasStoreBankTransferInstructions()
-                ? ['Chuyển khoản ngân hàng']
+              ...(bankTransfer
+                ? ['Chuyển khoản VietQR']
                 : []),
             ].map((method) => (
               <span

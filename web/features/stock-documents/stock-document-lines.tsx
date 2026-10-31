@@ -44,7 +44,7 @@ type Line = EditableLine & {
   itemName: string | null;
   unitSymbol: string | null;
   unitName: string | null;
-  lotNumber: string | null;
+  lotCode: string | null;
   lotExpiryDate: string | null;
   systemQuantity?: string;
   actualQuantity?: string;
@@ -212,7 +212,7 @@ export function StockDocumentLines({
           itemName: addedItem.name,
           trackingMode: addedItem.trackingMode,
           lotId: addedItem.trackingMode === "LOT" ? added.lotId : null,
-          lotNumber: null,
+          lotCode: null,
           lotExpiryDate: null,
           unitSymbol: null,
           unitName: null,
@@ -355,8 +355,8 @@ export function StockDocumentLines({
                     <tr key={line.id}>
                       <td className="px-3 py-2">{label}</td>
                       <td className="px-3 py-2">
-                        {line.lotNumber
-                          ? `${line.lotNumber}${line.lotExpiryDate ? ` · HSD ${date(line.lotExpiryDate)}` : ""}`
+                        {line.lotCode
+                          ? `${line.lotCode}${line.lotExpiryDate ? ` · HSD ${date(line.lotExpiryDate)}` : ""}`
                           : line.lotId
                             ? "Lô đã chọn"
                             : "—"}

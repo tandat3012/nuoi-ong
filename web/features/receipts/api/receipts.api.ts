@@ -165,7 +165,12 @@ export function getReceiptLocations(
 export function getReceiptLots(
   request: AuthenticatedRequest,
   farmId: string,
-  filters: { page: number; pageSize: number; itemId: string },
+  filters: {
+    page: number;
+    pageSize: number;
+    itemId: string;
+    supplierLotNumber?: string;
+  },
 ) {
   return request<PaginatedResponse<ReceiptLotReference>>('/lots', {
     params: { farmId, ...filters },
