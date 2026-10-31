@@ -147,7 +147,7 @@ describe('Dashboard summary (migrated PostgreSQL)', () => {
         await service.create(ids.customer, input(1));
 
         const dashboard = new DashboardService({ db: tx } as never);
-        expect(await dashboard.summary(ids.farm)).toEqual({
+        expect(await dashboard.summary(ids.farm, ['FARM_OWNER'])).toEqual({
           stockValue: '17500',
           unpricedItems: 2,
           belowMinimum: 1,
@@ -158,9 +158,27 @@ describe('Dashboard summary (migrated PostgreSQL)', () => {
           ordersToday: 1,
           ordersPending: 1,
         });
-        expect(await dashboard.summary(ids.otherFarm)).toMatchObject({
+        expect(
+          await dashboard.summary(ids.otherFarm, ['FARM_OWNER']),
+        ).toMatchObject({
           stockValue: '0',
           ordersToday: 0,
+        });
+        // Each manager role only receives the figures of its own area.
+        expect(
+          await dashboard.summary(ids.farm, ['STORE_MANAGER']),
+        ).toMatchObject({
+          stockValue: null,
+          assetsInMaintenance: null,
+          ordersToday: 1,
+          ordersPending: 1,
+        });
+        expect(
+          await dashboard.summary(ids.farm, ['WAREHOUSE_MANAGER']),
+        ).toMatchObject({
+          stockValue: '17500',
+          ordersToday: null,
+          ordersPending: null,
         });
         throw ROLLBACK;
       });

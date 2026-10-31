@@ -45,6 +45,7 @@ import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 const balanceKey = (
   warehouseId: string,
   itemId: string,
@@ -312,6 +313,7 @@ export class StockTransfersService {
       farmId,
       user,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
@@ -351,6 +353,7 @@ export class StockTransfersService {
       farmId,
       user,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);

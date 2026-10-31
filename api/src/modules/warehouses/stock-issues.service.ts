@@ -49,6 +49,7 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { quantityMillis } from '../store-orders/store-order.rules';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 
 type Filters = PaginationParams & {
   farmId: string;
@@ -376,6 +377,7 @@ export class StockIssuesService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
@@ -418,6 +420,7 @@ export class StockIssuesService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);

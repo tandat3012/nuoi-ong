@@ -27,6 +27,10 @@ import {
   SIGNED_DECIMAL,
 } from './dto/create-adjustment.dto';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import {
+  STOCK_WRITE_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 const inventoryLotId = sql<string>`${inventoryLots}."id"`;
 const inventoryLotFarmId = sql<string>`${inventoryLots}."farm_id"`;
@@ -34,8 +38,8 @@ const inventoryLotItemId = sql<string>`${inventoryLots}."item_id"`;
 const inventoryLotNumber = sql<string | null>`${inventoryLots}."lot_number"`;
 const inventoryLotExpired = sql<boolean>`coalesce(${inventoryLots}."expiry_date" < CURRENT_DATE, false)`;
 
-const APPROVER_ROLES = ['ADMIN', 'FARM_OWNER'];
-const REQUESTER_ROLES = [...APPROVER_ROLES, 'EMPLOYEE'];
+const APPROVER_ROLES = WAREHOUSE_MANAGE_ROLES;
+const REQUESTER_ROLES = STOCK_WRITE_ROLES;
 
 // Ledger rows keep a readable reason so the movement history needs no lookup.
 const REASON_LABELS: Record<AdjustmentReasonCode, string> = {
@@ -148,6 +152,7 @@ export class InventoryAdjustmentsService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     try {
       return await this.databaseService.db.transaction(async (tx) => {
@@ -188,6 +193,7 @@ export class InventoryAdjustmentsService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     return this.databaseService.db.transaction(async (tx) => {
       const [adjustment] = await tx

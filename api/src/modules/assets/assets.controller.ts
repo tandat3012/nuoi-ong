@@ -58,6 +58,8 @@ import {
   ApiUuidQuery,
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const assetSchema = {
   type: 'object',
@@ -95,6 +97,8 @@ const assetWithLocationSchema = {
 };
 
 @Controller('/assets')
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @UseGuards(FarmAccessGuard)
 @ApiTags('Tài sản')
 @ApiBearerAuth('clerk-jwt')

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DrizzleQueryError } from 'drizzle-orm';
 import type { DatabaseService } from '../../db/database.service';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { WarehousesService } from './warehouses.service';
 
 describe('WarehousesService', () => {
@@ -70,6 +71,50 @@ describe('WarehousesService', () => {
     await expect(
       service.assertFarmAccess('farm', 'identity', true),
     ).resolves.toBe('member');
+  });
+  it('lets a warehouse manager manage and approve only where callers opt in', async () => {
+    select
+      .mockReset()
+      .mockReturnValue(rows([{ ...member, roleCode: 'WAREHOUSE_MANAGER' }]));
+    await expect(
+      service.assertFarmAccess(
+        'farm',
+        'identity',
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      ),
+    ).resolves.toBe('member');
+    await expect(
+      service.assertDocumentWriter('farm', 'identity'),
+    ).resolves.toEqual({
+      memberId: 'member',
+      canApprove: true,
+      isOwner: false,
+    });
+    // The default write check stays owner/admin only.
+    await expect(
+      service.assertFarmAccess('farm', 'identity', true),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+  it('lets employees submit but not approve; store managers do neither', async () => {
+    select
+      .mockReset()
+      .mockReturnValue(rows([{ ...member, roleCode: 'EMPLOYEE' }]));
+    await expect(
+      service.assertDocumentWriter('farm', 'identity'),
+    ).resolves.toMatchObject({ canApprove: false });
+    select.mockReturnValue(rows([{ ...member, roleCode: 'STORE_MANAGER' }]));
+    await expect(
+      service.assertDocumentWriter('farm', 'identity'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.assertFarmAccess(
+        'farm',
+        'identity',
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
   it('permits guest reads, denies writes and inactive membership', async () => {
     select

@@ -65,6 +65,18 @@ async function seed(client: PoolClient) {
       'Thực hiện công việc vận hành được giao.',
       'FARM',
     ],
+    [
+      'WAREHOUSE_MANAGER',
+      'Quản lý kho',
+      'Quản lý và duyệt nghiệp vụ kho trong trại.',
+      'FARM',
+    ],
+    [
+      'STORE_MANAGER',
+      'Quản lý cửa hàng',
+      'Quản lý sản phẩm, giá bán, đơn hàng và doanh thu cửa hàng.',
+      'FARM',
+    ],
     ['GUEST', 'Khách', 'Chỉ xem dữ liệu được chia sẻ.', 'FARM'],
   ]) {
     roleIds[role[0]] = await id(
@@ -1357,7 +1369,7 @@ async function main() {
       row_count: string;
     }>(
       `
-      SELECT 'roles' table_name,count(*)::text row_count FROM roles WHERE code IN ('ADMIN','FARM_OWNER','EMPLOYEE','GUEST')
+      SELECT 'roles' table_name,count(*)::text row_count FROM roles WHERE code IN ('ADMIN','FARM_OWNER','EMPLOYEE','WAREHOUSE_MANAGER','STORE_MANAGER','GUEST')
       UNION ALL SELECT 'users',count(*)::text FROM users WHERE auth_provider='SEED'
       UNION ALL SELECT 'items',count(*)::text FROM items WHERE farm_id=$1
       UNION ALL SELECT 'assets',count(*)::text FROM assets WHERE farm_id=$1

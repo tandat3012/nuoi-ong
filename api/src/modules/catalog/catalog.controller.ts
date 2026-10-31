@@ -48,6 +48,10 @@ import {
   ApiUuidParam,
   ApiUuidQuery,
 } from '../../common/swagger-docs';
+import {
+  FARM_AREA_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 const catalogItemSchema = {
   type: 'object',
@@ -74,6 +78,8 @@ const catalogItemSchema = {
 };
 
 @Controller()
+// Applies to guarded farm routes; store-only managers have no catalog access.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Danh mục')
 @ApiBearerAuth('clerk-jwt')
 export class CatalogController {
@@ -631,7 +637,7 @@ export class CatalogController {
 
   @Post('suppliers')
   @UseGuards(FarmAccessGuard)
-  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
   @ApiOperation({ summary: 'Tạo nhà cung cấp' })
   @ApiFarmIdQuery()
   @ApiCreatedResponse({ description: 'Nhà cung cấp vừa tạo, bọc trong data.' })
@@ -654,7 +660,7 @@ export class CatalogController {
 
   @Patch('suppliers/:id')
   @UseGuards(FarmAccessGuard)
-  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
   @ApiOperation({ summary: 'Sửa hoặc ngưng nhà cung cấp' })
   @ApiUuidParam('id', 'ID nhà cung cấp.')
   @ApiFarmIdQuery()
@@ -681,7 +687,7 @@ export class CatalogController {
 
   @Post('locations')
   @UseGuards(FarmAccessGuard)
-  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
   @ApiOperation({ summary: 'Tạo vị trí' })
   @ApiFarmIdQuery()
   @ApiCreatedResponse({ description: 'Vị trí vừa tạo, bọc trong data.' })
@@ -706,7 +712,7 @@ export class CatalogController {
 
   @Patch('locations/:id')
   @UseGuards(FarmAccessGuard)
-  @FarmRoles('ADMIN', 'FARM_OWNER')
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
   @ApiOperation({ summary: 'Sửa hoặc ngưng vị trí' })
   @ApiUuidParam('id', 'ID vị trí.')
   @ApiFarmIdQuery()

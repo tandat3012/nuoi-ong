@@ -8,6 +8,7 @@ import {
   roles,
   users,
 } from '../../db/schema';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -99,7 +100,7 @@ export async function notifyFarmApprovers(
         eq(farmMembers.farmId, notification.farmId),
         eq(farmMembers.status, 'ACTIVE'),
         eq(users.status, 'ACTIVE'),
-        inArray(roles.code, ['ADMIN', 'FARM_OWNER']),
+        inArray(roles.code, WAREHOUSE_MANAGE_ROLES),
         ne(farmMembers.id, submittedByMemberId),
       ),
     );

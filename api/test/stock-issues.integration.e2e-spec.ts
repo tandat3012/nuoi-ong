@@ -46,6 +46,7 @@ type Detail = {
 // Real PostgreSQL transactions on separate connections; only farm authorization
 // is stubbed. Fixtures belong to a unique farm and are removed after the suite.
 import { numberingYear } from '../src/modules/warehouses/stock-document-code';
+import { WAREHOUSE_MANAGE_ROLES } from '../src/modules/auth/farm-access/farm-role-groups';
 describe('Stock Issue HTTP and PostgreSQL consistency', () => {
   const tag = `issue-test-${randomUUID().slice(0, 8)}`;
   const pool = new Pool({
@@ -1580,7 +1581,12 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
     const draft = await create([line('2')]);
     access.mockRejectedValueOnce(new ForbiddenException('Read only'));
     await confirm(draft.issue.id).expect(403);
-    expect(access).toHaveBeenLastCalledWith(farm, tag, true);
+    expect(access).toHaveBeenLastCalledWith(
+      farm,
+      tag,
+      true,
+      WAREHOUSE_MANAGE_ROLES,
+    );
     await http()
       .post(`/stock-issues/${draft.issue.id}/confirm`)
       .query({ farmId: randomUUID() })

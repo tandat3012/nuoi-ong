@@ -34,6 +34,7 @@ import {
   PersonnelStatusDto,
   PersonnelWarehousesDto,
   WorkProfileDto,
+  personnelRoleCodes,
 } from './dto/personnel.dto';
 import { PersonnelService } from './personnel.service';
 
@@ -74,11 +75,7 @@ export class PersonnelController {
           ['ACTIVE', 'INACTIVE'] as const,
           'status',
         ),
-        role: parseOptionalEnum(
-          role,
-          ['ADMIN', 'FARM_OWNER', 'EMPLOYEE', 'GUEST'],
-          'role',
-        ),
+        role: parseOptionalEnum(role, ['ADMIN', ...personnelRoleCodes], 'role'),
         warehouseId: warehouseId
           ? requireUuid(warehouseId, 'warehouseId')
           : undefined,

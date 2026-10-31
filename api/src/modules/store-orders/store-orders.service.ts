@@ -48,6 +48,10 @@ import {
   stockQuantity,
 } from './store-order.rules';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import {
+  STORE_MANAGE_ROLES,
+  hasAnyRole,
+} from '../auth/farm-access/farm-role-groups';
 
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -978,11 +982,7 @@ export class StoreOrdersService {
     await this.assertStoreFarm(farmId);
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
-    if (
-      !roleCodes.some((role) =>
-        ['ADMIN', 'FARM_OWNER', 'EMPLOYEE'].includes(role),
-      )
-    )
+    if (!hasAnyRole(roleCodes, STORE_MANAGE_ROLES))
       throw new ForbiddenException('Order processing permission is required');
     return memberId;
   }

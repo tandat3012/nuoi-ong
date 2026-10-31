@@ -80,6 +80,7 @@ export class FarmAccessGuard implements CanActivate {
       throw new ForbiddenException('User does not have the required farm role');
     }
 
+    request.farmRoleCodes = activeRoles;
     return true;
   }
 }

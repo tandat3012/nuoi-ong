@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   parseOptionalEnum,
   parsePagination,
@@ -30,6 +38,9 @@ import {
   ApiUuidParam,
   ApiUuidQuery,
 } from '../../common/swagger-docs';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const ADJUSTMENT_STATUSES = [
   'PENDING_APPROVAL',
@@ -83,6 +94,9 @@ const adjustmentResultSchema = {
 };
 
 @Controller('inventory/adjustments')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Tồn kho')
 @ApiBearerAuth('clerk-jwt')
 @ApiUnauthorizedResponse({

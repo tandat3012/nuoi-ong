@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DatabaseService } from '../../db/database.service';
+import {
+  STOCK_WRITE_ROLES,
+  STORE_MANAGE_ROLES,
+  hasAnyRole,
+} from '../auth/farm-access/farm-role-groups';
 
-export type DashboardSummary = {
+type Summary = {
   /** Whole VND: on-hand quantity × the item's latest confirmed receipt price (quantity-weighted across that receipt's lines). */
   stockValue: string;
   /** Items in stock with no priced confirmed receipt, left out of stockValue. */
@@ -15,6 +20,10 @@ export type DashboardSummary = {
   ordersToday: number;
   ordersPending: number;
 };
+/** Fields outside the caller's area (farm operations or store) are null. */
+export type DashboardSummary = { [K in keyof Summary]: Summary[K] | null };
+
+const STORE_FIELDS = ['ordersToday', 'ordersPending'] as const;
 
 const EXPIRY_WINDOW_DAYS = 30;
 
@@ -22,7 +31,10 @@ const EXPIRY_WINDOW_DAYS = 30;
 export class DashboardService {
   constructor(private readonly databaseService: DatabaseService) {}
 
-  async summary(farmId: string): Promise<DashboardSummary> {
+  async summary(
+    farmId: string,
+    roleCodes: string[],
+  ): Promise<DashboardSummary> {
     const today = sql`(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`;
     const result = await this.databaseService.db.execute<
       Record<keyof DashboardSummary, string | number>
@@ -82,6 +94,13 @@ export class DashboardService {
         (SELECT count(*)::int FROM store_orders
           WHERE farm_id = ${farmId} AND status = 'PENDING') AS "ordersPending"
     `);
-    return result.rows[0] as DashboardSummary;
+    const row = { ...result.rows[0] } as DashboardSummary;
+    const canSeeFarm = hasAnyRole(roleCodes, STOCK_WRITE_ROLES);
+    const canSeeStore = hasAnyRole(roleCodes, STORE_MANAGE_ROLES);
+    for (const key of Object.keys(row) as (keyof DashboardSummary)[]) {
+      const isStoreField = (STORE_FIELDS as readonly string[]).includes(key);
+      if (isStoreField ? !canSeeStore : !canSeeFarm) row[key] = null;
+    }
+    return row;
   }
 }

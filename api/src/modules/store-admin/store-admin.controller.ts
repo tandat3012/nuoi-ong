@@ -63,16 +63,17 @@ import {
   STORE_IMAGE_MAX_BYTES,
   StoreAdminService,
 } from './store-admin.service';
+import { STORE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 
 @Controller('store-admin')
 @UseGuards(FarmAccessGuard)
-@FarmRoles('ADMIN', 'FARM_OWNER')
+@FarmRoles(...STORE_MANAGE_ROLES)
 @ApiTags('Quản trị cửa hàng')
 @ApiBearerAuth('clerk-jwt')
 @ApiFarmIdQuery()
 @ApiForbiddenResponse({
   description:
-    'Chỉ quản trị viên hoặc chủ trang trại sở hữu kho bán hàng được quản trị cửa hàng.',
+    'Chỉ quản trị viên, chủ trang trại hoặc quản lý cửa hàng của trại sở hữu kho bán hàng.',
 })
 export class StoreAdminController {
   constructor(private readonly storeAdminService: StoreAdminService) {}
@@ -301,6 +302,21 @@ export class StoreAdminController {
       requireUuid(farmId, 'farmId'),
       requireUuid(id, 'id'),
       requireUuid(imageId, 'imageId'),
+    );
+  }
+
+  @Get('items')
+  @ApiOperation({
+    summary: 'Tra cứu vật tư để gắn quy cách bán (chỉ mã, tên, đơn vị)',
+  })
+  @ApiSearchQuery()
+  lookupItems(
+    @Query('farmId') farmId: string,
+    @Query('search') search?: string,
+  ) {
+    return this.storeAdminService.lookupItems(
+      requireUuid(farmId, 'farmId'),
+      normalizeSearch(search),
     );
   }
 
