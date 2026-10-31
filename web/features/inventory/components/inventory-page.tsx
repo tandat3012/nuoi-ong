@@ -16,6 +16,8 @@ import { Combobox } from "@/shared/components/ui/combobox";
 import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
+import { canCreateStockDocuments } from "@/features/stock-documents/stock-document.logic";
 
 export function InventoryPage({
   initialFilters,
@@ -33,7 +35,7 @@ export function InventoryPage({
       farmId={selectedFarmId}
       initialFilters={initialFilters}
       canWrite={canWrite}
-      canRequest={canWrite || (membership?.roles.includes("EMPLOYEE") ?? false)}
+      canRequest={canCreateStockDocuments(membership?.roles ?? [])}
       view={view}
       onChangeView={setView}
     />
@@ -52,7 +54,7 @@ function FarmInventoryPage({
 }: {
   farmId: string;
   initialFilters: Pick<InventoryFilters, "warehouseId" | "itemId">;
-  /** ADMIN / FARM_OWNER: adjust directly and approve requests. */
+  /** Warehouse managers and owners: adjust directly and approve requests. */
   canWrite: boolean;
   /** Also true for EMPLOYEE, whose adjustments wait for approval. */
   canRequest: boolean;
@@ -324,7 +326,7 @@ function CurrentBalancesView({
       )}
 
       {isLoading ? (
-        <p role="status">Đang tải tồn kho...</p>
+        <BeeLoader label="Đang tải tồn kho..." />
       ) : error ? (
         <div
           role="alert"

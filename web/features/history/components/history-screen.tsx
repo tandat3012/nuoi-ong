@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthContext, useFarmMembership } from "@/features/auth";
-import { canApproveStockDocuments, canCreateStockDocuments } from "@/features/stock-documents/stock-document.logic";
+import { FARM_ADMIN_ROLES, hasAnyRole } from "@/features/auth/farm-roles";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Input } from "@/shared/components/ui/input";
@@ -14,14 +14,15 @@ import {
   historyEntityIdError, historyErrorMessage, historyHref, parseHistoryQuery,
 } from "../history.logic";
 import { HistoryList } from "./history-list";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function HistoryScreen() {
   const { selectedFarmId, isLoading, error } = useAuthContext();
-  const { membership } = useFarmMembership();
-  if (isLoading) return <p role="status">Đang tải thông tin trang trại…</p>;
+  const { membership, canViewHistory } = useFarmMembership();
+  if (isLoading) return <BeeLoader label="Đang tải thông tin trang trại…" />;
   if (error) return <ErrorAlert message="Không thể tải quyền truy cập trang trại. Vui lòng tải lại trang." />;
   if (!selectedFarmId || !membership) return <p role="status">Vui lòng chọn trang trại để xem lịch sử thay đổi.</p>;
-  if (!canCreateStockDocuments(membership.roles)) return <ErrorAlert message={historyErrorMessage(403, "")} />;
+  if (!canViewHistory) return <ErrorAlert message={historyErrorMessage(403, "")} />;
   return <FarmHistoryScreen key={`${selectedFarmId}:${membership.roles.join(",")}`} farmId={selectedFarmId} roles={membership.roles} />;
 }
 
@@ -56,7 +57,7 @@ function FarmHistoryScreen({ farmId, roles }: { farmId: string; roles: readonly 
     <div className="min-w-0 space-y-6">
       <PageHeader title="Lịch sử thay đổi" description="Theo dõi người thao tác và dữ liệu thay đổi trong trang trại."
         actions={<Button variant="outline" onClick={() => setRevision((value) => value + 1)}>Tải lại</Button>} />
-      {!canApproveStockDocuments(roles) && (
+      {!hasAnyRole(roles, FARM_ADMIN_ROLES) && (
         <p className="text-sm text-muted-foreground">Bạn chỉ xem được lịch sử của phiếu và yêu cầu do mình tạo.</p>
       )}
       <form key={historyHref(query)} onSubmit={applyFilters} onChange={() => setFilterError(null)}

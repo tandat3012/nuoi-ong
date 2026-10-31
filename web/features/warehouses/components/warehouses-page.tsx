@@ -14,6 +14,7 @@ import { Badge } from '@/shared/components/ui/badge';
 import { ErrorAlert } from '@/shared/components/ui/error-alert';
 import { Card } from '@/shared/components/ui/card';
 import { RotateCcw, Plus, AlertCircle } from 'lucide-react';
+import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
 export function WarehousesPage() {
   const { selectedFarmId } = useAuthContext();
@@ -142,9 +143,7 @@ function FarmWarehousesPage() {
       (isDetailLoading || detailError || !selectedWarehouse) ? (
         <Card className="p-6">
           {isDetailLoading ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              Đang tải chi tiết kho...
-            </p>
+            <BeeLoader label="Đang tải chi tiết kho..." size="sm" />
           ) : (
             <div role="alert" className="space-y-3">
               <div className="flex items-center gap-2 text-destructive font-medium text-sm">
@@ -198,9 +197,7 @@ function FarmWarehousesPage() {
         </Card>
       ) : viewMode === 'create' || viewMode === 'edit' ? (
         viewMode === 'edit' && (isDetailLoading || !selectedWarehouse) ? (
-          <p role="status" className="text-sm text-muted-foreground p-4">
-            Đang tải thông tin kho...
-          </p>
+          <BeeLoader label="Đang tải thông tin kho..." />
         ) : (
           <WarehouseForm
             key={`${viewMode}:${selectedWarehouse?.id ?? 'new'}`}

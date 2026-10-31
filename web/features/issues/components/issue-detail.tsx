@@ -25,6 +25,7 @@ import {
   NumberingDetails,
 } from "@/features/stock-documents";
 import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function IssueDetail({
   farmId,
@@ -124,7 +125,7 @@ export function IssueDetail({
         </p>
       )}
       {isLoading ? (
-        <p role="status">Đang tải chi tiết phiếu xuất...</p>
+        <BeeLoader label="Đang tải chi tiết phiếu xuất..." />
       ) : error ? (
         <div
           role="alert"

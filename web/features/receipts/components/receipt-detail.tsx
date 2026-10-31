@@ -21,6 +21,7 @@ import {
 import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
 import { documentCodeLabel, NumberingDetails } from '@/features/stock-documents';
 import { formatInventoryQuantity } from "@/features/inventory";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 const date = (value: string | null) =>
   value ? value.split("-").reverse().join("/") : "—";
@@ -156,7 +157,7 @@ export function ReceiptDetail({
         }
       />
       {isLoading ? (
-        <p role="status">Đang tải chi tiết phiếu nhập...</p>
+        <BeeLoader label="Đang tải chi tiết phiếu nhập..." />
       ) : error ? (
         <div
           role="alert"

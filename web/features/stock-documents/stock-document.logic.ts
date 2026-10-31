@@ -1,3 +1,9 @@
+import {
+  STOCK_WRITE_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+  hasAnyRole,
+} from "../auth/farm-roles.ts";
+
 export type StockDocumentStatus =
   | "DRAFT"
   | "COUNTING"
@@ -40,13 +46,11 @@ export function createStockDocumentLock(onChange: (locked: boolean) => void) {
 }
 
 export function canApproveStockDocuments(roles: readonly string[]) {
-  return roles.some((role) => role === "ADMIN" || role === "FARM_OWNER");
+  return hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES);
 }
 
 export function canCreateStockDocuments(roles: readonly string[]) {
-  return (
-    canApproveStockDocuments(roles) || roles.some((role) => role === "EMPLOYEE")
-  );
+  return hasAnyRole(roles, STOCK_WRITE_ROLES);
 }
 
 /**

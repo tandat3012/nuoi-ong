@@ -29,6 +29,7 @@ import {
 } from "../types";
 import { CustomerList } from "./customer-list";
 import { PersonnelCreate } from "./personnel-create";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function PersonnelList({
   farmId,
@@ -183,7 +184,7 @@ export function PersonnelList({
               }}
             />
           </div>
-          {!current && <p role="status">Đang tải nhân sự…</p>}
+          {!current && <BeeLoader label="Đang tải nhân sự…" />}
           {current?.error && (
             <ErrorAlert
               message={current.error}

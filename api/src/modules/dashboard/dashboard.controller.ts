@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -11,9 +11,15 @@ import { requireUuid } from '../../common/query-params';
 import { ApiFarmIdQuery } from '../../common/swagger-docs';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import {
+  STOCK_WRITE_ROLES,
+  STORE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
+import type { AuthRequest } from '../auth/clerk/types/auth-request.type';
 import { DashboardService } from './dashboard.service';
 
-const count = { type: 'integer', example: 0 };
+// Null when the caller's roles do not cover that area (farm operations or store).
+const count = { type: 'integer', example: 0, nullable: true };
 
 @Controller('dashboard')
 @ApiTags('Tổng quan')
@@ -23,8 +29,8 @@ export class DashboardController {
 
   @Get('summary')
   @UseGuards(FarmAccessGuard)
-  // Stock value and order counts are staff data; GUEST members only get the hub links.
-  @FarmRoles('ADMIN', 'FARM_OWNER', 'EMPLOYEE')
+  // Staff data; GUEST members only get the hub links. Fields outside the caller's area come back null.
+  @FarmRoles(...new Set([...STOCK_WRITE_ROLES, ...STORE_MANAGE_ROLES]))
   @ApiOperation({ summary: 'Chỉ số tổng quan của trang trại' })
   @ApiFarmIdQuery()
   @ApiOkResponse({
@@ -36,7 +42,7 @@ export class DashboardController {
         data: {
           type: 'object',
           properties: {
-            stockValue: { type: 'string', example: '12500000' },
+            stockValue: { type: 'string', example: '12500000', nullable: true },
             unpricedItems: count,
             belowMinimum: count,
             expiringLots: count,
@@ -52,12 +58,17 @@ export class DashboardController {
   })
   @ApiBadRequestResponse({ description: 'farmId không hợp lệ.' })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên, chủ trang trại hoặc nhân viên.',
+    description:
+      'Chỉ quản trị viên, chủ trang trại, quản lý kho, quản lý cửa hàng hoặc nhân viên.',
   })
-  async summary(@Query('farmId') farmIdValue?: string) {
+  async summary(
+    @Req() request: AuthRequest,
+    @Query('farmId') farmIdValue?: string,
+  ) {
     return {
       data: await this.dashboardService.summary(
         requireUuid(farmIdValue, 'farmId'),
+        request.farmRoleCodes ?? [],
       ),
     };
   }

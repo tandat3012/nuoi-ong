@@ -20,6 +20,12 @@ import {
   users,
   warehouses,
 } from '../../db/schema';
+import {
+  FARM_ADMIN_ROLES,
+  STOCK_WRITE_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+  hasAnyRole,
+} from '../auth/farm-access/farm-role-groups';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 
@@ -102,7 +108,12 @@ export class WarehousesService {
     clerkUserId: string,
     input: CreateWarehouseDto,
   ) {
-    await this.assertFarmAccess(farmId, clerkUserId, true);
+    await this.assertFarmAccess(
+      farmId,
+      clerkUserId,
+      true,
+      WAREHOUSE_MANAGE_ROLES,
+    );
     try {
       const [warehouse] = await this.databaseService.db
         .insert(warehouses)
@@ -127,7 +138,12 @@ export class WarehousesService {
     clerkUserId: string,
     input: UpdateWarehouseDto,
   ) {
-    await this.assertFarmAccess(farmId, clerkUserId, true);
+    await this.assertFarmAccess(
+      farmId,
+      clerkUserId,
+      true,
+      WAREHOUSE_MANAGE_ROLES,
+    );
     if (!this.hasDefinedValue(input)) {
       throw new BadRequestException('At least one field must be provided');
     }
@@ -158,7 +174,12 @@ export class WarehousesService {
   }
 
   async deleteWarehouse(id: string, farmId: string, clerkUserId: string) {
-    await this.assertFarmAccess(farmId, clerkUserId, true);
+    await this.assertFarmAccess(
+      farmId,
+      clerkUserId,
+      true,
+      WAREHOUSE_MANAGE_ROLES,
+    );
     await this.findWarehouse(id, farmId);
     await this.assertCanDeactivate(id, farmId);
 
@@ -170,15 +191,18 @@ export class WarehousesService {
     return warehouse;
   }
 
-  async assertFarmAccess(farmId: string, clerkUserId: string, write: boolean) {
+  /** Management callers pass WAREHOUSE_MANAGE_ROLES; the default stays owner/admin only. */
+  async assertFarmAccess(
+    farmId: string,
+    clerkUserId: string,
+    write: boolean,
+    writeRoles = FARM_ADMIN_ROLES,
+  ) {
     const { memberId, roleCodes } = await this.getActiveMembership(
       farmId,
       clerkUserId,
     );
-    if (
-      write &&
-      !roleCodes.some((code) => ['ADMIN', 'FARM_OWNER'].includes(code))
-    ) {
+    if (write && !hasAnyRole(roleCodes, writeRoles)) {
       throw new ForbiddenException('Warehouse write permission is required');
     }
     return memberId;
@@ -193,10 +217,8 @@ export class WarehousesService {
       farmId,
       clerkUserId,
     );
-    const canApprove = roleCodes.some((code) =>
-      ['ADMIN', 'FARM_OWNER'].includes(code),
-    );
-    if (!canApprove && !roleCodes.includes('EMPLOYEE')) {
+    const canApprove = hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES);
+    if (!hasAnyRole(roleCodes, STOCK_WRITE_ROLES)) {
       throw new ForbiddenException('Stock document permission is required');
     }
     return { memberId, canApprove, isOwner: roleCodes.includes('FARM_OWNER') };

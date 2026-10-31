@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   parseOptionalEnum,
@@ -39,6 +40,9 @@ import {
   OPENAPI_DECIMAL_STRING,
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
+import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
+import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
+import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
 
 const issueSchema = {
   type: 'object',
@@ -104,6 +108,9 @@ const issueDetailSchema = {
 };
 
 @Controller('stock-issues')
+@UseGuards(FarmAccessGuard)
+// Store-only managers have no access to warehouse, asset or maintenance modules.
+@FarmRoles(...FARM_AREA_ROLES)
 @ApiTags('Phiếu xuất kho')
 @ApiBearerAuth('clerk-jwt')
 export class StockIssuesController {

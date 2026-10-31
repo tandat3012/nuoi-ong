@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import request from 'supertest';
@@ -12,6 +12,10 @@ import * as schema from '../src/db/schema';
 import { CLERK_CLIENT } from '../src/modules/auth/clerk/clerk-client.provider';
 import type { StoreOrdersService } from '../src/modules/store-orders/store-orders.service';
 import { StoreOrdersModule } from '../src/modules/store-orders/store-orders.module';
+import { AssetsModule } from '../src/modules/assets/assets.module';
+import { InventoryModule } from '../src/modules/inventory/inventory.module';
+import { MaintenanceModule } from '../src/modules/maintenance/maintenance.module';
+import { WarehousesModule } from '../src/modules/warehouses/warehouses.module';
 import { OrderTestDb, seedOrders } from './store-orders.fixture';
 
 type OrderResponse = {
@@ -39,7 +43,14 @@ describe('Store order HTTP authorization and contract', () => {
         const scoped = tx as unknown as OrderTestDb;
         const ctx = await seedOrders(scoped);
         const module = await Test.createTestingModule({
-          imports: [DatabaseModule, StoreOrdersModule],
+          imports: [
+            DatabaseModule,
+            StoreOrdersModule,
+            WarehousesModule,
+            InventoryModule,
+            AssetsModule,
+            MaintenanceModule,
+          ],
         })
           .overrideProvider(DatabaseService)
           .useValue(ctx.database)
@@ -103,7 +114,7 @@ describe('Store order HTTP authorization and contract', () => {
         .expect(401);
     }));
 
-  it('lets EMPLOYEE list and confirm but forbids statistics and inventory approval', () =>
+  it('lets STORE_MANAGER list, confirm and read statistics but not approve inventory', () =>
     withApp(async ({ ids, service, input }, app) => {
       const http = request(app.getHttpServer());
       const auth = `Bearer ${ids.staff}`;
@@ -125,7 +136,7 @@ describe('Store order HTTP authorization and contract', () => {
         .get('/api/v1/store-orders/stats')
         .query({ farmId: ids.farm })
         .set('Authorization', auth)
-        .expect(403);
+        .expect(200);
       await http
         .post(
           `/api/v1/stock-issues/${(confirmed.body as OrderResponse).data.stockIssue.id}/confirm`,
@@ -176,12 +187,71 @@ describe('Store order HTTP authorization and contract', () => {
         .expect(403);
     }));
 
+  it('no longer lets EMPLOYEE manage orders', () =>
+    withApp(async ({ ids }, app, tx) => {
+      const [storeManager] = await tx
+        .select()
+        .from(schema.roles)
+        .where(eq(schema.roles.code, 'STORE_MANAGER'));
+      // Leaves the staff member with EMPLOYEE only.
+      await tx
+        .delete(schema.farmMemberRoles)
+        .where(
+          and(
+            eq(schema.farmMemberRoles.farmMemberId, ids.member),
+            eq(schema.farmMemberRoles.roleId, storeManager.id),
+          ),
+        );
+      const http = request(app.getHttpServer());
+      await http
+        .get('/api/v1/store-orders')
+        .query({ farmId: ids.farm })
+        .set('Authorization', `Bearer ${ids.staff}`)
+        .expect(403);
+    }));
+
+  it('keeps a store-only manager out of warehouse, asset and maintenance routes', () =>
+    withApp(async ({ ids }, app, tx) => {
+      const [employee] = await tx
+        .select()
+        .from(schema.roles)
+        .where(eq(schema.roles.code, 'EMPLOYEE'));
+      // Leaves the staff member with STORE_MANAGER only.
+      await tx
+        .delete(schema.farmMemberRoles)
+        .where(
+          and(
+            eq(schema.farmMemberRoles.farmMemberId, ids.member),
+            eq(schema.farmMemberRoles.roleId, employee.id),
+          ),
+        );
+      const http = request(app.getHttpServer());
+      await http
+        .get('/api/v1/store-orders')
+        .query({ farmId: ids.farm })
+        .set('Authorization', `Bearer ${ids.staff}`)
+        .expect(200);
+      for (const path of [
+        '/api/v1/warehouses',
+        '/api/v1/stock-issues',
+        '/api/v1/inventory/adjustments',
+        '/api/v1/assets',
+        '/api/v1/maintenance-records',
+        '/api/v1/maintenance-requests',
+      ])
+        await http
+          .get(path)
+          .query({ farmId: ids.farm })
+          .set('Authorization', `Bearer ${ids.staff}`)
+          .expect(403);
+    }));
+
   it('checks the selling farm even for a member of another farm', () =>
     withApp(async ({ ids }, app, tx) => {
       const [role] = await tx
         .select()
         .from(schema.roles)
-        .where(eq(schema.roles.code, 'EMPLOYEE'));
+        .where(eq(schema.roles.code, 'STORE_MANAGER'));
       const [member] = await tx
         .insert(schema.farmMembers)
         .values({ userId: ids.staff, farmId: ids.otherFarm })

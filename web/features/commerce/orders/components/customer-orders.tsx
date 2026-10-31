@@ -11,6 +11,7 @@ import { getCustomerOrders } from "../orders.api";
 import { formatOrderMoney, orderErrorMessage } from "../order.logic";
 import type { CustomerOrder } from "../types/order";
 import { OrderStatusBadge, PaymentStatusBadge } from "./order-presentation";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function CustomerOrders() {
   const request = useAuthenticatedRequest();
@@ -58,7 +59,7 @@ export function CustomerOrders() {
           Tải lại
         </Button>
       </div>
-      {!current && <p role="status">Đang tải đơn hàng…</p>}
+      {!current && <BeeLoader label="Đang tải đơn hàng…" />}
       {current?.error && (
         <ErrorAlert
           message={current.error}

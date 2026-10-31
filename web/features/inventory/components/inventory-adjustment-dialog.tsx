@@ -28,6 +28,7 @@ import { Select } from "@/shared/components/ui/select";
 import { Combobox } from "@/shared/components/ui/combobox";
 import { Input } from "@/shared/components/ui/input";
 import { Button } from "@/shared/components/ui/button";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 type StockLookup = {
   key: string;
@@ -501,9 +502,7 @@ export function InventoryAdjustmentDialog({
           </div>
         )}
         {references.isLoading && !references.error && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Đang tải danh sách vật tư và kho...
-          </p>
+          <BeeLoader label="Đang tải danh sách vật tư và kho..." size="sm" />
         )}
         {references.lotsError && (
           <div

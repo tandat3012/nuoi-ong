@@ -16,6 +16,7 @@ import {
   maintenanceRequests,
   users,
 } from '../../db/schema';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -54,7 +55,10 @@ export function documentPushEligibility() {
     WHERE push_member.user_id = ${notifications.userId}
       AND push_member.farm_id = ${notifications.farmId}
       AND push_member.status = 'ACTIVE'
-      AND push_role.code IN ('ADMIN', 'FARM_OWNER')
+      AND push_role.code IN (${sql.join(
+        WAREHOUSE_MANAGE_ROLES.map((code) => sql`${code}`),
+        sql`, `,
+      )})
   )`;
   const documentConditions = documents.map(
     ({ type, table }) => sql`(

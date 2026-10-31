@@ -17,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { getCatalogRecords, saveCatalogRecord } from '../api/catalog.api';
 import { canWriteCatalog, catalogError, catalogFieldValue, catalogPayload } from '../catalog.logic';
 import type { CatalogField, CatalogRecord, CatalogResource, CatalogResourceKey } from '../types/catalog';
+import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
 const LOCATION_TYPES = [
   ['WAREHOUSE', 'Kho'],
@@ -57,7 +58,7 @@ const RESOURCES: readonly CatalogResource[] = [
 export function CatalogScreen() {
   const { selectedFarmId, data, isLoading, error } = useAuthContext();
   const [tab, setTab] = useState<CatalogResourceKey>('suppliers');
-  if (isLoading) return <p role="status">Đang tải thông tin trang trại…</p>;
+  if (isLoading) return <BeeLoader label="Đang tải thông tin trang trại…" />;
   if (error) return <ErrorAlert message="Không thể tải quyền truy cập trang trại. Vui lòng tải lại trang." />;
   if (!selectedFarmId) return <p role="status">Vui lòng chọn trang trại để xem danh mục.</p>;
   const roles = data.memberships.find(({ farm }) => farm.id === selectedFarmId)?.roles ?? [];
@@ -125,10 +126,10 @@ function CatalogTable({ farmId, resource, canWrite }: { farmId: string; resource
     <section className="space-y-4 rounded-xl border bg-card p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <Input aria-label={`Tìm ${resource.label.toLowerCase()}`} placeholder="Tìm theo mã hoặc tên" value={search} onChange={(event) => { setPage(1); setSearch(event.target.value); }} className="md:max-w-xs" />
-        {canWrite ? <Button onClick={() => setEditing('new')}>Thêm {resource.label.toLowerCase()}</Button> : <p className="text-sm text-muted-foreground">{resource.shared ? 'Chỉ quản trị viên (ADMIN) được sửa danh mục dùng chung.' : 'Chỉ quản trị viên hoặc chủ trang trại được sửa.'}</p>}
+        {canWrite ? <Button onClick={() => setEditing('new')}>Thêm {resource.label.toLowerCase()}</Button> : <p className="text-sm text-muted-foreground">{resource.shared ? 'Chỉ quản trị viên (ADMIN) được sửa danh mục dùng chung.' : 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho được sửa.'}</p>}
       </div>
       {actionError && <ErrorAlert message={actionError} />}
-      {!result ? <p role="status" className="text-sm text-muted-foreground">Đang tải…</p> : result.error ? <ErrorAlert message={result.error} /> : result.rows.length === 0 ? <p className="text-sm text-muted-foreground">Chưa có dữ liệu.</p> : (
+      {!result ? <BeeLoader label="Đang tải…" size="sm" /> : result.error ? <ErrorAlert message={result.error} /> : result.rows.length === 0 ? <p className="text-sm text-muted-foreground">Chưa có dữ liệu.</p> : (
         <Table>
           <TableHeader><TableRow>{resource.columns.map((column) => <TableHead key={column.name}>{column.label}</TableHead>)}<TableHead>Trạng thái</TableHead>{canWrite && <TableHead className="text-right">Thao tác</TableHead>}</TableRow></TableHeader>
           <TableBody>

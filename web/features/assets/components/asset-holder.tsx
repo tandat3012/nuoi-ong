@@ -7,6 +7,7 @@ import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { getAssetHolder } from "../api/assets.api";
 import { assetError } from "../asset.logic";
 import type { AssetHolder } from "../types/asset";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function AssetHolderCard({
   farmId,
@@ -49,9 +50,7 @@ export function AssetHolderCard({
         Người đang giữ
       </h2>
       {!current ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Đang tải cấp phát…
-        </p>
+        <BeeLoader label="Đang tải cấp phát…" size="sm" />
       ) : current.error ? (
         <ErrorAlert
           message={current.error}

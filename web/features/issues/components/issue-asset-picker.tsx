@@ -9,6 +9,7 @@ import type { IssueAssetReference } from "../types/issue";
 import { isIssueAssetAvailable } from "./issue-draft.logic";
 import { Input } from "@/shared/components/ui/input";
 import { Button } from "@/shared/components/ui/button";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export type IssueAssetChoice = {
   id: string;
@@ -188,7 +189,7 @@ export function IssueAssetPicker({
             </Button>
           </div>
           {!current ? (
-            <p role="status">Đang tải tài sản...</p>
+            <BeeLoader label="Đang tải tài sản..." size="sm" />
           ) : current.error ? (
             <div role="alert">
               <p>{current.error}</p>

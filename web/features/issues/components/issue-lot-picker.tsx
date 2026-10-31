@@ -8,6 +8,7 @@ import type { IssueLotSuggestion } from "../types/issue";
 import { selectableIssueLotSuggestions } from "./issue-draft.logic";
 import { Button } from "@/shared/components/ui/button";
 import { formatInventoryQuantity } from "@/features/inventory";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export type IssueLotChoice = {
   id: string;
@@ -109,11 +110,14 @@ export function IssueLotPicker({
       {!warehouseId ? (
         <p role="status">Chọn kho xuất trước khi chọn lô.</p>
       ) : !current ? (
-        <p role="status">
-          {selected
-            ? "Đang kiểm tra tình trạng lô đã lưu..."
-            : "Đang tải lô khả dụng..."}
-        </p>
+        <BeeLoader
+          size="sm"
+          label={
+            selected
+              ? "Đang kiểm tra tình trạng lô đã lưu..."
+              : "Đang tải lô khả dụng..."
+          }
+        />
       ) : current.error ? (
         <div role="status" className="space-y-1">
           <p>{current.error}</p>

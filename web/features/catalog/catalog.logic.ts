@@ -1,8 +1,9 @@
 import type { CatalogField, CatalogRecord, CatalogResource } from './types/catalog';
+import { WAREHOUSE_MANAGE_ROLES, hasAnyRole } from '../auth/farm-roles.ts';
 
-/** Who may write a resource: shared lists need ADMIN, farm lists need ADMIN or FARM_OWNER. */
+/** Who may write a resource: shared lists need ADMIN, farm lists a warehouse manager role. */
 export function canWriteCatalog(resource: Pick<CatalogResource, 'shared'>, roles: readonly string[]) {
-  return resource.shared ? roles.includes('ADMIN') : roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER');
+  return resource.shared ? roles.includes('ADMIN') : hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES);
 }
 
 /** Form values to a request body; blank optional fields become null so they clear on edit. */

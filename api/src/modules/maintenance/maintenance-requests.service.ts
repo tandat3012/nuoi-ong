@@ -32,6 +32,7 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { CreateMaintenanceRequestDto } from './dto/maintenance-request.dto';
 import { MaintenanceService } from './maintenance.service';
 
@@ -341,7 +342,7 @@ export class MaintenanceRequestsService {
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
     const conditions = [eq(maintenanceRequests.farmId, farmId)];
-    if (!roleCodes.some((code) => ['ADMIN', 'FARM_OWNER'].includes(code)))
+    if (!roleCodes.some((code) => WAREHOUSE_MANAGE_ROLES.includes(code)))
       conditions.push(eq(maintenanceRequests.requestedByMemberId, memberId));
     return conditions;
   }
@@ -351,6 +352,7 @@ export class MaintenanceRequestsService {
       farmId,
       clerkUserId,
       true,
+      WAREHOUSE_MANAGE_ROLES,
     );
     const [member] = await this.databaseService.db
       .select({ userId: farmMembers.userId })

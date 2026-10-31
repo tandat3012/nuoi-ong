@@ -15,6 +15,7 @@ import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Select } from "@/shared/components/ui/select";
 import { canCreateStockDocuments } from "@/features/stock-documents";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function IssuesPage() {
   const { selectedFarmId } = useAuthContext();
@@ -115,7 +116,7 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
         </Select></div>
       </div>
       {isLoading ? (
-        <p role="status">Đang tải danh sách phiếu xuất...</p>
+        <BeeLoader label="Đang tải danh sách phiếu xuất..." />
       ) : error ? (
         <div
           role="alert"

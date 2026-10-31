@@ -12,6 +12,7 @@ import { getAssetChoices } from "../api/assets.api";
 import { assetError } from "../asset.logic";
 import type { AssetChoice, AssetLookupKind } from "../types/asset";
 import styles from "./asset-lookup.module.css";
+import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function AssetLookup({
   farmId,
@@ -182,9 +183,7 @@ export function AssetLookup({
         </div>
         {open &&
           (!current ? (
-            <p role="status" className="p-4 text-sm text-muted-foreground">
-              Đang tải lựa chọn…
-            </p>
+            <BeeLoader label="Đang tải lựa chọn…" size="sm" />
           ) : current.error ? (
             <ErrorAlert
               className="m-3"

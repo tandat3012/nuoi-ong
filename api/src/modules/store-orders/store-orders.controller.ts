@@ -27,10 +27,11 @@ import {
 } from './dto/store-order.dto';
 import { orderDateRange } from './store-order.query';
 import { StoreOrdersService } from './store-orders.service';
+import { STORE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 
 @Controller('store-orders')
 @UseGuards(FarmAccessGuard)
-@FarmRoles('ADMIN', 'FARM_OWNER', 'EMPLOYEE')
+@FarmRoles(...STORE_MANAGE_ROLES)
 @ApiTags('Quản lý đơn hàng')
 @ApiBearerAuth('clerk-jwt')
 @ApiFarmIdQuery()
@@ -68,7 +69,6 @@ export class StoreOrdersController {
   }
 
   @Get('stats')
-  @FarmRoles('ADMIN', 'FARM_OWNER')
   async stats(
     @Query('farmId') farmId: string,
     @Query('from') from?: string,
