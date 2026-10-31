@@ -7,6 +7,7 @@ import { AppShell, Card, Icon, PageHeader, Pill, SectionTitle } from '@/src/shar
 import { colors, dimensions, radius, spacing, typography } from '@/src/core/theme/tokens';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { formatQuantity } from '@/src/shared/format-quantity';
+import { formatApiDateTime as formatDateTime } from '@/src/shared/format-date-time';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
 import { listBalances, listWarehouses, type Paginated, type StockIssue, type StockReceipt } from '@/src/features/inventory/api';
@@ -14,8 +15,6 @@ import { listAuditLogs, type AuditLog } from '@/src/features/activity/api';
 
 const honeyImage = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBcFTg3NHhZT19Pgto7IjhPfrsqK7lAsHctJe-0YtEaBDDigmmrx8Lxtt17FslOR8ksf7XQCeEjtqMzDJoaWsi1jZ43c6SBfYE10cgNAYRixQzSa0Jh3i9t1N4hQWj6ZA1N0XvwHyj-kRho2h2L2a6_mwaqcszJI-_KgHpcym0A-6foeyTQFanrB3CRTQkTbB02LiKrcRrQhVkqeiDoAEqHvUOqaE93PofHmRMHoTEoanwHHjSqSK7m1Q';
 const warehouseImage = 'https://lh3.googleusercontent.com/aida-public/AB6AXuA0ssHRhDE29HtefOBLT_h8b7BV0zqL9eroB8E2SN1qFZwHiwpMX8_0AZtEqjMFvv7fbZbNb1ICdPIeOFY3CmyCBpWvCWFxYL9jWzIypEtoqqXInBaTdjmvQrvw9lHpUFvTM2cE2-zR2aYkXx85HOsIf4akGkTtdRflbUJPHpuskzlQ12lMygdsXvSV-_B1IWrDlj7NXb8xt_gBSZVVFNnBTVBRGOC7Z6uIqQqWtsld7SWgOKoQruXavg';
-const farmImage = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBb_MRRQSULZVH-tdLML-KDpqN-N4_Q0XNi2f3igKldc5om0J3_zWEyDXjpJT8lcuWHrhPCv-o7-Z_Fyh_s5I2JcOerjQX-xwTMhqFxk7SsHxV936R_0d44Y64GbwmSH6NGFPpNp9kUMlVgHQT2dPmLFQvVjxBtJp-qwqgCPYR8TS7XNMBPMtmTKX-d2mRcE9-150iVpGozN4wbYj4gRnwkL2LEz6jyOXu7tLVb6eTx82MJFVktcEQolg';
-const honeycombBorderImage = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBKySLYr_2aB1HqM6wOg1d_bAjSbFQd2SibqjBOFrHHnz0-AUgzUguTCrq85FmurMSO6uJcxfVt4vDBd1GJ6dfS6lcHZz0gnWEeklCFbz8XiYR_u0-E8QE2E8TbDrB3pzvRLGapoMRMV3SbSTnMqLDUivF5SDgJnk11QeKunQZt1eY_Fkb4CW9IJ7rwLsOmE74G-baMq627wJYYeEOJ-ezrWKxZ8LdQiBTiPZA_MxaYe9vOU-KyDP-5A';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -41,8 +40,9 @@ export default function DashboardScreen() {
   const membership = selectedMembership ?? (data?.memberships.length === 1 ? data.memberships[0] : undefined);
   const farm = membership?.farm;
   const role = membership?.roles[0] ?? 'GUEST';
-  const userName = data?.user.fullName || data?.user.email || 'Người dùng';
-  const initials = userName.split(/\s+/).slice(-2).map((part) => part[0]).join('').toUpperCase();
+  const roleLabel = { ADMIN: 'Quản trị viên', FARM_OWNER: 'Chủ trại', EMPLOYEE: 'Nhân viên', GUEST: 'Khách' }[role] ?? role;
+  const userName = data?.user.fullName?.trim() || 'Người dùng';
+  const initials = userName.trim().split(/\s+/).slice(-2).map((part) => part[0]).join('').toUpperCase();
   useEffect(() => {
     if ((data?.memberships.length ?? 0) > 1 && !currentFarmId) {
       setPendingFarmId(null);
@@ -111,8 +111,34 @@ export default function DashboardScreen() {
   }, [currentFarmId, getAccessToken, reloadNonce]);
   return <AppShell active="dashboard">
     <PageHeader title={farm?.name ?? 'Chưa chọn trang trại'} subtitle="● Hệ thống quản lý trại • Trực tuyến" action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={sync} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.sync, pressed && styles.pressed]}><Animated.View style={syncTransform}><Icon name="sync" color={colors.primary} /></Animated.View></Pressable></View>} />
-    <Card style={styles.farmCard}><View style={styles.farmTop}><View style={styles.farmMain}><View style={styles.farmBadgeRow}><View style={styles.farmBadge}><Icon name="energy-savings-leaf" size={15} color={colors.primary} /><Text style={styles.farmBadgeText} numberOfLines={2}>Farm hiện tại</Text></View><View style={styles.farmCodePill}><Text style={styles.farmCode} numberOfLines={2}>{farm?.code ?? 'CHƯA CHỌN'}</Text></View></View><Text style={styles.farmTitle} numberOfLines={3}>{farm?.name ?? 'Vui lòng chọn trang trại'}</Text><View style={styles.farmOnlineRow}><Icon name="cloud-done" size={14} color={colors.secondary} filled /><Text style={styles.farmOnline} numberOfLines={3}>Dữ liệu từ membership /auth/me</Text></View></View><View style={styles.farmAside}><Image source={{ uri: farmImage }} style={styles.farmImage} /><Pressable onPress={openFarmSelector} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.switch, pressed && styles.pressed]}><Text style={styles.switchText}>Đổi</Text><Icon name="unfold-more" size={14} color={colors.onSurfaceVariant} /></Pressable></View></View><View style={styles.honeycombStrip}><Image source={{ uri: honeycombBorderImage }} style={styles.honeycombImage} resizeMode="cover" /></View></Card>
-    <Pressable accessibilityRole="button" accessibilityLabel="Mở tài khoản và cài đặt" onPress={() => router.push('/account' as never)} style={({ pressed }) => pressed && styles.pressed}><Card style={styles.profile}><View style={styles.avatar}><Text style={styles.avatarText}>{initials || 'U'}</Text><View style={styles.avatarStatus} /></View><View style={styles.profileCopy}><View style={styles.profileNameRow}><Text style={styles.profileName} numberOfLines={2}>{userName}</Text><Text style={styles.jobBadge} numberOfLines={2}>Tài khoản farm</Text></View><Text style={styles.profileMeta} numberOfLines={2}>{data?.user.email ?? 'Chưa có email'}</Text></View><Pill tone="success"><Icon name="verified-user" size={12} color={colors.statusSuccess} filled /><Text style={styles.role} numberOfLines={2}>{role}</Text></Pill><Icon name="chevron-right" size={18} color={colors.primary} /></Card></Pressable>
+    <Card style={styles.farmCard}>
+      <HoneyCardArtwork />
+      <View style={styles.farmTop}>
+        <View style={styles.farmHeading}>
+          <View style={styles.farmIcon}><Icon name="hive" size={23} color={colors.honey} /></View>
+          <Text style={styles.farmLabel}>Trang trại hiện tại</Text>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Đổi trang trại" onPress={openFarmSelector} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.switch, pressed && styles.pressed]}>
+          <Text style={styles.switchText}>Đổi</Text><Icon name="unfold-more" size={16} color={colors.primary} />
+        </Pressable>
+      </View>
+      <Text style={styles.farmTitle}>{farm?.name ?? 'Vui lòng chọn trang trại'}</Text>
+      <View style={[styles.farmCodeBadge, !farm && styles.farmCodeBadgeEmpty]}>
+        <View style={[styles.farmCodeDot, !farm && styles.farmCodeDotEmpty]} />
+        <Text style={[styles.farmCode, !farm && styles.farmCodeEmpty]}>{farm?.code ?? 'CHƯA CHỌN'}</Text>
+      </View>
+    </Card>
+    <Pressable accessibilityRole="button" accessibilityLabel={`Tài khoản và cài đặt của ${userName}, ${roleLabel}`} onPress={() => router.push('/account' as never)} style={({ pressed }) => pressed && styles.pressed}>
+      <Card style={styles.profile}>
+        <HoneyCardArtwork />
+        <View style={styles.avatar}><Text style={styles.avatarText}>{initials || 'U'}</Text></View>
+        <View style={styles.profileCopy}>
+          <Text style={styles.profileName}>{userName}</Text>
+          <View style={styles.profileRole}><Icon name="verified-user" size={13} color={colors.statusSuccess} filled /><Text style={styles.role}>{roleLabel}</Text></View>
+        </View>
+        <View style={styles.profileSettings}><Icon name="settings" size={19} color={colors.primary} /></View>
+      </Card>
+    </Pressable>
     <Card style={styles.shift}><View style={styles.shiftHead}><View style={styles.shiftTitle}><Icon name="bar-chart" color={colors.primary} /><Text style={styles.shiftName} numberOfLines={3}>Tổng quan vận hành</Text></View><Pill tone={summaryError ? 'danger' : 'success'}><Text style={styles.quality} numberOfLines={2}>{summaryError ? 'Lỗi API' : 'DB trực tuyến'}</Text></Pill></View><View style={styles.shiftStats}><MiniStat label="Mục tồn kho" value={String(summary.balanceCount)} icon="inventory-2" /><MiniStat label="Phiếu chờ duyệt" value={String(summary.pendingCount)} icon="description" tone="amber" badge="Từ DB" /><MiniStat label="Kho đang hoạt động" value={String(summary.warehouseCount)} icon="warehouse" tone="normal" badge="Từ DB" /></View></Card>
     <SectionTitle title="Tác vụ hiện trường" count={`${summary.itemCount} MỤC DB`} />
     <Pressable onPress={() => router.push('/scan' as never)} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.scanAction, pressed && styles.pressed]}><LinearGradient colors={[colors.primary, colors.primaryContainer, colors.secondary]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.scanGradient}><View style={styles.scanIcon}><Icon name="qr-code-scanner" size={25} color={colors.onPrimary} /></View><View style={styles.scanCopy}><View style={styles.scanTitleRow}><Text style={styles.scanTitle} numberOfLines={2}>Quét QR Thùng ong & Thiết bị</Text><Pill tone="cream"><Text style={styles.aiScan}>AI SCAN</Text></Pill></View><Text style={styles.scanMeta} numberOfLines={2}>Tra cứu nhật ký đàn, tầng kế & vị trí đặt</Text></View><View style={styles.scanArrow}><Icon name="arrow-forward" size={21} color={colors.onPrimary} /></View></LinearGradient></Pressable>
@@ -127,16 +153,21 @@ export default function DashboardScreen() {
   </AppShell>;
 }
 
+function HoneyCardArtwork() {
+  return <Image
+    pointerEvents="none"
+    accessible={false}
+    source={require('../../../../app/assets/honey-card-artwork.png')}
+    resizeMode="stretch"
+    style={styles.honeyCardArtwork}
+  />;
+}
+
 function PrimaryAction({ label, onPress }: { label: string; onPress: () => void }) { return <Pressable onPress={onPress} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.sheetButton, pressed && styles.pressed]}><Icon name="check" color={colors.onPrimary} /><Text style={styles.sheetButtonText}>{label}</Text></Pressable>; }
 
 function MiniStat({ label, value, icon, tone = 'normal', progress, badge }: { label: string; value: string; icon: Parameters<typeof Icon>[0]['name']; tone?: 'normal' | 'amber' | 'danger'; progress?: number; badge?: string }) { const tint = tone === 'danger' ? colors.error : tone === 'amber' ? colors.honey : colors.primary; return <View style={styles.miniStat}><View style={styles.miniStatHead}><Text numberOfLines={2} style={styles.miniLabel}>{label}</Text><View style={[styles.miniIcon, { backgroundColor: tone === 'danger' ? colors.errorContainer : tone === 'amber' ? colors.honeyChip : colors.surfaceContainerLow }]}><Icon name={icon} size={18} color={tint} /></View></View><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[styles.miniValue, { color: tint }]}>{value}</Text>{progress !== undefined ? <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: colors.secondary }]} /></View> : <View style={[styles.miniBadge, { backgroundColor: tone === 'danger' ? colors.errorContainer : colors.honeyChip }]}><Text numberOfLines={1} style={[styles.miniBadgeText, { color: tint }]}>{badge}</Text></View>}</View>; }
 function Action({ icon, title, sub, onPress }: { icon: Parameters<typeof Icon>[0]['name']; title: string; sub: string; onPress: () => void }) { return <Pressable onPress={onPress} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.action, pressed && styles.pressed]}><View style={styles.actionIcon}><Icon name={icon} color={colors.primary} /></View><Text style={styles.actionTitle}>{title}</Text><Text style={styles.actionSub}>{sub}</Text></Pressable>; }
   function Activity({ code, status, title, detail, quantity, createdAt, tone }: { code: string; status: string; title: string; detail: string; quantity: string; createdAt: string; tone: 'amber' | 'success' | 'danger' }) { return <Card style={[styles.activity, tone === 'success' && styles.activitySuccess, tone === 'danger' && styles.activityDanger]}><View style={styles.activityHead}><Pill tone="cream"><Text numberOfLines={1} style={styles.activityCode}>{code}</Text></Pill><Text numberOfLines={1} style={styles.activityTime}>◷ {formatDateTime(createdAt)}</Text><Pill tone={tone === 'amber' ? 'amber' : tone === 'success' ? 'success' : 'danger'}><Text numberOfLines={1} style={styles.activityStatus}>{status}</Text></Pill></View><Text numberOfLines={2} style={styles.activityTitle}>{title}</Text><Text numberOfLines={3} style={styles.activityDetail}>{detail}</Text>{quantity ? <View style={styles.activityBottom}><Text numberOfLines={2} style={styles.activityQuantity}>{quantity}</Text></View> : null}</Card>; }
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Chưa có thời gian' : date.toLocaleString('vi-VN');
-}
 
 function toAuditActivity(log: AuditLog) {
   const status = getAuditStatus(log.newData) ?? getAuditStatus(log.oldData) ?? 'ĐÃ GHI';
@@ -170,33 +201,29 @@ function auditEntityLabel(entityType: string) {
 const styles = StyleSheet.create({
   sync: { width: dimensions.iconButton, height: dimensions.iconButton, borderRadius: radius.default, backgroundColor: colors.parchment, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.outlineVariant },
   pressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
-  farmCard: { borderColor: colors.secondaryContainer, backgroundColor: colors.parchmentWarm },
-  honeycombStrip: { height: 16, marginHorizontal: -spacing.spaceMd, marginTop: spacing.spaceSm, overflow: 'hidden', opacity: 0.6, borderRadius: radius.sm },
-  honeycombImage: { width: '100%', height: '100%' },
-  farmTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.spaceMd },
-  farmMain: { flex: 1, minWidth: 0, gap: spacing.spaceSm },
-  farmBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, flexWrap: 'wrap' },
-  farmAside: { alignItems: 'center', gap: spacing.spaceSm },
-  farmImage: { width: 48, height: 48, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.secondaryContainer },
-  farmBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.spaceSm, paddingVertical: 4, backgroundColor: colors.surfaceContainer, borderRadius: radius.full },
-  farmBadgeText: { ...typography.labelSm, color: colors.deepAmber, flexShrink: 1 },
-  farmCodePill: { maxWidth: '100%', paddingHorizontal: spacing.spaceSm, paddingVertical: 2, backgroundColor: colors.honeyChip, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.secondaryContainer },
-  farmCode: { ...typography.labelSm, color: colors.deepAmber },
-  farmTitle: { ...typography.headlineMd, color: colors.deepAmberStrong, flexShrink: 1 },
-  farmOnlineRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
-  farmOnline: { ...typography.labelLg, color: colors.statusSuccess, flexShrink: 1 },
-  switch: { minHeight: 26, paddingHorizontal: spacing.spaceSm, borderRadius: radius.full, backgroundColor: colors.parchment, borderWidth: 1, borderColor: colors.outlineVariant, flexDirection: 'row', alignItems: 'center', gap: 2 },
-  switchText: { ...typography.labelLg, color: colors.onSurfaceVariant },
-  profile: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, borderWidth: 0, backgroundColor: colors.surface },
-  avatar: { width: 52, height: 52, borderRadius: radius.default, backgroundColor: colors.secondary, alignItems: 'center', justifyContent: 'center' },
-  avatarStatus: { position: 'absolute', right: -1, bottom: -1, width: 11, height: 11, borderRadius: radius.full, backgroundColor: colors.statusSuccess, borderWidth: 2, borderColor: colors.surface },
-  avatarText: { ...typography.headlineSm, color: colors.onPrimary },
-  profileCopy: { flex: 1, minWidth: 0 },
-  profileNameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceXs, flexWrap: 'wrap' },
-  profileName: { ...typography.headlineSm, color: colors.deepAmber, flexShrink: 1, minWidth: 0 },
-  jobBadge: { ...typography.labelSm, color: colors.deepAmber, backgroundColor: colors.honeyChip, borderRadius: radius.full, borderWidth: 1, borderColor: colors.secondaryContainer, paddingHorizontal: spacing.spaceSm, paddingVertical: 2, flexShrink: 1 },
-  profileMeta: { ...typography.bodySm, color: colors.onSurfaceVariant, flexShrink: 1 },
-  role: { ...typography.labelSm, color: colors.statusSuccess },
+  farmCard: { position: 'relative', overflow: 'hidden', padding: 18, gap: spacing.spaceSm, borderRadius: 20, borderColor: colors.borderAmberGlow, backgroundColor: colors.parchmentWarm },
+  honeyCardArtwork: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, width: '100%', height: '100%', opacity: 0.28 },
+  farmTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.spaceSm },
+  farmHeading: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
+  farmIcon: { width: 36, height: 36, flexShrink: 0, borderRadius: 10, backgroundColor: colors.honeyChip, alignItems: 'center', justifyContent: 'center' },
+  farmLabel: { ...typography.labelSm, color: colors.onSurfaceVariant, flexShrink: 1, textTransform: 'uppercase' },
+  farmTitle: { ...typography.headlineMd, fontSize: 25, lineHeight: 32, color: colors.deepAmberStrong, marginTop: spacing.spaceXs },
+  farmCodeBadge: { alignSelf: 'flex-start', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.statusSuccessBorder, backgroundColor: colors.statusSuccessSurface },
+  farmCodeDot: { width: 6, height: 6, borderRadius: radius.full, flexShrink: 0, backgroundColor: colors.statusSuccess },
+  farmCode: { ...typography.labelMd, color: colors.statusSuccess, letterSpacing: 0.5, flexShrink: 1 },
+  farmCodeBadgeEmpty: { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerLow },
+  farmCodeDotEmpty: { backgroundColor: colors.outline },
+  farmCodeEmpty: { color: colors.onSurfaceVariant },
+  switch: { minHeight: 44, paddingHorizontal: 11, borderRadius: 10, backgroundColor: colors.parchment, borderWidth: 1, borderColor: colors.borderAmberGlow, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.spaceXs, flexShrink: 0 },
+  switchText: { ...typography.labelMd, color: colors.primary },
+  profile: { position: 'relative', overflow: 'hidden', flexDirection: 'row', alignItems: 'center', padding: 18, gap: 12, borderRadius: 20, borderColor: colors.borderAmberGlow, backgroundColor: colors.parchment },
+  avatar: { width: 46, height: 46, flexShrink: 0, borderRadius: 14, backgroundColor: colors.honeyChip, borderWidth: 1, borderColor: colors.borderAmberGlow, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { ...typography.labelLg, fontSize: 18, lineHeight: 26, color: colors.deepAmber },
+  profileCopy: { flex: 1, minWidth: 0, gap: spacing.spaceXs },
+  profileName: { ...typography.labelLg, fontSize: 16, lineHeight: 23, letterSpacing: 0, color: colors.deepAmberStrong },
+  profileRole: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', maxWidth: '100%', gap: spacing.spaceXs, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, backgroundColor: colors.statusSuccessSurface },
+  role: { ...typography.labelMd, color: colors.statusSuccess, flexShrink: 1 },
+  profileSettings: { width: 44, height: 44, flexShrink: 0, borderRadius: 10, borderWidth: 1, borderColor: colors.borderAmberGlow, alignItems: 'center', justifyContent: 'center' },
   shift: { borderColor: colors.secondaryContainer, backgroundColor: colors.parchment },
   shiftHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, flexWrap: 'wrap' },
   shiftTitle: { flex: 1, minWidth: 130, flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
