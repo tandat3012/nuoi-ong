@@ -32,9 +32,9 @@ import type {
   PaymentMethod,
 } from "@/features/commerce/orders/types/order";
 import {
-  hasStoreBankTransferInstructions,
-  storeBankTransfer,
-} from "@/features/commerce/orders/store-bank-transfer";
+  getStorePaymentMethods,
+  type StorePaymentMethods,
+} from "@/features/commerce/orders/payment-methods.api";
 
 type CheckoutFields = {
   recipientName: string;
@@ -171,11 +171,28 @@ export function CheckoutPage() {
     verificationIsCurrent && verified ? verified.items : items;
   const hasChangedPrices = checkoutItems.some((item) => item.isPriceChanged);
   const currentPriceSignature = priceSignature(checkoutItems);
-  const bankTransferAvailable = hasStoreBankTransferInstructions();
+  const [paymentMethods, setPaymentMethods] =
+    useState<StorePaymentMethods | null>(null);
+  const bankTransfer = paymentMethods?.bankTransfer ?? null;
+  const bankTransferAvailable = Boolean(bankTransfer);
   const totals = useMemo(
     () => calculateCartTotals(checkoutItems),
     [checkoutItems],
   );
+
+  useEffect(() => {
+    let active = true;
+    void getStorePaymentMethods()
+      .then((methods) => {
+        if (active) setPaymentMethods(methods);
+      })
+      .catch(() => {
+        if (active) setPaymentMethods({ bankTransfer: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -623,36 +640,29 @@ export function CheckoutPage() {
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {bankTransferAvailable
-                      ? "Vui lòng chuyển khoản theo hướng dẫn sau khi đặt hàng."
-                      : "Chưa cấu hình hướng dẫn chuyển khoản; vui lòng chọn COD hoặc liên hệ cửa hàng."}
+                      ? "Mã VietQR có sẵn số tiền hiện ngay sau khi đặt hàng; đơn tự xác nhận khi cửa hàng nhận được tiền."
+                      : paymentMethods
+                        ? "Chưa cấu hình hướng dẫn chuyển khoản; vui lòng chọn COD hoặc liên hệ cửa hàng."
+                        : "Đang kiểm tra phương thức chuyển khoản…"}
                   </span>
                 </span>
               </label>
-              {fields.paymentMethod === "BANK_TRANSFER" &&
-                bankTransferAvailable && (
-                  <dl className="grid gap-2 rounded-lg bg-muted/50 p-3 text-sm sm:grid-cols-2">
-                    <div>
-                      <dt className="text-muted-foreground">Ngân hàng</dt>
-                      <dd>{storeBankTransfer.bankName}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Số tài khoản</dt>
-                      <dd className="font-mono">
-                        {storeBankTransfer.accountNumber}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Chủ tài khoản</dt>
-                      <dd>{storeBankTransfer.accountName}</dd>
-                    </div>
-                    {storeBankTransfer.branch && (
-                      <div>
-                        <dt className="text-muted-foreground">Chi nhánh</dt>
-                        <dd>{storeBankTransfer.branch}</dd>
-                      </div>
-                    )}
-                  </dl>
-                )}
+              {fields.paymentMethod === "BANK_TRANSFER" && bankTransfer && (
+                <dl className="grid gap-2 rounded-lg bg-muted/50 p-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-muted-foreground">Ngân hàng</dt>
+                    <dd>{bankTransfer.bankName}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Số tài khoản</dt>
+                    <dd className="font-mono">{bankTransfer.accountNumber}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Chủ tài khoản</dt>
+                    <dd>{bankTransfer.accountName}</dd>
+                  </div>
+                </dl>
+              )}
             </fieldset>
           </section>
         </div>

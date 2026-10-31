@@ -16,6 +16,7 @@ import {
   Store,
   ShoppingCart,
   ChartNoAxesCombined,
+  Landmark,
   Tags,
   History,
 } from 'lucide-react';
@@ -76,6 +77,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
     items: [
       { href: '/store-products', label: 'Sản phẩm cửa hàng', icon: Store, requires: 'manageStore', storeOnly: true, description: 'Sản phẩm, biến thể và hình ảnh bán online.' },
       { href: '/store-orders', label: 'Đơn hàng', icon: ShoppingCart, requires: 'manageStore', storeOnly: true, description: 'Xác nhận đơn, theo dõi giao hàng và thanh toán.' },
+      { href: '/store-payments', label: 'Thanh toán', icon: Landmark, requires: 'manageStore', storeOnly: true, description: 'Giao dịch chuyển khoản VietQR và đối soát đơn.' },
       { href: '/store-reports', label: 'Báo cáo bán hàng', icon: ChartNoAxesCombined, requires: 'manageStore', storeOnly: true, description: 'Doanh thu, sản phẩm và khách hàng.' },
     ],
   },

@@ -18,13 +18,18 @@ import {
   canEditShippingFee,
   canShipOrder,
   canStaffCancelDetail,
+  formatOrderMoney,
   orderErrorMessage,
 } from "@/features/commerce/orders/order.logic";
-import type { OrderDetail } from "@/features/commerce/orders/types/order";
+import {
+  PAYMENT_PROVIDER_LABELS,
+  type OrderDetail,
+} from "@/features/commerce/orders/types/order";
 import {
   OrderAmounts,
   OrderItems,
   OrderStatusBadge,
+  PaymentResultBadge,
   PaymentStatusBadge,
   paymentMethodLabel,
 } from "@/features/commerce/orders/components/order-presentation";
@@ -249,6 +254,41 @@ export function StoreOrderDetail({
                 </p>
               </div>
             </div>
+            {detail.order.paymentMethod === "BANK_TRANSFER" && (
+              <section className="rounded-xl border bg-card p-5 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="font-semibold">Giao dịch chuyển khoản</h2>
+                  <Link className="text-primary underline" href="/store-payments">
+                    Lịch sử thanh toán
+                  </Link>
+                </div>
+                {detail.payments.length ? (
+                  <ul className="mt-3 divide-y">
+                    {detail.payments.map((payment) => (
+                      <li
+                        key={payment.id}
+                        className="flex flex-wrap items-center justify-between gap-2 py-2"
+                      >
+                        <span>
+                          <span className="font-medium">
+                            {formatOrderMoney(payment.amount)}
+                          </span>{" "}
+                          <span className="text-muted-foreground">
+                            · {PAYMENT_PROVIDER_LABELS[payment.provider]} ·{" "}
+                            {new Date(payment.transactionAt).toLocaleString("vi-VN")}
+                          </span>
+                        </span>
+                        <PaymentResultBadge result={payment.result} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-muted-foreground">
+                    Chưa nhận được giao dịch nào cho đơn này.
+                  </p>
+                )}
+              </section>
+            )}
             <div className="grid gap-5 lg:grid-cols-[1fr_22rem]">
               <section className="space-y-4 rounded-xl border bg-card p-5">
                 <h2 className="font-semibold">Thao tác đơn hàng</h2>
