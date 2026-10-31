@@ -13,6 +13,7 @@ import {
   type createStockDocumentLock,
   type StockDocumentKind,
 } from "./stock-document.logic";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 const failureStatus = (failure: unknown) =>
   failure instanceof ApiError ? failure.status : null;
@@ -53,15 +54,20 @@ export function StockDocumentReview({
   const pending = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [ask, confirmDialog] = useConfirm();
 
   async function submit() {
     if (disabled || pending.current || lock?.locked) return;
     if (
-      !window.confirm(
-        `Gửi phiếu ${code} để quản lý duyệt? Sau khi gửi, bạn không sửa hoặc hủy được phiếu nữa.`,
-      )
+      !(await ask({
+        title: "Gửi duyệt phiếu",
+        description: `Gửi phiếu ${code} để quản lý duyệt? Sau khi gửi, bạn không sửa hoặc hủy được phiếu nữa.`,
+        confirmLabel: "Gửi duyệt",
+      }))
     )
       return;
+    // The document may have changed while the dialog was open.
+    if (disabled || pending.current || lock?.locked) return;
     if (lock && !lock.acquire()) return;
     pending.current = true;
     setSubmitting(true);
@@ -85,6 +91,7 @@ export function StockDocumentReview({
   if (!canSubmit && !canReject) return null;
   return (
     <>
+      {confirmDialog}
       {canSubmit && (
         <Button disabled={disabled || submitting || lock?.locked} onClick={() => void submit()}>
           {submitting ? "Đang gửi duyệt..." : "Gửi duyệt"}

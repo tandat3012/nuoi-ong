@@ -30,6 +30,7 @@ import {
 } from "@/features/commerce/orders/components/order-presentation";
 import { documentCodeLabel } from "@/features/stock-documents";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 export function StoreOrderDetail({
   farmId,
@@ -41,6 +42,7 @@ export function StoreOrderDetail({
   canWrite: boolean;
 }) {
   const request = useAuthenticatedRequest();
+  const [ask, confirmDialog] = useConfirm();
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     farmId: string;
@@ -95,7 +97,10 @@ export function StoreOrderDetail({
     }
     if (
       action !== "cancel" &&
-      !window.confirm(actionConfirmation(action, detail))
+      !(await ask({
+        title: "Xác nhận thao tác đơn hàng",
+        description: actionConfirmation(action, detail),
+      }))
     )
       return;
     setIsSaving(true);
@@ -154,6 +159,7 @@ export function StoreOrderDetail({
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       <Link href="/store-orders" className="text-sm text-primary underline">
         ← Danh sách đơn hàng
       </Link>

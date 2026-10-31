@@ -323,7 +323,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       ],
     );
     await pool.query(
-      'INSERT INTO inventory_lots (id,farm_id,item_id,lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,1,$5),($6,$2,$3,$7,1,$8),($9,$10,$11,$12,1,$13),($14,$2,$15,$16,1,$17)',
+      'INSERT INTO inventory_lots (id,farm_id,item_id,supplier_lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,1,$5),($6,$2,$3,$7,1,$8),($9,$10,$11,$12,1,$13),($14,$2,$15,$16,1,$17)',
       [
         expiredLotId,
         farmId,
@@ -345,7 +345,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       ],
     );
     await pool.query(
-      'INSERT INTO inventory_lots (id,farm_id,item_id,lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,1,$5)',
+      'INSERT INTO inventory_lots (id,farm_id,item_id,supplier_lot_number,initial_quantity,expiry_date) VALUES ($1,$2,$3,$4,1,$5)',
       [freshLotId, farmId, lotItemId, `${tag}-FRESH`, '2099-12-31'],
     );
     await pool.query(

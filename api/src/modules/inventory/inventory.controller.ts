@@ -14,6 +14,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -22,6 +23,7 @@ import {
   ApiFarmIdQuery,
   ApiPageQueries,
   ApiUuidQuery,
+  LOT_IDENTITY_PROPERTIES,
   OPENAPI_DECIMAL_STRING,
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
@@ -118,7 +120,7 @@ export class InventoryController {
                 nullable: true,
                 properties: {
                   id: { type: 'string', format: 'uuid' },
-                  lotNumber: { type: 'string', example: 'LOT-2026-001' },
+                  ...LOT_IDENTITY_PROPERTIES,
                   expiryDate: {
                     type: 'string',
                     format: 'date',
@@ -257,7 +259,7 @@ export class InventoryController {
                 nullable: true,
                 properties: {
                   id: { type: 'string', format: 'uuid' },
-                  lotNumber: { type: 'string' },
+                  ...LOT_IDENTITY_PROPERTIES,
                   expiryDate: {
                     type: 'string',
                     format: 'date',
@@ -359,7 +361,7 @@ export class InventoryController {
                 format: 'uuid',
                 nullable: true,
               },
-              lotNumber: { type: 'string' },
+              ...LOT_IDENTITY_PROPERTIES,
               manufacturedDate: {
                 type: 'string',
                 format: 'date',
@@ -420,6 +422,13 @@ export class InventoryController {
   @ApiFarmIdQuery()
   @ApiPageQueries()
   @ApiUuidQuery('itemId', 'Lọc theo mặt hàng.')
+  @ApiQuery({
+    name: 'supplierLotNumber',
+    required: false,
+    type: String,
+    description:
+      'Khớp chính xác số lô in trên hàng; dùng để gợi ý lô có sẵn, không dùng làm định danh.',
+  })
   @ApiOkResponse({
     description: 'Trang các lô của trang trại.',
     schema: {
@@ -438,7 +447,7 @@ export class InventoryController {
                 format: 'uuid',
                 nullable: true,
               },
-              lotNumber: { type: 'string', example: 'LOT-2026-001' },
+              ...LOT_IDENTITY_PROPERTIES,
               manufacturedDate: {
                 type: 'string',
                 format: 'date',
@@ -447,6 +456,12 @@ export class InventoryController {
               expiryDate: { type: 'string', format: 'date', nullable: true },
               initialQuantity: OPENAPI_DECIMAL_STRING,
               createdAt: { type: 'string', format: 'date-time' },
+              sourceSupplierId: {
+                type: 'string',
+                format: 'uuid',
+                nullable: true,
+              },
+              sourceSupplierName: { type: 'string', nullable: true },
             },
           },
         },
@@ -467,6 +482,7 @@ export class InventoryController {
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId?: string,
     @Query('itemId') itemId?: string,
+    @Query('supplierLotNumber') supplierLotNumber?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -474,6 +490,7 @@ export class InventoryController {
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
       itemId: itemId ? requireUuid(itemId, 'itemId') : undefined,
+      supplierLotNumber: supplierLotNumber?.trim() || undefined,
       ...parsePagination(page, pageSize),
     });
   }

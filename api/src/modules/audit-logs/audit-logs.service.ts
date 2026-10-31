@@ -187,7 +187,7 @@ export class AuditLogsService {
         .from(suppliers)
         .where(and(eq(suppliers.farmId, farmId), inArray(suppliers.id, ids))),
       db
-        .select({ id: inventoryLots.id, label: inventoryLots.lotNumber })
+        .select({ id: inventoryLots.id, label: inventoryLots.lotCode })
         .from(inventoryLots)
         .where(
           and(eq(inventoryLots.farmId, farmId), inArray(inventoryLots.id, ids)),

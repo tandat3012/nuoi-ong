@@ -12,7 +12,7 @@ import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export type IssueLotChoice = {
   id: string;
-  lotNumber: string;
+  lotCode: string;
   expiryDate: string | null;
   quantityOnHand: string | null;
 };
@@ -95,7 +95,7 @@ export function IssueLotPicker({
       className="space-y-2 rounded-lg border p-3"
     >
       <p>
-        Lô đã chọn: {selected ? selected.lotNumber || selected.id : "Chưa chọn"}
+        Lô đã chọn: {selected ? selected.lotCode || selected.id : "Chưa chọn"}
       </p>
       {selected && (
         <p className="text-sm text-muted-foreground">
@@ -134,7 +134,7 @@ export function IssueLotPicker({
         </div>
       ) : selected && !selectedSuggestion ? (
         <p role="status" className="text-sm text-warning">
-          Lô {selected.lotNumber || selected.id} đã hết hạn, hết tồn hoặc không
+          Lô {selected.lotCode || selected.id} đã hết hạn, hết tồn hoặc không
           còn ở kho. Phiếu nháp vẫn giữ lô đã lưu; tình trạng sẽ được kiểm tra
           khi xác nhận.
         </p>
@@ -163,7 +163,7 @@ export function IssueLotPicker({
                     onClick={() => {
                       onSelect({
                         id: lot.id,
-                        lotNumber: lot.lotNumber,
+                        lotCode: lot.lotCode,
                         expiryDate: lot.expiryDate,
                         quantityOnHand: balance.quantityOnHand,
                       });
@@ -171,7 +171,8 @@ export function IssueLotPicker({
                     }}
                     className="text-left underline"
                   >
-                    {lot.lotNumber} · Hạn: {lot.expiryDate ?? "Không có hạn"} ·
+                    {lot.lotCode}
+                    {lot.supplierLotNumber && ` · Số lô ${lot.supplierLotNumber}`} · Hạn: {lot.expiryDate ?? "Không có hạn"} ·
                     Tồn: {formatInventoryQuantity(balance.quantityOnHand)}
                   </button>
                 </li>

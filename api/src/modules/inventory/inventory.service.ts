@@ -5,6 +5,7 @@ import {
   count,
   desc,
   eq,
+  getTableColumns,
   gt,
   gte,
   isNull,
@@ -26,8 +27,10 @@ import {
   items,
   stockCounts,
   stockIssues,
+  stockReceiptItems,
   stockReceipts,
   stockTransfers,
+  suppliers,
   units,
   users,
   warehouses,
@@ -65,7 +68,13 @@ export class InventoryService {
     const lotIdColumn = sql<string | null>`${inventoryLots}."id"`;
     const lotFarmIdColumn = sql<string | null>`${inventoryLots}."farm_id"`;
     const lotItemIdColumn = sql<string | null>`${inventoryLots}."item_id"`;
-    const lotNumberColumn = sql<string | null>`${inventoryLots}."lot_number"`;
+    const lotCodeColumn = sql<string | null>`${inventoryLots}."lot_code"`;
+    const lotSupplierNumberColumn = sql<
+      string | null
+    >`${inventoryLots}."supplier_lot_number"`;
+    const lotLegacyNumberColumn = sql<
+      string | null
+    >`${inventoryLots}."legacy_lot_number"`;
     const lotExpiryDateColumn = sql<
       string | null
     >`${inventoryLots}."expiry_date"`;
@@ -110,7 +119,9 @@ export class InventoryService {
           warehouseCode: warehouses.code,
           warehouseName: warehouses.name,
           lotId: lotIdColumn,
-          lotNumber: lotNumberColumn,
+          lotCode: lotCodeColumn,
+          supplierLotNumber: lotSupplierNumberColumn,
+          legacyLotNumber: lotLegacyNumberColumn,
           expiryDate: lotExpiryDateColumn,
         })
         .from(inventoryBalances)
@@ -123,7 +134,7 @@ export class InventoryService {
           asc(warehouses.code),
           asc(items.code),
           sql`${lotExpiryDateColumn} ASC NULLS LAST`,
-          asc(lotNumberColumn),
+          asc(lotCodeColumn),
           asc(inventoryBalances.id),
         )
         .limit(filters.pageSize)
@@ -171,7 +182,10 @@ export class InventoryService {
         lot: row.lotId
           ? {
               id: row.lotId,
-              lotNumber: row.lotNumber!,
+              lotCode: row.lotCode!,
+              supplierLotNumber: row.supplierLotNumber,
+              legacyLotNumber: row.legacyLotNumber,
+              lotNumber: row.lotCode!, // deprecated alias of lotCode
               expiryDate: row.expiryDate,
             }
           : null,
@@ -197,7 +211,9 @@ export class InventoryService {
         trackingMode: items.trackingMode,
         warehouseCode: warehouses.code,
         warehouseName: warehouses.name,
-        lotNumber: inventoryLots.lotNumber,
+        lotCode: inventoryLots.lotCode,
+        supplierLotNumber: inventoryLots.supplierLotNumber,
+        legacyLotNumber: inventoryLots.legacyLotNumber,
       })
       .from(inventoryBalances)
       .innerJoin(
@@ -240,7 +256,10 @@ export class InventoryService {
       trackingMode: row.trackingMode,
       warehouseCode: row.warehouseCode,
       warehouseName: row.warehouseName,
-      lotNumber: row.lotNumber,
+      lotCode: row.lotCode,
+      supplierLotNumber: row.supplierLotNumber,
+      legacyLotNumber: row.legacyLotNumber,
+      lotNumber: row.lotCode, // deprecated alias of lotCode
     };
   }
 
@@ -255,7 +274,13 @@ export class InventoryService {
     const lotIdColumn = sql<string | null>`${inventoryLots}."id"`;
     const lotFarmIdColumn = sql<string | null>`${inventoryLots}."farm_id"`;
     const lotItemIdColumn = sql<string | null>`${inventoryLots}."item_id"`;
-    const lotNumberColumn = sql<string | null>`${inventoryLots}."lot_number"`;
+    const lotCodeColumn = sql<string | null>`${inventoryLots}."lot_code"`;
+    const lotSupplierNumberColumn = sql<
+      string | null
+    >`${inventoryLots}."supplier_lot_number"`;
+    const lotLegacyNumberColumn = sql<
+      string | null
+    >`${inventoryLots}."legacy_lot_number"`;
     const lotExpiryDateColumn = sql<
       string | null
     >`${inventoryLots}."expiry_date"`;
@@ -318,7 +343,9 @@ export class InventoryService {
         warehouseCode: warehouses.code,
         warehouseName: warehouses.name,
         lotId: lotIdColumn,
-        lotNumber: lotNumberColumn,
+        lotCode: lotCodeColumn,
+        lotSupplierNumber: lotSupplierNumberColumn,
+        lotLegacyNumber: lotLegacyNumberColumn,
         lotExpiryDate: lotExpiryDateColumn,
         assetId: transactionAssetId,
         assetCode: transactionAssetCode,
@@ -481,7 +508,10 @@ export class InventoryService {
           lot: row.lotId
             ? {
                 id: row.lotId,
-                lotNumber: row.lotNumber!,
+                lotCode: row.lotCode!,
+                supplierLotNumber: row.lotSupplierNumber,
+                legacyLotNumber: row.lotLegacyNumber,
+                lotNumber: row.lotCode!, // deprecated alias of lotCode
                 expiryDate: row.lotExpiryDate,
               }
             : null,
@@ -514,7 +544,7 @@ export class InventoryService {
 
   async listLots(
     filters: Pick<Filters, 'clerkUserId' | 'farmId' | 'itemId'> &
-      PaginationParams,
+      PaginationParams & { supplierLotNumber?: string },
   ) {
     await this.warehousesService.assertFarmAccess(
       filters.farmId,
@@ -524,12 +554,44 @@ export class InventoryService {
     const predicates: SQL[] = [eq(inventoryLots.farmId, filters.farmId)];
     if (filters.itemId)
       predicates.push(eq(inventoryLots.itemId, filters.itemId));
+    // Exact match only: used to suggest (never enforce) reuse of a lot with the same printed number.
+    if (filters.supplierLotNumber)
+      predicates.push(
+        eq(inventoryLots.supplierLotNumber, filters.supplierLotNumber),
+      );
     const [data, totals] = await Promise.all([
       this.databaseService.db
-        .select()
+        .select({
+          ...getTableColumns(inventoryLots),
+          lotNumber: inventoryLots.lotCode, // deprecated alias of lotCode
+          sourceSupplierId: suppliers.id,
+          sourceSupplierName: suppliers.name,
+        })
         .from(inventoryLots)
+        .leftJoin(
+          stockReceiptItems,
+          eq(stockReceiptItems.id, inventoryLots.sourceReceiptItemId),
+        )
+        .leftJoin(
+          stockReceipts,
+          and(
+            eq(stockReceipts.id, stockReceiptItems.stockReceiptId),
+            eq(stockReceipts.farmId, filters.farmId),
+          ),
+        )
+        .leftJoin(
+          suppliers,
+          and(
+            eq(suppliers.id, stockReceipts.supplierId),
+            eq(suppliers.farmId, filters.farmId),
+          ),
+        )
         .where(and(...predicates))
-        .orderBy(asc(inventoryLots.expiryDate), asc(inventoryLots.lotNumber))
+        .orderBy(
+          asc(inventoryLots.expiryDate),
+          asc(inventoryLots.lotCode),
+          asc(inventoryLots.id),
+        )
         .limit(filters.pageSize)
         .offset(filters.offset),
       this.databaseService.db
@@ -565,7 +627,13 @@ export class InventoryService {
       predicates.push(eq(inventoryBalances.warehouseId, filters.warehouseId));
     const today = new Date().toISOString().slice(0, 10);
     return this.databaseService.db
-      .select({ lot: inventoryLots, balance: inventoryBalances })
+      .select({
+        lot: {
+          ...getTableColumns(inventoryLots),
+          lotNumber: inventoryLots.lotCode, // deprecated alias of lotCode
+        },
+        balance: inventoryBalances,
+      })
       .from(inventoryBalances)
       .innerJoin(inventoryLots, eq(inventoryBalances.lotId, inventoryLots.id))
       .where(

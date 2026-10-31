@@ -600,7 +600,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
   });
 
   it('creates the inventory LOT, links it to the receipt line, and updates its balance on confirmation', async () => {
-    const lotNumber = `${tag}-NEW-LOT`;
+    const supplierLotNumber = `${tag}-NEW-LOT`;
     const draft = await createReceipt(
       farmA,
       receiptInput(`${tag}-LOT`, {
@@ -608,7 +608,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
           {
             itemId: lotItemId,
             quantity: '3.125',
-            lotNumber,
+            supplierLotNumber: `  ${supplierLotNumber} `,
             manufacturedDate: '2026-01-01',
             expiryDate: '2027-01-01',
           },
@@ -623,13 +623,20 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     expect(receipt.receipt.status).toBe('CONFIRMED');
     const lot = await client!.query<{
       id: string;
+      lot_code: string;
       initial_quantity: string;
       source_receipt_item_id: string;
     }>(
-      'SELECT id, initial_quantity::text, source_receipt_item_id FROM inventory_lots WHERE farm_id=$1 AND item_id=$2 AND lot_number=$3',
-      [farmA, lotItemId, lotNumber],
+      'SELECT id, lot_code, initial_quantity::text, source_receipt_item_id FROM inventory_lots WHERE farm_id=$1 AND item_id=$2 AND supplier_lot_number=$3',
+      [farmA, lotItemId, supplierLotNumber],
     );
     expect(lot.rows).toHaveLength(1);
+    expect(lot.rows[0].lot_code).toMatch(/^LOT-\d{9,}$/);
+    expect(receipt.items[0]).toMatchObject({
+      lotCode: lot.rows[0].lot_code,
+      supplierLotNumber,
+      lotSupplierLotNumber: supplierLotNumber,
+    });
     expect(lot.rows[0].initial_quantity).toBe('3.125');
     expect(lot.rows[0].source_receipt_item_id).toBe(receipt.items[0].id);
     expect(receipt.items[0].lotId).toBe(lot.rows[0].id);
@@ -641,11 +648,12 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
   });
 
   it('adds stock to an existing lot without creating a new one and returns line details', async () => {
-    const lot = await client!.query<{ id: string }>(
-      "INSERT INTO inventory_lots (farm_id,item_id,lot_number,expiry_date,initial_quantity) VALUES ($1,$2,$3,'2027-06-01',5) RETURNING id",
+    const lot = await client!.query<{ id: string; lot_code: string }>(
+      "INSERT INTO inventory_lots (farm_id,item_id,supplier_lot_number,expiry_date,initial_quantity) VALUES ($1,$2,$3,'2027-06-01',5) RETURNING id, lot_code",
       [farmA, lotItemId, `${tag}-REUSED-LOT`],
     );
     const lotId = lot.rows[0].id;
+    const lotCode = lot.rows[0].lot_code;
     const draft = await createReceipt(
       farmA,
       receiptInput(`${tag}-LOT-REUSE`, {
@@ -661,7 +669,8 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .items[0] as ReceiptItem & Record<string, unknown>;
     expect(line).toMatchObject({
       lotId,
-      lotNumberFromLot: `${tag}-REUSED-LOT`,
+      lotCode,
+      lotSupplierLotNumber: `${tag}-REUSED-LOT`,
       lotExpiryDate: '2027-06-01',
       trackingMode: 'LOT',
     });
@@ -696,7 +705,21 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
   it.each([
     [
       'lotId with new lot metadata',
-      (lotId: string) => ({ lotId, lotNumber: 'NEW', quantity: '1.000' }),
+      (lotId: string) => ({
+        lotId,
+        supplierLotNumber: 'NEW',
+        quantity: '1.000',
+      }),
+      400,
+    ],
+    [
+      'the obsolete lotNumber field',
+      () => ({ lotNumber: 'OLD-CLIENT', quantity: '1.000' }),
+      400,
+    ],
+    [
+      'a client-supplied lotCode',
+      () => ({ lotCode: 'LOT-999999999', quantity: '1.000' }),
       400,
     ],
     [
@@ -712,7 +735,6 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     [
       'expiry before manufactured date',
       () => ({
-        lotNumber: 'DATES',
         manufacturedDate: '2026-05-01',
         expiryDate: '2026-04-30',
         quantity: '1.000',
@@ -721,8 +743,8 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     ],
   ])('rejects a receipt line with %s', async (_label, line, status) => {
     const lot = await client!.query<{ id: string }>(
-      'INSERT INTO inventory_lots (farm_id,item_id,lot_number,initial_quantity) VALUES ($1,$2,$3,1) RETURNING id',
-      [farmA, lotItemId, `${tag}-BAD-${randomUUID()}`],
+      'INSERT INTO inventory_lots (farm_id,item_id,initial_quantity) VALUES ($1,$2,1) RETURNING id',
+      [farmA, lotItemId],
     );
     const { quantityItem, ...fields } = line(lot.rows[0].id) as Record<
       string,
@@ -799,27 +821,189 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .expect(404);
   });
 
-  it('returns a conflict for duplicate LOT numbers without partially confirming', async () => {
+  it('confirms a new LOT line without a supplier number', async () => {
     const draft = await createReceipt(
       farmA,
-      receiptInput(`${tag}-DUP-LOT`, {
+      receiptInput(`${tag}-LOT-NO-NUMBER`, {
         items: [
-          { itemId: quantityItemId, quantity: '2.000' },
+          { itemId: lotItemId, quantity: '1.500', supplierLotNumber: ' ' },
+        ],
+      }),
+    );
+    expect(draft.items[0]).toMatchObject({
+      supplierLotNumber: null,
+      lotCode: null,
+    });
+    await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/submit`)
+      .query({ farmId: farmA })
+      .expect(201);
+    const confirmed = await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
+      .query({ farmId: farmA })
+      .expect(201);
+    const line = (confirmed.body as ReceiptResponse).data
+      .items[0] as ReceiptItem & Record<string, unknown>;
+    expect(line.lotCode).toMatch(/^LOT-\d{9,}$/);
+    expect(line.lotSupplierLotNumber).toBeNull();
+  });
+
+  it('accepts equal supplier numbers as separate lots, including within one receipt', async () => {
+    const shared = `${tag}-SHARED`;
+    const existing = await client!.query<{ id: string }>(
+      'INSERT INTO inventory_lots (farm_id,item_id,supplier_lot_number,initial_quantity) VALUES ($1,$2,$3,1) RETURNING id',
+      [farmA, lotItemId, shared],
+    );
+    const draft = await createReceipt(
+      farmA,
+      receiptInput(`${tag}-SHARED-LOTS`, {
+        items: [
+          { itemId: lotItemId, quantity: '1.000', supplierLotNumber: shared },
           {
             itemId: lotItemId,
-            quantity: '1.000',
-            lotNumber: `${tag}-EXISTING-LOT`,
+            quantity: '2.000',
+            supplierLotNumber: shared,
+            expiryDate: '2028-01-01',
+          },
+        ],
+      }),
+    );
+    await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
+      .query({ farmId: farmA })
+      .expect(201);
+    const lots = await client!.query<{ id: string; lot_code: string }>(
+      'SELECT id, lot_code FROM inventory_lots WHERE farm_id=$1 AND item_id=$2 AND supplier_lot_number=$3',
+      [farmA, lotItemId, shared],
+    );
+    expect(lots.rows).toHaveLength(3);
+    expect(new Set(lots.rows.map((row) => row.lot_code)).size).toBe(3);
+    expect(lots.rows.map((row) => row.id)).toContain(existing.rows[0].id);
+
+    const again = await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
+      .query({ farmId: farmA })
+      .expect(201);
+    expect(
+      (again.body as ReceiptResponse).data.items.map((item) => item.lotId),
+    ).toEqual(
+      expect.arrayContaining(
+        lots.rows
+          .filter((row) => row.id !== existing.rows[0].id)
+          .map((row) => row.id),
+      ),
+    );
+    const afterRepeat = await client!.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM inventory_lots WHERE farm_id=$1 AND item_id=$2 AND supplier_lot_number=$3',
+      [farmA, lotItemId, shared],
+    );
+    expect(afterRepeat.rows[0].count).toBe(3);
+  });
+
+  it('keeps legacy draft numbers on the same line by id when earlier lines are removed', async () => {
+    const draft = await createReceipt(
+      farmA,
+      receiptInput(`${tag}-LEGACY`, {
+        items: [
+          { itemId: lotItemId, quantity: '1.000' },
+          { itemId: lotItemId, quantity: '2.000' },
+        ],
+      }),
+    );
+    const [first, second] = draft.items;
+    for (const [line, number] of [
+      [first, `${tag}-OLD-A`],
+      [second, `${tag}-OLD-B`],
+    ] as const)
+      await client!.query(
+        'UPDATE stock_receipt_items SET legacy_lot_number=$1 WHERE id=$2',
+        [number, line.id],
+      );
+    // Dropping the first line must not shift A onto the surviving B line.
+    await post()
+      .patch(`/api/v1/stock-receipts/${draft.receipt.id}`)
+      .query({ farmId: farmA })
+      .send({
+        items: [{ lineId: second.id, itemId: lotItemId, quantity: '4.000' }],
+      })
+      .expect(200);
+    const confirmed = await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
+      .query({ farmId: farmA })
+      .expect(201);
+    const lines = (confirmed.body as ReceiptResponse).data
+      .items as (ReceiptItem & Record<string, unknown>)[];
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      quantity: '4.000',
+      legacyLotNumber: `${tag}-OLD-B`,
+      lotLegacyLotNumber: `${tag}-OLD-B`,
+      lotSupplierLotNumber: null,
+    });
+  });
+
+  it('drops a legacy number when the line id is missing, foreign, or reused', async () => {
+    const draft = await createReceipt(
+      farmA,
+      receiptInput(`${tag}-LEGACY-DROP`, {
+        items: [{ itemId: lotItemId, quantity: '1.000' }],
+      }),
+    );
+    const lineId = draft.items[0].id;
+    await client!.query(
+      'UPDATE stock_receipt_items SET legacy_lot_number=$1 WHERE id=$2',
+      [`${tag}-OLD`, lineId],
+    );
+    const updated = await post()
+      .patch(`/api/v1/stock-receipts/${draft.receipt.id}`)
+      .query({ farmId: farmA })
+      .send({
+        items: [
+          { itemId: lotItemId, quantity: '1.000' },
+          { lineId: randomUUID(), itemId: lotItemId, quantity: '1.000' },
+          { lineId, itemId: lotItemId, quantity: '1.000' },
+          { lineId, itemId: lotItemId, quantity: '1.000' },
+        ],
+      })
+      .expect(200);
+    expect(
+      (
+        (updated.body as ReceiptResponse).data.items as (ReceiptItem &
+          Record<string, unknown>)[]
+      ).map((line) => line.legacyLotNumber),
+    ).toEqual(expect.arrayContaining([null, null, `${tag}-OLD`, null]));
+    const kept = await client!.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM stock_receipt_items WHERE stock_receipt_id=$1 AND legacy_lot_number IS NOT NULL',
+      [draft.receipt.id],
+    );
+    expect(kept.rows[0].count).toBe(1);
+  });
+
+  it('rolls back new lots when a later line fails confirmation', async () => {
+    const assetCode = `${tag}-TAKEN-ASSET`;
+    const draft = await createReceipt(
+      farmA,
+      receiptInput(`${tag}-ROLLBACK`, {
+        items: [
+          { itemId: quantityItemId, quantity: '2.000' },
+          { itemId: lotItemId, quantity: '1.000' },
+          {
+            itemId: assetItemId,
+            quantity: '1',
+            assetCode,
+            locationId: locationA,
           },
         ],
       }),
     );
     await client!.query(
-      'INSERT INTO inventory_lots (farm_id,item_id,lot_number,initial_quantity) VALUES ($1,$2,$3,1)',
-      [farmA, lotItemId, `${tag}-EXISTING-LOT`],
+      'INSERT INTO assets (farm_id,item_id,asset_code) VALUES ($1,$2,$3)',
+      [farmA, assetItemId, assetCode],
     );
-    const response = await post()
+    await post()
       .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
-      .query({ farmId: farmA });
+      .query({ farmId: farmA })
+      .expect(409);
     const persisted = await post()
       .get(`/api/v1/stock-receipts/${draft.receipt.id}`)
       .query({ farmId: farmA })
@@ -827,17 +1011,38 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     expect((persisted.body as ReceiptResponse).data.receipt.status).toBe(
       'DRAFT',
     );
+    const lots = await client!.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM inventory_lots WHERE source_receipt_item_id = ANY($1::uuid[])',
+      [draft.items.map((item) => item.id)],
+    );
+    expect(lots.rows[0].count).toBe(0);
     const transactions = await client!.query<{ count: number }>(
       'SELECT count(*)::int AS count FROM inventory_transactions WHERE source_id=$1',
       [draft.receipt.id],
     );
     expect(transactions.rows[0].count).toBe(0);
-    expect(response.status).toBe(409);
-    const balances = await client!.query<{ count: number }>(
-      'SELECT count(*)::int AS count FROM inventory_balances WHERE farm_id=$1 AND item_id=$2',
-      [farmA, quantityItemId],
+  });
+
+  it('rejects missing, blank and cross-farm duplicate lot codes in the database', async () => {
+    const lot = await client!.query<{ lot_code: string }>(
+      'INSERT INTO inventory_lots (farm_id,item_id,initial_quantity) VALUES ($1,$2,1) RETURNING lot_code',
+      [farmA, lotItemId],
     );
-    expect(balances.rows[0].count).toBe(0);
+    const attempts = [
+      ['NULL', null, '23502'],
+      ['blank', ' ', '23514'],
+      ['duplicate', lot.rows[0].lot_code, '23505'],
+    ] as const;
+    for (const [, code, sqlState] of attempts) {
+      await client!.query('SAVEPOINT lot_code_case');
+      await expect(
+        client!.query(
+          'INSERT INTO inventory_lots (farm_id,item_id,lot_code,initial_quantity) VALUES ($1,$2,$3,1)',
+          [farmB, quantityItemBId, code],
+        ),
+      ).rejects.toMatchObject({ code: sqlState });
+      await client!.query('ROLLBACK TO SAVEPOINT lot_code_case');
+    }
   });
 
   it('confirms ASSET receipt quantity 1 and creates one linked asset', async () => {
@@ -963,24 +1168,6 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
     );
   });
 
-  it('requires LOT metadata at confirmation and leaves an invalid draft unchanged', async () => {
-    const draft = await createReceipt(
-      farmA,
-      receiptInput(`${tag}-LOT-NO-NUMBER`, {
-        items: [{ itemId: lotItemId, quantity: '1.000' }],
-      }),
-    );
-    const response = await post()
-      .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
-      .query({ farmId: farmA });
-    const detail = await post()
-      .get(`/api/v1/stock-receipts/${draft.receipt.id}`)
-      .query({ farmId: farmA })
-      .expect(200);
-    expect((detail.body as ReceiptResponse).data.receipt.status).toBe('DRAFT');
-    expect(response.status).toBe(400);
-  });
-
   it.each([false, true])(
     'confirms different receipts and retries atomically (existing balance: %s)',
     async (hasBalance) => {
@@ -990,6 +1177,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       const concurrentUnit = randomUUID();
       const concurrentWarehouse = randomUUID();
       const concurrentItem = randomUUID();
+      const concurrentLotItem = randomUUID();
       const concurrentCode = `${tag}-CONCURRENT`;
       const seedClient = await pool.connect();
       let concurrentApp: INestApplication<App> | undefined;
@@ -1044,6 +1232,16 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
             concurrentCode,
           ],
         );
+        await seedClient.query(
+          "INSERT INTO items (id,farm_id,category_id,unit_id,code,name,item_type,tracking_mode) VALUES ($1,$2,$3,$4,$5,$5,'MATERIAL','LOT')",
+          [
+            concurrentLotItem,
+            concurrentFarm,
+            concurrentCategory,
+            concurrentUnit,
+            `${concurrentCode}-LOT`,
+          ],
+        );
         await seedClient.query('COMMIT');
         seedCommitted = true;
         if (hasBalance) {
@@ -1093,7 +1291,14 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
           .send({
             warehouseId: concurrentWarehouse,
             receiptCode: concurrentCode,
-            items: [{ itemId: concurrentItem, quantity: '1' }],
+            items: [
+              { itemId: concurrentItem, quantity: '1' },
+              {
+                itemId: concurrentLotItem,
+                quantity: '1',
+                supplierLotNumber: 'SHARED',
+              },
+            ],
           })
           .expect(201);
         const receiptId = (created.body as ReceiptResponse).data.receipt.id;
@@ -1103,7 +1308,14 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
           .send({
             warehouseId: concurrentWarehouse,
             receiptCode: `${concurrentCode}-2`,
-            items: [{ itemId: concurrentItem, quantity: '2' }],
+            items: [
+              { itemId: concurrentItem, quantity: '2' },
+              {
+                itemId: concurrentLotItem,
+                quantity: '2',
+                supplierLotNumber: 'SHARED',
+              },
+            ],
           })
           .expect(201);
         const secondId = (second.body as ReceiptResponse).data.receipt.id;
@@ -1133,12 +1345,21 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
         );
         expect(balance.rows).toHaveLength(1);
         expect(balance.rows[0].quantity).toBe(hasBalance ? '8.000' : '3.000');
-        expect(transactions.rows[0].count).toBe(1);
+        expect(transactions.rows[0].count).toBe(2);
         const secondTransactions = await pool.query<{ count: number }>(
           'SELECT count(*)::int AS count FROM inventory_transactions WHERE source_id=$1',
           [secondId],
         );
-        expect(secondTransactions.rows[0].count).toBe(1);
+        expect(secondTransactions.rows[0].count).toBe(2);
+        // Equal supplier numbers on concurrent receipts still yield one lot per line, each with its own code.
+        const concurrentLots = await pool.query<{ lot_code: string }>(
+          'SELECT lot_code FROM inventory_lots WHERE farm_id=$1 AND supplier_lot_number=$2',
+          [concurrentFarm, 'SHARED'],
+        );
+        expect(concurrentLots.rows).toHaveLength(2);
+        expect(
+          new Set(concurrentLots.rows.map((row) => row.lot_code)).size,
+        ).toBe(2);
         await expect(
           pool.query(
             'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,quantity_on_hand) VALUES ($1,$2,$3,1)',

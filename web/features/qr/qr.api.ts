@@ -15,7 +15,7 @@ export interface BalanceQr {
   balance: { itemId: string; warehouseId: string; lotId: string | null };
   itemName: string;
   warehouseName: string;
-  lotNumber: string | null;
+  lotCode: string | null;
 }
 
 export function getItemQr(request: AuthenticatedRequest, farmId: string, itemId: string) {

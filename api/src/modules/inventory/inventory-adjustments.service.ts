@@ -35,7 +35,10 @@ import {
 const inventoryLotId = sql<string>`${inventoryLots}."id"`;
 const inventoryLotFarmId = sql<string>`${inventoryLots}."farm_id"`;
 const inventoryLotItemId = sql<string>`${inventoryLots}."item_id"`;
-const inventoryLotNumber = sql<string | null>`${inventoryLots}."lot_number"`;
+const inventoryLotCode = sql<string | null>`${inventoryLots}."lot_code"`;
+const inventoryLotSupplierNumber = sql<
+  string | null
+>`${inventoryLots}."supplier_lot_number"`;
 const inventoryLotExpired = sql<boolean>`coalesce(${inventoryLots}."expiry_date" < CURRENT_DATE, false)`;
 
 const APPROVER_ROLES = WAREHOUSE_MANAGE_ROLES;
@@ -258,7 +261,8 @@ export class InventoryAdjustmentsService {
           warehouseCode: warehouses.code,
           warehouseName: warehouses.name,
           lotId: inventoryAdjustments.lotId,
-          lotNumber: inventoryLotNumber,
+          lotCode: inventoryLotCode,
+          lotSupplierNumber: inventoryLotSupplierNumber,
           requesterId: requesterMember.id,
           requesterName: requesterUser.fullName,
           reviewerId: reviewerMember.id,
@@ -310,7 +314,14 @@ export class InventoryAdjustmentsService {
           code: row.warehouseCode,
           name: row.warehouseName,
         },
-        lot: row.lotId ? { id: row.lotId, lotNumber: row.lotNumber } : null,
+        lot: row.lotId
+          ? {
+              id: row.lotId,
+              lotCode: row.lotCode,
+              supplierLotNumber: row.lotSupplierNumber,
+              lotNumber: row.lotCode, // deprecated alias of lotCode
+            }
+          : null,
         requester: { id: row.requesterId, displayName: row.requesterName },
         reviewer: row.reviewerId
           ? { id: row.reviewerId, displayName: row.reviewerName }

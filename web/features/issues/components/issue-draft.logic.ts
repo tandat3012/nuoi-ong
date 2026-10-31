@@ -92,14 +92,14 @@ export function supportsIssueDraftEdit(detail: IssueDetail): boolean {
         return (
           noAsset &&
           line.lotId == null &&
-          line.lotNumber == null &&
+          line.lotCode == null &&
           line.lotExpiryDate == null
         );
       if (line.trackingMode === "LOT") return noAsset && (linkedSale || Boolean(line.lotId));
       if (
         line.trackingMode !== "ASSET" ||
         line.lotId != null ||
-        line.lotNumber != null ||
+        line.lotCode != null ||
         line.lotExpiryDate != null ||
         !/^1(?:\.0{1,3})?$/.test(line.quantity) ||
         (line.assetId != null && assetIds.has(line.assetId)) ||

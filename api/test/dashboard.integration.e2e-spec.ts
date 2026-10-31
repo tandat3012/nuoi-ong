@@ -126,7 +126,7 @@ describe('Dashboard summary (migrated PostgreSQL)', () => {
             id: lot,
             farmId: ids.farm,
             itemId: lotItem,
-            lotNumber: lot.slice(0, 8),
+            supplierLotNumber: lot.slice(0, 8),
             expiryDate,
             initialQuantity: '1',
           });

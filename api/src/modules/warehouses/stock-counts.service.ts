@@ -495,7 +495,9 @@ export class StockCountsService {
         trackingMode: items.trackingMode,
         unitName: units.name,
         unitSymbol: units.symbol,
-        lotNumber: inventoryLots.lotNumber,
+        lotCode: inventoryLots.lotCode,
+        lotSupplierLotNumber: inventoryLots.supplierLotNumber,
+        lotNumber: inventoryLots.lotCode, // deprecated alias of lotCode
         lotExpiryDate: inventoryLots.expiryDate,
       })
       .from(stockCountItems)
