@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuthContext } from "@/features/auth";
+import { STORE_MANAGE_ROLES, hasAnyRole } from "@/features/auth/farm-roles";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { StoreOrderCustomer } from "./components/store-order-customer";
@@ -70,12 +71,9 @@ export function StoreOrderReportsScreen() {
   const membership = data.memberships.find(
     ({ farm }) => farm.id === selectedFarmId,
   );
-  if (
-    !membership ||
-    !membership.roles.some((role) => ["ADMIN", "FARM_OWNER"].includes(role))
-  )
+  if (!membership || !canManageOrders(membership.roles))
     return (
-      <ErrorAlert message="Chỉ quản trị viên hoặc chủ trại mới được xem báo cáo bán hàng." />
+      <ErrorAlert message="Chỉ quản trị viên, chủ trại hoặc quản lý cửa hàng mới được xem báo cáo bán hàng." />
     );
   return (
     <div className="space-y-6">
@@ -89,7 +87,5 @@ export function StoreOrderReportsScreen() {
 }
 
 function canManageOrders(roles: string[]) {
-  return roles.some((role) =>
-    ["ADMIN", "FARM_OWNER", "EMPLOYEE"].includes(role),
-  );
+  return hasAnyRole(roles, STORE_MANAGE_ROLES);
 }

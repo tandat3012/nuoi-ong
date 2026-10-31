@@ -9,7 +9,7 @@ import { ErrorAlert } from '@/shared/components/ui/error-alert';
 import { PageHeader } from '@/shared/components/ui/page-header';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 
-type DashboardSummary = {
+type FarmSummary = {
   stockValue: string;
   unpricedItems: number;
   belowMinimum: number;
@@ -17,14 +17,29 @@ type DashboardSummary = {
   expiredLots: number;
   assetsInMaintenance: number;
   pendingAdjustments: number;
-  ordersToday: number;
-  ordersPending: number;
 };
+type StoreSummary = { ordersToday: number; ordersPending: number };
+// The API nulls the figures of an area the caller's roles do not cover.
+type DashboardSummary = (FarmSummary | { [K in keyof FarmSummary]: null }) &
+  (StoreSummary | { [K in keyof StoreSummary]: null });
 
 type Metric = { label: string; value: string; note?: string; href: string; alert?: boolean };
 
 function metrics(summary: DashboardSummary, showOrders: boolean): Metric[] {
-  const list: Metric[] = [
+  const list: Metric[] = summary.stockValue === null ? [] : farmMetrics(summary);
+  if (showOrders && summary.ordersToday !== null)
+    list.push({
+      label: 'Đơn hàng hôm nay',
+      value: String(summary.ordersToday),
+      note: `${summary.ordersPending} đơn chờ xác nhận`,
+      href: '/store-orders',
+      alert: summary.ordersPending > 0,
+    });
+  return list;
+}
+
+function farmMetrics(summary: FarmSummary): Metric[] {
+  return [
     {
       label: 'Giá trị tồn kho (ước tính)',
       value: formatOrderMoney(summary.stockValue),
@@ -42,15 +57,6 @@ function metrics(summary: DashboardSummary, showOrders: boolean): Metric[] {
     { label: 'Tài sản đang bảo trì', value: String(summary.assetsInMaintenance), href: '/maintenance' },
     { label: 'Điều chỉnh tồn chờ duyệt', value: String(summary.pendingAdjustments), href: '/inventory', alert: summary.pendingAdjustments > 0 },
   ];
-  if (showOrders)
-    list.push({
-      label: 'Đơn hàng hôm nay',
-      value: String(summary.ordersToday),
-      note: `${summary.ordersPending} đơn chờ xác nhận`,
-      href: '/store-orders',
-      alert: summary.ordersPending > 0,
-    });
-  return list;
 }
 
 function DashboardMetrics({ farmId, showOrders }: { farmId: string; showOrders: boolean }) {
@@ -86,7 +92,7 @@ function DashboardMetrics({ farmId, showOrders }: { farmId: string; showOrders: 
 
 export function DashboardOverview() {
   const access = useFarmMembership();
-  const { membership, selectedFarmId, isStoreFarm, canManageOrders } = access;
+  const { membership, selectedFarmId, isStoreFarm, canViewMetrics, canManageStore } = access;
 
   const sections = primaryNavigationSections
     .map((section) => ({
@@ -102,8 +108,8 @@ export function DashboardOverview() {
         description={membership ? `Trang trại ${membership.farm.name}` : 'Chọn trang trại để bắt đầu làm việc.'}
       />
 
-      {selectedFarmId && membership && canManageOrders && (
-        <DashboardMetrics key={selectedFarmId} farmId={selectedFarmId} showOrders={isStoreFarm && canManageOrders} />
+      {selectedFarmId && membership && canViewMetrics && (
+        <DashboardMetrics key={selectedFarmId} farmId={selectedFarmId} showOrders={isStoreFarm && canManageStore} />
       )}
 
       {sections.map((section, index) => (

@@ -7,6 +7,8 @@ import { Input } from "@/shared/components/ui/input";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { ROLE_LABELS, type WorkProfile } from "../types";
 
+const OPERATIONAL_ROLES = ["WAREHOUSE_MANAGER", "STORE_MANAGER", "EMPLOYEE", "GUEST"];
+
 export function WorkProfileFields({
   value,
   onChange,
@@ -65,8 +67,8 @@ export function RoleFields({
       <legend className="text-sm font-medium">Quyền trong trại</legend>
       <div className="flex flex-wrap gap-4">
         {(canAssignOwner
-          ? ["FARM_OWNER", "EMPLOYEE", "GUEST"]
-          : ["EMPLOYEE", "GUEST"]
+          ? ["FARM_OWNER", ...OPERATIONAL_ROLES]
+          : OPERATIONAL_ROLES
         ).map((code) => (
           <label key={code} className="flex min-h-9 items-center gap-2 text-sm">
             <input

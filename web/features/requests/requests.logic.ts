@@ -1,8 +1,9 @@
 import type { RequestsQuery, RequestStatus, TransferRequestRow } from "./types/request";
+import { WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
 
 // These mirror the approver and reload rules in features/stock-documents/stock-document.logic.ts.
 function canApproveRequests(roles: readonly string[]) {
-  return roles.some((role) => role === "ADMIN" || role === "FARM_OWNER");
+  return hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES);
 }
 
 export function shouldReloadAfterFailure(status: number | null) {

@@ -3,11 +3,11 @@
 import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 
 export function useFarmPermissions() {
-  const { selectedFarmId, membership, canManageFarm } = useFarmMembership();
+  const { selectedFarmId, membership, canManageWarehouse } = useFarmMembership();
 
   return {
     selectedFarmId,
     farmName: membership?.farm.name ?? "Chưa chọn trang trại",
-    canWrite: canManageFarm,
+    canWrite: canManageWarehouse,
   };
 }

@@ -10,12 +10,13 @@ test("history uses the protected dashboard routes and existing staff navigation 
   const item = primaryNavigationSections.flatMap(({ items }) => items).find(({ href }) => href === "/history");
   assert.ok(item);
   assert.equal(item.label, "Lịch sử thay đổi");
-  for (const roles of [["ADMIN"], ["FARM_OWNER"], ["EMPLOYEE"], ["EMPLOYEE", "GUEST"], ["GUEST"], []]) {
-    const staff = roles.some((role) => ["ADMIN", "FARM_OWNER", "EMPLOYEE"].includes(role));
+  for (const staff of [true, false]) {
     assert.equal(isNavigationItemVisible(item, {
-      canManageFarm: roles.some((role) => ["ADMIN", "FARM_OWNER"].includes(role)),
-      canManageOrders: staff,
+      canManageFarm: false,
+      canManageStore: false,
+      canAccessFarmArea: true,
+      canViewHistory: staff,
       isStoreFarm: false,
-    }), staff, roles.join(","));
+    }), staff);
   }
 });
