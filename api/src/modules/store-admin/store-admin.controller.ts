@@ -326,6 +326,19 @@ export class StoreAdminController {
     };
   }
 
+  @Get('sales-stock')
+  @ApiOperation({
+    summary:
+      'Tồn bán hàng: tồn vật lý, đang giữ và khả dụng tại kho bán của trại',
+  })
+  async salesStock(@Query('farmId') farmId: string) {
+    return {
+      data: await this.storeAdminService.salesStock(
+        requireUuid(farmId, 'farmId'),
+      ),
+    };
+  }
+
   @Put('settings')
   @FarmRoles(...FARM_ADMIN_ROLES)
   @ApiOperation({

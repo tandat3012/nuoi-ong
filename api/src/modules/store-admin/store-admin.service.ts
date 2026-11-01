@@ -22,7 +22,10 @@ import { PaginationParams } from '../../common/query-params';
 import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 import { DatabaseService } from '../../db/database.service';
 import {
+  inventoryBalances,
   items,
+  stockIssueItems,
+  stockIssues,
   storeCategories,
   storeProductImages,
   storeProducts,
@@ -104,6 +107,78 @@ export class StoreAdminService {
     return (
       settings ?? { salesEnabled: false, regions: [], salesWarehouse: null }
     );
+  }
+
+  /**
+   * Physical stock of every variant this farm sells, at its sales warehouse,
+   * with what unapproved stock issues (e.g. confirmed orders) already hold.
+   * shortcut: not paginated, one row per mapped variant; paginate if a farm maps hundreds.
+   */
+  async salesStock(farmId: string) {
+    const settings = await this.getSettings(farmId);
+    const warehouseId = settings.salesWarehouse?.id;
+    if (!warehouseId) return { ...settings, rows: [] };
+
+    const onHand = sql<string>`(
+      SELECT COALESCE(SUM(${inventoryBalances.quantityOnHand}), 0)
+      FROM ${inventoryBalances}
+      WHERE ${inventoryBalances.itemId} = ${items.id}
+        AND ${inventoryBalances.warehouseId} = ${warehouseId}
+    )`;
+    const held = sql<string>`(
+      SELECT COALESCE(SUM(${stockIssueItems.quantity}), 0)
+      FROM ${stockIssueItems}
+      JOIN ${stockIssues} ON ${stockIssues.id} = ${stockIssueItems.stockIssueId}
+      WHERE ${stockIssueItems.itemId} = ${items.id}
+        AND ${stockIssues.warehouseId} = ${warehouseId}
+        AND ${stockIssues.status} IN ('DRAFT', 'PENDING_APPROVAL')
+    )`;
+    const rows = await this.databaseService.db
+      .select({
+        productId: storeProducts.id,
+        productName: storeProducts.name,
+        productStatus: storeProducts.status,
+        variantId: storeProductVariants.id,
+        variantName: storeProductVariants.name,
+        variantActive: storeProductVariants.active,
+        itemId: items.id,
+        itemCode: items.code,
+        itemName: items.name,
+        itemStatus: items.status,
+        unitSymbol: units.symbol,
+        unitStatus: units.status,
+        onHand: sql<string>`${onHand}::text`,
+        held: sql<string>`${held}::text`,
+        available: sql<string>`GREATEST(${onHand} - ${held}, 0)::text`,
+      })
+      .from(storeVariantItems)
+      .innerJoin(items, eq(items.id, storeVariantItems.itemId))
+      .innerJoin(
+        storeProductVariants,
+        eq(storeProductVariants.id, storeVariantItems.variantId),
+      )
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.id, storeProductVariants.productId),
+      )
+      .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+      .where(eq(storeVariantItems.farmId, farmId))
+      .orderBy(asc(storeProducts.name), asc(storeProductVariants.name));
+
+    return {
+      ...settings,
+      rows: rows.map(({ unitStatus, ...row }) => ({
+        ...row,
+        // Mirrors CommerceService.eligibleVariantConditions().
+        saleable:
+          unitStatus === 'ACTIVE' &&
+          settings.salesEnabled &&
+          settings.salesWarehouse?.status === 'ACTIVE' &&
+          row.productStatus === 'PUBLISHED' &&
+          row.variantActive &&
+          row.itemStatus === 'ACTIVE',
+      })),
+    };
   }
 
   async updateSettings(farmId: string, input: UpdateStoreSettingsDto) {

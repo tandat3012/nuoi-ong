@@ -351,23 +351,32 @@ export class CommerceService {
         ({ items }) => items.size === lines.length,
       );
 
-      // Greedy: the warehouse covering most remaining lines makes each group.
-      const groups: string[][] = [];
-      const remaining = new Set(
-        coverage.flatMap(({ items }) => [...items.keys()]),
-      );
-      while (!canOrder && remaining.size > 0) {
-        const best = coverage
-          .map(({ items }) =>
-            [...items.keys()].filter((id) => remaining.has(id)),
-          )
-          .reduce((a, b) => (b.length > a.length ? b : a));
-        groups.push(best);
-        for (const id of best) remaining.delete(id);
-      }
-
-      return { canOrder, lines: statuses, groups };
+      return {
+        canOrder,
+        lines: statuses,
+        groups: canOrder ? [] : this.splitGroups(coverage),
+      };
     });
+  }
+
+  /**
+   * Groups of variant ids that one warehouse could each ship as one order.
+   * Greedy: the warehouse covering most remaining lines makes each group.
+   */
+  splitGroups(coverage: { items: Map<string, string> }[]) {
+    const groups: string[][] = [];
+    const remaining = new Set(
+      coverage.flatMap(({ items }) => [...items.keys()]),
+    );
+    while (remaining.size > 0) {
+      const best = coverage
+        .map(({ items }) => [...items.keys()].filter((id) => remaining.has(id)))
+        .reduce((a, b) => (b.length > a.length ? b : a));
+      groups.push(best);
+      for (const id of best) remaining.delete(id);
+    }
+
+    return groups;
   }
 
   /** The store_settings row belongs to a farm that currently sells online. */

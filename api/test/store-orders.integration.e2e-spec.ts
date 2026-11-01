@@ -452,6 +452,14 @@ describe('Store orders (migrated PostgreSQL)', () => {
       await expect(service.create(ids.customer, request)).rejects.toMatchObject(
         { response: { code: 'CART_NOT_FULFILLABLE' } },
       );
+      // The 409 says which lines could be ordered separately.
+      const failure = await service
+        .create(ids.customer, { ...request, idempotencyKey: randomUUID() })
+        .catch((error: { response: { groups: string[][] } }) => error);
+      const { groups } = (failure as { response: { groups: string[][] } })
+        .response;
+      expect(groups).toHaveLength(2);
+      expect(groups.flat().sort()).toEqual([ids.variant, secondVariant].sort());
       const cart = await ctx.commerce.cartAvailability('SOUTH', request.items);
       expect(cart.canOrder).toBe(false);
       expect(cart.lines.map(({ availability }) => availability)).toEqual([

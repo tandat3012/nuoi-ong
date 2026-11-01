@@ -46,6 +46,7 @@ import {
   canCustomerCancel,
   formatOrderMoney,
   orderErrorMessage,
+  storeRegionLabels,
 } from "../order.logic";
 import type { CustomerOrder, CustomerOrderDetail as CustomerOrderDetailType } from "../types/order";
 import {
@@ -728,6 +729,16 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                     <p className="whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed">
                       {detail.order.address}
                     </p>
+                    {detail.order.region && (
+                      <p className="text-xs text-foreground">
+                        Giao tới: {storeRegionLabels[detail.order.region]}
+                      </p>
+                    )}
+                    {detail.order.status === "PENDING" && (
+                      <p className="text-xs text-muted-foreground">
+                        Đang chờ cửa hàng xác nhận, hàng chưa được giữ.
+                      </p>
+                    )}
                   </div>
 
                   {detail.order.note && (

@@ -19,9 +19,42 @@ import {
 import { Button } from '@/shared/components/ui/button';
 import { formatVndCurrency } from '@/shared/lib/currency';
 import { useCart } from '../hooks/use-cart';
-import { cartItemStatus, isValidCartPrice } from './cart.logic';
+import { cartItemStatus, isValidCartPrice, validateQuantity } from './cart.logic';
 import { CartVerificationNote } from './cart-verification-note';
 import { CartRegionCheck } from './cart-region-check';
+
+function QuantityInput({ quantity, purchaseLimit, disabled, name, onChange }: {
+  quantity: number;
+  purchaseLimit?: number;
+  disabled: boolean;
+  name: string;
+  onChange: (quantity: number) => void;
+}) {
+  const [draft, setDraft] = React.useState<string | null>(null);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={draft ?? String(quantity)}
+      disabled={disabled}
+      aria-label={`Số lượng ${name}`}
+      onChange={(event) => {
+        const value = event.target.value;
+        if (!/^\d*$/.test(value)) return;
+        setDraft(value);
+        if (value && Number.isSafeInteger(Number(value)) && Number(value) >= 1) {
+          onChange(validateQuantity(value, purchaseLimit));
+        }
+      }}
+      onBlur={() => {
+        if (draft !== null) onChange(validateQuantity(draft, purchaseLimit));
+        setDraft(null);
+      }}
+      className="w-10 bg-transparent text-center text-xs sm:text-sm font-semibold text-foreground focus-visible:outline-2 focus-visible:outline-primary"
+    />
+  );
+}
 
 export function CartPageContent() {
   const {
@@ -233,12 +266,13 @@ export function CartPageContent() {
                           >
                             <Minus className="size-3.5" aria-hidden="true" />
                           </button>
-                          <span
-                            className="w-10 text-center text-xs sm:text-sm font-semibold text-foreground select-none"
-                            aria-label={`Số lượng: ${item.quantity}`}
-                          >
-                            {item.quantity}
-                          </span>
+                          <QuantityInput
+                            quantity={item.quantity}
+                            purchaseLimit={item.purchaseLimit}
+                            disabled={isCheckoutSubmitting}
+                            name={item.productName}
+                            onChange={(quantity) => updateQuantity(item.id, quantity)}
+                          />
                           <button
                             type="button"
                             disabled={
@@ -367,7 +401,7 @@ export function CartPageContent() {
                 </div>
                 <CartVerificationNote />
                 <div className="mt-3">
-                  <CartRegionCheck />
+                  <CartRegionCheck hideSuccess />
                 </div>
               </div>
 

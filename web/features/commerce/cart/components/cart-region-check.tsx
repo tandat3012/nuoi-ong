@@ -15,7 +15,7 @@ import { useStoreRegion } from '../../region/region-context';
 import { useCart } from '../hooks/use-cart';
 
 /** Whether one warehouse of the chosen region can ship the whole cart. */
-export function CartRegionCheck() {
+export function CartRegionCheck({ hideSuccess = false }: { hideSuccess?: boolean }) {
   const { items } = useCart();
   const { region, openPicker } = useStoreRegion();
   const lines = items.flatMap((item) =>
@@ -72,16 +72,16 @@ export function CartRegionCheck() {
   );
   return (
     <div role="status" className="space-y-1 text-sm">
-      {canOrder ? (
+      {canOrder && !hideSuccess ? (
         <p className="text-emerald-700 dark:text-emerald-400">
           Có thể giao cả giỏ tới {storeRegionLabels[region]}.
         </p>
-      ) : (
+      ) : !canOrder ? (
         <p className="text-amber-800 dark:text-amber-300">
           Chưa có kho nào tại {storeRegionLabels[region]} đáp ứng đủ cả giỏ
           hàng.
         </p>
-      )}
+      ) : null}
       {problems.map(({ variantId, availability }) => (
         <p key={variantId} className="text-muted-foreground">
           {cartLineName(items, variantId)}: {availabilityLabels[availability]}

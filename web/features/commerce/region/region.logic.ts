@@ -58,3 +58,19 @@ export function splitOrderSuggestions(groups: string[][], items: CartLine[]) {
       `Đơn ${index + 1}: ${group.map((id) => cartLineName(items, id)).join(", ")}`,
   );
 }
+
+/** `groups` of a CART_NOT_FULFILLABLE error body, when well-formed. */
+export function parseSplitGroups(details: unknown): string[][] | null {
+  const groups =
+    details && typeof details === "object" && "groups" in details
+      ? details.groups
+      : null;
+  return Array.isArray(groups) &&
+    groups.length > 0 &&
+    groups.every(
+      (group) =>
+        Array.isArray(group) && group.every((id) => typeof id === "string"),
+    )
+    ? (groups as string[][])
+    : null;
+}

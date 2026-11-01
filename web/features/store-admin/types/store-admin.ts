@@ -41,6 +41,23 @@ export type StoreSettings = {
   } | null;
 };
 
+export type StoreSalesStockRow = {
+  productId: string;
+  productName: string;
+  variantId: string;
+  variantName: string;
+  itemCode: string;
+  itemName: string;
+  unitSymbol: string;
+  /** Decimal strings; never sent to customers. */
+  onHand: string;
+  held: string;
+  available: string;
+  saleable: boolean;
+};
+
+export type StoreSalesStock = StoreSettings & { rows: StoreSalesStockRow[] };
+
 export type StoreSettingsInput = {
   salesWarehouseId?: string;
   salesEnabled: boolean;
