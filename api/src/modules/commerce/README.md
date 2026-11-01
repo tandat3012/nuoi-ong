@@ -12,11 +12,11 @@ Các endpoint này dùng `@Public()`; API nội bộ vẫn giữ xác thực và
 
 ## Dữ liệu công khai
 
-- Catalog dùng chung cho mọi trại. Mỗi trại bán online có một dòng `store_settings` (kho bán duy nhất, miền phục vụ, `sales_enabled`). Trại tắt bán, kho/trại không hoạt động thì không cung cấp hàng; không còn trả `503`.
+- Catalog dùng chung cho mọi trại. Một trại có nhiều kho; chủ trại chọn đúng **một** kho làm kho bán (`store_settings`, mỗi trại một dòng). Chỉ kho bán có miền giao (`regions`) và `sales_enabled`; các kho còn lại là kho làm việc, hàng phải chuyển vào kho bán mới được bán. Trại tắt bán, kho/trại không hoạt động thì không cung cấp hàng; không còn trả `503`.
 - Chỉ trả sản phẩm `PUBLISHED` có ít nhất một variant `active` với đơn vị hoạt động và ít nhất một trại đang bán đã gắn item hoạt động vào variant đó (`store_variant_items`).
 - `price` là giá thấp nhất của các variant hợp lệ, kể cả variant hết hàng. Lọc và sort giá dùng cùng giá này. Đây là giá khởi điểm; variant còn hàng có thể có giá cao hơn.
 - Giá được so sánh bằng numeric trong DB, chỉ chuyển thành `number` khi trả response. Giá hiển thị vượt số nguyên an toàn của JavaScript trả `500` thay vì làm tròn âm thầm.
-- `inStock` đúng khi **một** kho bán đủ tồn cho ít nhất một `quantityStep` của variant hợp lệ; tồn của nhiều kho không được cộng. Kho nội bộ không tính. Hết hàng vẫn được hiển thị.
+- `inStock` đúng khi **một** kho bán đủ tồn cho ít nhất một `quantityStep` của variant hợp lệ; tồn của nhiều kho không được cộng. Kho làm việc (mọi kho khác của trại) không tính. Hết hàng vẫn được hiển thị.
 - Danh sách/chi tiết nhận `?region=NORTH|CENTRAL|SOUTH`; chi tiết nhận thêm `?quantity=` (số bước, mặc định 1). Sản phẩm và variant trả `availability`, không bao giờ trả số tồn:
   - không có miền: `REGION_REQUIRED` (còn ở đâu đó) hoặc `OUT_OF_STOCK`;
   - có miền: `AVAILABLE` (một kho bán của miền đủ `quantity`), `INSUFFICIENT_IN_REGION` (đủ 1 bước nhưng không đủ `quantity`), `REGION_NOT_SUPPORTED` (không kho bán nào của miền bán variant này), `OUT_IN_REGION` (miền khác còn), `OUT_OF_STOCK`.
@@ -37,6 +37,7 @@ Module `store-admin` (`/api/v1/store-admin/...`), mọi request cần `?farmId=`
 - Xem catalog: `ADMIN`, `FARM_OWNER`, `STORE_MANAGER`. Sửa catalog chung (sản phẩm, danh mục, biến thể, giá, ảnh): chỉ `ADMIN`.
 - `GET/PUT settings`, `PUT/DELETE products/:id/variants/:variantId/item`: `ADMIN`/`FARM_OWNER` chọn kho bán, miền phục vụ và vật tư của trại cho từng variant. Vật tư phải cùng đơn vị với variant. Không đổi kho bán khi kho cũ còn đơn `PENDING`/`CONFIRMED`/`SHIPPING` (`409`).
 - Tạo variant gắn luôn vật tư của trại đang chọn; vật tư đó quyết định `unit_id` của variant.
+- `GET sales-stock` (`ADMIN`, `FARM_OWNER`, `STORE_MANAGER`): mỗi variant trại đã gắn, tồn vật lý tại kho bán, `held` (phiếu xuất `DRAFT`/`PENDING_APPROVAL`), `available = max(onHand - held, 0)` và `saleable`. Chỉ nhân viên thấy số; khách chỉ thấy nhãn.
 
 - Sản phẩm tạo ở `DRAFT`; `PUBLISHED` cần ít nhất một biến thể active gắn item/đơn vị đang hoạt động cùng farm. Không xóa sản phẩm/biến thể: dùng `ARCHIVED` và `active=false`.
 - Ảnh tải qua `POST products/:id/images` (multipart `file`, `alt`), JPEG/PNG/WebP ≤ 10MB, lưu lên Cloudinary thư mục `nuoi-ong/products` dưới dạng WebP, cạnh dài tối đa 2000px, `quality: auto:good` (ảnh cũ không được nén lại). Web hiển thị qua loader `web/shared/lib/cloudinary-image.ts` (`f_auto,q_auto,w_<width>`). DB giữ `url` (`secure_url`) và `public_id`; lưu DB lỗi thì xóa file vừa tải. Xóa ảnh xóa dòng DB trước rồi xóa trên Cloudinary (lỗi chỉ log). `PUT products/:id/images/order` nhận đủ danh sách ID theo thứ tự mới.

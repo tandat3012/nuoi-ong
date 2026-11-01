@@ -200,6 +200,94 @@ describe('Store admin (migrated PostgreSQL)', () => {
       ).toMatchObject({ salesEnabled: false });
     }));
 
+  it('shows physical, held and available stock of the sales warehouse only', () =>
+    inRollback(async (tx) => {
+      const admin = service(tx);
+      const product = await createProduct(tx);
+      await admin.createVariant(ids.farm, product.id, {
+        name: 'Chai',
+        price: '100000',
+        itemId: ids.item,
+      });
+      const internal = randomUUID();
+      await tx.insert(schema.warehouses).values({
+        id: internal,
+        farmId: ids.farm,
+        code: 'INTERNAL',
+        name: 'Internal',
+      });
+      await tx.insert(schema.inventoryBalances).values([
+        {
+          farmId: ids.farm,
+          warehouseId: ids.warehouse,
+          itemId: ids.item,
+          quantityOnHand: '10',
+        },
+        {
+          farmId: ids.farm,
+          warehouseId: internal,
+          itemId: ids.item,
+          quantityOnHand: '50',
+        },
+      ]);
+      const userId = randomUUID();
+      const memberId = randomUUID();
+      await tx.insert(schema.users).values({
+        id: userId,
+        authProviderUserId: userId,
+        email: `${userId}@store-admin.test`,
+      });
+      await tx
+        .insert(schema.farmMembers)
+        .values({ id: memberId, farmId: ids.farm, userId });
+      // A draft holds stock; an approved issue has already left the balance.
+      for (const [status, quantity] of [
+        ['DRAFT', '3'],
+        ['CONFIRMED', '4'],
+      ] as const) {
+        const [issue] = await tx
+          .insert(schema.stockIssues)
+          .values({
+            farmId: ids.farm,
+            warehouseId: ids.warehouse,
+            status,
+            createdByMemberId: memberId,
+            ...(status === 'CONFIRMED' && {
+              issueCode: `XK-${randomUUID()}`,
+              confirmedByMemberId: memberId,
+              confirmedAt: new Date().toISOString(),
+            }),
+          })
+          .returning();
+        await tx
+          .insert(schema.stockIssueItems)
+          .values({ stockIssueId: issue.id, itemId: ids.item, quantity });
+      }
+
+      const stock = await admin.salesStock(ids.farm);
+      expect(stock.salesWarehouse?.id).toBe(ids.warehouse);
+      expect(stock.rows).toEqual([
+        expect.objectContaining({
+          productId: product.id,
+          itemId: ids.item,
+          onHand: '10.000',
+          held: '3.000',
+          available: '7.000',
+          // Still a draft product.
+          saleable: false,
+        }),
+      ]);
+      await admin.updateProductStatus(ids.farm, product.id, 'PUBLISHED');
+      expect((await admin.salesStock(ids.farm)).rows[0].saleable).toBe(true);
+      // Customers cannot see a variant whose unit is inactive.
+      await tx
+        .update(schema.units)
+        .set({ status: 'INACTIVE' })
+        .where(eq(schema.units.id, ids.unit));
+      expect((await admin.salesStock(ids.farm)).rows[0].saleable).toBe(false);
+      expect((await admin.salesStock(ids.otherFarm)).rows).toEqual([]);
+    }));
+
   it('lets each farm map its own item of the same unit to a shared variant', () =>
     inRollback(async (tx) => {
       const product = await createProduct(tx);

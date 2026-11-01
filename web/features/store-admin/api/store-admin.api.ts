@@ -9,6 +9,7 @@ import type {
   StoreProductInput,
   StoreProductRow,
   StoreProductStatus,
+  StoreSalesStock,
   StoreSettings,
   StoreSettingsInput,
   StoreVariant,
@@ -119,6 +120,15 @@ export function getStoreSettings(
   farmId: string,
 ) {
   return request<{ data: StoreSettings }>("/store-admin/settings", {
+    params: { farmId },
+  });
+}
+
+export function getStoreSalesStock(
+  request: AuthenticatedRequest,
+  farmId: string,
+) {
+  return request<{ data: StoreSalesStock }>("/store-admin/sales-stock", {
     params: { farmId },
   });
 }
