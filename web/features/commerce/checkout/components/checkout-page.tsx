@@ -13,6 +13,7 @@ import {
 } from "@/features/commerce/cart/components/cart.logic";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { formatVndCurrency } from "@/shared/lib/currency";
 import { ApiError } from "@/shared/api/client";
@@ -23,6 +24,7 @@ import {
   loadOrderAttempt,
   orderErrorMessage,
   parseOrderAttemptPayload,
+  storeRegionLabels,
   updateOrderAttempt,
   type OrderAttempt,
 } from "@/features/commerce/orders/order.logic";
@@ -30,6 +32,7 @@ import { createCustomerOrder } from "@/features/commerce/orders/orders.api";
 import type {
   CreateOrderInput,
   PaymentMethod,
+  StoreRegion,
 } from "@/features/commerce/orders/types/order";
 import {
   getStorePaymentMethods,
@@ -40,6 +43,7 @@ type CheckoutFields = {
   recipientName: string;
   phone: string;
   address: string;
+  region: StoreRegion | "";
   note: string;
   paymentMethod: PaymentMethod;
 };
@@ -124,6 +128,7 @@ function validateFields(fields: CheckoutFields) {
     return "Số điện thoại chỉ gồm chữ số, khoảng trắng và các ký tự + - ( ).";
   if (phone.length < 8 || phone.length > 30)
     return "Số điện thoại cần từ 8 đến 30 ký tự.";
+  if (!fields.region) return "Vui lòng chọn miền giao hàng.";
   if (!address) return "Vui lòng nhập địa chỉ giao hàng.";
   if (address.length < 5)
     return "Địa chỉ giao hàng quá ngắn, cần ít nhất 5 ký tự.";
@@ -151,6 +156,7 @@ export function CheckoutPage() {
     recipientName: "",
     phone: "",
     address: "",
+    region: "",
     note: "",
     paymentMethod: "COD",
   });
@@ -210,6 +216,7 @@ export function CheckoutPage() {
             recipientName: savedPayload.recipientName,
             phone: savedPayload.phone,
             address: savedPayload.address,
+            region: savedPayload.region,
             note: savedPayload.note ?? "",
             paymentMethod: savedPayload.paymentMethod,
           });
@@ -293,6 +300,7 @@ export function CheckoutPage() {
       recipientName: fields.recipientName.trim(),
       phone: fields.phone.trim(),
       address: fields.address.trim(),
+      region: fields.region as StoreRegion,
       note: fields.note.trim() || undefined,
       paymentMethod: fields.paymentMethod,
       items: cartOrderItems(verified.items),
@@ -562,6 +570,30 @@ export function CheckoutPage() {
                     setFields({ ...fields, phone: event.target.value })
                   }
                 />
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span>Miền giao hàng *</span>
+                <Select
+                  required
+                  value={fields.region}
+                  onChange={(event) =>
+                    setFields({
+                      ...fields,
+                      region: event.target.value as StoreRegion,
+                    })
+                  }
+                >
+                  <option value="" disabled>
+                    Chọn miền
+                  </option>
+                  {(Object.keys(storeRegionLabels) as StoreRegion[]).map(
+                    (region) => (
+                      <option key={region} value={region}>
+                        {storeRegionLabels[region]}
+                      </option>
+                    ),
+                  )}
+                </Select>
               </label>
               <label className="block space-y-1 text-sm">
                 <span>Địa chỉ giao hàng *</span>

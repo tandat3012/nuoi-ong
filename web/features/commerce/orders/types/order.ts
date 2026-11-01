@@ -154,11 +154,14 @@ export interface CustomerOrderDetail {
   payment: OrderTransferInstructions | null;
 }
 
+export type StoreRegion = "NORTH" | "CENTRAL" | "SOUTH";
+
 export interface CreateOrderInput {
   idempotencyKey: string;
   recipientName: string;
   phone: string;
   address: string;
+  region: StoreRegion;
   note?: string;
   paymentMethod: PaymentMethod;
   items: { variantId: string; quantity: number; expectedUnitPrice?: string }[];

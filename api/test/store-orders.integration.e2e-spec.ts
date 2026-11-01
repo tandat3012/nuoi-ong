@@ -1,12 +1,14 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { count, eq } from 'drizzle-orm';
+import { count, eq, ne } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import type { ClerkClient } from '@clerk/backend';
 import { DatabaseService } from '../src/db/database.service';
 import { AuthService } from '../src/modules/auth/accounts/auth.service';
 import { StoreOrdersService } from '../src/modules/store-orders/store-orders.service';
+import { StoreAdminService } from '../src/modules/store-admin/store-admin.service';
+import { CloudinaryService } from '../src/cloudinary/cloudinary.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 import * as schema from '../src/db/schema';
 import {
@@ -62,14 +64,15 @@ describe('Store orders (migrated PostgreSQL)', () => {
     ]);
   });
 
-  it('tells staff which farm owns the store and omits it for customers', () =>
+  it('tells staff which of their farms sell online and nothing to customers', () =>
     inRollback(async ({ ids, database }) => {
       const auth = new AuthService(database, {} as ClerkClient);
-      expect((await auth.getAuthContext(ids.staff)).storeFarm).toEqual({
-        id: ids.farm,
-        name: 'Order tests',
-      });
-      expect((await auth.getAuthContext(ids.customer)).storeFarm).toBeNull();
+      expect((await auth.getAuthContext(ids.staff)).storeFarmIds).toEqual([
+        ids.farm,
+      ]);
+      expect((await auth.getAuthContext(ids.customer)).storeFarmIds).toEqual(
+        [],
+      );
     }));
 
   it('takes prices from the server and snapshots fractional stock steps', () =>
@@ -169,7 +172,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
         'Only customer',
       );
       await expect(service.staffGet(ids.otherFarm, order.id)).rejects.toThrow(
-        'another farm',
+        'does not sell online',
       );
     }));
 
@@ -243,8 +246,8 @@ describe('Store orders (migrated PostgreSQL)', () => {
         .where(eq(schema.storeProductVariants.id, ids.variant));
       await tx
         .update(schema.storeSettings)
-        .set({ warehouseId: ids.otherWarehouse })
-        .where(eq(schema.storeSettings.id, 1));
+        .set({ salesWarehouseId: ids.otherWarehouse })
+        .where(eq(schema.storeSettings.farmId, ids.farm));
       const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
       const issue = await issues.get(
         confirmed.stockIssue.id,
@@ -254,6 +257,146 @@ describe('Store orders (migrated PostgreSQL)', () => {
       expect(issue.issue.warehouseId).toBe(ids.warehouse);
       expect(issue.items[0].quantity).toBe('0.375');
       expect(confirmed.order.total).toBe('555000');
+    }));
+
+  /** A second farm selling the fixture variant from its own sales warehouse. */
+  async function addSeller(
+    { ids }: Context,
+    tx: OrderTestDb,
+    quantityOnHand: string,
+  ) {
+    const warehouseId = randomUUID();
+    const itemId = randomUUID();
+    await tx.insert(schema.warehouses).values({
+      id: warehouseId,
+      farmId: ids.otherFarm,
+      code: 'SALE',
+      name: 'Other sales',
+    });
+    await tx.insert(schema.items).values({
+      id: itemId,
+      farmId: ids.otherFarm,
+      categoryId: ids.category,
+      unitId: ids.unit,
+      code: itemId,
+      name: 'Honey elsewhere',
+      itemType: 'MATERIAL',
+      trackingMode: 'QUANTITY',
+    });
+    await tx.insert(schema.storeSettings).values({
+      farmId: ids.otherFarm,
+      salesWarehouseId: warehouseId,
+      salesEnabled: true,
+      regions: ['SOUTH'],
+    });
+    await tx
+      .insert(schema.storeVariantItems)
+      .values({ variantId: ids.variant, farmId: ids.otherFarm, itemId });
+    await tx.insert(schema.inventoryBalances).values({
+      farmId: ids.otherFarm,
+      warehouseId,
+      itemId,
+      quantityOnHand,
+    });
+    return { warehouseId, itemId };
+  }
+
+  it('fills an order from one sales warehouse, never adding stock across farms or internal warehouses', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, input } = ctx;
+      await tx.insert(schema.inventoryBalances).values({
+        farmId: ids.farm,
+        warehouseId: ids.otherWarehouse,
+        itemId: ids.item,
+        quantityOnHand: '100',
+      });
+      // Farms of the shared database stop selling inside this rolled-back transaction.
+      await tx
+        .update(schema.storeSettings)
+        .set({ salesEnabled: false })
+        .where(ne(schema.storeSettings.farmId, ids.farm));
+      const other = await addSeller(ctx, tx, '10');
+      // 96 × 0.125 = 12: each sales warehouse has 10, together 20.
+      await expect(
+        service.create(ids.customer, input(96)),
+      ).rejects.toMatchObject({
+        response: { code: 'INSUFFICIENT_STOCK', variantId: ids.variant },
+      });
+      await tx
+        .update(schema.inventoryBalances)
+        .set({ quantityOnHand: '12' })
+        .where(eq(schema.inventoryBalances.itemId, other.itemId));
+      // The other farm only serves the south.
+      await expect(
+        service.create(ids.customer, { ...input(96), region: 'NORTH' }),
+      ).rejects.toMatchObject({ response: { code: 'INSUFFICIENT_STOCK' } });
+      await tx
+        .update(schema.storeSettings)
+        .set({ regions: ['NORTH'] })
+        .where(eq(schema.storeSettings.farmId, ids.farm));
+      await expect(
+        service.create(ids.customer, { ...input(), region: 'CENTRAL' }),
+      ).rejects.toMatchObject({ response: { code: 'REGION_NOT_SUPPORTED' } });
+      const { order } = await service.create(ids.customer, input(96));
+      const [saved] = await tx
+        .select()
+        .from(schema.storeOrders)
+        .where(eq(schema.storeOrders.id, order.id));
+      expect(saved).toMatchObject({
+        farmId: ids.otherFarm,
+        warehouseId: other.warehouseId,
+        region: 'SOUTH',
+      });
+      const [line] = await tx
+        .select()
+        .from(schema.storeOrderItems)
+        .where(eq(schema.storeOrderItems.orderId, order.id));
+      expect(line.itemId).toBe(other.itemId);
+    }));
+
+  it('refuses a cart that no single sales warehouse can fill', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, input } = ctx;
+      await addSeller(ctx, tx, '0');
+      const secondVariant = randomUUID();
+      const secondItem = randomUUID();
+      await tx.insert(schema.storeProductVariants).values({
+        id: secondVariant,
+        productId: ids.product,
+        unitId: ids.unit,
+        name: 'Thùng',
+        price: '50000',
+      });
+      await tx.insert(schema.items).values({
+        id: secondItem,
+        farmId: ids.otherFarm,
+        categoryId: ids.category,
+        unitId: ids.unit,
+        code: secondItem,
+        name: 'Hive',
+        itemType: 'MATERIAL',
+        trackingMode: 'QUANTITY',
+      });
+      await tx.insert(schema.storeVariantItems).values({
+        variantId: secondVariant,
+        farmId: ids.otherFarm,
+        itemId: secondItem,
+      });
+      const [otherSettings] = await tx
+        .select()
+        .from(schema.storeSettings)
+        .where(eq(schema.storeSettings.farmId, ids.otherFarm));
+      await tx.insert(schema.inventoryBalances).values({
+        farmId: ids.otherFarm,
+        warehouseId: otherSettings.salesWarehouseId!,
+        itemId: secondItem,
+        quantityOnHand: '5',
+      });
+      const request = input(1);
+      request.items.push({ variantId: secondVariant, quantity: 1 });
+      await expect(service.create(ids.customer, request)).rejects.toMatchObject(
+        { response: { code: 'CART_NOT_FULFILLABLE' } },
+      );
     }));
 
   it('confirms an order next to a legacy XB- issue code without reusing it', () =>
@@ -671,25 +814,56 @@ describe('Store orders on concurrent PostgreSQL connections', () => {
   });
   const db = drizzle(pool, { schema });
   let ctx: Awaited<ReturnType<typeof seedOrders>>;
-  let originalSettings: typeof schema.storeSettings.$inferSelect | undefined;
   beforeEach(async () => {
-    [originalSettings] = await db
-      .select()
-      .from(schema.storeSettings)
-      .where(eq(schema.storeSettings.id, 1));
     ctx = await seedOrders(db);
   });
   afterEach(async () => {
-    if (originalSettings)
-      await db
-        .update(schema.storeSettings)
-        .set({ warehouseId: originalSettings.warehouseId })
-        .where(eq(schema.storeSettings.id, 1));
-    else
-      await db
-        .delete(schema.storeSettings)
-        .where(eq(schema.storeSettings.id, 1));
     if (ctx) await cleanupOrders(db, ctx.ids);
+  });
+
+  it('makes a sales warehouse switch wait for an order being placed in it', async () => {
+    const admin = new StoreAdminService(
+      ctx.database,
+      {} as unknown as CloudinaryService,
+    );
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => (locked = resolve));
+    // Stands in for checkout between picking the warehouse and inserting the order.
+    const checkout = db.transaction(async (tx) => {
+      await ctx.commerce.salesWarehouses(tx, 'SOUTH');
+      locked();
+      await held;
+      await tx.insert(schema.storeOrders).values({
+        userId: ctx.ids.customer,
+        farmId: ctx.ids.farm,
+        warehouseId: ctx.ids.warehouse,
+        recipientName: 'Khách',
+        phone: '0900000000',
+        address: 'Địa chỉ',
+        region: 'SOUTH',
+        paymentMethod: 'COD',
+        subtotal: '0',
+        total: '0',
+        idempotencyKey: randomUUID(),
+        requestFingerprint: 'x',
+      });
+    });
+    await lockTaken;
+    let settled = false;
+    const switching = admin
+      .updateSettings(ctx.ids.farm, {
+        salesWarehouseId: ctx.ids.otherWarehouse,
+        salesEnabled: true,
+        regions: ['SOUTH'],
+      })
+      .finally(() => (settled = true));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(settled).toBe(false);
+    release();
+    await checkout;
+    await expect(switching).rejects.toMatchObject({ status: 409 });
   });
   afterAll(() => pool.end());
 

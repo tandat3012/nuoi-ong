@@ -122,18 +122,22 @@ export async function seedOrders(db: OrderTestDb) {
   await db.insert(schema.storeProductVariants).values({
     id: ids.variant,
     productId: ids.product,
-    itemId: ids.item,
+    unitId: ids.unit,
     name: 'Chai 500ml',
     price: '185000',
     quantityStep: '0.125',
   });
-  await db
-    .insert(schema.storeSettings)
-    .values({ id: 1, warehouseId: ids.warehouse })
-    .onConflictDoUpdate({
-      target: schema.storeSettings.id,
-      set: { warehouseId: ids.warehouse },
-    });
+  await db.insert(schema.storeVariantItems).values({
+    variantId: ids.variant,
+    farmId: ids.farm,
+    itemId: ids.item,
+  });
+  await db.insert(schema.storeSettings).values({
+    farmId: ids.farm,
+    salesWarehouseId: ids.warehouse,
+    salesEnabled: true,
+    regions: ['NORTH', 'CENTRAL', 'SOUTH'],
+  });
   const database = { db } as unknown as DatabaseService;
   const warehouseService = new WarehousesService(database);
   const commerce = new CommerceService(database);
@@ -144,6 +148,7 @@ export async function seedOrders(db: OrderTestDb) {
     recipientName: 'Khách mua hàng',
     phone: '0901234567',
     address: 'Địa chỉ nhận hàng',
+    region: 'SOUTH' as const,
     paymentMethod: 'COD' as const,
     items: [{ variantId: ids.variant, quantity }],
   });
@@ -206,6 +211,9 @@ export async function cleanupOrders(
     .delete(schema.stockIssues)
     .where(eq(schema.stockIssues.farmId, ids.farm));
   await db
+    .delete(schema.storeVariantItems)
+    .where(inArray(schema.storeVariantItems.farmId, [ids.farm, ids.otherFarm]));
+  await db
     .delete(schema.storeProductVariants)
     .where(eq(schema.storeProductVariants.productId, ids.product));
   await db
@@ -217,6 +225,9 @@ export async function cleanupOrders(
   await db
     .delete(schema.inventoryBalances)
     .where(eq(schema.inventoryBalances.farmId, ids.farm));
+  await db
+    .delete(schema.storeSettings)
+    .where(inArray(schema.storeSettings.farmId, [ids.farm, ids.otherFarm]));
   await db.delete(schema.items).where(eq(schema.items.id, ids.item));
   await db
     .delete(schema.locations)

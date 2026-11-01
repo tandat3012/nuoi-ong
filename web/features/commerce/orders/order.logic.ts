@@ -3,6 +3,7 @@ import type {
   CustomerOrder,
   Order,
   OrderDetail,
+  StoreRegion,
 } from "./types/order";
 
 export function canCustomerCancel(order: CustomerOrder) {
@@ -53,6 +54,7 @@ export function canonicalOrderPayload(
     recipientName: input.recipientName.trim(),
     phone: input.phone.trim(),
     address: input.address.trim(),
+    region: input.region,
     note: input.note?.trim() || undefined,
     paymentMethod: input.paymentMethod,
     items: [...input.items]
@@ -64,6 +66,12 @@ export function canonicalOrderPayload(
       .sort((a, b) => a.variantId.localeCompare(b.variantId)),
   });
 }
+
+export const storeRegionLabels: Record<StoreRegion, string> = {
+  NORTH: "Miền Bắc",
+  CENTRAL: "Miền Trung",
+  SOUTH: "Miền Nam",
+};
 
 export function parseOrderAttemptPayload(
   payload: string,
@@ -79,6 +87,7 @@ export function parseOrderAttemptPayload(
       !input.phone.trim() ||
       typeof input.address !== "string" ||
       !input.address.trim() ||
+      !(input.region !== undefined && input.region in storeRegionLabels) ||
       (input.note !== undefined && typeof input.note !== "string") ||
       (input.paymentMethod !== "COD" &&
         input.paymentMethod !== "BANK_TRANSFER") ||
@@ -254,6 +263,9 @@ export function orderErrorMessage(error: unknown) {
     INSUFFICIENT_STOCK:
       "Tồn kho không đủ cho một hoặc nhiều sản phẩm trong giỏ.",
     VARIANT_UNAVAILABLE: "Sản phẩm hoặc quy cách không còn bán.",
+    REGION_NOT_SUPPORTED: "Chưa hỗ trợ giao hàng đến khu vực này.",
+    CART_NOT_FULFILLABLE:
+      "Chưa có kho nào giao đủ toàn bộ giỏ hàng. Hãy tách thành nhiều đơn.",
     ORDER_CANCEL_NOT_ALLOWED: "Đơn hàng không còn ở trạng thái được phép hủy.",
     PAYMENT_REQUIRED:
       "Đơn chuyển khoản phải được ghi nhận thanh toán trước khi hoàn tất.",

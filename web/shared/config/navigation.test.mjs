@@ -13,12 +13,13 @@ const access = (overrides = {}) => ({
   ...overrides,
 });
 
-test('store screens are hidden on farms that do not own the store', () => {
-  for (const href of ['/store-products', '/store-orders', '/store-reports']) {
+test('order screens are hidden on farms that do not sell online; products stay for setup', () => {
+  for (const href of ['/store-orders', '/store-payments', '/store-reports']) {
     assert.equal(isNavigationItemVisible(item(href), access()), true, href);
     assert.equal(isNavigationItemVisible(item(href), access({ isStoreFarm: false })), false, href);
   }
-  assert.equal(isNavigationItemVisible(item('/inventory'), access({ isStoreFarm: false })), true);
+  for (const href of ['/store-products', '/inventory'])
+    assert.equal(isNavigationItemVisible(item(href), access({ isStoreFarm: false })), true, href);
 });
 
 test('store screens need a store role; farm-area screens hide from store-only managers', () => {

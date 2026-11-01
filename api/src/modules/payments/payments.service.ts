@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, SQL } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, or, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -13,7 +13,6 @@ import {
   paymentTransactions,
   storeOrders,
 } from '../../db/schema';
-import { CommerceService } from '../commerce/commerce.service';
 import {
   STORE_MANAGE_ROLES,
   hasAnyRole,
@@ -57,7 +56,6 @@ export function orderNumberFromContent(content: string) {
 export class PaymentsService {
   constructor(
     private readonly databaseService: DatabaseService,
-    private readonly commerce: CommerceService,
     private readonly warehousesService: WarehousesService,
   ) {}
 
@@ -106,7 +104,6 @@ export class PaymentsService {
    */
   async ingest(provider: Provider, transfer: IncomingTransfer) {
     return this.databaseService.db.transaction(async (tx) => {
-      const store = await this.commerce.getStoreWarehouse(tx);
       const number = orderNumberFromContent(transfer.content);
       const [order] = number
         ? await tx
@@ -119,7 +116,7 @@ export class PaymentsService {
       const [recorded] = await tx
         .insert(paymentTransactions)
         .values({
-          farmId: order?.farmId ?? store.farmId,
+          farmId: order?.farmId ?? null,
           provider,
           providerTxId: transfer.providerTxId,
           accountNumber: transfer.accountNumber,
@@ -196,8 +193,20 @@ export class PaymentsService {
     });
   }
 
-  async list(farmId: string, filters: PaymentFilters) {
-    const conditions: SQL[] = [eq(paymentTransactions.farmId, farmId)];
+  async list(farmId: string, clerkUserId: string, filters: PaymentFilters) {
+    const { roleCodes } = await this.warehousesService.getActiveMembership(
+      farmId,
+      clerkUserId,
+    );
+    // Unmatched transfers belong to no farm; only admins reconcile them.
+    const conditions: SQL[] = [
+      roleCodes.includes('ADMIN')
+        ? or(
+            eq(paymentTransactions.farmId, farmId),
+            isNull(paymentTransactions.farmId),
+          )!
+        : eq(paymentTransactions.farmId, farmId),
+    ];
     if (filters.result)
       conditions.push(eq(paymentTransactions.result, filters.result));
     const where = and(...conditions);
@@ -283,11 +292,8 @@ export class PaymentsService {
     return member?.userId ?? null;
   }
 
-  /** Only staff of the farm that runs the store may read or simulate its payments. */
+  /** Only store staff of a farm may simulate payments. */
   private async staffMember(farmId: string, clerkUserId: string) {
-    const store = await this.commerce.getStoreWarehouse();
-    if (store.farmId !== farmId)
-      throw new ForbiddenException('Store belongs to another farm');
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
     if (!hasAnyRole(roleCodes, STORE_MANAGE_ROLES))

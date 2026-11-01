@@ -1,0 +1,43 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsUUID,
+} from 'class-validator';
+import { storeRegion } from '../../../db/schema';
+
+type StoreRegion = (typeof storeRegion.enumValues)[number];
+
+export class UpdateStoreSettingsDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Kho bán hàng của trại; bỏ trống khi chưa chọn.',
+  })
+  @IsOptional()
+  @IsUUID()
+  salesWarehouseId?: string;
+
+  @ApiProperty({
+    description: 'Bật bán online; cần kho bán và ít nhất một miền.',
+  })
+  @IsBoolean()
+  salesEnabled!: boolean;
+
+  @ApiProperty({ enum: storeRegion.enumValues, isArray: true })
+  @IsArray()
+  @ArrayMaxSize(storeRegion.enumValues.length)
+  @IsIn(storeRegion.enumValues, { each: true })
+  regions!: StoreRegion[];
+}
+
+export class SetStoreVariantItemDto {
+  @ApiProperty({
+    format: 'uuid',
+    description: 'Vật tư của trại cung cấp quy cách này.',
+  })
+  @IsUUID()
+  itemId!: string;
+}
