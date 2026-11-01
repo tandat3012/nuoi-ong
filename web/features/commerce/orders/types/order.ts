@@ -1,10 +1,16 @@
 export type OrderStatus =
-  "PENDING" | "CONFIRMED" | "SHIPPING" | "COMPLETED" | "CANCELLED";
+  | "PENDING"
+  | "PREPARING"
+  | "CONFIRMED"
+  | "SHIPPING"
+  | "COMPLETED"
+  | "CANCELLED";
 export type PaymentMethod = "COD" | "BANK_TRANSFER";
 export type PaymentStatus = "UNPAID" | "PAID";
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   PENDING: "Chờ xác nhận",
+  PREPARING: "Đang chuẩn bị hàng",
   CONFIRMED: "Đã xác nhận",
   SHIPPING: "Đang giao",
   COMPLETED: "Hoàn tất",
@@ -147,6 +153,15 @@ export interface OrderDetail {
   stockIssue: { id: string; issueCode: string | null; status: string } | null;
   customer: OrderCustomer;
   payments: OrderPaymentTransaction[];
+  /** Top-up transfers from source warehouses into the sales warehouse. */
+  replenishments: OrderReplenishment[];
+}
+
+export interface OrderReplenishment {
+  id: string;
+  transferCode: string | null;
+  status: string;
+  fromWarehouseName: string;
 }
 
 export interface CustomerOrderDetail {

@@ -15,8 +15,10 @@ import {
 } from "../store-orders.api";
 import {
   canCompleteOrder,
+  canConfirmOrder,
   canEditShippingFee,
   canShipOrder,
+  pendingReplenishments,
   canStaffCancelDetail,
   formatOrderMoney,
   orderErrorMessage,
@@ -248,6 +250,35 @@ export function StoreOrderDetail({
                     Chưa có phiếu xuất liên kết.
                   </p>
                 )}
+                {detail.replenishments.length > 0 && (
+                  <div>
+                    <p>
+                      Đang điều chuyển:{" "}
+                      {
+                        detail.replenishments.filter(
+                          (row) => row.status === "CONFIRMED",
+                        ).length
+                      }
+                      /{detail.replenishments.length} phiếu đã về kho bán
+                    </p>
+                    <ul className="mt-1 space-y-1">
+                      {detail.replenishments.map((transfer) => (
+                        <li key={transfer.id}>
+                          <Link
+                            className="text-primary underline"
+                            href={`/transfers?id=${encodeURIComponent(transfer.id)}`}
+                          >
+                            {documentCodeLabel(
+                              transfer.transferCode,
+                              transfer.id,
+                            )}
+                          </Link>{" "}
+                          · từ {transfer.fromWarehouseName} · {transfer.status}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Xác nhận đơn không giữ chỗ tồn kho; tồn kho chỉ giảm khi phiếu
                   xuất liên kết được xác nhận.
@@ -298,13 +329,15 @@ export function StoreOrderDetail({
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  {detail.order.status === "PENDING" && (
+                  {canConfirmOrder(detail) && (
                     <Button
                       disabled={!canWrite || isSaving}
                       isLoading={isSaving}
                       onClick={() => void runAction("confirm")}
                     >
-                      Xác nhận đơn
+                      {detail.order.status === "PREPARING"
+                        ? "Xác nhận lại"
+                        : "Xác nhận đơn"}
                     </Button>
                   )}
                   {detail.order.status === "CONFIRMED" && (
@@ -339,6 +372,18 @@ export function StoreOrderDetail({
                       </Button>
                     )}
                 </div>
+                {detail.order.status === "PREPARING" &&
+                  (pendingReplenishments(detail).length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Kho bán đang thiếu hàng. Đơn sẽ tự chuyển sang “Đã xác
+                      nhận” khi kho duyệt xong các phiếu chuyển.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-destructive">
+                      Hàng chuyển về đã bị đơn khác dùng; bấm “Xác nhận lại” để
+                      tạo phiếu chuyển mới.
+                    </p>
+                  ))}
                 {detail.order.status === "CONFIRMED" &&
                   detail.stockIssue?.status !== "CONFIRMED" && (
                     <p className="text-xs text-muted-foreground">
@@ -444,7 +489,7 @@ function actionConfirmation(
   detail: OrderDetail,
 ) {
   if (action === "confirm")
-    return `Xác nhận đơn ${detail.order.code}? Thao tác này chưa giữ chỗ tồn kho.`;
+    return `Xác nhận đơn ${detail.order.code}? Nếu kho bán thiếu hàng, hệ thống tạo phiếu chuyển từ kho nguồn và đơn chuyển sang "Đang chuẩn bị hàng".`;
   if (action === "ship")
     return `Chuyển đơn ${detail.order.code} sang đang giao?`;
   if (action === "complete")

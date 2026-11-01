@@ -77,7 +77,7 @@ export function StoreSalesStockScreen() {
                 salesEnabled
                   ? `đang bán tới ${regions.map((r) => storeRegionLabels[r]).join(", ")}`
                   : "đang tắt bán online"
-              }. Khả dụng = tồn vật lý trừ phần phiếu xuất chưa duyệt đang giữ.`
+              }. Khả dụng = tồn vật lý trừ phần phiếu xuất chưa duyệt đang giữ. Kho nguồn còn được chuyển vào kho bán khi xác nhận đơn thiếu hàng.`
             : undefined
         }
       />
@@ -101,13 +101,14 @@ export function StoreSalesStockScreen() {
                 <TableHead className="text-right">Tồn vật lý</TableHead>
                 <TableHead className="text-right">Đang giữ</TableHead>
                 <TableHead className="text-right">Khả dụng</TableHead>
+                <TableHead className="text-right">Kho nguồn còn</TableHead>
                 <TableHead>Trạng thái bán</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
+                  <TableCell colSpan={7} className="text-muted-foreground">
                     {rows.length === 0
                       ? "Trại chưa gắn vật tư nào vào quy cách bán."
                       : "Không có dòng phù hợp."}
@@ -128,7 +129,7 @@ export function StoreSalesStockScreen() {
                         {row.itemCode}
                       </span>
                     </TableCell>
-                    {[row.onHand, row.held, row.available].map(
+                    {[row.onHand, row.held, row.available, row.sourceOnHand].map(
                       (value, index) => (
                         <TableCell key={index} className="text-right">
                           {formatInventoryQuantity(value)} {row.unitSymbol}

@@ -7,6 +7,8 @@ import { CommerceService } from '../src/modules/commerce/commerce.service';
 import { StoreOrdersService } from '../src/modules/store-orders/store-orders.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
+import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
+import { StockTransferHooks } from '../src/modules/warehouses/stock-transfer-hooks';
 
 export type OrderTestDb = NodePgDatabase<typeof schema>;
 
@@ -141,8 +143,19 @@ export async function seedOrders(db: OrderTestDb) {
   const database = { db } as unknown as DatabaseService;
   const warehouseService = new WarehousesService(database);
   const commerce = new CommerceService(database);
-  const service = new StoreOrdersService(database, commerce, warehouseService);
+  const hooks = new StockTransferHooks();
+  const service = new StoreOrdersService(
+    database,
+    commerce,
+    warehouseService,
+    hooks,
+  );
   const issues = new StockIssuesService(database, warehouseService);
+  const transfers = new StockTransfersService(
+    database,
+    warehouseService,
+    hooks,
+  );
   const input = (quantity = 3) => ({
     idempotencyKey: randomUUID(),
     recipientName: 'Khách mua hàng',
@@ -152,7 +165,7 @@ export async function seedOrders(db: OrderTestDb) {
     paymentMethod: 'COD' as const,
     items: [{ variantId: ids.variant, quantity }],
   });
-  return { ids, database, service, issues, commerce, input };
+  return { ids, database, service, issues, transfers, commerce, input };
 }
 
 export const testBankAccount = {
