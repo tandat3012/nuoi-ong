@@ -87,7 +87,7 @@ export function parseOrderAttemptPayload(
       !input.phone.trim() ||
       typeof input.address !== "string" ||
       !input.address.trim() ||
-      !(input.region !== undefined && input.region in storeRegionLabels) ||
+      !(typeof input.region === "string" && Object.hasOwn(storeRegionLabels, input.region)) ||
       (input.note !== undefined && typeof input.note !== "string") ||
       (input.paymentMethod !== "COD" &&
         input.paymentMethod !== "BANK_TRANSFER") ||

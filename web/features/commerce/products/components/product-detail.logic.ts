@@ -129,6 +129,7 @@ export interface ActiveProductSnapshot {
   price: number;
   originalPrice?: number;
   inStock: boolean;
+  availability?: StorefrontProductVariant['availability'];
   sku?: string;
   image?: StorefrontProductImage;
 }
@@ -142,6 +143,7 @@ export function resolveActiveProductSnapshot(
       price: product.price,
       originalPrice: product.originalPrice,
       inStock: product.inStock,
+      availability: product.availability,
       sku: product.sku,
       image: product.image,
     };
@@ -151,6 +153,7 @@ export function resolveActiveProductSnapshot(
     price: selectedVariant.price ?? NaN,
     originalPrice: selectedVariant.originalPrice,
     inStock: selectedVariant.inStock === true,
+    availability: selectedVariant.availability,
     sku: selectedVariant.sku ?? product.sku,
     image: selectedVariant.image ?? product.image,
   };

@@ -6,6 +6,8 @@ import { useAuth } from "@clerk/nextjs";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { useCart } from "@/features/commerce/cart/hooks/use-cart";
+import { CartRegionCheck } from "@/features/commerce/cart/components/cart-region-check";
+import { useStoreRegion } from "@/features/commerce/region/region-context";
 import type { CartItem } from "@/features/commerce/cart/types/cart";
 import {
   calculateCartTotals,
@@ -43,7 +45,6 @@ type CheckoutFields = {
   recipientName: string;
   phone: string;
   address: string;
-  region: StoreRegion | "";
   note: string;
   paymentMethod: PaymentMethod;
 };
@@ -116,7 +117,10 @@ function sameCartContent(
   );
 }
 
-function validateFields(fields: CheckoutFields) {
+function validateFields(
+  fields: CheckoutFields,
+  region: StoreRegion | null,
+) {
   // Mirrors CreateStoreOrderDto so most mistakes are caught before the request.
   const phone = fields.phone.trim();
   const address = fields.address.trim();
@@ -128,7 +132,7 @@ function validateFields(fields: CheckoutFields) {
     return "Số điện thoại chỉ gồm chữ số, khoảng trắng và các ký tự + - ( ).";
   if (phone.length < 8 || phone.length > 30)
     return "Số điện thoại cần từ 8 đến 30 ký tự.";
-  if (!fields.region) return "Vui lòng chọn miền giao hàng.";
+  if (!region) return "Vui lòng chọn miền giao hàng.";
   if (!address) return "Vui lòng nhập địa chỉ giao hàng.";
   if (address.length < 5)
     return "Địa chỉ giao hàng quá ngắn, cần ít nhất 5 ký tự.";
@@ -152,11 +156,12 @@ export function CheckoutPage() {
     clearCart,
     setCheckoutSubmitting,
   } = useCart();
+  const storeRegion = useStoreRegion();
+  const { setRegion } = storeRegion;
   const [fields, setFields] = useState<CheckoutFields>({
     recipientName: "",
     phone: "",
     address: "",
-    region: "",
     note: "",
     paymentMethod: "COD",
   });
@@ -216,10 +221,11 @@ export function CheckoutPage() {
             recipientName: savedPayload.recipientName,
             phone: savedPayload.phone,
             address: savedPayload.address,
-            region: savedPayload.region,
             note: savedPayload.note ?? "",
             paymentMethod: savedPayload.paymentMethod,
           });
+          // A pending retry must resend its own region.
+          setRegion(savedPayload.region);
         }
       } catch {
         setError(
@@ -232,7 +238,7 @@ export function CheckoutPage() {
     return () => {
       active = false;
     };
-  }, [isLoaded, userId]);
+  }, [isLoaded, userId, setRegion]);
 
   async function verifyCart() {
     if (
@@ -272,7 +278,7 @@ export function CheckoutPage() {
       );
       return;
     }
-    const fieldError = validateFields(fields);
+    const fieldError = validateFields(fields, storeRegion.region);
     if (fieldError) {
       setError(fieldError);
       return;
@@ -300,7 +306,7 @@ export function CheckoutPage() {
       recipientName: fields.recipientName.trim(),
       phone: fields.phone.trim(),
       address: fields.address.trim(),
-      region: fields.region as StoreRegion,
+      region: storeRegion.region!,
       note: fields.note.trim() || undefined,
       paymentMethod: fields.paymentMethod,
       items: cartOrderItems(verified.items),
@@ -575,12 +581,9 @@ export function CheckoutPage() {
                 <span>Miền giao hàng *</span>
                 <Select
                   required
-                  value={fields.region}
+                  value={storeRegion.region ?? ""}
                   onChange={(event) =>
-                    setFields({
-                      ...fields,
-                      region: event.target.value as StoreRegion,
-                    })
+                    storeRegion.setRegion(event.target.value as StoreRegion)
                   }
                 >
                   <option value="" disabled>
@@ -595,6 +598,7 @@ export function CheckoutPage() {
                   )}
                 </Select>
               </label>
+              <CartRegionCheck />
               <label className="block space-y-1 text-sm">
                 <span>Địa chỉ giao hàng *</span>
                 <Textarea

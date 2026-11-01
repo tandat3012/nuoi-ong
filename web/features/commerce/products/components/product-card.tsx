@@ -5,6 +5,8 @@ import Image from 'next/image';
 import { imageLoader } from '@/shared/lib/cloudinary-image';
 import { useRouter } from 'next/navigation';
 import { getProductStore } from '../api/product.api';
+import { availabilityLabel } from '../../region/region.logic';
+import { useStoreRegion } from '../../region/region-context';
 import { resolveCartInput, resolveProductForCart } from '../../cart/components/cart.logic';
 import Link from 'next/link';
 import { Star, ShoppingBag, Package } from 'lucide-react';
@@ -44,6 +46,7 @@ export function ProductCard({
   const ratingInfo = getProductCardRating(product.rating);
 
   const cart = useOptionalCart();
+  const { region } = useStoreRegion();
   const router = useRouter();
   const [isAdding, setIsAdding] = React.useState(false);
   const [addError, setAddError] = React.useState<string | null>(null);
@@ -56,7 +59,9 @@ export function ProductCard({
     setIsAdding(true);
     setAddError(null);
     try {
-      const resolved = await resolveProductForCart(product, getProductStore);
+      const resolved = await resolveProductForCart(product, (slug) =>
+        getProductStore(slug, { region }),
+      );
       if (!resolved || resolved.id !== product.id) {
         setAddError('Không còn tìm thấy sản phẩm. Vui lòng tải lại danh sách.');
         return;
@@ -202,7 +207,7 @@ export function ProductCard({
                 : 'text-muted-foreground',
             )}
           >
-            {product.inStock ? 'Còn hàng' : 'Hết hàng'}
+            {availabilityLabel(product)}
           </p>
 
           {/* Hàng giá bán — min-h cố định chống layout shift khi không có giá cũ */}
@@ -246,7 +251,7 @@ export function ProductCard({
             )}
           >
             <ShoppingBag className="size-4 text-[#786f66]" aria-hidden="true" />
-            <span>{isAdding ? 'Đang xác minh…' : product.inStock ? 'Thêm vào giỏ' : 'Hết hàng'}</span>
+            <span>{isAdding ? 'Đang xác minh…' : product.inStock ? 'Thêm vào giỏ' : 'Không có sẵn'}</span>
           </Button>
         ) : (
           <Button

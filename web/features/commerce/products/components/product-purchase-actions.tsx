@@ -38,7 +38,7 @@ export function ProductPurchaseActions({
           className="size-4 sm:size-5 text-[#786f66]"
           aria-hidden="true"
         />
-        <span>{inStock ? 'Thêm vào giỏ' : 'Hết hàng'}</span>
+        <span>{inStock ? 'Thêm vào giỏ' : 'Không có sẵn'}</span>
       </Button>
 
       {/* Đặt hàng nhanh với đúng biến thể và số lượng đang chọn. */}

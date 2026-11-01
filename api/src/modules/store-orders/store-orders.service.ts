@@ -34,7 +34,6 @@ import {
   storeProducts,
   storeProductVariants,
   storeSettings,
-  storeVariantItems,
   units,
   users,
   warehouses,
@@ -148,8 +147,7 @@ export class StoreOrdersService {
             .where(
               and(
                 eq(storeProductVariants.id, variantId),
-                eq(storeProducts.status, 'PUBLISHED'),
-                this.commerce.eligibleVariantConditions(),
+                this.commerce.orderableVariantConditions(),
               ),
             )
             .limit(1);
@@ -699,44 +697,23 @@ export class StoreOrdersService {
     region: CreateStoreOrderDto['region'],
     lines: { id: string; quantity: number }[],
   ) {
-    const candidates = await this.commerce.salesWarehouses(tx, region);
-    if (candidates.length === 0)
+    const coverage = await this.commerce.cartCoverage(
+      tx,
+      region,
+      lines.map(({ id, quantity }) => ({ variantId: id, quantity })),
+    );
+    if (coverage.length === 0)
       throw new ConflictException({
         code: 'REGION_NOT_SUPPORTED',
         message: 'Chưa hỗ trợ giao hàng đến khu vực này.',
       });
-    const covered = new Set<string>();
-    for (const warehouse of candidates) {
-      const itemIds: string[] = [];
-      for (const line of lines) {
-        const [row] = await tx
-          .select({
-            itemId: storeVariantItems.itemId,
-            inStock: this.commerce
-              .variantInStock(
-                sql`${storeProductVariants.quantityStep} * ${line.quantity}::numeric`,
-                warehouse,
-              )
-              .as('in_stock'),
-          })
-          .from(storeVariantItems)
-          .innerJoin(
-            storeProductVariants,
-            eq(storeProductVariants.id, storeVariantItems.variantId),
-          )
-          .where(
-            and(
-              eq(storeVariantItems.variantId, line.id),
-              eq(storeVariantItems.farmId, warehouse.farmId),
-            ),
-          )
-          .limit(1);
-        if (!row?.inStock) continue;
-        itemIds.push(row.itemId);
-        covered.add(line.id);
-      }
-      if (itemIds.length === lines.length) return { warehouse, itemIds };
-    }
+    const full = coverage.find(({ items }) => items.size === lines.length);
+    if (full)
+      return {
+        warehouse: full.warehouse,
+        itemIds: lines.map((line) => full.items.get(line.id)!),
+      };
+    const covered = new Set(coverage.flatMap(({ items }) => [...items.keys()]));
     const missing = lines.find((line) => !covered.has(line.id));
     if (missing)
       throw new ConflictException({

@@ -40,7 +40,26 @@ import {
   SQLWrapper,
 } from 'drizzle-orm';
 
+export type StoreRegion = (typeof storeRegion.enumValues)[number];
+
+/** Label shown to customers instead of stock numbers. */
+export type Availability =
+  | 'REGION_REQUIRED'
+  | 'AVAILABLE'
+  | 'INSUFFICIENT_IN_REGION'
+  | 'OUT_IN_REGION'
+  | 'REGION_NOT_SUPPORTED'
+  | 'OUT_OF_STOCK';
+
+type AvailabilityFlags = {
+  anywhere: boolean;
+  served: boolean;
+  regionStep: boolean;
+  regionQty: boolean;
+};
+
 export interface ProductListFilters {
+  region?: StoreRegion;
   category?: string;
   q?: string;
   minPrice?: number;
@@ -72,10 +91,18 @@ type ProductRow = {
 
 type ProductExtras = {
   inStock: boolean;
+  availability: Availability;
   image?: {
     src: string;
     alt: string;
   };
+};
+
+const NO_STOCK: AvailabilityFlags = {
+  anywhere: false,
+  served: false,
+  regionStep: false,
+  regionQty: false,
 };
 
 @Injectable()
@@ -135,7 +162,10 @@ export class CommerceService {
         .offset(pagination.offset),
       db.select({ value: count() }).from(catalog).where(where),
     ]);
-    const extras = await this.loadProductExtras(rows.map((row) => row.id));
+    const extras = await this.loadProductExtras(
+      rows.map((row) => row.id),
+      filters.region,
+    );
 
     return {
       data: rows.map((row) => this.toProduct(row, extras.get(row.id))),
@@ -143,7 +173,7 @@ export class CommerceService {
     };
   }
 
-  async getProduct(slug: string) {
+  async getProduct(slug: string, region?: StoreRegion, quantity = 1) {
     const catalog = this.productCatalog();
     const [row] = await this.databaseService.db
       .select()
@@ -153,7 +183,7 @@ export class CommerceService {
 
     if (!row) throw new NotFoundException('Product not found');
 
-    const extras = await this.loadProductExtras([row.id]);
+    const extras = await this.loadProductExtras([row.id], region, quantity);
 
     const images = await this.databaseService.db
       .select({ src: storeProductImages.url, alt: storeProductImages.alt })
@@ -165,7 +195,7 @@ export class CommerceService {
         id: storeProductVariants.id,
         name: storeProductVariants.name,
         price: storeProductVariants.price,
-        inStock: this.variantInStock().as('in_stock'),
+        ...this.availabilityFlags(region, quantity),
       })
       .from(storeProductVariants)
       .innerJoin(units, eq(units.id, storeProductVariants.unitId))
@@ -180,10 +210,16 @@ export class CommerceService {
     return {
       ...this.toProduct(row, extras.get(row.id)),
       images,
-      variants: variants.map((variant) => ({
-        ...variant,
-        price: this.toPrice(variant.price),
-      })),
+      variants: variants.map(
+        ({ anywhere, served, regionStep, regionQty, ...variant }) => ({
+          ...variant,
+          price: this.toPrice(variant.price),
+          ...this.toAvailability(
+            { anywhere, served, regionStep, regionQty },
+            region,
+          ),
+        }),
+      ),
     };
   }
 
@@ -214,21 +250,124 @@ export class CommerceService {
    */
   async salesWarehouses(
     tx: Transaction,
-    region: (typeof storeRegion.enumValues)[number],
+    region: StoreRegion,
   ): Promise<SalesWarehouse[]> {
     return tx
       .select({ warehouseId: warehouses.id, farmId: warehouses.farmId })
       .from(storeSettings)
       .innerJoin(warehouses, eq(warehouses.id, storeSettings.salesWarehouseId))
       .innerJoin(farms, eq(farms.id, storeSettings.farmId))
-      .where(
-        and(
-          this.sellingConditions(),
-          sql`${region}::store_region = ANY(${storeSettings.regions})`,
-        ),
-      )
+      .where(and(this.sellingConditions(), this.servesRegion(region)))
       .orderBy(asc(farms.code), asc(farms.id))
       .for('share', { of: storeSettings });
+  }
+
+  /**
+   * For each line, the item every candidate warehouse would ship it from, when
+   * that warehouse alone has enough stock. Callers decide whether one warehouse
+   * covers the whole cart.
+   */
+  async cartCoverage(
+    tx: Transaction,
+    region: StoreRegion,
+    lines: { variantId: string; quantity: number }[],
+  ) {
+    const candidates = await this.salesWarehouses(tx, region);
+    const coverage: {
+      warehouse: SalesWarehouse;
+      items: Map<string, string>;
+    }[] = [];
+    for (const warehouse of candidates) {
+      const covered = new Map<string, string>();
+      for (const line of lines) {
+        const [row] = await tx
+          .select({
+            itemId: storeVariantItems.itemId,
+            inStock: this.variantInStock(
+              sql`${storeProductVariants.quantityStep} * ${line.quantity}::numeric`,
+              eq(storeSettings.salesWarehouseId, warehouse.warehouseId),
+            ).as('in_stock'),
+          })
+          .from(storeVariantItems)
+          .innerJoin(
+            storeProductVariants,
+            eq(storeProductVariants.id, storeVariantItems.variantId),
+          )
+          .innerJoin(
+            storeProducts,
+            eq(storeProducts.id, storeProductVariants.productId),
+          )
+          .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+          .where(
+            and(
+              eq(storeVariantItems.variantId, line.variantId),
+              eq(storeVariantItems.farmId, warehouse.farmId),
+              this.orderableVariantConditions(),
+            ),
+          )
+          .limit(1);
+        if (row?.inStock) covered.set(line.variantId, row.itemId);
+      }
+      coverage.push({ warehouse, items: covered });
+    }
+    return coverage;
+  }
+
+  /**
+   * Whether one warehouse of `region` can ship the whole cart, the label of
+   * each line, and otherwise groups of lines that could each be one order.
+   */
+  async cartAvailability(
+    region: StoreRegion,
+    lines: { variantId: string; quantity: number }[],
+  ) {
+    return this.databaseService.db.transaction(async (tx) => {
+      const coverage = await this.cartCoverage(tx, region, lines);
+      const statuses = await Promise.all(
+        lines.map(async ({ variantId, quantity }) => {
+          const [flags] = await tx
+            .select(this.availabilityFlags(region, quantity))
+            .from(storeProductVariants)
+            .innerJoin(
+              storeProducts,
+              eq(storeProducts.id, storeProductVariants.productId),
+            )
+            .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+            .where(
+              and(
+                eq(storeProductVariants.id, variantId),
+                this.orderableVariantConditions(),
+              ),
+            );
+          return {
+            variantId,
+            availability: flags
+              ? this.toAvailability(flags, region).availability
+              : ('OUT_OF_STOCK' as const),
+          };
+        }),
+      );
+      const canOrder = coverage.some(
+        ({ items }) => items.size === lines.length,
+      );
+
+      // Greedy: the warehouse covering most remaining lines makes each group.
+      const groups: string[][] = [];
+      const remaining = new Set(
+        coverage.flatMap(({ items }) => [...items.keys()]),
+      );
+      while (!canOrder && remaining.size > 0) {
+        const best = coverage
+          .map(({ items }) =>
+            [...items.keys()].filter((id) => remaining.has(id)),
+          )
+          .reduce((a, b) => (b.length > a.length ? b : a));
+        groups.push(best);
+        for (const id of best) remaining.delete(id);
+      }
+
+      return { canOrder, lines: statuses, groups };
+    });
   }
 
   /** The store_settings row belongs to a farm that currently sells online. */
@@ -255,11 +394,11 @@ export class CommerceService {
    */
   variantInStock(
     required: SQL = sql`${storeProductVariants.quantityStep}`,
-    warehouse?: SalesWarehouse,
+    scope?: SQL,
   ) {
     return this.soldBy(
       and(
-        warehouse && eq(storeSettings.salesWarehouseId, warehouse.warehouseId),
+        scope,
         this.itemStock(
           {
             warehouseId: storeSettings.salesWarehouseId,
@@ -269,6 +408,58 @@ export class CommerceService {
         ),
       ),
     );
+  }
+
+  private servesRegion(region: StoreRegion) {
+    return sql`${region}::store_region = ANY(${storeSettings.regions})`;
+  }
+
+  /**
+   * Booleans of the current variant row that decide its availability label;
+   * `aggregate` ORs them over the variants of a product.
+   */
+  private availabilityFlags(
+    region?: StoreRegion,
+    quantity = 1,
+    aggregate = false,
+  ) {
+    const step = sql`${storeProductVariants.quantityStep}`;
+    const inRegion = region && this.servesRegion(region);
+    const flags: Record<keyof AvailabilityFlags, SQL> = {
+      anywhere: this.variantInStock(),
+      served: inRegion ? this.soldBy(inRegion) : sql`false`,
+      regionStep: inRegion ? this.variantInStock(step, inRegion) : sql`false`,
+      regionQty: inRegion
+        ? this.variantInStock(sql`${step} * ${quantity}::numeric`, inRegion)
+        : sql`false`,
+    };
+    return Object.fromEntries(
+      Object.entries(flags).map(([key, flag]) => [
+        key,
+        sql<boolean>`${aggregate ? sql`BOOL_OR(${flag})` : flag}`.as(key),
+      ]),
+    ) as Record<keyof AvailabilityFlags, SQL.Aliased<boolean>>;
+  }
+
+  private toAvailability(
+    { anywhere, served, regionStep, regionQty }: AvailabilityFlags,
+    region?: StoreRegion,
+  ): { inStock: boolean; availability: Availability } {
+    if (!region)
+      return {
+        inStock: anywhere,
+        availability: anywhere ? 'REGION_REQUIRED' : 'OUT_OF_STOCK',
+      };
+    const availability: Availability = regionQty
+      ? 'AVAILABLE'
+      : regionStep
+        ? 'INSUFFICIENT_IN_REGION'
+        : !served
+          ? 'REGION_NOT_SUPPORTED'
+          : anywhere
+            ? 'OUT_IN_REGION'
+            : 'OUT_OF_STOCK';
+    return { inStock: regionStep, availability };
   }
 
   /** EXISTS a selling farm whose active item is mapped to the current variant row. */
@@ -371,6 +562,14 @@ export class CommerceService {
     );
   }
 
+  /** What order creation accepts; needs store_products and units joined. */
+  orderableVariantConditions() {
+    return and(
+      eq(storeProducts.status, 'PUBLISHED'),
+      this.eligibleVariantConditions(),
+    )!;
+  }
+
   private productCatalog() {
     const db = this.databaseService.db;
 
@@ -408,6 +607,8 @@ export class CommerceService {
 
   private async loadProductExtras(
     productIds: string[],
+    region?: StoreRegion,
+    quantity = 1,
   ): Promise<Map<string, ProductExtras>> {
     const extras = new Map<string, ProductExtras>();
     if (productIds.length === 0) return extras;
@@ -429,9 +630,7 @@ export class CommerceService {
       db
         .select({
           productId: storeProductVariants.productId,
-          inStock: sql<boolean>`BOOL_OR(${this.variantInStock()})`.as(
-            'in_stock',
-          ),
+          ...this.availabilityFlags(region, quantity, true),
         })
         .from(storeProductVariants)
         .innerJoin(units, eq(units.id, storeProductVariants.unitId))
@@ -448,13 +647,16 @@ export class CommerceService {
       images.map(({ productId, src, alt }) => [productId, { src, alt }]),
     );
     const stockByProduct = new Map(
-      availability.map(({ productId, inStock }) => [productId, inStock]),
+      availability.map(({ productId, ...flags }) => [
+        productId,
+        this.toAvailability(flags, region),
+      ]),
     );
 
     for (const id of productIds) {
       const image = imageByProduct.get(id);
       extras.set(id, {
-        inStock: stockByProduct.get(id) ?? false,
+        ...(stockByProduct.get(id) ?? this.toAvailability(NO_STOCK, region)),
         ...(image ? { image } : {}),
       });
     }
@@ -475,7 +677,7 @@ export class CommerceService {
         name: categoryName,
         slug: categorySlug,
       },
-      ...(extras ?? { inStock: false }),
+      ...(extras ?? { inStock: false, availability: 'OUT_OF_STOCK' }),
     };
   }
 

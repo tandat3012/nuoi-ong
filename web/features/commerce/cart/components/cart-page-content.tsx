@@ -21,6 +21,7 @@ import { formatVndCurrency } from '@/shared/lib/currency';
 import { useCart } from '../hooks/use-cart';
 import { cartItemStatus, isValidCartPrice } from './cart.logic';
 import { CartVerificationNote } from './cart-verification-note';
+import { CartRegionCheck } from './cart-region-check';
 
 export function CartPageContent() {
   const {
@@ -365,6 +366,9 @@ export function CartPageContent() {
                   </span>
                 </div>
                 <CartVerificationNote />
+                <div className="mt-3">
+                  <CartRegionCheck />
+                </div>
               </div>
 
               {/* Nút hành động */}

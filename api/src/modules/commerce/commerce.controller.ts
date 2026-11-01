@@ -1,8 +1,11 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
+  HttpCode,
   Param,
+  Post,
   Query,
 } from '@nestjs/common';
 import {
@@ -18,7 +21,26 @@ import { parsePagination } from '../../common/query-params';
 import { ApiPageQueries } from '../../common/swagger-docs';
 import { Public } from '../auth/clerk/public.decorator';
 import { storeBankAccount } from '../payments/bank-account';
-import { CommerceService } from './commerce.service';
+import { storeRegion } from '../../db/schema';
+import { CartAvailabilityDto } from './dto/cart-availability.dto';
+import { CommerceService, StoreRegion } from './commerce.service';
+
+const REGION_QUERY = {
+  name: 'region',
+  required: false,
+  enum: storeRegion.enumValues,
+  description:
+    'Miền giao hàng. Không có thì availability là REGION_REQUIRED hoặc OUT_OF_STOCK.',
+};
+
+function parseRegion(value: unknown): StoreRegion | undefined {
+  if (value === undefined) return undefined;
+  if (!storeRegion.enumValues.includes(value as StoreRegion))
+    throw new BadRequestException(
+      `region must be one of: ${storeRegion.enumValues.join(', ')}`,
+    );
+  return value as StoreRegion;
+}
 
 function parsePrice(value: string | undefined, field: string) {
   if (value === undefined) return undefined;
@@ -78,7 +100,11 @@ export class CommerceController {
     enum: ['price_asc', 'price_desc'],
     description: 'Sắp xếp giá; giá bằng nhau theo id tăng dần.',
   })
-  @ApiOkResponse({ description: 'Sản phẩm công khai, bọc trong data và page.' })
+  @ApiQuery(REGION_QUERY)
+  @ApiOkResponse({
+    description:
+      'Sản phẩm công khai, bọc trong data và page. availability là nhãn theo miền, không lộ số tồn.',
+  })
   @ApiBadRequestResponse({
     description: 'Tham số phân trang hoặc lọc không hợp lệ.',
   })
@@ -90,6 +116,7 @@ export class CommerceController {
     @Query('minPrice') minPriceValue?: string,
     @Query('maxPrice') maxPriceValue?: string,
     @Query('sort') sort?: string,
+    @Query('region') region?: unknown,
   ) {
     if (
       category !== undefined &&
@@ -122,6 +149,7 @@ export class CommerceController {
     }
 
     return this.commerceService.listProducts(parsePagination(page, pageSize), {
+      region: parseRegion(region),
       category,
       q: q?.trim(),
       minPrice,
@@ -134,13 +162,59 @@ export class CommerceController {
   @Public()
   @ApiOperation({ summary: 'Chi tiết sản phẩm cửa hàng' })
   @ApiParam({ name: 'slug', description: 'Slug sản phẩm.', type: String })
+  @ApiQuery(REGION_QUERY)
+  @ApiQuery({
+    name: 'quantity',
+    required: false,
+    type: Number,
+    description:
+      'Số bước bán khách định mua (1–10000, mặc định 1); quyết định AVAILABLE hay INSUFFICIENT_IN_REGION.',
+  })
   @ApiOkResponse({
     description:
-      'Sản phẩm công khai và các quy cách bán (id, name, price, inStock), bọc trong data. Giá sản phẩm là giá thấp nhất, không thay thế giá quy cách.',
+      'Sản phẩm công khai và các quy cách bán (id, name, price, inStock, availability), bọc trong data. Giá sản phẩm là giá thấp nhất, không thay thế giá quy cách.',
   })
   @ApiNotFoundResponse({ description: 'Không tìm thấy sản phẩm.' })
-  async getProduct(@Param('slug') slug: string) {
-    return { data: await this.commerceService.getProduct(slug) };
+  async getProduct(
+    @Param('slug') slug: string,
+    @Query('region') region?: unknown,
+    @Query('quantity') quantityValue?: unknown,
+  ) {
+    const quantity = quantityValue === undefined ? 1 : Number(quantityValue);
+    if (
+      typeof quantityValue === 'object' ||
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      quantity > 10000
+    )
+      throw new BadRequestException(
+        'quantity must be an integer from 1 to 10000',
+      );
+    return {
+      data: await this.commerceService.getProduct(
+        slug,
+        parseRegion(region),
+        quantity,
+      ),
+    };
+  }
+
+  @Post('cart/availability')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Kiểm tra giỏ hàng theo miền' })
+  @ApiOkResponse({
+    description:
+      'canOrder khi một kho bán của miền đủ cả giỏ; lines là nhãn từng dòng; groups gợi ý tách đơn (variantId theo nhóm) khi canOrder=false.',
+  })
+  @ApiBadRequestResponse({ description: 'Giỏ hàng không hợp lệ.' })
+  async cartAvailability(@Body() input: CartAvailabilityDto) {
+    return {
+      data: await this.commerceService.cartAvailability(
+        input.region,
+        input.items,
+      ),
+    };
   }
 
   @Get('categories')

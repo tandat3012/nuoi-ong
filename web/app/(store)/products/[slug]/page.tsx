@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ChevronRight, AlertCircle, RotateCcw } from 'lucide-react';
 import { getProductStore } from '@/features/commerce/products/api/product.api';
+import { getStoreRegion } from '@/features/commerce/region/region.server';
 import { ProductGallery } from '@/features/commerce/products/components/product-gallery';
 import { ProductDetailSummary } from '@/features/commerce/products/components/product-detail-summary';
 import { ProductDetailInfo } from '@/features/commerce/products/components/product-detail-info';
@@ -11,7 +12,7 @@ import { ProductRelatedProducts } from '@/features/commerce/products/components/
 
 // Request-level cache to avoid duplicate network fetches between generateMetadata and page render
 const getCachedProduct = cache(async (slug: string) => {
-  return getProductStore(slug);
+  return getProductStore(slug, { region: await getStoreRegion() });
 });
 
 interface ProductDetailPageProps {
