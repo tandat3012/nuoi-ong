@@ -139,7 +139,8 @@ function OrderProgressTracker({ order }: { order: CustomerOrder }) {
   }
 
   const isPaid = order.paymentStatus === "PAID";
-  const isConfirmed = ["CONFIRMED", "SHIPPING", "COMPLETED"].includes(order.status);
+  const isPreparing = order.status === "PREPARING";
+  const isConfirmed = ["PREPARING", "CONFIRMED", "SHIPPING", "COMPLETED"].includes(order.status);
   const isShipping = ["SHIPPING", "COMPLETED"].includes(order.status);
   const isCompleted = order.status === "COMPLETED";
 
@@ -153,7 +154,7 @@ function OrderProgressTracker({ order }: { order: CustomerOrder }) {
     },
     {
       title: "Xác nhận & Thanh toán",
-      desc: isPaid ? "Đã thanh toán" : isConfirmed ? "Đã duyệt đơn" : "Đang chờ xử lý",
+      desc: isPaid ? "Đã thanh toán" : isPreparing ? "Đang chuẩn bị hàng" : isConfirmed ? "Đã duyệt đơn" : "Đang chờ xử lý",
       done: isPaid || isConfirmed,
       current: !isPaid && !isConfirmed,
       icon: CreditCard,
@@ -737,6 +738,11 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                     {detail.order.status === "PENDING" && (
                       <p className="text-xs text-muted-foreground">
                         Đang chờ cửa hàng xác nhận, hàng chưa được giữ.
+                      </p>
+                    )}
+                    {detail.order.status === "PREPARING" && (
+                      <p className="text-xs text-muted-foreground">
+                        Cửa hàng đã nhận đơn và đang chuẩn bị hàng.
                       </p>
                     )}
                   </div>

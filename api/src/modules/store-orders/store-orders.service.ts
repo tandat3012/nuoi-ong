@@ -15,6 +15,7 @@ import {
   getTableColumns,
   inArray,
   isNull,
+  ne,
   sql,
   SQL,
 } from 'drizzle-orm';
@@ -29,6 +30,10 @@ import {
   paymentTransactions,
   stockIssueItems,
   stockIssues,
+  stockTransferItems,
+  stockTransfers,
+  storeOrderReplenishments,
+  storeSourceWarehouses,
   storeOrderItems,
   storeOrders,
   storeProducts,
@@ -44,6 +49,12 @@ import { storeBankAccount } from '../payments/bank-account';
 import { vietQrPayload } from '../payments/vietqr';
 import { CommerceService } from '../commerce/commerce.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { auditStockDocument } from '../warehouses/stock-document-audit';
+import {
+  StockTransferHook,
+  StockTransferHooks,
+} from '../warehouses/stock-transfer-hooks';
+import { notifyFarmApprovers } from '../notifications/notification-events';
 import { CreateStoreOrderDto } from './dto/store-order.dto';
 import {
   checkedMoney,
@@ -71,12 +82,15 @@ export interface OrderFilters extends PaginationParams {
 }
 
 @Injectable()
-export class StoreOrdersService {
+export class StoreOrdersService implements StockTransferHook {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly commerce: CommerceService,
     private readonly warehousesService: WarehousesService,
-  ) {}
+    transferHooks?: StockTransferHooks,
+  ) {
+    transferHooks?.register(this);
+  }
 
   async create(userId: string, input: CreateStoreOrderDto) {
     const fingerprint = this.fingerprint(input);
@@ -265,7 +279,22 @@ export class StoreOrdersService {
       .from(paymentTransactions)
       .where(eq(paymentTransactions.orderId, id))
       .orderBy(desc(paymentTransactions.createdAt));
-    return { ...detail, payments };
+    const replenishments = await this.databaseService.db
+      .select({
+        id: stockTransfers.id,
+        transferCode: stockTransfers.transferCode,
+        status: stockTransfers.status,
+        fromWarehouseName: warehouses.name,
+      })
+      .from(storeOrderReplenishments)
+      .innerJoin(
+        stockTransfers,
+        eq(stockTransfers.id, storeOrderReplenishments.stockTransferId),
+      )
+      .innerJoin(warehouses, eq(warehouses.id, stockTransfers.fromWarehouseId))
+      .where(eq(storeOrderReplenishments.orderId, id))
+      .orderBy(asc(storeOrderReplenishments.createdAt), asc(stockTransfers.id));
+    return { ...detail, payments, replenishments };
   }
 
   async customerProfile(farmId: string, userId: string) {
@@ -395,6 +424,7 @@ export class StoreOrdersService {
       ]);
     const counts = {
       PENDING: 0,
+      PREPARING: 0,
       CONFIRMED: 0,
       SHIPPING: 0,
       COMPLETED: 0,
@@ -442,81 +472,333 @@ export class StoreOrdersService {
         id,
         eq(storeOrders.farmId, farmId),
       );
-      if (order.status !== 'PENDING')
-        throw new ConflictException('Only PENDING orders can be confirmed');
-      const [warehouse] = await tx
-        .select({ id: warehouses.id })
-        .from(warehouses)
-        .where(
-          and(
-            eq(warehouses.id, order.warehouseId),
-            eq(warehouses.farmId, farmId),
-            eq(warehouses.status, 'ACTIVE'),
-          ),
-        )
-        .limit(1);
-      if (!warehouse)
-        throw new ConflictException('Order warehouse is not active');
-      const orderItems = await tx
-        .select()
-        .from(storeOrderItems)
-        .where(eq(storeOrderItems.orderId, id))
-        .orderBy(asc(storeOrderItems.itemId));
-      // Serialize confirmations of the same stock so each sees drafts committed by the other.
-      await tx
-        .select({ id: inventoryBalances.id })
-        .from(inventoryBalances)
-        .where(
-          and(
-            eq(inventoryBalances.farmId, farmId),
-            eq(inventoryBalances.warehouseId, order.warehouseId),
-            inArray(
-              inventoryBalances.itemId,
-              orderItems.map((line) => line.itemId),
-            ),
-          ),
-        )
-        .orderBy(asc(inventoryBalances.id))
-        .for('update');
-      const allocations: Omit<
-        typeof stockIssueItems.$inferInsert,
-        'stockIssueId'
-      >[] = [];
-      for (const line of orderItems) {
-        allocations.push(...(await this.allocate(tx, order, line)));
-        if (allocations.length > 1000)
-          throw new BadRequestException(
-            'Order requires more than 1000 stock issue lines',
-          );
-      }
-      const [issue] = await tx
-        .insert(stockIssues)
-        .values({
-          farmId,
-          warehouseId: order.warehouseId,
-          issueType: 'SALE',
-          createdByMemberId: memberId,
-          reason: `Xuất bán đơn ${orderCode(order.orderNumber)}`,
-        })
-        .returning({ id: stockIssues.id });
-      await tx
-        .insert(stockIssueItems)
-        .values(
-          allocations.map((line) => ({ ...line, stockIssueId: issue.id })),
+      if (order.status !== 'PENDING' && order.status !== 'PREPARING')
+        throw new ConflictException(
+          'Only PENDING or PREPARING orders can be confirmed',
         );
-      const now = new Date().toISOString();
-      await tx
-        .update(storeOrders)
-        .set({
-          status: 'CONFIRMED',
-          stockIssueId: issue.id,
-          confirmedAt: now,
-          handledByMemberId: memberId,
-          updatedAt: now,
-        })
-        .where(eq(storeOrders.id, id));
+      // Still waiting for top-up transfers; never draft a second set.
+      if ((await this.pendingReplenishments(tx, id)).length > 0) {
+        if (order.status === 'PENDING')
+          await this.setPreparing(tx, id, memberId);
+        return;
+      }
+      await this.fulfil(tx, order, memberId, true);
     });
     return this.staffGet(farmId, id);
+  }
+
+  /** Called by StockTransferHooks before the transfer row is locked. */
+  async lock(tx: Transaction, transferId: string) {
+    const order = await this.replenishedOrder(tx, transferId);
+    if (order?.status !== 'PREPARING') return;
+    // Approving may confirm the order, which locks every balance it needs;
+    // take them all now, in id order, before the transfer locks its own subset.
+    const [transfer] = await tx
+      .select({ fromWarehouseId: stockTransfers.fromWarehouseId })
+      .from(stockTransfers)
+      .where(eq(stockTransfers.id, transferId));
+    await this.lockStock(tx, order, [transfer.fromWarehouseId]);
+  }
+
+  /**
+   * Locks the order's balances in the sales and source warehouses in id
+   * order, so confirmations of the same stock see each other's drafts.
+   */
+  private async lockStock(
+    tx: Transaction,
+    order: Order,
+    extraWarehouseIds: string[] = [],
+  ) {
+    const orderItems = await tx
+      .select()
+      .from(storeOrderItems)
+      .where(eq(storeOrderItems.orderId, order.id))
+      .orderBy(asc(storeOrderItems.itemId));
+    const sources = (
+      await tx
+        .select({ id: warehouses.id })
+        .from(storeSourceWarehouses)
+        .innerJoin(
+          warehouses,
+          eq(warehouses.id, storeSourceWarehouses.warehouseId),
+        )
+        .where(
+          and(
+            eq(storeSourceWarehouses.farmId, order.farmId),
+            eq(warehouses.status, 'ACTIVE'),
+            ne(warehouses.id, order.warehouseId),
+          ),
+        )
+        .orderBy(asc(warehouses.code), asc(warehouses.id))
+    ).map((row) => row.id);
+    await tx
+      .select({ id: inventoryBalances.id })
+      .from(inventoryBalances)
+      .where(
+        and(
+          eq(inventoryBalances.farmId, order.farmId),
+          inArray(inventoryBalances.warehouseId, [
+            order.warehouseId,
+            ...sources,
+            ...extraWarehouseIds,
+          ]),
+          inArray(
+            inventoryBalances.itemId,
+            orderItems.map((line) => line.itemId),
+          ),
+        ),
+      )
+      .orderBy(asc(inventoryBalances.id))
+      .for('update');
+    return { orderItems, sources };
+  }
+
+  /** The last top-up transfer arrived: issue the order from the sales warehouse. */
+  async confirmed(tx: Transaction, transferId: string, memberId: string) {
+    const order = await this.replenishedOrder(tx, transferId);
+    if (order?.status !== 'PREPARING') return;
+    if ((await this.pendingReplenishments(tx, order.id)).length > 0) return;
+    // Stock taken meanwhile leaves the order PREPARING; staff confirm it again.
+    await this.fulfil(tx, order, memberId, false);
+  }
+
+  /** A rejected top-up sends the order back to PENDING for staff to decide. */
+  async rejected(tx: Transaction, transferId: string, memberId: string) {
+    const order = await this.replenishedOrder(tx, transferId);
+    if (order?.status !== 'PREPARING') return;
+    await this.cancelReplenishments(tx, order.id, memberId);
+    await tx
+      .update(storeOrders)
+      .set({
+        status: 'PENDING',
+        handledByMemberId: memberId,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(storeOrders.id, order.id));
+  }
+
+  /** Order a top-up transfer was created for, locked FOR UPDATE. */
+  private async replenishedOrder(tx: Transaction, transferId: string) {
+    const [row] = await tx
+      .select({ order: storeOrders })
+      .from(storeOrderReplenishments)
+      .innerJoin(
+        storeOrders,
+        eq(storeOrders.id, storeOrderReplenishments.orderId),
+      )
+      .where(eq(storeOrderReplenishments.stockTransferId, transferId))
+      .for('update', { of: storeOrders });
+    return row?.order;
+  }
+
+  private pendingReplenishments(tx: Transaction, orderId: string) {
+    return tx
+      .select({ transfer: stockTransfers })
+      .from(storeOrderReplenishments)
+      .innerJoin(
+        stockTransfers,
+        eq(stockTransfers.id, storeOrderReplenishments.stockTransferId),
+      )
+      .where(
+        and(
+          eq(storeOrderReplenishments.orderId, orderId),
+          inArray(stockTransfers.status, ['DRAFT', 'PENDING_APPROVAL']),
+        ),
+      )
+      .orderBy(asc(stockTransfers.id))
+      .for('update', { of: stockTransfers });
+  }
+
+  private async cancelReplenishments(
+    tx: Transaction,
+    orderId: string,
+    memberId: string | undefined,
+  ) {
+    const now = new Date().toISOString();
+    for (const { transfer } of await this.pendingReplenishments(tx, orderId)) {
+      await tx
+        .update(stockTransfers)
+        .set({ status: 'CANCELLED', cancelledAt: now, updatedAt: now })
+        .where(eq(stockTransfers.id, transfer.id));
+      await auditStockDocument(
+        tx,
+        // Customers cancel only PENDING orders; credit the transfer creator then.
+        memberId ?? transfer.createdByMemberId,
+        'STOCK_TRANSFER',
+        'CANCEL',
+        transfer,
+        { ...transfer, status: 'CANCELLED' },
+      );
+    }
+  }
+
+  private async setPreparing(tx: Transaction, id: string, memberId: string) {
+    await tx
+      .update(storeOrders)
+      .set({
+        status: 'PREPARING',
+        handledByMemberId: memberId,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(storeOrders.id, id));
+  }
+
+  /**
+   * Reserve the order in its sales warehouse with a DRAFT SALE issue and mark
+   * it CONFIRMED. When the warehouse is short, `replenish` drafts top-up
+   * transfers and marks it PREPARING; otherwise the order is left as is.
+   */
+  private async fulfil(
+    tx: Transaction,
+    order: Order,
+    memberId: string,
+    replenish: boolean,
+  ) {
+    const farmId = order.farmId;
+    const id = order.id;
+    const [warehouse] = await tx
+      .select({ id: warehouses.id })
+      .from(warehouses)
+      .where(
+        and(
+          eq(warehouses.id, order.warehouseId),
+          eq(warehouses.farmId, farmId),
+          eq(warehouses.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    if (!warehouse)
+      throw new ConflictException('Order warehouse is not active');
+    const { orderItems, sources } = await this.lockStock(tx, order);
+    const allocations: Omit<
+      typeof stockIssueItems.$inferInsert,
+      'stockIssueId'
+    >[] = [];
+    const shortages: { line: OrderItem; remaining: bigint }[] = [];
+    for (const line of orderItems) {
+      const picked = await this.pick(
+        tx,
+        order,
+        line,
+        order.warehouseId,
+        quantityMillis(line.stockQuantity),
+      );
+      allocations.push(...picked.lines);
+      if (picked.remaining > 0n)
+        shortages.push({ line, remaining: picked.remaining });
+      if (allocations.length > 1000)
+        throw new BadRequestException(
+          'Order requires more than 1000 stock issue lines',
+        );
+    }
+    if (shortages.length > 0) {
+      if (!replenish) return;
+      await this.replenish(tx, order, memberId, sources, shortages);
+      await this.setPreparing(tx, id, memberId);
+      return;
+    }
+    const [issue] = await tx
+      .insert(stockIssues)
+      .values({
+        farmId,
+        warehouseId: order.warehouseId,
+        issueType: 'SALE',
+        createdByMemberId: memberId,
+        reason: `Xuất bán đơn ${orderCode(order.orderNumber)}`,
+      })
+      .returning({ id: stockIssues.id });
+    await tx
+      .insert(stockIssueItems)
+      .values(allocations.map((line) => ({ ...line, stockIssueId: issue.id })));
+    const now = new Date().toISOString();
+    await tx
+      .update(storeOrders)
+      .set({
+        status: 'CONFIRMED',
+        stockIssueId: issue.id,
+        confirmedAt: now,
+        handledByMemberId: memberId,
+        updatedAt: now,
+      })
+      .where(eq(storeOrders.id, id));
+  }
+
+  /**
+   * Draft transfers from source warehouses into the sales warehouse covering
+   * every shortage, one per source; fails when the farm cannot cover one.
+   */
+  private async replenish(
+    tx: Transaction,
+    order: Order,
+    memberId: string,
+    sources: string[],
+    shortages: { line: OrderItem; remaining: bigint }[],
+  ) {
+    const lines = new Map<
+      string,
+      Omit<typeof stockIssueItems.$inferInsert, 'stockIssueId'>[]
+    >();
+    for (const shortage of shortages) {
+      for (const source of sources) {
+        if (shortage.remaining === 0n) break;
+        const picked = await this.pick(
+          tx,
+          order,
+          shortage.line,
+          source,
+          shortage.remaining,
+        );
+        if (picked.lines.length > 0)
+          lines.set(source, [...(lines.get(source) ?? []), ...picked.lines]);
+        shortage.remaining = picked.remaining;
+      }
+      if (shortage.remaining > 0n) throw this.insufficient(shortage.line);
+    }
+    for (const [fromWarehouseId, items] of lines) {
+      const [transfer] = await tx
+        .insert(stockTransfers)
+        .values({
+          farmId: order.farmId,
+          fromWarehouseId,
+          toWarehouseId: order.warehouseId,
+          createdByMemberId: memberId,
+          // Submitted straight away so warehouse approvers see it.
+          status: 'PENDING_APPROVAL',
+          note: `Bổ sung kho bán cho đơn ${orderCode(order.orderNumber)}`,
+        })
+        .returning();
+      const transferLines = items.map((line) => ({
+        stockTransferId: transfer.id,
+        itemId: line.itemId,
+        lotId: line.lotId,
+        quantity: line.quantity,
+      }));
+      await tx.insert(stockTransferItems).values(transferLines);
+      await tx
+        .insert(storeOrderReplenishments)
+        .values({ stockTransferId: transfer.id, orderId: order.id });
+      await auditStockDocument(
+        tx,
+        memberId,
+        'STOCK_TRANSFER',
+        'CREATE',
+        null,
+        transfer,
+        { after: transferLines },
+      );
+      await notifyFarmApprovers(
+        tx,
+        {
+          farmId: transfer.farmId,
+          entityType: 'STOCK_TRANSFER',
+          entityId: transfer.id,
+          documentCode: transfer.transferCode,
+          documentKind: 'Phiếu chuyển kho',
+          status: 'PENDING_APPROVAL',
+        },
+        memberId,
+      );
+    }
   }
 
   async ship(farmId: string, clerkUserId: string, id: string) {
@@ -647,7 +929,7 @@ export class StoreOrdersService {
       const order = await this.lockOrder(tx, id, scope);
       if (
         order.status !== 'PENDING' &&
-        !(memberId && order.status === 'CONFIRMED')
+        !(memberId && ['PREPARING', 'CONFIRMED'].includes(order.status))
       )
         throw new ConflictException(
           'Order cannot be cancelled in its current state',
@@ -656,6 +938,7 @@ export class StoreOrdersService {
         throw new ConflictException(
           'Paid orders require a refund workflow before cancellation',
         );
+      await this.cancelReplenishments(tx, id, memberId);
       const now = new Date().toISOString();
       if (order.stockIssueId) {
         const [issue] = await tx
@@ -729,7 +1012,27 @@ export class StoreOrdersService {
     });
   }
 
-  private async allocate(tx: Transaction, order: Order, line: OrderItem) {
+  private insufficient(line: OrderItem) {
+    return new ConflictException({
+      code: 'INSUFFICIENT_STOCK',
+      message: `Không đủ hàng cho ${line.productName} — ${line.variantName}.`,
+      variantId: line.variantId,
+    });
+  }
+
+  /**
+   * Up to `required` (in thousandths) of `line` that `warehouseId` can still
+   * give, net of unapproved issues and outgoing transfers already holding it.
+   * Assets are only ever taken from the order's sales warehouse.
+   */
+  private async pick(
+    tx: Transaction,
+    order: Order,
+    line: OrderItem,
+    warehouseId: string,
+    required: bigint,
+  ) {
+    type Pick = Omit<typeof stockIssueItems.$inferInsert, 'stockIssueId'>;
     const [item] = await tx
       .select({ trackingMode: items.trackingMode })
       .from(items)
@@ -739,26 +1042,34 @@ export class StoreOrdersService {
       throw new ConflictException('Order item no longer exists in the farm');
     const base = and(
       eq(inventoryBalances.farmId, order.farmId),
-      eq(inventoryBalances.warehouseId, order.warehouseId),
+      eq(inventoryBalances.warehouseId, warehouseId),
       eq(inventoryBalances.itemId, line.itemId),
     );
-    // Stock already held by other unapproved issues; approval would fail if picked twice.
-    const reserved = (lotId: SQL | null) => sql`COALESCE((
+    const sameLot = (column: AnyPgColumn, lotId: SQL | null) =>
+      lotId ? sql`${column} = ${lotId}` : sql`${column} IS NULL`;
+    // Stock already held by other unapproved documents; approval would fail if picked twice.
+    const reserved = (lotId: SQL | null) => sql`(COALESCE((
       SELECT SUM(${stockIssueItems.quantity})
       FROM ${stockIssueItems}
       JOIN ${stockIssues} ON ${stockIssues.id} = ${stockIssueItems.stockIssueId}
-      WHERE ${stockIssues.warehouseId} = ${order.warehouseId}
+      WHERE ${stockIssues.warehouseId} = ${warehouseId}
         AND ${stockIssues.status} IN ('DRAFT', 'PENDING_APPROVAL')
         AND ${stockIssueItems.itemId} = ${line.itemId}
-        AND ${lotId ? sql`${stockIssueItems.lotId} = ${lotId}` : sql`${stockIssueItems.lotId} IS NULL`}
-    ), 0)`;
-    const insufficient = () =>
-      new ConflictException({
-        code: 'INSUFFICIENT_STOCK',
-        message: `Không đủ hàng cho ${line.productName} — ${line.variantName}.`,
-        variantId: line.variantId,
-      });
-    if (item.trackingMode !== 'LOT') {
+        AND ${sameLot(stockIssueItems.lotId, lotId)}
+    ), 0) + COALESCE((
+      SELECT SUM(${stockTransferItems.quantity})
+      FROM ${stockTransferItems}
+      JOIN ${stockTransfers} ON ${stockTransfers.id} = ${stockTransferItems.stockTransferId}
+      WHERE ${stockTransfers.fromWarehouseId} = ${warehouseId}
+        AND ${stockTransfers.status} IN ('DRAFT', 'PENDING_APPROVAL')
+        AND ${stockTransferItems.itemId} = ${line.itemId}
+        AND ${sameLot(stockTransferItems.lotId, lotId)}
+    ), 0))`;
+    if (item.trackingMode === 'ASSET') {
+      if (warehouseId !== order.warehouseId)
+        return { lines: [], remaining: required };
+      if (required % 1000n !== 0n || required / 1000n > 1000n)
+        throw new ConflictException('Invalid asset order quantity');
       const [balance] = await tx
         .select({ id: inventoryBalances.id })
         .from(inventoryBalances)
@@ -766,16 +1077,11 @@ export class StoreOrdersService {
           and(
             base,
             isNull(inventoryBalances.lotId),
-            sql`${inventoryBalances.quantityOnHand} - ${reserved(null)} >= ${line.stockQuantity}`,
+            sql`${inventoryBalances.quantityOnHand} - ${reserved(null)} >= ${stockQuantity(required)}`,
           ),
         )
         .limit(1);
-      if (!balance) throw insufficient();
-      if (item.trackingMode === 'QUANTITY')
-        return [{ itemId: line.itemId, quantity: line.stockQuantity }];
-      const required = quantityMillis(line.stockQuantity);
-      if (required % 1000n !== 0n || required / 1000n > 1000n)
-        throw new ConflictException('Invalid asset order quantity');
+      if (!balance) return { lines: [], remaining: required };
       const choices = await tx
         .select({ id: assets.id })
         .from(assets)
@@ -788,55 +1094,74 @@ export class StoreOrdersService {
         )
         .orderBy(asc(assets.id))
         .limit(Number(required / 1000n));
-      if (BigInt(choices.length) * 1000n !== required) throw insufficient();
-      return choices.map((asset) => ({
-        itemId: line.itemId,
-        assetId: asset.id,
-        quantity: '1',
-      }));
+      if (BigInt(choices.length) * 1000n !== required)
+        return { lines: [], remaining: required };
+      return {
+        lines: choices.map((asset): Pick => ({
+          itemId: line.itemId,
+          assetId: asset.id,
+          quantity: '1',
+        })),
+        remaining: 0n,
+      };
     }
-    const lots = await tx
-      .select({
-        lotId: inventoryLots.id,
-        quantity: sql<string>`(${inventoryBalances.quantityOnHand} - ${reserved(sql`${inventoryLots.id}`)})::text`,
-      })
-      .from(inventoryBalances)
-      .innerJoin(
-        inventoryLots,
-        and(
-          eq(inventoryLots.id, inventoryBalances.lotId),
-          eq(inventoryLots.farmId, inventoryBalances.farmId),
-          eq(inventoryLots.itemId, inventoryBalances.itemId),
-        ),
-      )
-      .where(
-        and(
-          base,
-          sql`${inventoryBalances.quantityOnHand} - ${reserved(sql`${inventoryLots.id}`)} > 0`,
-          sql`(${inventoryLots.expiryDate} IS NULL OR ${inventoryLots.expiryDate} >= ${new Date().toISOString().slice(0, 10)}::date)`,
-        ),
-      )
-      .orderBy(
-        sql`${inventoryLots.expiryDate} ASC NULLS LAST`,
-        asc(inventoryLots.id),
-      )
-      .limit(1001);
-    let remaining = quantityMillis(line.stockQuantity);
-    const lines: Omit<typeof stockIssueItems.$inferInsert, 'stockIssueId'>[] =
-      [];
-    for (const lot of lots) {
-      const available = quantityMillis(lot.quantity);
+    const today = new Date().toISOString().slice(0, 10);
+    const stock =
+      item.trackingMode === 'LOT'
+        ? await tx
+            .select({
+              lotId: inventoryLots.id,
+              quantity: sql<string>`(${inventoryBalances.quantityOnHand} - ${reserved(sql`${inventoryLots.id}`)})::text`,
+            })
+            .from(inventoryBalances)
+            .innerJoin(
+              inventoryLots,
+              and(
+                eq(inventoryLots.id, inventoryBalances.lotId),
+                eq(inventoryLots.farmId, inventoryBalances.farmId),
+                eq(inventoryLots.itemId, inventoryBalances.itemId),
+              ),
+            )
+            .where(
+              and(
+                base,
+                sql`${inventoryBalances.quantityOnHand} - ${reserved(sql`${inventoryLots.id}`)} > 0`,
+                sql`(${inventoryLots.expiryDate} IS NULL OR ${inventoryLots.expiryDate} >= ${today}::date)`,
+              ),
+            )
+            .orderBy(
+              sql`${inventoryLots.expiryDate} ASC NULLS LAST`,
+              asc(inventoryLots.id),
+            )
+            .limit(1001)
+        : await tx
+            .select({
+              lotId: sql<string | null>`NULL`,
+              quantity: sql<string>`(${inventoryBalances.quantityOnHand} - ${reserved(null)})::text`,
+            })
+            .from(inventoryBalances)
+            .where(
+              and(
+                base,
+                isNull(inventoryBalances.lotId),
+                sql`${inventoryBalances.quantityOnHand} - ${reserved(null)} > 0`,
+              ),
+            )
+            .limit(1);
+    let remaining = required;
+    const lines: Pick[] = [];
+    for (const row of stock) {
+      if (remaining === 0n) break;
+      const available = quantityMillis(row.quantity);
       const picked = available < remaining ? available : remaining;
       lines.push({
         itemId: line.itemId,
-        lotId: lot.lotId,
+        ...(row.lotId ? { lotId: row.lotId } : {}),
         quantity: stockQuantity(picked),
       });
       remaining -= picked;
-      if (remaining === 0n) break;
     }
-    if (remaining > 0n) throw insufficient();
-    return lines;
+    return { lines, remaining };
   }
 
   private async list(scope: SQL, filters: OrderFilters) {

@@ -184,6 +184,8 @@ describe('Store admin (migrated PostgreSQL)', () => {
         total: '0',
         idempotencyKey: randomUUID(),
         requestFingerprint: 'x',
+        // Waiting for top-up transfers into this warehouse still counts as open.
+        status: 'PREPARING',
       });
       await expect(
         admin.updateSettings(ids.otherFarm, {
@@ -198,6 +200,59 @@ describe('Store admin (migrated PostgreSQL)', () => {
           regions: [],
         }),
       ).toMatchObject({ salesEnabled: false });
+    }));
+
+  it('keeps source warehouses inside the farm and apart from the sales warehouse', () =>
+    inRollback(async (tx) => {
+      const admin = service(tx);
+      const working = randomUUID();
+      await tx.insert(schema.warehouses).values({
+        id: working,
+        farmId: ids.farm,
+        code: 'WORK',
+        name: 'Working',
+      });
+      const save = (
+        sourceWarehouseIds: string[],
+        salesWarehouseId = ids.warehouse,
+      ) =>
+        inSavepoint(tx, (sp) =>
+          service(sp).updateSettings(ids.farm, {
+            salesWarehouseId,
+            salesEnabled: true,
+            regions: ['NORTH'],
+            sourceWarehouseIds,
+          }),
+        );
+      await expect(save([ids.warehouse])).rejects.toMatchObject({
+        status: 400,
+      });
+      await expect(save([ids.otherWarehouse])).rejects.toMatchObject({
+        status: 400,
+      });
+      expect((await save([working])).sourceWarehouses).toEqual([
+        expect.objectContaining({ id: working }),
+      ]);
+      // Omitting the list keeps it.
+      expect(
+        (
+          await admin.updateSettings(ids.farm, {
+            salesWarehouseId: ids.warehouse,
+            salesEnabled: true,
+            regions: ['NORTH'],
+          })
+        ).sourceWarehouses,
+      ).toHaveLength(1);
+      // The new sales warehouse stops being a source.
+      expect(
+        (
+          await admin.updateSettings(ids.farm, {
+            salesWarehouseId: working,
+            salesEnabled: true,
+            regions: ['NORTH'],
+          })
+        ).sourceWarehouses,
+      ).toEqual([]);
     }));
 
   it('shows physical, held and available stock of the sales warehouse only', () =>
@@ -273,10 +328,18 @@ describe('Store admin (migrated PostgreSQL)', () => {
           onHand: '10.000',
           held: '3.000',
           available: '7.000',
+          // Not a source warehouse yet.
+          sourceOnHand: '0',
           // Still a draft product.
           saleable: false,
         }),
       ]);
+      await tx
+        .insert(schema.storeSourceWarehouses)
+        .values({ warehouseId: internal, farmId: ids.farm });
+      expect((await admin.salesStock(ids.farm)).rows[0].sourceOnHand).toBe(
+        '50.000',
+      );
       await admin.updateProductStatus(ids.farm, product.id, 'PUBLISHED');
       expect((await admin.salesStock(ids.farm)).rows[0].saleable).toBe(true);
       // Customers cannot see a variant whose unit is inactive.

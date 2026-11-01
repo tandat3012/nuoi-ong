@@ -13,6 +13,7 @@ import { formatInventoryQuantity } from "@/features/inventory";
 
 import {
   Clock,
+  PackageSearch,
   ShieldCheck,
   Truck,
   CheckCircle2,
@@ -22,6 +23,7 @@ import {
 
 const statusVariant = {
   PENDING: "warning",
+  PREPARING: "warning",
   CONFIRMED: "info",
   SHIPPING: "info",
   COMPLETED: "success",
@@ -31,6 +33,7 @@ const statusVariant = {
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   const Icon = {
     PENDING: Clock,
+    PREPARING: PackageSearch,
     CONFIRMED: ShieldCheck,
     SHIPPING: Truck,
     COMPLETED: CheckCircle2,

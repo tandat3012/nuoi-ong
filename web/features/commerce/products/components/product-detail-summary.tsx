@@ -283,7 +283,7 @@ export function ProductDetailSummary({
       )}
       <ProductPurchaseActions
         inStock={snapshot.inStock}
-        canAdd={Boolean(purchaseInput) && !isCheckoutSubmitting}
+        canAdd={Boolean(purchaseInput) && canDeliver && !isCheckoutSubmitting}
         onAddToCart={handleAddToCart}
         onBuyNow={() => {
           if (handleAddToCart()) router.push('/checkout');

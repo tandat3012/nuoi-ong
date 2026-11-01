@@ -23,6 +23,7 @@ import {
   farmMembers,
   items,
   stockIssues,
+  stockTransfers,
   units,
   users,
   warehouses,
@@ -76,6 +77,8 @@ export const storeSettings = pgTable(
 
 export const storeOrderStatus = pgEnum('store_order_status', [
   'PENDING',
+  // Confirmed by staff but waiting for top-up transfers into the sales warehouse.
+  'PREPARING',
   'CONFIRMED',
   'SHIPPING',
   'COMPLETED',
@@ -366,6 +369,44 @@ export const storeVariantItems = pgTable(
     }).onDelete('restrict'),
   ],
 );
+
+/** Working warehouses of a farm whose stock tops up its sales warehouse. */
+export const storeSourceWarehouses = pgTable(
+  'store_source_warehouses',
+  {
+    warehouseId: uuid('warehouse_id').primaryKey(),
+    farmId: uuid('farm_id')
+      .notNull()
+      .references(() => storeSettings.farmId, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.warehouseId, table.farmId],
+      foreignColumns: [warehouses.id, warehouses.farmId],
+      name: 'fk_store_source_warehouses_warehouse_farm',
+    }).onDelete('restrict'),
+  ],
+).enableRLS();
+
+/** Transfers created into the sales warehouse so an order can be confirmed. */
+export const storeOrderReplenishments = pgTable(
+  'store_order_replenishments',
+  {
+    stockTransferId: uuid('stock_transfer_id')
+      .primaryKey()
+      .references(() => stockTransfers.id, { onDelete: 'restrict' }),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => storeOrders.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index('idx_store_order_replenishments_order').on(table.orderId)],
+).enableRLS();
 
 export const storeOrderItems = pgTable(
   'store_order_items',

@@ -12,7 +12,7 @@ export function canCustomerCancel(order: CustomerOrder) {
 
 export function canStaffCancel(order: Order) {
   return (
-    ["PENDING", "CONFIRMED"].includes(order.status) &&
+    ["PENDING", "PREPARING", "CONFIRMED"].includes(order.status) &&
     order.paymentStatus === "UNPAID"
   );
 }
@@ -21,6 +21,22 @@ export function canStaffCancelDetail(detail: OrderDetail) {
   return (
     canStaffCancel(detail.order) &&
     (!detail.stockIssue || detail.stockIssue.status === "DRAFT")
+  );
+}
+
+/** Top-up transfers still waiting for warehouse approval. */
+export function pendingReplenishments(detail: OrderDetail) {
+  return detail.replenishments.filter((row) =>
+    ["DRAFT", "PENDING_APPROVAL"].includes(row.status),
+  );
+}
+
+/** PENDING, or PREPARING whose transfers arrived but stock ran short again. */
+export function canConfirmOrder(detail: OrderDetail) {
+  return (
+    detail.order.status === "PENDING" ||
+    (detail.order.status === "PREPARING" &&
+      pendingReplenishments(detail).length === 0)
   );
 }
 

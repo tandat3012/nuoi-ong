@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   beginOrderAttempt,
   canCompleteOrder,
+  canConfirmOrder,
   canCustomerCancel,
   canEditShippingFee,
   canShipOrder,
@@ -189,6 +190,24 @@ test("explains server validation errors per field instead of a generic message",
     orderErrorMessage(badRequest(["property foo should not exist"])),
     /Yêu cầu chưa được chấp nhận/,
   );
+});
+
+test("lets staff re-confirm a PREPARING order only once its transfers are settled", () => {
+  const detail = (status, transfers) => ({
+    order: { status },
+    replenishments: transfers.map((transferStatus, index) => ({
+      id: String(index),
+      status: transferStatus,
+    })),
+  });
+  assert.equal(canConfirmOrder(detail("PENDING", [])), true);
+  assert.equal(
+    canConfirmOrder(detail("PREPARING", ["CONFIRMED", "PENDING_APPROVAL"])),
+    false,
+  );
+  assert.equal(canConfirmOrder(detail("PREPARING", ["CONFIRMED"])), true);
+  assert.equal(canConfirmOrder(detail("CONFIRMED", [])), false);
+  assert.equal(canStaffCancel({ status: "PREPARING", paymentStatus: "UNPAID" }), true);
 });
 
 test("tells farm staff why they cannot check out", () => {

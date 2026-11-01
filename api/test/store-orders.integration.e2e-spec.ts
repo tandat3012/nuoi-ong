@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { count, eq, ne } from 'drizzle-orm';
+import { count, eq, ne, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import type { ClerkClient } from '@clerk/backend';
@@ -257,6 +257,199 @@ describe('Store orders (migrated PostgreSQL)', () => {
       expect(issue.issue.warehouseId).toBe(ids.warehouse);
       expect(issue.items[0].quantity).toBe('0.375');
       expect(confirmed.order.total).toBe('555000');
+    }));
+
+  it('keeps internal storefront tables behind row-level security', () =>
+    inRollback(async (_ctx, tx) => {
+      const { rows } = await tx.execute<{ relrowsecurity: boolean }>(
+        sql`SELECT relrowsecurity FROM pg_class
+            WHERE oid IN ('public.store_source_warehouses'::regclass,
+                          'public.store_order_replenishments'::regclass)`,
+      );
+      expect(rows.map((row) => row.relrowsecurity)).toEqual([true, true]);
+    }));
+
+  /** Marks a working warehouse holding `quantityOnHand` as a source. */
+  async function addSource(
+    { ids }: Context,
+    tx: OrderTestDb,
+    quantityOnHand: string,
+    warehouseId = ids.otherWarehouse,
+  ) {
+    if (warehouseId !== ids.otherWarehouse)
+      await tx.insert(schema.warehouses).values({
+        id: warehouseId,
+        farmId: ids.farm,
+        code: `SRC-${warehouseId.slice(0, 8)}`,
+        name: 'Second source',
+      });
+    await tx.insert(schema.inventoryBalances).values({
+      farmId: ids.farm,
+      warehouseId,
+      itemId: ids.item,
+      quantityOnHand,
+    });
+    await tx
+      .insert(schema.storeSourceWarehouses)
+      .values({ warehouseId, farmId: ids.farm });
+  }
+
+  const orderStatus = async (tx: OrderTestDb, id: string) =>
+    (
+      await tx
+        .select({ status: schema.storeOrders.status })
+        .from(schema.storeOrders)
+        .where(eq(schema.storeOrders.id, id))
+    )[0].status;
+
+  it('tops up the sales warehouse from a source warehouse and confirms once the transfer is approved', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, transfers, commerce, input } = ctx;
+      // 96 × 0.125 = 12 needed; the sales warehouse has 10.
+      await tx.insert(schema.inventoryBalances).values({
+        farmId: ids.farm,
+        warehouseId: ids.otherWarehouse,
+        itemId: ids.item,
+        quantityOnHand: '100',
+      });
+      const label = async () =>
+        (await commerce.getProduct(ids.product, 'SOUTH', 96)).variants[0]
+          .availability;
+      // A working warehouse never sells until it is marked as a source.
+      expect(await label()).toBe('INSUFFICIENT_IN_REGION');
+      await tx
+        .insert(schema.storeSourceWarehouses)
+        .values({ warehouseId: ids.otherWarehouse, farmId: ids.farm });
+      expect(await label()).toBe('AVAILABLE');
+
+      const { order } = await service.create(ids.customer, input(96));
+      const preparing = await service.confirm(ids.farm, ids.staff, order.id);
+      expect(preparing.order.status).toBe('PREPARING');
+      expect(preparing.stockIssue).toBeNull();
+      expect(preparing.replenishments).toEqual([
+        expect.objectContaining({
+          status: 'PENDING_APPROVAL',
+          fromWarehouseName: 'Other',
+        }),
+      ]);
+      const [{ id: transferId }] = preparing.replenishments;
+      expect(
+        await transfers.get(transferId, ids.farm, ids.admin),
+      ).toMatchObject({
+        transfer: {
+          status: 'PENDING_APPROVAL',
+          fromWarehouseId: ids.otherWarehouse,
+          toWarehouseId: ids.warehouse,
+        },
+        items: [
+          expect.objectContaining({ itemId: ids.item, quantity: '2.000' }),
+        ],
+      });
+      // Warehouse approvers are told about the transfer.
+      const notified = await tx
+        .select({ userId: schema.notifications.userId })
+        .from(schema.notifications)
+        .where(eq(schema.notifications.entityId, transferId));
+      expect(notified.map((row) => row.userId)).toContain(ids.admin);
+      // Retrying before approval reuses the same transfer.
+      expect(
+        (await service.confirm(ids.farm, ids.staff, order.id)).replenishments,
+      ).toHaveLength(1);
+      // Customers cannot cancel an order staff already accepted.
+      await expect(
+        service.customerCancel(ids.customer, order.id, 'changed mind'),
+      ).rejects.toThrow('current state');
+
+      await transfers.confirm(transferId, ids.farm, ids.admin);
+      const confirmed = await service.staffGet(ids.farm, order.id);
+      expect(confirmed.order.status).toBe('CONFIRMED');
+      const [issue] = await tx
+        .select({ warehouseId: schema.stockIssues.warehouseId })
+        .from(schema.stockIssues)
+        .where(eq(schema.stockIssues.id, confirmed.stockIssue.id));
+      // The whole order now ships from the sales warehouse.
+      expect(issue.warehouseId).toBe(ids.warehouse);
+    }));
+
+  it('waits for every top-up transfer and sends the order back to PENDING when one is rejected', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, transfers, input } = ctx;
+      await addSource(ctx, tx, '1');
+      await addSource(ctx, tx, '100', randomUUID());
+      const { order } = await service.create(ids.customer, input(96));
+      const { replenishments } = await service.confirm(
+        ids.farm,
+        ids.staff,
+        order.id,
+      );
+      expect(replenishments).toHaveLength(2);
+      const [first, second] = replenishments;
+
+      await transfers.confirm(first.id, ids.farm, ids.admin);
+      expect(await orderStatus(tx, order.id)).toBe('PREPARING');
+      await transfers.reject(second.id, ids.farm, ids.admin, 'Hết xe');
+      expect(await orderStatus(tx, order.id)).toBe('PENDING');
+
+      // Confirming again drafts a new transfer for what is still missing.
+      const retried = await service.confirm(ids.farm, ids.staff, order.id);
+      expect(retried.order.status).toBe('PREPARING');
+      // Same createdAt inside the test transaction, so compare unordered.
+      expect(retried.replenishments.map((row) => row.status).sort()).toEqual([
+        'CONFIRMED',
+        'PENDING_APPROVAL',
+        'REJECTED',
+      ]);
+    }));
+
+  it('cancels pending top-up transfers with the order', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, transfers, input } = ctx;
+      await addSource(ctx, tx, '100');
+      const { order } = await service.create(ids.customer, input(96));
+      const { replenishments } = await service.confirm(
+        ids.farm,
+        ids.staff,
+        order.id,
+      );
+      const cancelled = await service.staffCancel(
+        ids.farm,
+        ids.staff,
+        order.id,
+        'Khách đổi ý',
+      );
+      expect(cancelled.order.status).toBe('CANCELLED');
+      expect(cancelled.replenishments[0].status).toBe('CANCELLED');
+      await expect(
+        transfers.confirm(replenishments[0].id, ids.farm, ids.admin),
+      ).rejects.toThrow('Only DRAFT or PENDING_APPROVAL');
+    }));
+
+  it('keeps the order PREPARING when stock is gone by the time the transfer arrives', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, transfers, input } = ctx;
+      await addSource(ctx, tx, '100');
+      const { order } = await service.create(ids.customer, input(96));
+      const { replenishments } = await service.confirm(
+        ids.farm,
+        ids.staff,
+        order.id,
+      );
+      // Sales stock is not reserved while the order is PREPARING.
+      await tx
+        .update(schema.inventoryBalances)
+        .set({ quantityOnHand: '0' })
+        .where(eq(schema.inventoryBalances.warehouseId, ids.warehouse));
+
+      await transfers.confirm(replenishments[0].id, ids.farm, ids.admin);
+      expect(
+        (await transfers.get(replenishments[0].id, ids.farm, ids.admin))
+          .transfer.status,
+      ).toBe('CONFIRMED');
+      expect(await orderStatus(tx, order.id)).toBe('PREPARING');
+
+      const retried = await service.confirm(ids.farm, ids.staff, order.id);
+      expect(retried.order.status).toBe('PREPARING');
+      expect(retried.replenishments).toHaveLength(2);
     }));
 
   /** A second farm selling the fixture variant from its own sales warehouse. */

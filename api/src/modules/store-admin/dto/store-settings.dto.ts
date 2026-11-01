@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsIn,
@@ -31,6 +32,19 @@ export class UpdateStoreSettingsDto {
   @ArrayMaxSize(storeRegion.enumValues.length)
   @IsIn(storeRegion.enumValues, { each: true })
   regions!: StoreRegion[];
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    isArray: true,
+    description:
+      'Kho làm việc của trại bù hàng cho kho bán; thay toàn bộ danh sách. Bỏ trống thì giữ nguyên.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  sourceWarehouseIds?: string[];
 }
 
 export class SetStoreVariantItemDto {
