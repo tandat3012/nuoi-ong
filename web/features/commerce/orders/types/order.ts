@@ -26,6 +26,8 @@ export interface Order {
   recipientName: string;
   phone: string;
   address: string;
+  /** Null on orders placed before delivery regions existed. */
+  region: StoreRegion | null;
   note: string | null;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;

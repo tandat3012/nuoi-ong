@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   availabilityLabel,
+  parseSplitGroups,
   parseStoreRegion,
   splitOrderSuggestions,
 } from "./region.logic.ts";
@@ -30,4 +31,11 @@ test("split suggestions name each line of a group", () => {
     "Đơn 1: Mật ong (500ml)",
     "Đơn 2: Thùng ong, Sản phẩm khác",
   ]);
+});
+
+test("split groups are read only from a well-formed error body", () => {
+  assert.deepEqual(parseSplitGroups({ groups: [["a"], ["b"]] }), [["a"], ["b"]]);
+  assert.equal(parseSplitGroups({ groups: [] }), null);
+  assert.equal(parseSplitGroups({ groups: [[1]] }), null);
+  assert.equal(parseSplitGroups(null), null);
 });

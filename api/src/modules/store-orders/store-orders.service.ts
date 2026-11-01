@@ -725,6 +725,7 @@ export class StoreOrdersService {
       code: 'CART_NOT_FULFILLABLE',
       message:
         'Chưa có kho nào đáp ứng đủ toàn bộ giỏ hàng. Vui lòng tách thành nhiều đơn.',
+      groups: this.commerce.splitGroups(coverage),
     });
   }
 

@@ -8,6 +8,10 @@ import { useAuthenticatedRequest } from "@/features/auth";
 import { useCart } from "@/features/commerce/cart/hooks/use-cart";
 import { CartRegionCheck } from "@/features/commerce/cart/components/cart-region-check";
 import { useStoreRegion } from "@/features/commerce/region/region-context";
+import {
+  parseSplitGroups,
+  splitOrderSuggestions,
+} from "@/features/commerce/region/region.logic";
 import type { CartItem } from "@/features/commerce/cart/types/cart";
 import {
   calculateCartTotals,
@@ -115,6 +119,15 @@ function sameCartContent(
       ),
     ) === JSON.stringify(normalize(submitted))
   );
+}
+
+/** Order errors, plus which cart lines could be separate orders after a CART_NOT_FULFILLABLE. */
+function failureMessage(failure: unknown, items: CartItem[]) {
+  const groups =
+    failure instanceof ApiError ? parseSplitGroups(failure.details) : null;
+  return groups
+    ? `${orderErrorMessage(failure)} Gợi ý: ${splitOrderSuggestions(groups, items).join("; ")}.`
+    : orderErrorMessage(failure);
 }
 
 function validateFields(
@@ -387,7 +400,7 @@ export function CheckoutPage() {
           : failure instanceof Error &&
               failure.message.startsWith("STORAGE_UNAVAILABLE")
             ? "Không thể lưu mã chống tạo đơn trùng trong phiên này. Hãy bật session storage rồi thử lại."
-            : orderErrorMessage(failure),
+            : failureMessage(failure, items),
       );
       const code =
         failure instanceof ApiError &&
@@ -458,7 +471,7 @@ export function CheckoutPage() {
         updateOrderAttempt(window.sessionStorage, userId, saved, "failed");
         setAttempt({ ...saved, state: "failed" });
       }
-      setError(orderErrorMessage(failure));
+      setError(failureMessage(failure, items));
       const code =
         failure instanceof ApiError &&
         failure.details &&
@@ -789,6 +802,12 @@ export function CheckoutPage() {
           <p className="text-xs text-muted-foreground">
             Phí giao hàng chưa được tính ở bước này. Cửa hàng sẽ liên hệ xác
             nhận khi xử lý đơn.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {storeRegion.region
+              ? `Giao tới: ${storeRegionLabels[storeRegion.region]}. `
+              : ""}
+            Đơn sẽ chờ cửa hàng xác nhận; hàng chưa được giữ cho tới lúc đó.
           </p>
           {!verificationIsCurrent && (
             <p role="status" className="text-xs text-warning">
