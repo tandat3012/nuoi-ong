@@ -27,6 +27,6 @@ export type AuthContextResponse = {
   };
   memberships: FarmMembership[];
   defaultFarmId: string | null;
-  /** Farm owning the store warehouse; null for customers or when unset. */
-  storeFarm: { id: string; name: string } | null;
+  /** Farms of the user that have online sales settings; empty for customers. */
+  storeFarmIds: string[];
 };

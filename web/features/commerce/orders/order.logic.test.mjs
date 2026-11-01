@@ -116,11 +116,17 @@ test("saved payloads are validated before restoring or retrying", () => {
     recipientName: "Mai",
     phone: "0912",
     address: "A",
+    region: "SOUTH",
     paymentMethod: "COD",
     items: [{ variantId: "variant", quantity: 1, expectedUnitPrice: "0" }],
   });
   assert.equal(parseOrderAttemptPayload(payload)?.items[0].quantity, 1);
   assert.equal(parseOrderAttemptPayload('{"items":[{"quantity":1}]}'), null);
+  // Attempts saved before checkout asked for a region cannot be retried as-is.
+  assert.equal(
+    parseOrderAttemptPayload(payload.replace('"region":"SOUTH",', "")),
+    null,
+  );
 });
 
 test("the same pending payload reuses its key; uncertain changed payloads are blocked", () => {

@@ -50,7 +50,6 @@ describe('Store admin HTTP contract', () => {
       .expect(201, { data: { id: 'image' } });
 
     expect(service.addImage).toHaveBeenCalledWith(
-      farmId,
       productId,
       expect.objectContaining({ mimetype: 'image/png', size: 3 }),
       'Bìa',

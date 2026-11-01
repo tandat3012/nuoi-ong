@@ -16,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { IsVndAmount } from '../../../common/money';
+import { storeRegion } from '../../../db/schema';
 import { trimText } from '../../materials/dto/material-validation';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -56,6 +57,13 @@ export class CreateStoreOrderDto {
   @IsString()
   @Length(1, 255)
   recipientName!: string;
+
+  @ApiProperty({
+    enum: storeRegion.enumValues,
+    description: 'Miền giao hàng; chỉ kho bán phục vụ miền này được chọn.',
+  })
+  @IsIn(storeRegion.enumValues)
+  region!: (typeof storeRegion.enumValues)[number];
 
   @Transform(trimText)
   @IsString()

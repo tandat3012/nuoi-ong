@@ -73,13 +73,14 @@ describe('Commerce products (migrated PostgreSQL)', () => {
       name: 'Commerce test',
       slug: ids.storeCategory,
     });
-    await db
-      .insert(schema.storeSettings)
-      .values({ id: 1, warehouseId: ids.warehouse })
-      .onConflictDoUpdate({
-        target: schema.storeSettings.id,
-        set: { warehouseId: ids.warehouse },
-      });
+    // Other farms of the shared database stop selling inside this rolled-back transaction.
+    await db.update(schema.storeSettings).set({ salesEnabled: false });
+    await db.insert(schema.storeSettings).values({
+      farmId: ids.farm,
+      salesWarehouseId: ids.warehouse,
+      salesEnabled: true,
+      regions: ['NORTH', 'CENTRAL', 'SOUTH'],
+    });
     queries.length = 0;
   });
 
@@ -116,13 +117,14 @@ describe('Commerce products (migrated PostgreSQL)', () => {
       slug: id,
       status: 'PUBLISHED',
     });
-    await db.insert(schema.storeProductVariants).values({
-      productId: id,
-      itemId,
-      name: 'Default',
-      price,
-    });
-    return { id, itemId };
+    const [variant] = await db
+      .insert(schema.storeProductVariants)
+      .values({ productId: id, unitId: ids.unit, name: 'Default', price })
+      .returning();
+    await db
+      .insert(schema.storeVariantItems)
+      .values({ variantId: variant.id, farmId: ids.farm, itemId });
+    return { id, itemId, variantId: variant.id };
   }
 
   it.each(['price_asc', 'price_desc'] as const)(
@@ -174,7 +176,7 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     await db
       .update(schema.storeProductVariants)
       .set({ productId: product.id })
-      .where(eq(schema.storeProductVariants.itemId, second.itemId));
+      .where(eq(schema.storeProductVariants.id, second.variantId));
     await db.insert(schema.storeProductImages).values([
       { productId: product.id, url: '/second.jpg', position: 1 },
       { productId: product.id, url: '/cover.jpg', alt: 'Cover', position: 0 },
@@ -272,16 +274,16 @@ describe('Commerce products (migrated PostgreSQL)', () => {
         await db
           .update(schema.storeProductVariants)
           .set({ active: false })
-          .where(eq(schema.storeProductVariants.itemId, product.itemId));
-      } else if (reason === 'item' || reason === 'farm') {
+          .where(eq(schema.storeProductVariants.id, product.variantId));
+      } else if (reason === 'item') {
         await db
           .update(schema.items)
-          .set(
-            reason === 'item'
-              ? { status: 'INACTIVE' }
-              : { farmId: ids.otherFarm },
-          )
+          .set({ status: 'INACTIVE' })
           .where(eq(schema.items.id, product.itemId));
+      } else if (reason === 'farm') {
+        await db
+          .delete(schema.storeVariantItems)
+          .where(eq(schema.storeVariantItems.itemId, product.itemId));
       } else {
         await db
           .update(schema.units)
@@ -300,7 +302,7 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     await db
       .update(schema.storeProductVariants)
       .set({ quantityStep: '0.5' })
-      .where(eq(schema.storeProductVariants.itemId, product.itemId));
+      .where(eq(schema.storeProductVariants.id, product.variantId));
     await db.insert(schema.inventoryBalances).values([
       {
         farmId: ids.farm,
@@ -459,13 +461,22 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     });
     expect(empty.data).toEqual([]);
     expect(empty.page.totalItems).toBe(2);
-    expect(queries).toHaveLength(3);
+    expect(queries).toHaveLength(2);
   });
 
-  it.each(['missing', 'warehouse', 'farm'] as const)(
-    'rejects an unavailable sales configuration: %s',
+  it.each(['missing', 'disabled', 'warehouse', 'farm'] as const)(
+    'hides products of a farm that does not sell online: %s',
     async (reason) => {
-      if (reason === 'missing') await db.delete(schema.storeSettings);
+      const product = await createProduct('Not sold');
+      if (reason === 'missing')
+        await db
+          .delete(schema.storeSettings)
+          .where(eq(schema.storeSettings.farmId, ids.farm));
+      if (reason === 'disabled')
+        await db
+          .update(schema.storeSettings)
+          .set({ salesEnabled: false })
+          .where(eq(schema.storeSettings.farmId, ids.farm));
       if (reason === 'warehouse') {
         await db
           .update(schema.warehouses)
@@ -478,8 +489,9 @@ describe('Commerce products (migrated PostgreSQL)', () => {
           .set({ status: 'INACTIVE' })
           .where(eq(schema.farms.id, ids.farm));
       }
-      await expect(service.listProducts(pagination)).rejects.toMatchObject({
-        status: 503,
+      expect((await service.listProducts(pagination)).data).toEqual([]);
+      await expect(service.getProduct(product.id)).rejects.toMatchObject({
+        status: 404,
       });
     },
   );

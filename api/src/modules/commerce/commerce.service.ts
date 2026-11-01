@@ -3,7 +3,6 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
@@ -21,7 +20,9 @@ import {
   storeProductImages,
   storeProducts,
   storeProductVariants,
+  storeRegion,
   storeSettings,
+  storeVariantItems,
   units,
   warehouses,
 } from '../../db/schema';
@@ -36,6 +37,7 @@ import {
   lte,
   sql,
   SQL,
+  SQLWrapper,
 } from 'drizzle-orm';
 
 export interface ProductListFilters {
@@ -49,10 +51,13 @@ export interface ProductListFilters {
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 
+/** A farm's sales warehouse; values or SQL columns of the row being checked. */
 export type StoreWarehouse = {
-  warehouseId: string;
-  farmId: string;
+  warehouseId: string | SQL | SQLWrapper;
+  farmId: string | SQL | SQLWrapper;
 };
+
+export type SalesWarehouse = { warehouseId: string; farmId: string };
 
 type ProductRow = {
   id: string;
@@ -93,8 +98,7 @@ export class CommerceService {
       throw new BadRequestException('minPrice must not exceed maxPrice');
     }
 
-    const warehouse = await this.getStoreWarehouse();
-    const catalog = this.productCatalog(warehouse);
+    const catalog = this.productCatalog();
     const conditions: SQL[] = [];
 
     if (category) conditions.push(eq(catalog.categorySlug, category));
@@ -131,10 +135,7 @@ export class CommerceService {
         .offset(pagination.offset),
       db.select({ value: count() }).from(catalog).where(where),
     ]);
-    const extras = await this.loadProductExtras(
-      rows.map((row) => row.id),
-      warehouse,
-    );
+    const extras = await this.loadProductExtras(rows.map((row) => row.id));
 
     return {
       data: rows.map((row) => this.toProduct(row, extras.get(row.id))),
@@ -143,8 +144,7 @@ export class CommerceService {
   }
 
   async getProduct(slug: string) {
-    const warehouse = await this.getStoreWarehouse();
-    const catalog = this.productCatalog(warehouse);
+    const catalog = this.productCatalog();
     const [row] = await this.databaseService.db
       .select()
       .from(catalog)
@@ -153,7 +153,7 @@ export class CommerceService {
 
     if (!row) throw new NotFoundException('Product not found');
 
-    const extras = await this.loadProductExtras([row.id], warehouse);
+    const extras = await this.loadProductExtras([row.id]);
 
     const images = await this.databaseService.db
       .select({ src: storeProductImages.url, alt: storeProductImages.alt })
@@ -165,15 +165,14 @@ export class CommerceService {
         id: storeProductVariants.id,
         name: storeProductVariants.name,
         price: storeProductVariants.price,
-        inStock: this.variantInStock(warehouse).as('in_stock'),
+        inStock: this.variantInStock().as('in_stock'),
       })
       .from(storeProductVariants)
-      .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-      .innerJoin(units, eq(units.id, items.unitId))
+      .innerJoin(units, eq(units.id, storeProductVariants.unitId))
       .where(
         and(
           eq(storeProductVariants.productId, row.id),
-          this.eligibleVariantConditions(warehouse.farmId),
+          this.eligibleVariantConditions(),
         ),
       )
       .orderBy(asc(storeProductVariants.id));
@@ -208,35 +207,85 @@ export class CommerceService {
     return { data, page: this.pageInfo(pagination, total.value) };
   }
 
-  async getStoreWarehouse(
-    db: Db | Transaction = this.databaseService.db,
-  ): Promise<StoreWarehouse> {
-    const [warehouse] = await db
+  /**
+   * Sales warehouses serving `region`, in a stable order for picking one.
+   * Share-locks their settings rows until the transaction ends, so an owner
+   * cannot switch the warehouse while an order is being placed in it.
+   */
+  async salesWarehouses(
+    tx: Transaction,
+    region: (typeof storeRegion.enumValues)[number],
+  ): Promise<SalesWarehouse[]> {
+    return tx
       .select({ warehouseId: warehouses.id, farmId: warehouses.farmId })
       .from(storeSettings)
-      .innerJoin(warehouses, eq(warehouses.id, storeSettings.warehouseId))
-      .innerJoin(farms, eq(farms.id, warehouses.farmId))
+      .innerJoin(warehouses, eq(warehouses.id, storeSettings.salesWarehouseId))
+      .innerJoin(farms, eq(farms.id, storeSettings.farmId))
       .where(
         and(
-          eq(storeSettings.id, 1),
-          eq(warehouses.status, 'ACTIVE'),
-          eq(farms.status, 'ACTIVE'),
+          this.sellingConditions(),
+          sql`${region}::store_region = ANY(${storeSettings.regions})`,
         ),
       )
-      .limit(1);
-
-    if (!warehouse) {
-      throw new ServiceUnavailableException(
-        'No active warehouse found for the store',
-      );
-    }
-    return warehouse;
+      .orderBy(asc(farms.code), asc(farms.id))
+      .for('share', { of: storeSettings });
   }
 
+  /** The store_settings row belongs to a farm that currently sells online. */
+  sellingConditions() {
+    return and(
+      eq(storeSettings.salesEnabled, true),
+      sql`EXISTS (
+        SELECT 1 FROM ${warehouses}
+        WHERE ${warehouses.id} = ${storeSettings.salesWarehouseId}
+          AND ${warehouses.status} = 'ACTIVE'
+      )`,
+      sql`EXISTS (
+        SELECT 1 FROM ${farms}
+        WHERE ${farms.id} = ${storeSettings.farmId}
+          AND ${farms.status} = 'ACTIVE'
+      )`,
+    )!;
+  }
+
+  /**
+   * Whether ONE sales warehouse alone can supply `required` of the current
+   * variant row. Stock of several warehouses is never added up: an order is
+   * shipped from a single warehouse.
+   */
   variantInStock(
-    { warehouseId, farmId }: StoreWarehouse,
     required: SQL = sql`${storeProductVariants.quantityStep}`,
+    warehouse?: SalesWarehouse,
   ) {
+    return this.soldBy(
+      and(
+        warehouse && eq(storeSettings.salesWarehouseId, warehouse.warehouseId),
+        this.itemStock(
+          {
+            warehouseId: storeSettings.salesWarehouseId,
+            farmId: storeSettings.farmId,
+          },
+          required,
+        ),
+      ),
+    );
+  }
+
+  /** EXISTS a selling farm whose active item is mapped to the current variant row. */
+  private soldBy(extra?: SQL) {
+    return sql<boolean>`EXISTS (
+      SELECT 1 FROM ${storeVariantItems}
+      JOIN ${storeSettings} ON ${storeSettings.farmId} = ${storeVariantItems.farmId}
+      JOIN ${items} ON ${items.id} = ${storeVariantItems.itemId}
+      WHERE ${storeVariantItems.variantId} = ${storeProductVariants.id}
+        AND ${items.status} = 'ACTIVE'
+        AND ${this.sellingConditions()}
+        ${extra ? sql`AND ${extra}` : sql``}
+    )`;
+  }
+
+  /** Stock of the `items` row in scope at one warehouse, for each tracking mode. */
+  private itemStock({ warehouseId, farmId }: StoreWarehouse, required: SQL) {
     const today = new Date().toISOString().slice(0, 10);
 
     return sql<boolean>`
@@ -313,16 +362,16 @@ export class CommerceService {
     );
   }
 
-  eligibleVariantConditions(farmId: string) {
+  /** Active variant with an active unit that at least one selling farm can supply. */
+  eligibleVariantConditions() {
     return and(
       eq(storeProductVariants.active, true),
-      eq(items.farmId, farmId),
-      eq(items.status, 'ACTIVE'),
       eq(units.status, 'ACTIVE'),
+      this.soldBy(),
     );
   }
 
-  private productCatalog(warehouse: StoreWarehouse) {
+  private productCatalog() {
     const db = this.databaseService.db;
 
     const variants = db
@@ -331,9 +380,8 @@ export class CommerceService {
         price: sql<string>`MIN(${storeProductVariants.price})`.as('price'),
       })
       .from(storeProductVariants)
-      .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-      .innerJoin(units, eq(units.id, items.unitId))
-      .where(this.eligibleVariantConditions(warehouse.farmId))
+      .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+      .where(this.eligibleVariantConditions())
       .groupBy(storeProductVariants.productId)
       .as('variant_summary');
 
@@ -360,7 +408,6 @@ export class CommerceService {
 
   private async loadProductExtras(
     productIds: string[],
-    warehouse: StoreWarehouse,
   ): Promise<Map<string, ProductExtras>> {
     const extras = new Map<string, ProductExtras>();
     if (productIds.length === 0) return extras;
@@ -382,16 +429,15 @@ export class CommerceService {
       db
         .select({
           productId: storeProductVariants.productId,
-          inStock: sql<boolean>`BOOL_OR(${this.variantInStock(warehouse)})`.as(
+          inStock: sql<boolean>`BOOL_OR(${this.variantInStock()})`.as(
             'in_stock',
           ),
         })
         .from(storeProductVariants)
-        .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-        .innerJoin(units, eq(units.id, items.unitId))
+        .innerJoin(units, eq(units.id, storeProductVariants.unitId))
         .where(
           and(
-            this.eligibleVariantConditions(warehouse.farmId),
+            this.eligibleVariantConditions(),
             inArray(storeProductVariants.productId, productIds),
           ),
         )

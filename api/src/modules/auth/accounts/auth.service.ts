@@ -7,7 +7,7 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../../db/database.service';
 import {
   farmMemberRoles,
@@ -17,7 +17,6 @@ import {
   users,
   credentialActionLimits,
   storeSettings,
-  warehouses,
 } from '../../../db/schema';
 import { ChangeInitialPasswordDto } from './dto/change-initial-password.dto';
 import { throwClerkError } from '../clerk/clerk-errors';
@@ -140,15 +139,17 @@ export class AuthService {
     }
 
     const memberships = [...memberShipMap.values()];
-    // Lets the back office hide store screens on farms that do not own the store.
-    const [storeFarm] = memberships.length
+    // Lets the back office hide order screens on farms that never sold online.
+    const storeFarms = memberships.length
       ? await this.databaseService.db
-          .select({ id: farms.id, name: farms.name })
+          .select({ farmId: storeSettings.farmId })
           .from(storeSettings)
-          .innerJoin(warehouses, eq(warehouses.id, storeSettings.warehouseId))
-          .innerJoin(farms, eq(farms.id, warehouses.farmId))
-          .where(eq(storeSettings.id, 1))
-          .limit(1)
+          .where(
+            inArray(
+              storeSettings.farmId,
+              memberships.map(({ farm }) => farm.id),
+            ),
+          )
       : [];
 
     return {
@@ -162,7 +163,7 @@ export class AuthService {
       },
       memberships,
       defaultFarmId: memberships[0]?.farm.id ?? null,
-      storeFarm: storeFarm ?? null,
+      storeFarmIds: storeFarms.map(({ farmId }) => farmId),
     };
   }
 

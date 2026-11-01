@@ -34,6 +34,7 @@ import {
   storeProducts,
   storeProductVariants,
   storeSettings,
+  storeVariantItems,
   units,
   users,
   warehouses,
@@ -114,11 +115,16 @@ export class StoreOrdersService {
           throw new ForbiddenException(
             'Only customer accounts can place storefront orders',
           );
-        const warehouse = await this.commerce.getStoreWarehouse(tx);
-        const lines: Omit<typeof storeOrderItems.$inferInsert, 'orderId'>[] =
-          [];
+        const variants: {
+          id: string;
+          productId: string;
+          productName: string;
+          variantName: string;
+          price: string;
+          quantityStep: string;
+          quantity: number;
+        }[] = [];
         const seen = new Set<string>();
-        let subtotal = 0n;
         for (const line of input.items) {
           const variantId = line.variantId.toLowerCase();
           if (seen.has(variantId))
@@ -128,30 +134,22 @@ export class StoreOrdersService {
             .select({
               id: storeProductVariants.id,
               productId: storeProducts.id,
-              itemId: items.id,
               productName: storeProducts.name,
               variantName: storeProductVariants.name,
               price: storeProductVariants.price,
               quantityStep: storeProductVariants.quantityStep,
-              inStock: this.commerce
-                .variantInStock(
-                  warehouse,
-                  sql`${storeProductVariants.quantityStep} * ${line.quantity}::numeric`,
-                )
-                .as('in_stock'),
             })
             .from(storeProductVariants)
             .innerJoin(
               storeProducts,
               eq(storeProducts.id, storeProductVariants.productId),
             )
-            .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-            .innerJoin(units, eq(units.id, items.unitId))
+            .innerJoin(units, eq(units.id, storeProductVariants.unitId))
             .where(
               and(
                 eq(storeProductVariants.id, variantId),
                 eq(storeProducts.status, 'PUBLISHED'),
-                this.commerce.eligibleVariantConditions(warehouse.farmId),
+                this.commerce.eligibleVariantConditions(),
               ),
             )
             .limit(1);
@@ -171,30 +169,33 @@ export class StoreOrdersService {
               variantId,
               unitPrice: variant.price,
             });
-          if (!variant.inStock)
-            throw new ConflictException({
-              code: 'INSUFFICIENT_STOCK',
-              message: 'Không đủ tồn kho cho số lượng đã chọn.',
-              variantId,
-            });
+          variants.push({ ...variant, quantity: line.quantity });
+        }
+        const { warehouse, itemIds } = await this.pickWarehouse(
+          tx,
+          input.region,
+          variants,
+        );
+        let subtotal = 0n;
+        const lines = variants.map((variant, index) => {
           const lineTotal = checkedMoney(
-            BigInt(variant.price) * BigInt(line.quantity),
+            BigInt(variant.price) * BigInt(variant.quantity),
           );
           subtotal += BigInt(lineTotal);
-          lines.push({
-            variantId,
+          return {
+            variantId: variant.id,
             productId: variant.productId,
-            itemId: variant.itemId,
+            itemId: itemIds[index],
             productName: variant.productName,
             variantName: variant.variantName,
             unitPrice: variant.price,
-            quantity: line.quantity,
+            quantity: variant.quantity,
             stockQuantity: stockQuantity(
-              quantityMillis(variant.quantityStep) * BigInt(line.quantity),
+              quantityMillis(variant.quantityStep) * BigInt(variant.quantity),
             ),
             lineTotal,
-          });
-        }
+          };
+        });
         const amount = checkedMoney(subtotal);
         const [order] = await tx
           .insert(storeOrders)
@@ -205,6 +206,7 @@ export class StoreOrdersService {
             recipientName: input.recipientName,
             phone: input.phone,
             address: input.address,
+            region: input.region,
             note: input.note || null,
             paymentMethod: input.paymentMethod,
             subtotal: amount,
@@ -686,6 +688,69 @@ export class StoreOrdersService {
     });
   }
 
+  /**
+   * First sales warehouse, in stable farm order, that alone holds every line:
+   * an order is never split across warehouses.
+   * shortcut: one stock query per warehouse and line, fine for a handful of
+   * farms and small carts; batch per warehouse if farms grow into the dozens.
+   */
+  private async pickWarehouse(
+    tx: Transaction,
+    region: CreateStoreOrderDto['region'],
+    lines: { id: string; quantity: number }[],
+  ) {
+    const candidates = await this.commerce.salesWarehouses(tx, region);
+    if (candidates.length === 0)
+      throw new ConflictException({
+        code: 'REGION_NOT_SUPPORTED',
+        message: 'Chưa hỗ trợ giao hàng đến khu vực này.',
+      });
+    const covered = new Set<string>();
+    for (const warehouse of candidates) {
+      const itemIds: string[] = [];
+      for (const line of lines) {
+        const [row] = await tx
+          .select({
+            itemId: storeVariantItems.itemId,
+            inStock: this.commerce
+              .variantInStock(
+                sql`${storeProductVariants.quantityStep} * ${line.quantity}::numeric`,
+                warehouse,
+              )
+              .as('in_stock'),
+          })
+          .from(storeVariantItems)
+          .innerJoin(
+            storeProductVariants,
+            eq(storeProductVariants.id, storeVariantItems.variantId),
+          )
+          .where(
+            and(
+              eq(storeVariantItems.variantId, line.id),
+              eq(storeVariantItems.farmId, warehouse.farmId),
+            ),
+          )
+          .limit(1);
+        if (!row?.inStock) continue;
+        itemIds.push(row.itemId);
+        covered.add(line.id);
+      }
+      if (itemIds.length === lines.length) return { warehouse, itemIds };
+    }
+    const missing = lines.find((line) => !covered.has(line.id));
+    if (missing)
+      throw new ConflictException({
+        code: 'INSUFFICIENT_STOCK',
+        message: 'Không đủ tồn kho cho số lượng đã chọn.',
+        variantId: missing.id,
+      });
+    throw new ConflictException({
+      code: 'CART_NOT_FULFILLABLE',
+      message:
+        'Chưa có kho nào đáp ứng đủ toàn bộ giỏ hàng. Vui lòng tách thành nhiều đơn.',
+    });
+  }
+
   private async allocate(tx: Transaction, order: Order, line: OrderItem) {
     const [item] = await tx
       .select({ trackingMode: items.trackingMode })
@@ -979,6 +1044,7 @@ export class StoreOrdersService {
           recipientName: input.recipientName,
           phone: input.phone,
           address: input.address,
+          region: input.region,
           note: input.note || null,
           paymentMethod: input.paymentMethod,
           items: input.items
@@ -1025,19 +1091,18 @@ export class StoreOrdersService {
   private async assertStoreFarm(farmId: string) {
     const db = this.databaseService.db;
     const [store] = await db
-      .select({ farmId: warehouses.farmId })
+      .select({ farmId: storeSettings.farmId })
       .from(storeSettings)
-      .innerJoin(warehouses, eq(warehouses.id, storeSettings.warehouseId))
-      .where(eq(storeSettings.id, 1))
+      .where(eq(storeSettings.farmId, farmId))
       .limit(1);
-    if (store?.farmId === farmId) return;
-    // Existing orders retain their farm even after the selling warehouse changes.
+    if (store) return;
+    // Existing orders retain their farm even after the farm stops selling.
     const [history] = await db
       .select({ id: storeOrders.id })
       .from(storeOrders)
       .where(eq(storeOrders.farmId, farmId))
       .limit(1);
-    if (!history) throw new ForbiddenException('Store belongs to another farm');
+    if (!history) throw new ForbiddenException('Farm does not sell online');
   }
 
   private async staffMember(farmId: string, clerkUserId: string) {

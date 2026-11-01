@@ -9,6 +9,7 @@ import {
   storeProductStatus,
   storeProductVariants,
   storeSettings,
+  storeVariantItems,
 } from '../src/db/schema';
 
 describe('Storefront schema (migrated PostgreSQL)', () => {
@@ -18,6 +19,7 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
   let client: PoolClient;
   const ids = {
     farm: randomUUID(),
+    otherFarm: randomUUID(),
     warehouse: randomUUID(),
     category: randomUUID(),
     unit: randomUUID(),
@@ -36,8 +38,9 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
   beforeEach(async () => {
     await client.query('BEGIN');
     await client.query(
-      `INSERT INTO farms (id, code, name) VALUES ($1::uuid, $1::text, 'Store test')`,
-      [ids.farm],
+      `INSERT INTO farms (id, code, name)
+       VALUES ($1::uuid, $1::text, 'Store test'), ($2::uuid, $2::text, 'Other farm')`,
+      [ids.farm, ids.otherFarm],
     );
     await client.query(
       `INSERT INTO warehouses (id, farm_id, code, name)
@@ -110,6 +113,7 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
       storeProducts,
       storeProductImages,
       storeProductVariants,
+      storeVariantItems,
     ].map(getTableConfig),
   )('matches Drizzle columns for $name', async (table) => {
     const result = await client.query<{ column_name: string }>(
@@ -136,34 +140,54 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
     );
   });
 
+  const insertVariant = (step = '1', price = '100') =>
+    client
+      .query<{ id: string }>(
+        `INSERT INTO store_product_variants (product_id, unit_id, name, price, quantity_step)
+         VALUES ($1, $2, 'Default', $3, $4) RETURNING id`,
+        [ids.product, ids.unit, price, step],
+      )
+      .then((result) => result.rows[0].id);
+  const mapItem = `INSERT INTO store_variant_items (variant_id, farm_id, item_id) VALUES ($1, $2, $3)`;
+
   it('permits fractional quantity/lot steps and whole serialized equipment', async () => {
+    for (const [step, itemId] of [
+      ['0.5', ids.quantityItem],
+      ['0.001', ids.lotItem],
+      ['1', ids.assetItem],
+    ]) {
+      await client.query(mapItem, [
+        await insertVariant(step),
+        ids.farm,
+        itemId,
+      ]);
+    }
     const result = await client.query(
-      `INSERT INTO store_product_variants (product_id, item_id, name, price, quantity_step)
-       VALUES ($1, $2, 'Tool', 25000, 0.5), ($1, $3, 'Material', 25000, 0.001),
-              ($1, $4, 'Machine', 1000000, 1)
-       RETURNING price, quantity_step, active`,
-      [ids.product, ids.quantityItem, ids.lotItem, ids.assetItem],
+      `SELECT v.quantity_step, v.active FROM store_variant_items m
+       JOIN store_product_variants v ON v.id = m.variant_id
+       WHERE m.farm_id = $1 ORDER BY v.quantity_step`,
+      [ids.farm],
     );
     expect(result.rows).toEqual([
-      { price: '25000', quantity_step: '0.500', active: true },
-      { price: '25000', quantity_step: '0.001', active: true },
-      { price: '1000000', quantity_step: '1.000', active: true },
+      { quantity_step: '0.001', active: true },
+      { quantity_step: '0.500', active: true },
+      { quantity_step: '1.000', active: true },
     ]);
   });
 
   it('defaults the step to one and allows zero-price variants', async () => {
     const result = await client.query(
-      `INSERT INTO store_product_variants (product_id, item_id, name, price)
+      `INSERT INTO store_product_variants (product_id, unit_id, name, price)
        VALUES ($1, $2, 'Default', 0) RETURNING quantity_step`,
-      [ids.product, ids.quantityItem],
+      [ids.product, ids.unit],
     );
     expect(result.rows[0]).toEqual({ quantity_step: '1.000' });
   });
 
   it.each(['-1', 'NaN'])('rejects invalid price %s', async (price) => {
     await expectDatabaseError(
-      `INSERT INTO store_product_variants (product_id, item_id, name, price) VALUES ($1, $2, 'Default', $3)`,
-      [ids.product, ids.quantityItem, price],
+      `INSERT INTO store_product_variants (product_id, unit_id, name, price) VALUES ($1, $2, 'Default', $3)`,
+      [ids.product, ids.unit, price],
       '23514',
     );
   });
@@ -172,9 +196,9 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
     'rejects invalid quantity step %s',
     async (step) => {
       await expectDatabaseError(
-        `INSERT INTO store_product_variants (product_id, item_id, name, price, quantity_step)
+        `INSERT INTO store_product_variants (product_id, unit_id, name, price, quantity_step)
        VALUES ($1, $2, 'Default', 100, $3)`,
-        [ids.product, ids.quantityItem, step],
+        [ids.product, ids.unit, step],
         '23514',
       );
     },
@@ -184,23 +208,19 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
     'requires serialized equipment step one, rejecting %s',
     async (step) => {
       await expectDatabaseError(
-        `INSERT INTO store_product_variants (product_id, item_id, name, price, quantity_step)
-       VALUES ($1, $2, 'Machine', 100, $3)`,
-        [ids.product, ids.assetItem, step],
+        mapItem,
+        [await insertVariant(step), ids.farm, ids.assetItem],
         '23514',
       );
     },
   );
 
-  it('protects the serial rule when changing the item or its tracking mode', async () => {
-    await client.query(
-      `INSERT INTO store_product_variants (product_id, item_id, name, price, quantity_step)
-       VALUES ($1, $2, 'Tool', 100, 0.5)`,
-      [ids.product, ids.quantityItem],
-    );
+  it('protects the serial rule when changing the mapping, the step or the tracking mode', async () => {
+    const variantId = await insertVariant('0.5');
+    await client.query(mapItem, [variantId, ids.farm, ids.quantityItem]);
     await expectDatabaseError(
-      `UPDATE store_product_variants SET item_id = $1 WHERE item_id = $2`,
-      [ids.assetItem, ids.quantityItem],
+      'UPDATE store_variant_items SET item_id = $1 WHERE variant_id = $2',
+      [ids.assetItem, variantId],
       '23514',
     );
     await expectDatabaseError(
@@ -209,28 +229,59 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
       '23514',
     );
     await client.query(
-      `UPDATE store_product_variants SET quantity_step = 1 WHERE item_id = $1`,
-      [ids.quantityItem],
+      'UPDATE store_product_variants SET quantity_step = 1 WHERE id = $1',
+      [variantId],
     );
     await client.query(
       `UPDATE items SET tracking_mode = 'ASSET' WHERE id = $1`,
       [ids.quantityItem],
     );
     await expectDatabaseError(
-      `UPDATE store_product_variants SET quantity_step = 0.5 WHERE item_id = $1`,
-      [ids.quantityItem],
+      'UPDATE store_product_variants SET quantity_step = 0.5 WHERE id = $1',
+      [variantId],
       '23514',
     );
   });
 
-  it('prevents two variants from sharing an inventory item', async () => {
-    const statement = `INSERT INTO store_product_variants (product_id, item_id, name, price)
-                       VALUES ($1, $2, 'Default', 100)`;
-    await client.query(statement, [ids.product, ids.quantityItem]);
+  it('keeps a mapped item in the unit of its variant', async () => {
+    const otherUnit = randomUUID();
+    await client.query(
+      `INSERT INTO units (id, code, name) VALUES ($1::uuid, 'SU-' || left($1::text, 8), 'Gram')`,
+      [otherUnit],
+    );
+    await client.query(mapItem, [
+      await insertVariant(),
+      ids.farm,
+      ids.quantityItem,
+    ]);
     await expectDatabaseError(
-      statement,
-      [ids.product, ids.quantityItem],
+      'UPDATE items SET unit_id = $1 WHERE id = $2',
+      [otherUnit, ids.quantityItem],
+      '23514',
+    );
+    await client.query('UPDATE items SET unit_id = $1 WHERE id = $2', [
+      otherUnit,
+      ids.lotItem,
+    ]);
+  });
+
+  it('maps an item to one variant, only for its own farm, once per farm', async () => {
+    const variantId = await insertVariant();
+    await client.query(mapItem, [variantId, ids.farm, ids.quantityItem]);
+    await expectDatabaseError(
+      mapItem,
+      [await insertVariant(), ids.farm, ids.quantityItem],
       '23505',
+    );
+    await expectDatabaseError(
+      mapItem,
+      [variantId, ids.farm, ids.lotItem],
+      '23505',
+    );
+    await expectDatabaseError(
+      mapItem,
+      [variantId, ids.otherFarm, ids.lotItem],
+      '23503',
     );
     await expectDatabaseError(
       'DELETE FROM items WHERE id = $1',
@@ -275,20 +326,34 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
     );
   });
 
-  it('allows at most one configured sales warehouse', async () => {
-    await client.query(
-      'INSERT INTO store_settings (warehouse_id) VALUES ($1)',
-      [ids.warehouse],
+  it('keeps one sales warehouse per farm, owned by that farm, and enables only complete settings', async () => {
+    const insert = `INSERT INTO store_settings (farm_id, sales_warehouse_id, sales_enabled, regions)
+                    VALUES ($1, $2, $3, $4)`;
+    await expectDatabaseError(
+      insert,
+      [ids.otherFarm, ids.warehouse, false, '{}'],
+      '23503',
     );
     await expectDatabaseError(
-      'INSERT INTO store_settings (warehouse_id) VALUES ($1)',
-      [ids.warehouse],
-      '23505',
-    );
-    await expectDatabaseError(
-      'INSERT INTO store_settings (id, warehouse_id) VALUES (2, $1)',
-      [ids.warehouse],
+      insert,
+      [ids.farm, null, true, '{NORTH}'],
       '23514',
+    );
+    await expectDatabaseError(
+      insert,
+      [ids.farm, ids.warehouse, true, '{}'],
+      '23514',
+    );
+    await client.query(insert, [
+      ids.farm,
+      ids.warehouse,
+      true,
+      '{NORTH,SOUTH}',
+    ]);
+    await expectDatabaseError(
+      insert,
+      [ids.farm, ids.warehouse, false, '{}'],
+      '23505',
     );
     await expectDatabaseError(
       'DELETE FROM warehouses WHERE id = $1',
@@ -299,12 +364,17 @@ describe('Storefront schema (migrated PostgreSQL)', () => {
 
   it('rejects unknown references', async () => {
     await expectDatabaseError(
-      'INSERT INTO store_settings (warehouse_id) VALUES ($1)',
-      [randomUUID()],
+      'INSERT INTO store_settings (farm_id, sales_warehouse_id) VALUES ($1, $2)',
+      [ids.farm, randomUUID()],
       '23503',
     );
     await expectDatabaseError(
-      `INSERT INTO store_product_variants (product_id, item_id, name, price) VALUES ($1, $2, 'Missing', 100)`,
+      mapItem,
+      [await insertVariant(), ids.farm, randomUUID()],
+      '23503',
+    );
+    await expectDatabaseError(
+      `INSERT INTO store_product_variants (product_id, unit_id, name, price) VALUES ($1, $2, 'Missing', 100)`,
       [ids.product, randomUUID()],
       '23503',
     );

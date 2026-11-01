@@ -22,6 +22,7 @@ describe('Store admin (migrated PostgreSQL)', () => {
     farm: randomUUID(),
     otherFarm: randomUUID(),
     warehouse: randomUUID(),
+    otherWarehouse: randomUUID(),
     category: randomUUID(),
     unit: randomUUID(),
     item: randomUUID(),
@@ -61,12 +62,15 @@ describe('Store admin (migrated PostgreSQL)', () => {
       { id: ids.farm, code: ids.farm, name: 'Store admin test' },
       { id: ids.otherFarm, code: ids.otherFarm, name: 'Other farm' },
     ]);
-    await tx.insert(schema.warehouses).values({
-      id: ids.warehouse,
-      farmId: ids.farm,
-      code: 'SALES',
-      name: 'Sales',
-    });
+    await tx.insert(schema.warehouses).values([
+      { id: ids.warehouse, farmId: ids.farm, code: 'SALES', name: 'Sales' },
+      {
+        id: ids.otherWarehouse,
+        farmId: ids.otherFarm,
+        code: 'SALES',
+        name: 'Other sales',
+      },
+    ]);
     await tx.insert(schema.categories).values({
       id: ids.category,
       code: ids.category,
@@ -98,13 +102,12 @@ describe('Store admin (migrated PostgreSQL)', () => {
       name: 'Store admin test',
       slug: ids.storeCategory,
     });
-    await tx
-      .insert(schema.storeSettings)
-      .values({ id: 1, warehouseId: ids.warehouse })
-      .onConflictDoUpdate({
-        target: schema.storeSettings.id,
-        set: { warehouseId: ids.warehouse },
-      });
+    await tx.insert(schema.storeSettings).values({
+      farmId: ids.farm,
+      salesWarehouseId: ids.warehouse,
+      salesEnabled: true,
+      regions: ['NORTH'],
+    });
   }
 
   const createProduct = (tx: Db, slug = `sp-${ids.farm.slice(0, 8)}`) =>
@@ -133,15 +136,139 @@ describe('Store admin (migrated PostgreSQL)', () => {
 
   afterAll(() => pool.end());
 
-  it('rejects farms that do not own the store warehouse', () =>
+  it('keeps one sales warehouse of the farm and blocks switching it under open orders', () =>
     inRollback(async (tx) => {
+      const admin = service(tx);
       await expect(
-        service(tx).listProducts(ids.otherFarm, {
-          page: 1,
-          pageSize: 20,
-          offset: 0,
+        admin.updateSettings(ids.farm, {
+          salesWarehouseId: ids.otherWarehouse,
+          salesEnabled: true,
+          regions: ['NORTH'],
         }),
-      ).rejects.toMatchObject({ status: 403 });
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        inSavepoint(tx, (sp) =>
+          service(sp).updateSettings(ids.otherFarm, {
+            salesEnabled: true,
+            regions: ['SOUTH'],
+          }),
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(
+        await admin.updateSettings(ids.otherFarm, {
+          salesWarehouseId: ids.otherWarehouse,
+          salesEnabled: true,
+          regions: ['SOUTH', 'SOUTH', 'CENTRAL'],
+        }),
+      ).toMatchObject({
+        salesEnabled: true,
+        regions: ['SOUTH', 'CENTRAL'],
+        salesWarehouse: { id: ids.otherWarehouse },
+      });
+
+      const userId = randomUUID();
+      await tx.insert(schema.users).values({
+        id: userId,
+        authProviderUserId: userId,
+        email: `${userId}@store-admin.test`,
+      });
+      await tx.insert(schema.storeOrders).values({
+        userId,
+        farmId: ids.otherFarm,
+        warehouseId: ids.otherWarehouse,
+        recipientName: 'Khách',
+        phone: '0900000000',
+        address: 'Địa chỉ',
+        paymentMethod: 'COD',
+        subtotal: '0',
+        total: '0',
+        idempotencyKey: randomUUID(),
+        requestFingerprint: 'x',
+      });
+      await expect(
+        admin.updateSettings(ids.otherFarm, {
+          salesEnabled: false,
+          regions: [],
+        }),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(
+        await admin.updateSettings(ids.otherFarm, {
+          salesWarehouseId: ids.otherWarehouse,
+          salesEnabled: false,
+          regions: [],
+        }),
+      ).toMatchObject({ salesEnabled: false });
+    }));
+
+  it('lets each farm map its own item of the same unit to a shared variant', () =>
+    inRollback(async (tx) => {
+      const product = await createProduct(tx);
+      const variant = await service(tx).createVariant(ids.farm, product.id, {
+        itemId: ids.item,
+        name: 'Chai',
+        price: '1000',
+      });
+      expect(variant.unitId).toBe(ids.unit);
+      await expect(
+        service(tx).setVariantItem(
+          ids.otherFarm,
+          product.id,
+          variant.id,
+          ids.item,
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+
+      const otherUnit = randomUUID();
+      const otherUnitItem = randomUUID();
+      await tx.insert(schema.units).values({
+        id: otherUnit,
+        code: `SB-${otherUnit.slice(0, 8)}`,
+        name: 'Other unit',
+      });
+      await tx.insert(schema.items).values({
+        id: otherUnitItem,
+        farmId: ids.otherFarm,
+        categoryId: ids.category,
+        unitId: otherUnit,
+        code: otherUnitItem,
+        name: 'Mật ong lít',
+        itemType: 'MATERIAL',
+        trackingMode: 'QUANTITY',
+      });
+      await expect(
+        service(tx).setVariantItem(
+          ids.otherFarm,
+          product.id,
+          variant.id,
+          otherUnitItem,
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+
+      const mapped = await service(tx).setVariantItem(
+        ids.otherFarm,
+        product.id,
+        variant.id,
+        ids.foreignItem,
+      );
+      expect(mapped.variants[0]).toMatchObject({
+        item: { id: ids.foreignItem },
+        farmCount: 2,
+      });
+      expect(
+        (await service(tx).getProduct(ids.farm, product.id)).variants[0].item,
+      ).toMatchObject({ id: ids.item });
+
+      await service(tx).removeVariantItem(
+        ids.otherFarm,
+        product.id,
+        variant.id,
+      );
+      expect(
+        (await service(tx).getProduct(ids.otherFarm, product.id)).variants[0],
+      ).toMatchObject({ item: null, farmCount: 1 });
+      await expect(
+        service(tx).removeVariantItem(ids.otherFarm, product.id, variant.id),
+      ).rejects.toMatchObject({ status: 404 });
     }));
 
   it('creates, validates variants and publishes a product', () =>
@@ -193,17 +320,12 @@ describe('Store admin (migrated PostgreSQL)', () => {
     inRollback(async (tx) => {
       const product = await createProduct(tx);
       await expect(
-        service(tx).addImage(ids.farm, product.id, file('image/gif')),
+        service(tx).addImage(product.id, file('image/gif')),
       ).rejects.toMatchObject({ status: 400 });
       expect(cloudinary.uploadFile).not.toHaveBeenCalled();
 
-      const first = await service(tx).addImage(
-        ids.farm,
-        product.id,
-        file(),
-        ' Bìa ',
-      );
-      const second = await service(tx).addImage(ids.farm, product.id, file());
+      const first = await service(tx).addImage(product.id, file(), ' Bìa ');
+      const second = await service(tx).addImage(product.id, file());
       expect(first).toMatchObject({ position: 0, alt: 'Bìa' });
       expect(second.position).toBe(1);
       expect(cloudinary.uploadFile).toHaveBeenCalledWith(
@@ -218,9 +340,9 @@ describe('Store admin (migrated PostgreSQL)', () => {
       );
 
       await expect(
-        service(tx).reorderImages(ids.farm, product.id, [second.id]),
+        service(tx).reorderImages(product.id, [second.id]),
       ).rejects.toMatchObject({ status: 400 });
-      const reordered = await service(tx).reorderImages(ids.farm, product.id, [
+      const reordered = await service(tx).reorderImages(product.id, [
         second.id,
         first.id,
       ]);
@@ -229,7 +351,7 @@ describe('Store admin (migrated PostgreSQL)', () => {
         [first.id, 1],
       ]);
 
-      await service(tx).deleteImage(ids.farm, product.id, second.id);
+      await service(tx).deleteImage(product.id, second.id);
       expect(cloudinary.deleteFile).toHaveBeenCalledWith(
         'nuoi-ong/products/p2',
         'image',
@@ -252,9 +374,9 @@ describe('Store admin (migrated PostgreSQL)', () => {
         )
         .mockRejectedValueOnce(new Error('insert failed'));
 
-      await expect(
-        admin.addImage(ids.farm, product.id, file()),
-      ).rejects.toThrow('insert failed');
+      await expect(admin.addImage(product.id, file())).rejects.toThrow(
+        'insert failed',
+      );
       expect(cloudinary.deleteFile).toHaveBeenCalledWith(
         'nuoi-ong/products/p1',
         'image',
@@ -270,22 +392,9 @@ describe('Store admin (migrated PostgreSQL)', () => {
         price: '1000',
       });
       await service(tx).updateProductStatus(ids.farm, product.id, 'PUBLISHED');
-      const first = await service(tx).addImage(
-        ids.farm,
-        product.id,
-        file(),
-        'A',
-      );
-      const second = await service(tx).addImage(
-        ids.farm,
-        product.id,
-        file(),
-        'B',
-      );
-      await service(tx).reorderImages(ids.farm, product.id, [
-        second.id,
-        first.id,
-      ]);
+      const first = await service(tx).addImage(product.id, file(), 'A');
+      const second = await service(tx).addImage(product.id, file(), 'B');
+      await service(tx).reorderImages(product.id, [second.id, first.id]);
 
       const detail = await new CommerceService({
         db: tx,

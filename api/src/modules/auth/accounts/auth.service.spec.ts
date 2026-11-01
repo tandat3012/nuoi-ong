@@ -53,16 +53,9 @@ describe('AuthService', () => {
     query.leftJoin.mockReturnValue(query);
     query.where.mockReturnValue(query);
     database.select.mockReturnValueOnce(query);
-    const storeQuery = {
-      from: jest.fn(),
-      innerJoin: jest.fn(),
-      where: jest.fn(),
-      limit: jest.fn().mockResolvedValue(storeFarmRows),
-    };
-    storeQuery.from.mockReturnValue(storeQuery);
-    storeQuery.innerJoin.mockReturnValue(storeQuery);
-    storeQuery.where.mockReturnValue(storeQuery);
-    database.select.mockReturnValueOnce(storeQuery);
+    database.select.mockReturnValueOnce({
+      from: () => ({ where: () => Promise.resolve(storeFarmRows) }),
+    });
   }
 
   it('returns null default farm when the user has no memberships', async () => {
@@ -78,7 +71,7 @@ describe('AuthService', () => {
       },
       memberships: [],
       defaultFarmId: null,
-      storeFarm: null,
+      storeFarmIds: [],
     });
     // Customers without memberships never query the store farm.
     expect(database.select).toHaveBeenCalledTimes(2);
@@ -111,10 +104,10 @@ describe('AuthService', () => {
     expect(context.memberships[0].roles).toEqual(['EMPLOYEE']);
     expect(context.memberships[1].roles).toEqual(['FARM_OWNER']);
     expect(context.defaultFarmId).toBe('farm-a');
-    expect(context.storeFarm).toBeNull();
+    expect(context.storeFarmIds).toEqual([]);
   });
 
-  it('returns the farm that owns the store warehouse to staff', async () => {
+  it('returns the farms of the user that sell online', async () => {
     contextRows(
       [
         {
@@ -126,10 +119,10 @@ describe('AuthService', () => {
         },
       ],
       'ACTIVE',
-      [{ id: 'farm-a', name: 'A' }],
+      [{ farmId: 'farm-a' }],
     );
     const context = await service.getAuthContext('user_123');
-    expect(context.storeFarm).toEqual({ id: 'farm-a', name: 'A' });
+    expect(context.storeFarmIds).toEqual(['farm-a']);
     expect(database.select).toHaveBeenCalledTimes(3);
   });
 

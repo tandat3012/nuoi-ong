@@ -197,6 +197,13 @@
       "when": 1793441825228,
       "tag": "0027_vietqr-payments",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793473661224,
+      "tag": "0028_store-sales-warehouse-per-farm",
+      "breakpoints": true
     }
   ]
 }

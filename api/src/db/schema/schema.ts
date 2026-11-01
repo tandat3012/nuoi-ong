@@ -316,6 +316,8 @@ export const warehouses = pgTable(
       name: 'warehouses_farm_id_fkey',
     }),
     unique('uq_warehouse_code_per_farm').on(table.code, table.farmId),
+    // Target of composite FKs that pin a referenced warehouse to its farm.
+    unique('uq_warehouses_id_farm').on(table.id, table.farmId),
   ],
 );
 
@@ -505,6 +507,8 @@ export const items = pgTable(
       name: 'items_unit_id_fkey',
     }),
     unique('uq_item_code_per_farm').on(table.code, table.farmId),
+    // Target of composite FKs that pin a referenced item to its farm.
+    unique('uq_items_id_farm').on(table.id, table.farmId),
     check(
       'ck_item_maintenance_interval_positive',
       sql`(maintenance_interval_days IS NULL) OR (maintenance_interval_days > 0)`,
