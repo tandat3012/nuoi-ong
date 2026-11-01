@@ -7,6 +7,7 @@ import { StoreSearchBar } from './store-search-bar';
 import { StoreDesktopNav } from './store-desktop-nav';
 import { StoreMobileNav } from './store-mobile-nav';
 import { StoreCartButton } from '@/features/commerce/cart/components/store-cart-button';
+import { StoreRegionButton } from '@/features/commerce/region/region-context';
 
 export function StoreHeader() {
   return (
@@ -27,6 +28,7 @@ export function StoreHeader() {
 
           {/* Vùng bên phải: Tài khoản & Giỏ hàng */}
           <div className="flex items-center gap-1.5 sm:gap-3">
+            <StoreRegionButton />
             {/* Đăng nhập */}
             <Show when="signed-out">
               <SignInButton>

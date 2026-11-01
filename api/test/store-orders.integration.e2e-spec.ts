@@ -303,7 +303,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
 
   it('fills an order from one sales warehouse, never adding stock across farms or internal warehouses', () =>
     inRollback(async (ctx, tx) => {
-      const { ids, service, input } = ctx;
+      const { ids, service, commerce, input } = ctx;
       await tx.insert(schema.inventoryBalances).values({
         farmId: ids.farm,
         warehouseId: ids.otherWarehouse,
@@ -337,6 +337,55 @@ describe('Store orders (migrated PostgreSQL)', () => {
       await expect(
         service.create(ids.customer, { ...input(), region: 'CENTRAL' }),
       ).rejects.toMatchObject({ response: { code: 'REGION_NOT_SUPPORTED' } });
+      const label = async (region?: 'NORTH' | 'CENTRAL' | 'SOUTH', qty = 1) =>
+        (await commerce.getProduct(ids.product, region, qty)).variants[0]
+          .availability;
+      expect(await label()).toBe('REGION_REQUIRED');
+      expect(await label('CENTRAL')).toBe('REGION_NOT_SUPPORTED');
+      expect(await label('SOUTH', 96)).toBe('AVAILABLE');
+      expect(await label('SOUTH', 97)).toBe('INSUFFICIENT_IN_REGION');
+      // The product label follows the same quantity as its variants.
+      expect(
+        (await commerce.getProduct(ids.product, 'SOUTH', 97)).availability,
+      ).toBe('INSUFFICIENT_IN_REGION');
+      expect(
+        (
+          await commerce.listProducts(
+            { page: 1, pageSize: 20, offset: 0 },
+            {
+              region: 'CENTRAL',
+              category: undefined,
+            },
+          )
+        ).data.find(({ id }) => id === ids.product)?.availability,
+      ).toBe('REGION_NOT_SUPPORTED');
+      await expect(
+        commerce.cartAvailability('SOUTH', [
+          { variantId: ids.variant, quantity: 96 },
+        ]),
+      ).resolves.toEqual({
+        canOrder: true,
+        lines: [{ variantId: ids.variant, availability: 'AVAILABLE' }],
+        groups: [],
+      });
+      // A cart line the order would reject is never reported as orderable.
+      await tx
+        .update(schema.storeProducts)
+        .set({ status: 'ARCHIVED' })
+        .where(eq(schema.storeProducts.id, ids.product));
+      await expect(
+        commerce.cartAvailability('SOUTH', [
+          { variantId: ids.variant, quantity: 96 },
+        ]),
+      ).resolves.toEqual({
+        canOrder: false,
+        lines: [{ variantId: ids.variant, availability: 'OUT_OF_STOCK' }],
+        groups: [],
+      });
+      await tx
+        .update(schema.storeProducts)
+        .set({ status: 'PUBLISHED' })
+        .where(eq(schema.storeProducts.id, ids.product));
       const { order } = await service.create(ids.customer, input(96));
       const [saved] = await tx
         .select()
@@ -352,6 +401,12 @@ describe('Store orders (migrated PostgreSQL)', () => {
         .from(schema.storeOrderItems)
         .where(eq(schema.storeOrderItems.orderId, order.id));
       expect(line.itemId).toBe(other.itemId);
+      // The north still has stock, but it is never shipped south.
+      await tx
+        .update(schema.inventoryBalances)
+        .set({ quantityOnHand: '0' })
+        .where(eq(schema.inventoryBalances.itemId, other.itemId));
+      expect(await label('SOUTH')).toBe('OUT_IN_REGION');
     }));
 
   it('refuses a cart that no single sales warehouse can fill', () =>
@@ -396,6 +451,17 @@ describe('Store orders (migrated PostgreSQL)', () => {
       request.items.push({ variantId: secondVariant, quantity: 1 });
       await expect(service.create(ids.customer, request)).rejects.toMatchObject(
         { response: { code: 'CART_NOT_FULFILLABLE' } },
+      );
+      const cart = await ctx.commerce.cartAvailability('SOUTH', request.items);
+      expect(cart.canOrder).toBe(false);
+      expect(cart.lines.map(({ availability }) => availability)).toEqual([
+        'AVAILABLE',
+        'AVAILABLE',
+      ]);
+      // Each line can still be its own order from a different warehouse.
+      expect(cart.groups).toHaveLength(2);
+      expect(cart.groups).toEqual(
+        expect.arrayContaining([[ids.variant], [secondVariant]]),
       );
     }));
 

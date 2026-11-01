@@ -1,6 +1,8 @@
 import type { PaginatedResponse } from '@/shared/api/contracts';
 import type { StorefrontProduct, StorefrontProductDetail } from '../types/product';
 import { API_CONFIG } from '@/shared/config/api';
+import type { StoreRegion } from '../../orders/types/order';
+import type { Availability } from '../../region/region.logic';
 
 export interface StoreProductsQuery {
   page?: number;
@@ -10,6 +12,7 @@ export interface StoreProductsQuery {
   minPrice?: number;
   maxPrice?: number;
   sort?: 'price_asc' | 'price_desc';
+  region?: StoreRegion | null;
 }
 
 export async function getProductsStore(
@@ -65,6 +68,8 @@ export async function getProductsStore(
     query.set('sort', queryObj.sort);
   }
 
+  if (queryObj.region) query.set('region', queryObj.region);
+
   const baseUrl = process.env.API_INTERNAL_URL ?? API_CONFIG.BASE_URL;
   const response = await fetch(
     `${baseUrl}${API_CONFIG.VERSION}/store/products?${query}`,
@@ -81,14 +86,24 @@ export async function getProductsStore(
   return (await response.json()) as PaginatedResponse<StorefrontProduct>;
 }
 
+export interface StoreProductOptions {
+  region?: StoreRegion | null;
+  /** Steps the customer wants; decides AVAILABLE vs INSUFFICIENT_IN_REGION. */
+  quantity?: number;
+}
+
 async function fetchProductStore(
   slug: string,
+  { region, quantity }: StoreProductOptions,
 ): Promise<{ data: StorefrontProductDetail } | null> {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return null;
 
+  const query = new URLSearchParams();
+  if (region) query.set('region', region);
+  if (quantity && quantity > 1) query.set('quantity', String(quantity));
   const baseUrl = process.env.API_INTERNAL_URL ?? API_CONFIG.BASE_URL;
   const response = await fetch(
-    `${baseUrl}${API_CONFIG.VERSION}/store/products/${encodeURIComponent(slug)}`,
+    `${baseUrl}${API_CONFIG.VERSION}/store/products/${encodeURIComponent(slug)}?${query}`,
     {
       cache: 'no-store',
       signal: AbortSignal.timeout(10000),
@@ -117,12 +132,42 @@ async function fetchProductStore(
 
 const pendingDetails = new Map<string, Promise<{ data: StorefrontProductDetail } | null>>();
 
-export function getProductStore(slug: string): Promise<{ data: StorefrontProductDetail } | null> {
-  const pending = pendingDetails.get(slug);
+export function getProductStore(
+  slug: string,
+  options: StoreProductOptions = {},
+): Promise<{ data: StorefrontProductDetail } | null> {
+  const key = `${slug}|${options.region ?? ''}|${options.quantity ?? 1}`;
+  const pending = pendingDetails.get(key);
 
   if (pending) return pending;
 
-  const request = fetchProductStore(slug).finally(() => pendingDetails.delete(slug));
-  pendingDetails.set(slug, request);
+  const request = fetchProductStore(slug, options).finally(() => pendingDetails.delete(key));
+  pendingDetails.set(key, request);
   return request;
+}
+
+export interface CartAvailability {
+  canOrder: boolean;
+  lines: { variantId: string; availability: Availability }[];
+  /** Variant ids that one warehouse could ship together, when canOrder is false. */
+  groups: string[][];
+}
+
+export async function getCartAvailability(
+  region: StoreRegion,
+  items: { variantId: string; quantity: number }[],
+): Promise<CartAvailability> {
+  const response = await fetch(
+    `${API_CONFIG.BASE_URL}${API_CONFIG.VERSION}/store/cart/availability`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ region, items }),
+      signal: AbortSignal.timeout(10000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Không kiểm tra được giỏ hàng: HTTP ${response.status}`);
+  }
+  return ((await response.json()) as { data: CartAvailability }).data;
 }

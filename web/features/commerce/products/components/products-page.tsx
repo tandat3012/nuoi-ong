@@ -8,6 +8,7 @@ import {
   PackageOpen,
 } from 'lucide-react';
 import { getProductsStore } from '../api/product.api';
+import { getStoreRegion } from '../../region/region.server';
 import { getAllCategoriesStore } from '../../categories/api/category.api';
 import { ProductCard } from './product-card';
 import { ProductsSidebar } from './products-sidebar';
@@ -37,7 +38,9 @@ export async function ProductsPage({
 
   const [categoriesResult, productsResult] = await Promise.allSettled([
     getAllCategoriesStore(),
-    validationError ? Promise.resolve(null) : getProductsStore(criteria),
+    validationError
+      ? Promise.resolve(null)
+      : getProductsStore({ ...criteria, region: await getStoreRegion() }),
   ]);
   const categories =
     categoriesResult.status === 'fulfilled' ? categoriesResult.value : [];

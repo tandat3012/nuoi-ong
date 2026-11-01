@@ -17,13 +17,18 @@ Các endpoint này dùng `@Public()`; API nội bộ vẫn giữ xác thực và
 - `price` là giá thấp nhất của các variant hợp lệ, kể cả variant hết hàng. Lọc và sort giá dùng cùng giá này. Đây là giá khởi điểm; variant còn hàng có thể có giá cao hơn.
 - Giá được so sánh bằng numeric trong DB, chỉ chuyển thành `number` khi trả response. Giá hiển thị vượt số nguyên an toàn của JavaScript trả `500` thay vì làm tròn âm thầm.
 - `inStock` đúng khi **một** kho bán đủ tồn cho ít nhất một `quantityStep` của variant hợp lệ; tồn của nhiều kho không được cộng. Kho nội bộ không tính. Hết hàng vẫn được hiển thị.
-- Tạo đơn: server duyệt kho bán theo mã trại, chọn kho đầu tiên đủ **toàn bộ** giỏ và ghi item của trại đó vào dòng đơn. Không kho nào đủ một món trả `409 INSUFFICIENT_STOCK`; mỗi món có nơi đủ nhưng không chung một kho trả `409 CART_NOT_FULFILLABLE`.
+- Danh sách/chi tiết nhận `?region=NORTH|CENTRAL|SOUTH`; chi tiết nhận thêm `?quantity=` (số bước, mặc định 1). Sản phẩm và variant trả `availability`, không bao giờ trả số tồn:
+  - không có miền: `REGION_REQUIRED` (còn ở đâu đó) hoặc `OUT_OF_STOCK`;
+  - có miền: `AVAILABLE` (một kho bán của miền đủ `quantity`), `INSUFFICIENT_IN_REGION` (đủ 1 bước nhưng không đủ `quantity`), `REGION_NOT_SUPPORTED` (không kho bán nào của miền bán variant này), `OUT_IN_REGION` (miền khác còn), `OUT_OF_STOCK`.
+  - Có miền thì `inStock` chỉ tính kho của miền đó.
+- `POST cart/availability {region, items[{variantId, quantity}]}` trả `canOrder` (một kho của miền đủ cả giỏ), nhãn từng dòng và `groups` (mảng `variantId`) gợi ý tách đơn khi `canOrder=false`. Không trả id kho.
+- Tạo đơn: server duyệt kho bán theo mã trại, chọn kho đầu tiên đủ **toàn bộ** giỏ và ghi item của trại đó vào dòng đơn. Miền không có kho bán trả `409 REGION_NOT_SUPPORTED`. Không kho nào đủ một món trả `409 INSUFFICIENT_STOCK`; mỗi món có nơi đủ nhưng không chung một kho trả `409 CART_NOT_FULFILLABLE`.
 - `QUANTITY` dùng balance không gắn lô. `LOT` chỉ cộng lô đúng item/trang trại và chưa hết hạn; ngày hết hạn bằng hôm nay vẫn hợp lệ, ngày tính theo UTC như module kho.
 - `ASSET` cần balance đủ và cá thể `AVAILABLE` có vị trí thuộc kho bán. Dữ liệu thiếu vị trí được coi là chưa sẵn hàng. Cá thể đang bảo trì hoặc đã nằm trong phiếu xuất chưa duyệt (vd. đơn đã xác nhận) không được tính.
 - Ảnh đại diện là ảnh có `position` nhỏ nhất, trả `image: { src, alt }`; thiếu ảnh thì bỏ trường `image`.
 - Chỉ trả trường catalog công khai, không trả giá vốn, item nội bộ hoặc serial. ID là UUID từ DB.
 
-Sản phẩm gồm `id`, `slug`, `name`, `description`, `category: { id, name, slug }`, `price`, `inStock` và `image` nếu có. Chi tiết dùng cùng quy tắc hiển thị với danh sách. Chi tiết trả thêm `images: { src, alt }[]` theo `position` (rỗng nếu chưa có ảnh).
+Sản phẩm gồm `id`, `slug`, `name`, `description`, `category: { id, name, slug }`, `price`, `inStock`, `availability` và `image` nếu có. Chi tiết dùng cùng quy tắc hiển thị với danh sách. Chi tiết trả thêm `images: { src, alt }[]` theo `position` (rỗng nếu chưa có ảnh).
 
 ## Quản trị cửa hàng
 

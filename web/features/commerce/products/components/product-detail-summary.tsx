@@ -18,6 +18,9 @@ import { formatVndCurrency } from '@/shared/lib/currency';
 import { cn } from '@/shared/lib/utils';
 import { resolveCartInput } from '../../cart/components/cart.logic';
 import { useCart } from '@/features/commerce/cart/hooks/use-cart';
+import { getProductStore } from '../api/product.api';
+import { availabilityLabel } from '../../region/region.logic';
+import { useStoreRegion } from '../../region/region-context';
 
 export interface ProductDetailSummaryProps {
   product: StorefrontProductDetail;
@@ -42,6 +45,51 @@ export function ProductDetailSummary({
       ? product.variants[0]
       : product.variants?.find((variant) => variant.id === selectedVariantId);
   const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
+  const { region } = useStoreRegion();
+  // Labels for the chosen quantity; the page itself was rendered for one step.
+  const labelKey = `${product.slug}|${region}|${quantity}`;
+  const [quantityLabels, setQuantityLabels] = React.useState<{
+    key: string;
+    variants: StorefrontProductVariant[] | null;
+  } | null>(null);
+  React.useEffect(() => {
+    if (!region || quantity <= 1) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      getProductStore(product.slug, { region, quantity })
+        .then((result) => {
+          if (active && result)
+            setQuantityLabels({
+              key: `${product.slug}|${region}|${quantity}`,
+              variants: result.data.variants ?? [],
+            });
+        })
+        .catch(() => {
+          if (active)
+            setQuantityLabels({
+              key: `${product.slug}|${region}|${quantity}`,
+              variants: null,
+            });
+        });
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [product.slug, region, quantity]);
+  const availability =
+    quantity <= 1 || !region || !selectedVariant
+      ? snapshot.availability
+      : quantityLabels?.key === labelKey
+        ? quantityLabels.variants?.find((v) => v.id === selectedVariant.id)
+            ?.availability
+        : undefined;
+  const checkingQuantity =
+    quantity > 1 && region && selectedVariant && availability === undefined;
+  const canDeliver =
+    snapshot.inStock &&
+    !checkingQuantity &&
+    availability !== 'INSUFFICIENT_IN_REGION';
   const discount = computeDetailDiscount(
     snapshot.price,
     snapshot.originalPrice,
@@ -144,19 +192,26 @@ export function ProductDetailSummary({
         <span
           className={cn(
             'inline-block size-2 rounded-full',
-            snapshot.inStock ? 'bg-emerald-500' : 'bg-muted-foreground/60',
+            canDeliver
+              ? 'bg-emerald-500'
+              : 'bg-muted-foreground/60',
           )}
           aria-hidden="true"
         />
         <span
           className={cn(
             'text-xs sm:text-sm font-medium',
-            snapshot.inStock
+            canDeliver
               ? 'text-emerald-700 dark:text-emerald-400'
               : 'text-muted-foreground',
           )}
+          role="status"
         >
-          {snapshot.inStock ? 'Còn hàng' : 'Hết hàng'}
+          {!checkingQuantity
+            ? availabilityLabel({ inStock: snapshot.inStock, availability })
+            : quantityLabels?.key === labelKey
+              ? 'Chưa kiểm tra được số lượng tại khu vực'
+              : 'Đang kiểm tra số lượng tại khu vực…'}
         </span>
       </div>
 

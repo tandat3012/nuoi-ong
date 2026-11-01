@@ -11,7 +11,8 @@ Chức năng bán hàng phục vụ customer. Đã có trang chủ, danh sách `
 - Query sai định dạng trả trang 404. Trang vượt dữ liệu chuyển về trang cuối còn tồn tại (hoặc trang 1 nếu rỗng).
 - Danh mục và sản phẩm trang chủ có Suspense riêng, trạng thái lỗi/rỗng riêng. Lỗi danh mục không chặn danh sách sản phẩm. Có liên kết tải lại trang khi lỗi.
 - Carousel lọc trong 4 sản phẩm đã tải, các tab danh mục lấy từ chính các sản phẩm đó. Chưa có quy tắc xếp hạng sản phẩm nổi bật/bán chạy.
-- Thẻ sản phẩm hiển thị còn/hết hàng theo `inStock` và liên kết tới trang chi tiết. Thêm vào giỏ cần xác minh quy cách, giá và tình trạng còn hàng từ chi tiết sản phẩm.
+- Thẻ sản phẩm hiển thị nhãn `availability` theo miền (`region/region.logic.ts`), không hiện số tồn và liên kết tới trang chi tiết. Thêm vào giỏ cần xác minh quy cách, giá và tình trạng còn hàng từ chi tiết sản phẩm.
+- Miền giao hàng: popup lần đầu và nút trên header (`region/region-context.tsx`) lưu cookie `moc_ong_region`; server đọc qua `region/region.server.ts` để gọi API kèm `region`. Chi tiết gọi lại API theo số lượng (debounce 400ms). Giỏ và checkout gọi `POST store/cart/availability` (`CartRegionCheck`) và gợi ý tách đơn khi không kho nào đủ cả giỏ.
 - Request dùng `API_INTERNAL_URL` nếu có, rồi `NEXT_PUBLIC_API_URL` hoặc `http://localhost:5050`; `cache: 'no-store'`, timeout 10 giây mỗi request. Khi gọi từ trình duyệt, dùng cấu hình API công khai.
 - Backend đọc catalog và tồn kho từ DB; local có thể dùng dữ liệu seed minh họa.
 

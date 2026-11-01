@@ -1,3 +1,5 @@
+import type { Availability } from '../../region/region.logic';
+
 export type StorefrontProductRating = {
   score: number;
   reviewCount: number;
@@ -25,6 +27,7 @@ export type StorefrontProduct = {
   rating?: StorefrontProductRating;
   image?: StorefrontProductImage;
   inStock: boolean;
+  availability?: Availability;
   variants?: StorefrontProductVariant[];
 };
 
@@ -34,6 +37,7 @@ export type StorefrontProductVariant = {
   price: number;
   originalPrice?: number;
   inStock: boolean;
+  availability?: Availability;
   image?: StorefrontProductImage;
   sku?: string;
 };
