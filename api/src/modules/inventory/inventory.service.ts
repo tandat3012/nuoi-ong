@@ -52,6 +52,8 @@ type Filters = {
 
 type TransactionFilters = Filters & {
   transactionType?: (typeof inventoryTransactionType.enumValues)[number];
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 @Injectable()
@@ -366,6 +368,16 @@ export class InventoryService {
     if (filters.transactionType) {
       predicates.push(
         eq(inventoryTransactions.transactionType, filters.transactionType),
+      );
+    }
+    if (filters.dateFrom) {
+      predicates.push(
+        sql`${inventoryTransactions.createdAt} >= (${filters.dateFrom}::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')`,
+      );
+    }
+    if (filters.dateTo) {
+      predicates.push(
+        sql`${inventoryTransactions.createdAt} < ((${filters.dateTo}::date + 1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')`,
       );
     }
     const where = and(...predicates);

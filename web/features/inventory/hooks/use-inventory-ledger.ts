@@ -91,6 +91,8 @@ export function useInventoryLedger(
       setFilters((previous) =>
         changeInventoryLedgerType(previous, transactionType),
       ),
+    changeDateRange: (range: { dateFrom: string; dateTo: string }) =>
+      setFilters((previous) => ({ ...previous, ...range, page: 1 })),
     changePage: (page: number) =>
       setFilters((previous) => ({ ...previous, page: Math.max(1, page) })),
     reload: () => setFilters((previous) => ({ ...previous })),

@@ -5,6 +5,7 @@ import {
   requireUuid,
 } from '../../common/query-params';
 import { inventoryTransactionType } from '../../db/schema';
+import { parseDateRange } from '../../common/date-range';
 import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { InventoryService } from './inventory.service';
 import {
@@ -325,6 +326,8 @@ export class InventoryController {
     @Query('warehouseId') warehouseId?: string,
     @Query('itemId') itemId?: string,
     @Query('transactionType') transactionType?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -340,6 +343,7 @@ export class InventoryController {
         inventoryTransactionType.enumValues,
         'transactionType',
       ),
+      ...parseDateRange(dateFrom, dateTo),
       ...parsePagination(page, pageSize),
     });
   }
