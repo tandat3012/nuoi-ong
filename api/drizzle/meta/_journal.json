@@ -225,6 +225,20 @@
       "when": 1793534765665,
       "tag": "0031_store-internal-rls",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793538859862,
+      "tag": "0032_maintenance-statuses",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793538859863,
+      "tag": "0033_maintenance-returns",
+      "breakpoints": true
     }
   ]
 }

@@ -95,6 +95,20 @@ test("uncertain writes and conflicts require a reload; reads remain retryable", 
   assert.equal(assetError({ status: 500 }).reloadRequired, false);
 });
 
+test("maintenance return date errors explain what to fix without requiring reload", () => {
+  for (const [message, expected] of [
+    [
+      "Expected return cannot precede scheduled maintenance",
+      /sớm hơn lịch bảo trì/,
+    ],
+    ["Expected return must be in the future", /phải ở tương lai/],
+  ]) {
+    const error = Object.assign(new Error(message), { status: 400 });
+    assert.match(assetError(error, true).message, expected);
+    assert.equal(assetError(error, true).reloadRequired, false);
+  }
+});
+
 test("terminal assets expose only safe lifecycle actions and writer checks do not broaden roles", () => {
   assert.deepEqual(assetActions("RETIRED"), []);
   assert.deepEqual(assetActions("MAINTENANCE"), []);

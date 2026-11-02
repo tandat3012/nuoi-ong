@@ -33,14 +33,14 @@ export function changeInventoryWarehouse(
   filters: InventoryFilters,
   warehouseId?: string,
 ): InventoryFilters {
-  return { ...filters, warehouseId, page: 1 };
+  return { ...filters, warehouseId, assetId: undefined, page: 1 };
 }
 
 export function changeInventoryItem(
   filters: InventoryFilters,
   itemId?: string,
 ): InventoryFilters {
-  return { ...filters, itemId, lotId: undefined, page: 1 };
+  return { ...filters, itemId, lotId: undefined, assetId: undefined, page: 1 };
 }
 
 export function changeInventoryLot(

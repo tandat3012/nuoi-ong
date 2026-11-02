@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -25,6 +25,7 @@ import {
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 import {
   AssignAssetDto,
   CreateAssetDto,
@@ -727,8 +728,10 @@ export class AssetLifecycleService {
         throw new ConflictException(
           'Terminal assets cannot receive new incidents',
         );
-      if (input.incidentType === 'LOSS')
+      if (input.incidentType === 'LOSS') {
         await this.assertNoActiveMaintenance(tx, farmId, id);
+        await this.assertNoFailedMaintenance(tx, farmId, id);
+      }
       if (input.incidentType === 'LOSS' && asset.status === 'AVAILABLE') {
         if (!asset.currentLocationId || !sourceWarehouseId || !balanceId)
           throw new ConflictException(
@@ -913,6 +916,7 @@ export class AssetLifecycleService {
       );
       await this.activeWarehouse(tx, farmId, input.warehouseId);
       await this.assertNoActiveMaintenance(tx, farmId, id);
+      await this.assertNoFailedMaintenance(tx, farmId, id);
       const now = new Date().toISOString();
       const [updated] = await tx
         .update(assets)
@@ -1234,12 +1238,39 @@ export class AssetLifecycleService {
         and(
           eq(maintenanceRecords.farmId, farmId),
           eq(maintenanceRecords.assetId, assetId),
-          inArray(maintenanceRecords.status, ['SCHEDULED', 'IN_PROGRESS']),
+          activeMaintenanceCondition,
         ),
       )
       .limit(1);
     if (maintenance)
       throw new ConflictException('Asset has active maintenance');
+  }
+
+  private async assertNoFailedMaintenance(
+    tx: Transaction,
+    farmId: string,
+    assetId: string,
+  ) {
+    const [inspection] = await tx
+      .select({ status: maintenanceRecords.status })
+      .from(maintenanceRecords)
+      .where(
+        and(
+          eq(maintenanceRecords.farmId, farmId),
+          eq(maintenanceRecords.assetId, assetId),
+          inArray(maintenanceRecords.status, ['COMPLETED', 'FAILED']),
+        ),
+      )
+      .orderBy(
+        desc(maintenanceRecords.completedAt),
+        desc(maintenanceRecords.createdAt),
+        desc(maintenanceRecords.id),
+      )
+      .limit(1);
+    if (inspection?.status === 'FAILED')
+      throw new ConflictException(
+        'Failed maintenance must be repaired before reporting loss or recovery',
+      );
   }
 
   private async getAsset(

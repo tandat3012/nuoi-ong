@@ -18,6 +18,9 @@ import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
 import { canCreateStockDocuments } from "@/features/stock-documents/stock-document.logic";
+import { InventoryAssetFilter } from "./inventory-asset-filter";
+import { AssetStatusBadge } from "@/features/assets/components/asset-status-badge";
+import Link from "next/link";
 
 export function InventoryPage({
   initialFilters,
@@ -75,14 +78,16 @@ function FarmInventoryPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Chế độ xem kho" className="flex gap-2">
-          <Button variant="outline"
+          <Button
+            variant="outline"
             aria-pressed={view === "balances"}
             onClick={() => onChangeView("balances")}
             className="aria-pressed:bg-primary aria-pressed:text-primary-foreground"
           >
             Tồn hiện tại
           </Button>
-          <Button variant="outline"
+          <Button
+            variant="outline"
             aria-pressed={view === "ledger"}
             onClick={() => onChangeView("ledger")}
             className="aria-pressed:bg-primary aria-pressed:text-primary-foreground"
@@ -90,7 +95,8 @@ function FarmInventoryPage({
             Lịch sử biến động
           </Button>
           {canRequest && (
-            <Button variant="outline"
+            <Button
+              variant="outline"
               aria-pressed={view === "adjustments"}
               onClick={() => onChangeView("adjustments")}
               className="aria-pressed:bg-primary aria-pressed:text-primary-foreground"
@@ -206,7 +212,7 @@ function CurrentBalancesView({
 
       <section
         aria-label="Lọc tồn kho"
-        className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3"
+        className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4"
       >
         <label className="grid gap-1.5 text-sm font-medium">
           Kho
@@ -297,6 +303,23 @@ function CurrentBalancesView({
             ]}
           />
         </label>
+        <InventoryAssetFilter
+          key={`${farmId}:${filters.warehouseId ?? ""}:${filters.itemId ?? ""}`}
+          farmId={farmId}
+          warehouseId={filters.warehouseId}
+          itemId={filters.itemId}
+          value={filters.assetId}
+          selectedLabel={inventory.selectedAsset?.assetCode}
+          disabled={
+            references.isLoading ||
+            Boolean(references.error) ||
+            Boolean(
+              filters.itemId &&
+              references.selectedItem?.item.trackingMode !== "ASSET",
+            )
+          }
+          onChange={inventory.changeAsset}
+        />
       </section>
 
       {references.error && (
@@ -330,6 +353,32 @@ function CurrentBalancesView({
         </div>
       )}
 
+      {inventory.selectedAsset && (
+        <div className="space-y-2 rounded-xl border bg-card p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              className="font-medium underline"
+              href={`/assets/${inventory.selectedAsset.id}`}
+            >
+              {inventory.selectedAsset.assetCode}
+            </Link>
+            <AssetStatusBadge status={inventory.selectedAsset.status} />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Serial: {inventory.selectedAsset.serialNumber || "—"} · Vị trí:{" "}
+            {inventory.selectedAsset.locationName || "Chưa có vị trí trong kho"}
+          </p>
+          <p className="text-sm">
+            {inventory.balances.length
+              ? inventory.selectedAsset.status === "MAINTENANCE"
+                ? "Tài sản đã nhập lại kho nhưng đang cách ly, chưa được phép cấp phát hoặc sử dụng."
+                : inventory.selectedAsset.status === "TRANSFER_PENDING"
+                  ? "Tài sản vẫn ở kho nhưng đang chờ duyệt điều chuyển, chưa sẵn sàng sử dụng."
+                  : "Kết quả tồn bên dưới chỉ tính một tài sản đã chọn, không phải tổng số thiết bị cùng loại."
+              : "Tài sản không nằm trong tồn kho phù hợp với bộ lọc hiện tại. Không tính thiết bị đang cấp phát hoặc gửi bảo trì là tồn sẵn sàng."}
+          </p>
+        </div>
+      )}
       {isLoading ? (
         <BeeLoader label="Đang tải tồn kho..." />
       ) : error ? (
@@ -344,7 +393,10 @@ function CurrentBalancesView({
         </div>
       ) : inventory.balances.length === 0 ? (
         <p role="status">
-          {filters.itemId || filters.warehouseId || filters.lotId
+          {filters.itemId ||
+          filters.warehouseId ||
+          filters.lotId ||
+          filters.assetId
             ? "Không có tồn kho phù hợp với bộ lọc."
             : "Chưa có tồn kho hiện tại trong trang trại."}
         </p>
@@ -363,13 +415,15 @@ function CurrentBalancesView({
               : `Trang ${pageInfo.number} / ${pageInfo.totalPages} (${pageInfo.totalItems} dòng tồn kho)`}
           </p>
           <div className="flex gap-2">
-            <Button variant="outline"
+            <Button
+              variant="outline"
               disabled={pageInfo.number <= 1}
               onClick={() => inventory.changePage(pageInfo.number - 1)}
             >
               Trang trước
             </Button>
-            <Button variant="outline"
+            <Button
+              variant="outline"
               disabled={
                 pageInfo.totalPages === 0 ||
                 pageInfo.number >= pageInfo.totalPages

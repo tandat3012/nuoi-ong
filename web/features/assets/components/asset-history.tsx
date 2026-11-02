@@ -6,13 +6,7 @@ import type { PaginatedResponse } from "@/shared/api/contracts";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Pagination } from "@/shared/components/ui/pagination";
-import { Input } from "@/shared/components/ui/input";
-import { Textarea } from "@/shared/components/ui/textarea";
-import {
-  assetAction,
-  getAssetHistory,
-  maintenanceAction,
-} from "../api/assets.api";
+import { assetAction, getAssetHistory } from "../api/assets.api";
 import { assetError } from "../asset.logic";
 import {
   HISTORY_KINDS,
@@ -49,13 +43,7 @@ export function AssetHistory({
   } | null>(null);
   const [action, setAction] = useState<{
     record: AssetHistoryEntry;
-    value:
-      | "start"
-      | "complete"
-      | "cancel"
-      | "IN_PROGRESS"
-      | "RESOLVED"
-      | "CANCELLED";
+    value: "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
     label: string;
   } | null>(null);
   useEffect(() => {
@@ -134,17 +122,7 @@ export function AssetHistory({
                 label: string;
               }[] =
                 query.kind === "maintenance"
-                  ? record.status === "SCHEDULED"
-                    ? [
-                        { value: "start", label: "Bắt đầu bảo trì" },
-                        { value: "cancel", label: "Hủy lịch" },
-                      ]
-                    : record.status === "IN_PROGRESS"
-                      ? [
-                          { value: "complete", label: "Hoàn tất bảo trì" },
-                          { value: "cancel", label: "Dừng bảo trì" },
-                        ]
-                      : []
+                  ? []
                   : query.kind === "incidents" &&
                       ["OPEN", "IN_PROGRESS"].includes(record.status ?? "")
                     ? [
@@ -173,9 +151,18 @@ export function AssetHistory({
                       {new Date(record.at).toLocaleString("vi-VN")}
                     </time>
                   </div>
+                  {query.kind === "maintenance" && (
+                    <a
+                      className="text-sm text-primary underline"
+                      href="/maintenance"
+                    >
+                      Mở quy trình bảo trì và nhập lại kho
+                    </a>
+                  )}
                   {record.status && (
                     <p className="text-xs text-muted-foreground">
-                      {ASSET_HISTORY_STATUS_LABELS[record.status] ?? record.status}
+                      {ASSET_HISTORY_STATUS_LABELS[record.status] ??
+                        record.status}
                     </p>
                   )}
                   <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
@@ -225,68 +212,18 @@ export function AssetHistory({
           }}
           onClose={() => setAction(null)}
           title={action.label}
-          description={
-            query.kind === "maintenance"
-              ? `${action.record.title}. Hoàn tất hoặc dừng bảo trì sẽ chuyển tài sản sang Đang sử dụng; hãy trả kho khi nhận lại thực tế.`
-              : `${action.record.title}. Cập nhật tình trạng xử lý báo cáo. Giải quyết báo cáo mất không tự nhập lại tài sản; hãy dùng Ghi nhận tìm lại khi đã nhận thực tế.`
-          }
+          description={`${action.record.title}. Cập nhật tình trạng xử lý báo cáo. Giải quyết báo cáo mất không tự nhập lại tài sản; hãy dùng Ghi nhận tìm lại khi đã nhận thực tế.`}
           submitLabel={action.label}
-          perform={(data) =>
-            query.kind === "maintenance"
-              ? maintenanceAction(
-                  request,
-                  farmId,
-                  action.record.referenceId!,
-                  action.value as "start" | "complete" | "cancel",
-                  action.value === "complete"
-                    ? Object.fromEntries(
-                        [...data.entries()].filter(([, value]) =>
-                          String(value).trim(),
-                        ),
-                      )
-                    : {},
-                )
-              : assetAction(
-                  request,
-                  farmId,
-                  assetId,
-                  `incidents/${encodeURIComponent(action.record.referenceId!)}/status`,
-                  { status: action.value },
-                )
+          perform={() =>
+            assetAction(
+              request,
+              farmId,
+              assetId,
+              `incidents/${encodeURIComponent(action.record.referenceId!)}/status`,
+              { status: action.value },
+            )
           }
-        >
-          {action.value === "complete" && (
-            <>
-              <label className="block space-y-2 text-sm font-medium">
-                Kết quả bảo trì
-                <Textarea name="resultNote" maxLength={4000} rows={3} />
-              </label>
-              <p className="text-xs text-muted-foreground">
-                Để trống chi phí để giữ số đã ghi nhận; nhập số mới nếu cần điều
-                chỉnh.
-              </p>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {[
-                  ["laborCost", "Nhân công"],
-                  ["materialCost", "Vật tư"],
-                  ["otherCost", "Khác"],
-                ].map(([name, label]) => (
-                  <label
-                    key={name}
-                    className="block space-y-2 text-sm font-medium"
-                  >
-                    {label} (VNĐ)
-                    <Input
-                      name={name}
-                      inputMode="decimal"
-                      pattern="(0|[1-9][0-9]{0,15})(\.[0-9]{1,2})?"
-                    />
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-        </AssetMutationDialog>
+        ></AssetMutationDialog>
       )}
     </section>
   );

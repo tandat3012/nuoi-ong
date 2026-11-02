@@ -5,7 +5,25 @@ import {
   formatInventoryMovement,
   formatInventoryQuantity,
   sumInventoryByItem,
+  changeInventoryWarehouse,
+  changeInventoryItem,
 } from "./inventory.logic.ts";
+
+test("changing warehouse or item clears a stale asset selection and resets pagination", () => {
+  const filters = {
+    warehouseId: "a",
+    itemId: "i",
+    assetId: "device",
+    lotId: "lot",
+    page: 4,
+    pageSize: 20,
+  };
+  assert.equal(changeInventoryWarehouse(filters, "b").assetId, undefined);
+  const changed = changeInventoryItem(filters, "j");
+  assert.equal(changed.assetId, undefined);
+  assert.equal(changed.lotId, undefined);
+  assert.equal(changed.page, 1);
+});
 
 test("quantities drop trailing zeros and use Vietnamese separators without losing precision", () => {
   for (const [quantity, expected] of [

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
-import { Input } from "@/shared/components/ui/input";
 import { DateInput } from "@/shared/components/ui/date-input";
 import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
@@ -50,7 +49,7 @@ export function AssetActionDialog({
           : action === "recover"
             ? `${asset.assetCode} · Xác nhận đã tìm lại thực tế, nhập lại 1 tài sản vào kho và vị trí bạn chọn.`
             : action === "maintenance"
-              ? `${asset.assetCode} · Khi bắt đầu bảo trì, tài sản rời tồn sẵn sàng. Sau hoàn tất, cần trả kho để đưa vào tồn lại.`
+              ? `${asset.assetCode} · Lập lịch gửi thiết bị đi bảo trì. Nhân viên bảo trì sẽ nhập chi phí theo báo giá của đơn vị bảo trì khi nhận lại và nghiệm thu.`
               : action === "incidents"
                 ? `${asset.assetCode} · Báo mất sẽ đưa tài sản sang Thất lạc, kết thúc cấp phát và giảm tồn nếu đang ở kho. Báo hỏng không tự chuyển trạng thái; hãy lên lịch bảo trì để xử lý.`
                 : `${asset.assetCode} · Xác nhận người nhận đã bắt đầu sử dụng tài sản.`;
@@ -93,9 +92,6 @@ export function AssetActionDialog({
               ? new Date(text("scheduledAt")).toISOString()
               : null,
             description: text("description") || null,
-            laborCost: text("laborCost") || "0",
-            materialCost: text("materialCost") || "0",
-            otherCost: text("otherCost") || "0",
           });
         if (action === "recover" || action === "transfer")
           return assetAction(request, farmId, asset.id, action, {
@@ -203,23 +199,6 @@ export function AssetActionDialog({
             Lịch dự kiến (không bắt buộc)
             <DateInput name="scheduledAt" mode="datetime" />
           </label>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              ["laborCost", "Nhân công"],
-              ["materialCost", "Vật tư"],
-              ["otherCost", "Khác"],
-            ].map(([name, label]) => (
-              <label key={name} className="block space-y-2 text-sm font-medium">
-                {label} (VNĐ)
-                <Input
-                  name={name}
-                  inputMode="decimal"
-                  pattern="(0|[1-9][0-9]{0,15})(\.[0-9]{1,2})?"
-                  defaultValue="0"
-                />
-              </label>
-            ))}
-          </div>
         </>
       )}
       {(action === "incidents" || action === "maintenance") && (

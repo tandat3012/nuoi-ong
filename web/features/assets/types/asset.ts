@@ -18,6 +18,8 @@ export const ASSET_HISTORY_STATUS_LABELS: Record<string, string> = {
   IN_PROGRESS: "Đang xử lý",
   RESOLVED: "Đã giải quyết",
   SCHEDULED: "Đã lên lịch",
+  RECEIVED: "Đã nhận — chờ nghiệm thu",
+  FAILED: "Bảo trì không thành công",
   COMPLETED: "Hoàn tất",
 };
 
@@ -42,6 +44,9 @@ export interface Asset {
 }
 
 export interface AssetView {
+  maintenanceRetryEligible?: boolean;
+  latestMaintenanceStatus?: string | null;
+  latestMaintenanceReturnStatus?: string | null;
   asset: Asset;
   itemCode: string;
   itemName: string;

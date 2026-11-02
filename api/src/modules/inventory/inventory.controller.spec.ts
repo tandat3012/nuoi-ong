@@ -5,6 +5,7 @@ import { InventoryService } from './inventory.service';
 describe('InventoryController transactions query', () => {
   const service = {
     listTransactions: jest.fn(),
+    listBalances: jest.fn(),
   };
   const controller = new InventoryController(
     service as unknown as InventoryService,
@@ -78,5 +79,34 @@ describe('InventoryController transactions query', () => {
       ),
     ).toThrow(BadRequestException);
     expect(service.listTransactions).not.toHaveBeenCalled();
+  });
+  it('validates the asset filter UUID before reading balances', async () => {
+    service.listBalances.mockReset();
+    expect(() =>
+      controller.listBalances(
+        auth,
+        farmId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'bad-asset',
+      ),
+    ).toThrow(BadRequestException);
+    expect(service.listBalances).not.toHaveBeenCalled();
+    await controller.listBalances(
+      auth,
+      farmId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      itemId,
+    );
+    expect(service.listBalances).toHaveBeenCalledWith(
+      expect.objectContaining({ farmId, assetId: itemId }),
+    );
   });
 });

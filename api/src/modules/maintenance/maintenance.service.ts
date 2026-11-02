@@ -1,6 +1,8 @@
 import {
   ConflictException,
+  BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -10,11 +12,11 @@ import {
   eq,
   getTableColumns,
   gte,
-  inArray,
   isNull,
   sql,
   SQL,
 } from 'drizzle-orm';
+import { activeMaintenanceCondition } from './maintenance-state';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -33,13 +35,23 @@ import {
   users,
   warehouses,
 } from '../../db/schema';
+import { maintenanceNextDate, maintenanceAlert } from './maintenance-dates';
+import {
+  notifyDocumentCreator,
+  notifyFarmApprovers,
+} from '../notifications/notification-events';
 import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  MAINTENANCE_WORK_ROLES,
+  MAINTENANCE_SCHEDULE_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 import {
   CreateMaintenanceRecordDto,
   CompleteMaintenanceRecordDto,
   UpdateMaintenanceRecordDto,
+  MaintenanceReturnDto,
 } from './dto/maintenance.dto';
 
 type Db = DatabaseService['db'];
@@ -50,11 +62,33 @@ type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
   assetId?: string;
+  recordId?: string;
   status?: (typeof maintenanceStatus.enumValues)[number];
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 @Injectable()
 export class MaintenanceService {
+  private readonly logger = new Logger(MaintenanceService.name);
+  private validateReturnDate(
+    scheduledAt: string | null | undefined,
+    expectedReturnAt: string | null | undefined,
+    reference: string,
+  ) {
+    if (
+      scheduledAt &&
+      expectedReturnAt &&
+      new Date(expectedReturnAt) < new Date(scheduledAt)
+    ) {
+      this.logger.warn(
+        `Invalid maintenance return date: reference=${reference} scheduledAt=${scheduledAt} expectedReturnAt=${expectedReturnAt}`,
+      );
+      throw new BadRequestException(
+        'Expected return cannot precede scheduled maintenance',
+      );
+    }
+  }
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly warehousesService: WarehousesService,
@@ -67,10 +101,20 @@ export class MaintenanceService {
       false,
     );
     const conditions: SQL[] = [eq(maintenanceRecords.farmId, filters.farmId)];
+    if (filters.recordId)
+      conditions.push(eq(maintenanceRecords.id, filters.recordId));
     if (filters.assetId)
       conditions.push(eq(maintenanceRecords.assetId, filters.assetId));
     if (filters.status)
       conditions.push(eq(maintenanceRecords.status, filters.status));
+    if (filters.dateFrom)
+      conditions.push(
+        sql`${maintenanceRecords.scheduledAt} >= (${filters.dateFrom}::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')`,
+      );
+    if (filters.dateTo)
+      conditions.push(
+        sql`${maintenanceRecords.scheduledAt} < ((${filters.dateTo}::date + 1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')`,
+      );
     const where = and(...conditions);
     const [data, totals] = await Promise.all([
       this.databaseService.db
@@ -78,6 +122,12 @@ export class MaintenanceService {
           ...getTableColumns(maintenanceRecords),
           assetCode: assets.assetCode,
           serialNumber: assets.serialNumber,
+          returnWarehouseName: sql<
+            string | null
+          >`(SELECT name FROM warehouses WHERE id=${maintenanceRecords.returnWarehouseId})`,
+          returnLocationName: sql<
+            string | null
+          >`(SELECT name FROM locations WHERE id=${maintenanceRecords.returnLocationId})`,
         })
         .from(maintenanceRecords)
         .leftJoin(
@@ -101,7 +151,11 @@ export class MaintenanceService {
     ]);
     const totalItems = Number(totals[0]?.value ?? 0);
     return {
-      data,
+      data: data.map((record) => ({
+        ...record,
+        alert: maintenanceAlert(record),
+        returnCode: `BT-${record.id}`,
+      })),
       page: {
         number: filters.page,
         size: filters.pageSize,
@@ -118,6 +172,12 @@ export class MaintenanceService {
         ...getTableColumns(maintenanceRecords),
         assetCode: assets.assetCode,
         serialNumber: assets.serialNumber,
+        returnWarehouseName: sql<
+          string | null
+        >`(SELECT name FROM warehouses WHERE id=${maintenanceRecords.returnWarehouseId})`,
+        returnLocationName: sql<
+          string | null
+        >`(SELECT name FROM locations WHERE id=${maintenanceRecords.returnLocationId})`,
       })
       .from(maintenanceRecords)
       .leftJoin(
@@ -135,7 +195,11 @@ export class MaintenanceService {
       )
       .limit(1);
     if (!record) throw new NotFoundException('Maintenance record not found');
-    return record;
+    return {
+      ...record,
+      alert: maintenanceAlert(record),
+      returnCode: `BT-${record.id}`,
+    };
   }
 
   async create(
@@ -156,6 +220,11 @@ export class MaintenanceService {
     actorUserId: string,
     input: CreateMaintenanceRecordDto,
   ) {
+    this.validateReturnDate(
+      input.scheduledAt,
+      input.expectedReturnAt,
+      input.assetId,
+    );
     const [asset] = await tx
       .select()
       .from(assets)
@@ -193,7 +262,7 @@ export class MaintenanceService {
         and(
           eq(maintenanceRecords.assetId, input.assetId),
           eq(maintenanceRecords.farmId, farmId),
-          inArray(maintenanceRecords.status, ['SCHEDULED', 'IN_PROGRESS']),
+          activeMaintenanceCondition,
         ),
       )
       .limit(1);
@@ -209,6 +278,7 @@ export class MaintenanceService {
         incidentId: input.incidentId,
         maintenanceType: input.maintenanceType,
         scheduledAt: input.scheduledAt,
+        expectedReturnAt: input.expectedReturnAt,
         description: input.description,
         performedByMemberId: input.performedByMemberId,
         supplierId: input.supplierId,
@@ -242,15 +312,25 @@ export class MaintenanceService {
     await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
       const current = await this.getRecord(tx, id, farmId, true);
-      if (current.status === 'COMPLETED' || current.status === 'CANCELLED')
+      if (current.status !== 'SCHEDULED')
         throw new ConflictException(
           'Completed or cancelled records cannot be edited',
         );
+      this.validateReturnDate(
+        input.scheduledAt === undefined
+          ? current.scheduledAt
+          : input.scheduledAt,
+        input.expectedReturnAt === undefined
+          ? current.expectedReturnAt
+          : input.expectedReturnAt,
+        id,
+      );
       await this.validateReferences(tx, farmId, current.assetId, input);
       const changes: Partial<typeof maintenanceRecords.$inferInsert> = {};
       for (const key of [
         'maintenanceType',
         'scheduledAt',
+        'expectedReturnAt',
         'description',
         'resultNote',
         'performedByMemberId',
@@ -277,7 +357,7 @@ export class MaintenanceService {
   }
 
   async start(id: string, farmId: string, clerkUserId: string) {
-    const actor = await this.actor(farmId, clerkUserId);
+    const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true);
       if (record.status !== 'SCHEDULED')
@@ -297,10 +377,31 @@ export class MaintenanceService {
           'Asset cannot enter maintenance from its current status',
         );
 
+      await this.validateReferences(tx, farmId, record.assetId, record);
+      if (!record.supplierId || !record.expectedReturnAt)
+        throw new ConflictException(
+          'Select maintenance supplier and expected return date before sending',
+        );
+      if (new Date(record.expectedReturnAt).getTime() <= Date.now())
+        throw new BadRequestException('Expected return must be in the future');
       let sourceWarehouseId: string | undefined;
       let balanceId: string | undefined;
       let sourceLocationId: string | undefined;
-      if (preview.status === 'AVAILABLE') {
+      const [failedReturn] =
+        preview.status === 'MAINTENANCE' && preview.currentLocationId
+          ? await tx
+              .select({ id: maintenanceRecords.id })
+              .from(maintenanceRecords)
+              .where(
+                and(
+                  eq(maintenanceRecords.assetId, preview.id),
+                  eq(maintenanceRecords.status, 'FAILED'),
+                  eq(maintenanceRecords.returnStatus, 'CONFIRMED'),
+                ),
+              )
+              .limit(1)
+          : [];
+      if (preview.status === 'AVAILABLE' || failedReturn) {
         if (!preview.currentLocationId)
           throw new ConflictException('Available asset has no source location');
         const source = await this.activeSource(
@@ -379,6 +480,15 @@ export class MaintenanceService {
       }
 
       const now = new Date().toISOString();
+      await tx
+        .update(assetAssignments)
+        .set({ status: 'RETURNED', returnedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(assetAssignments.assetId, asset.id),
+            eq(assetAssignments.status, 'ACTIVE'),
+          ),
+        );
       if (balanceId) {
         const [balance] = await tx
           .update(inventoryBalances)
@@ -412,7 +522,7 @@ export class MaintenanceService {
       }
       await tx
         .update(assets)
-        .set({ status: 'MAINTENANCE', updatedAt: now })
+        .set({ status: 'MAINTENANCE', currentLocationId: null, updatedAt: now })
         .where(and(eq(assets.id, asset.id), eq(assets.farmId, farmId)));
       const [updated] = await tx
         .update(maintenanceRecords)
@@ -441,79 +551,341 @@ export class MaintenanceService {
     });
   }
 
+  async receive(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    receivedAt: string,
+  ) {
+    const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
+    return this.databaseService.db.transaction(async (tx) => {
+      const record = await this.getRecord(tx, id, farmId, true);
+      if (record.status !== 'IN_PROGRESS')
+        throw new ConflictException(
+          'Only external maintenance can be received',
+        );
+      if (
+        !record.startedAt ||
+        Date.parse(receivedAt) < Date.parse(record.startedAt) ||
+        Date.parse(receivedAt) > Date.now()
+      )
+        throw new BadRequestException('Invalid actual return date');
+      const [updated] = await tx
+        .update(maintenanceRecords)
+        .set({
+          status: 'RECEIVED',
+          receivedAt,
+          receivedByMemberId: actor.memberId,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(maintenanceRecords.id, id))
+        .returning();
+      await this.audit(
+        tx,
+        farmId,
+        actor.userId,
+        'ASSET_MAINTENANCE_RECEIVED',
+        record.assetId,
+        { status: record.status },
+        { status: updated.status, referenceId: id },
+      );
+      return updated;
+    });
+  }
+
   async complete(
     id: string,
     farmId: string,
     clerkUserId: string,
-    input: CompleteMaintenanceRecordDto = {},
+    input: CompleteMaintenanceRecordDto,
   ) {
-    const actor = await this.actor(farmId, clerkUserId);
+    const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
+    if (!input.resultNote?.trim())
+      throw new BadRequestException('Inspection result is required');
+    if (input.outcome === 'PASSED' && !input.intervalMonths)
+      throw new BadRequestException('Next maintenance interval is required');
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true);
-      if (record.status !== 'IN_PROGRESS')
-        throw new ConflictException('Only IN_PROGRESS records can complete');
+      if (record.status !== 'RECEIVED' || !record.receivedAt)
+        throw new ConflictException('Receive the asset before inspection');
       const [asset] = await tx
         .select()
         .from(assets)
         .where(and(eq(assets.id, record.assetId), eq(assets.farmId, farmId)))
-        .for('update')
-        .limit(1);
-      if (!asset) throw new NotFoundException('Asset not found');
-      if (asset.status !== 'MAINTENANCE')
+        .for('update');
+      if (!asset || asset.status !== 'MAINTENANCE')
         throw new ConflictException('Asset is no longer in maintenance');
       const now = new Date().toISOString();
-      const changes: Partial<typeof maintenanceRecords.$inferInsert> = {
-        status: 'COMPLETED',
-        completedAt: now,
-        updatedAt: now,
-      };
-      for (const field of [
-        'resultNote',
-        'laborCost',
-        'materialCost',
-        'otherCost',
-      ] as const)
-        if (input[field] !== undefined) changes[field] = input[field] as never;
+      const nextDueDate =
+        input.outcome === 'PASSED'
+          ? maintenanceNextDate(record.receivedAt, input.intervalMonths!)
+          : null;
       const [updated] = await tx
         .update(maintenanceRecords)
-        .set(changes)
-        .where(
-          and(
-            eq(maintenanceRecords.id, id),
-            eq(maintenanceRecords.farmId, farmId),
-          ),
-        )
-        .returning();
-      await tx
-        .update(assets)
         .set({
-          status: 'IN_USE',
-          lastMaintenanceDate: now.slice(0, 10),
+          status: input.outcome === 'PASSED' ? 'COMPLETED' : 'FAILED',
+          completedAt: now,
+          inspectedByMemberId: actor.memberId,
+          intervalMonths:
+            input.outcome === 'PASSED' ? input.intervalMonths : null,
+          nextDueDate,
+          resultNote: input.resultNote!.trim(),
+          laborCost: input.laborCost,
+          materialCost: input.materialCost,
+          otherCost: input.otherCost,
           updatedAt: now,
         })
-        .where(and(eq(assets.id, asset.id), eq(assets.farmId, farmId)));
+        .where(eq(maintenanceRecords.id, id))
+        .returning();
+      if (nextDueDate)
+        await tx
+          .update(assets)
+          .set({
+            lastMaintenanceDate: maintenanceNextDate(record.receivedAt, 0),
+            nextMaintenanceDate: nextDueDate,
+            updatedAt: now,
+          })
+          .where(eq(assets.id, record.assetId));
       await this.audit(
         tx,
         farmId,
         actor.userId,
         'ASSET_MAINTENANCE_COMPLETED',
-        asset.id,
-        { status: 'MAINTENANCE' },
+        record.assetId,
+        { status: record.status },
         {
-          status: 'IN_USE',
-          referenceId: record.id,
-          summary: `Hoàn tất ${this.maintenanceName(record.maintenanceType)}${input.resultNote ? `: ${input.resultNote}` : ''}`,
+          status: updated.status,
+          referenceId: id,
+          summary: input.resultNote!.trim(),
         },
       );
       return updated;
     });
   }
 
+  async submitReturn(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    input: MaintenanceReturnDto,
+  ) {
+    const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
+    return this.databaseService.db.transaction(async (tx) => {
+      const record = await this.getRecord(tx, id, farmId, true);
+      if (
+        !['COMPLETED', 'FAILED'].includes(record.status) ||
+        !record.receivedAt ||
+        (record.returnStatus && record.returnStatus !== 'REJECTED')
+      )
+        throw new ConflictException(
+          'Only inspected assets without a pending or approved receipt can be submitted',
+        );
+      await this.activeWarehouse(tx, farmId, input.warehouseId);
+      await this.activeLocation(
+        tx,
+        farmId,
+        input.locationId,
+        input.warehouseId,
+      );
+      const [updated] = await tx
+        .update(maintenanceRecords)
+        .set({
+          returnStatus: 'PENDING_APPROVAL',
+          returnWarehouseId: input.warehouseId,
+          returnLocationId: input.locationId,
+          returnCreatedByMemberId: actor.memberId,
+          returnRejectionReason: null,
+          returnReviewedByMemberId: null,
+          returnReviewedAt: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(maintenanceRecords.id, id))
+        .returning();
+      await notifyFarmApprovers(
+        tx,
+        this.returnNotification(updated, 'PENDING_APPROVAL'),
+        actor.memberId,
+      );
+      await this.audit(
+        tx,
+        farmId,
+        actor.userId,
+        'ASSET_MAINTENANCE_RETURN_SUBMITTED',
+        record.assetId,
+        { returnStatus: record.returnStatus },
+        { returnStatus: updated.returnStatus, referenceId: id },
+      );
+      return updated;
+    });
+  }
+
+  async reviewReturn(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    approve: boolean,
+    reason?: string,
+  ) {
+    const actor = await this.actor(farmId, clerkUserId, WAREHOUSE_MANAGE_ROLES);
+    if (!approve && (!reason || reason.trim().length < 3))
+      throw new BadRequestException(
+        'Rejection reason must have at least 3 characters',
+      );
+    return this.databaseService.db.transaction(async (tx) => {
+      const record = await this.getRecord(tx, id, farmId, true);
+      if (record.returnStatus !== 'PENDING_APPROVAL')
+        throw new ConflictException(
+          'Only pending maintenance receipts can be reviewed',
+        );
+      // Stock flows lock balances before assets; use the same order when receiving.
+      let returnBalanceId: string | undefined;
+      let returnItemId: string | undefined;
+      if (approve) {
+        const [preview] = await tx
+          .select({ itemId: assets.itemId })
+          .from(assets)
+          .where(and(eq(assets.id, record.assetId), eq(assets.farmId, farmId)));
+        if (!preview) throw new NotFoundException('Asset not found');
+        returnItemId = preview.itemId;
+        await this.activeWarehouse(tx, farmId, record.returnWarehouseId!);
+        await this.activeLocation(
+          tx,
+          farmId,
+          record.returnLocationId!,
+          record.returnWarehouseId!,
+        );
+        await this.ensureBalance(
+          tx,
+          farmId,
+          record.returnWarehouseId!,
+          preview.itemId,
+        );
+        const [balance] = await tx
+          .select({ id: inventoryBalances.id })
+          .from(inventoryBalances)
+          .where(
+            and(
+              eq(inventoryBalances.farmId, farmId),
+              eq(inventoryBalances.warehouseId, record.returnWarehouseId!),
+              eq(inventoryBalances.itemId, preview.itemId),
+              isNull(inventoryBalances.lotId),
+            ),
+          )
+          .for('update');
+        returnBalanceId = balance.id;
+      }
+      const [asset] = await tx
+        .select()
+        .from(assets)
+        .where(and(eq(assets.id, record.assetId), eq(assets.farmId, farmId)))
+        .for('update');
+      if (!asset || asset.status !== 'MAINTENANCE')
+        throw new ConflictException('Asset is no longer in maintenance');
+      const now = new Date().toISOString();
+      if (approve) {
+        if (asset.itemId !== returnItemId)
+          throw new ConflictException(
+            'Asset changed while receiving; reload and retry',
+          );
+        // Legacy maintenance starts could leave an assignment active.
+        await tx
+          .update(assetAssignments)
+          .set({ status: 'RETURNED', returnedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(assetAssignments.farmId, farmId),
+              eq(assetAssignments.assetId, asset.id),
+              eq(assetAssignments.status, 'ACTIVE'),
+            ),
+          );
+        await tx
+          .update(inventoryBalances)
+          .set({
+            quantityOnHand: sql`${inventoryBalances.quantityOnHand} + 1`,
+            updatedAt: now,
+          })
+          .where(eq(inventoryBalances.id, returnBalanceId!));
+        await tx.insert(inventoryTransactions).values({
+          farmId,
+          warehouseId: record.returnWarehouseId!,
+          itemId: asset.itemId,
+          assetId: asset.id,
+          transactionType: 'RETURN_IN',
+          quantityChange: '1',
+          sourceType: 'MAINTENANCE_RETURN',
+          sourceId: record.id,
+          performedByMemberId: actor.memberId,
+          reason: record.resultNote,
+        });
+        await tx
+          .update(assets)
+          .set({
+            status: record.status === 'COMPLETED' ? 'AVAILABLE' : 'MAINTENANCE',
+            currentLocationId: record.returnLocationId,
+            updatedAt: now,
+          })
+          .where(eq(assets.id, asset.id));
+      }
+      const [updated] = await tx
+        .update(maintenanceRecords)
+        .set({
+          returnStatus: approve ? 'CONFIRMED' : 'REJECTED',
+          returnReviewedByMemberId: actor.memberId,
+          returnReviewedAt: now,
+          returnRejectionReason: approve ? null : reason!.trim(),
+          updatedAt: now,
+        })
+        .where(eq(maintenanceRecords.id, id))
+        .returning();
+      await notifyDocumentCreator(
+        tx,
+        {
+          ...this.returnNotification(
+            updated,
+            approve ? 'CONFIRMED' : 'REJECTED',
+          ),
+          rejectionReason: updated.returnRejectionReason ?? undefined,
+        },
+        record.returnCreatedByMemberId,
+      );
+      await this.audit(
+        tx,
+        farmId,
+        actor.userId,
+        approve
+          ? 'ASSET_MAINTENANCE_RETURN_APPROVED'
+          : 'ASSET_MAINTENANCE_RETURN_REJECTED',
+        record.assetId,
+        { returnStatus: record.returnStatus },
+        {
+          returnStatus: updated.returnStatus,
+          referenceId: id,
+          summary: updated.returnRejectionReason,
+        },
+      );
+      return updated;
+    });
+  }
+
+  private returnNotification(
+    record: typeof maintenanceRecords.$inferSelect,
+    status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED',
+  ) {
+    return {
+      farmId: record.farmId,
+      entityType: 'MAINTENANCE_RETURN',
+      entityId: record.id,
+      documentCode: `BT-${record.id}`,
+      documentKind: 'Phiếu nhập lại bảo trì',
+      status,
+    };
+  }
+
   async cancel(id: string, farmId: string, clerkUserId: string) {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true);
-      if (!['SCHEDULED', 'IN_PROGRESS'].includes(record.status))
+      if (record.status !== 'SCHEDULED')
         throw new ConflictException('Only active records can be cancelled');
       const [asset] = await tx
         .select()
@@ -522,16 +894,8 @@ export class MaintenanceService {
         .for('update')
         .limit(1);
       if (!asset) throw new NotFoundException('Asset not found');
-      if (record.status === 'IN_PROGRESS' && asset.status !== 'MAINTENANCE')
-        throw new ConflictException('Asset is no longer in maintenance');
       const now = new Date().toISOString();
-      const nextStatus =
-        record.status === 'IN_PROGRESS' ? 'IN_USE' : asset.status;
-      if (record.status === 'IN_PROGRESS')
-        await tx
-          .update(assets)
-          .set({ status: 'IN_USE', updatedAt: now })
-          .where(and(eq(assets.id, asset.id), eq(assets.farmId, farmId)));
+      const nextStatus = asset.status;
       const [updated] = await tx
         .update(maintenanceRecords)
         .set({ status: 'CANCELLED', updatedAt: now })
@@ -579,12 +943,16 @@ export class MaintenanceService {
     return record;
   }
 
-  private async actor(farmId: string, clerkUserId: string): Promise<Actor> {
+  private async actor(
+    farmId: string,
+    clerkUserId: string,
+    allowedRoles = MAINTENANCE_SCHEDULE_ROLES,
+  ): Promise<Actor> {
     const memberId = await this.warehousesService.assertFarmAccess(
       farmId,
       clerkUserId,
       true,
-      WAREHOUSE_MANAGE_ROLES,
+      allowedRoles,
     );
     const [actor] = await this.databaseService.db
       .select({ userId: users.id })

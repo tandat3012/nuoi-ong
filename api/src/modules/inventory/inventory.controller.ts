@@ -54,6 +54,10 @@ export class InventoryController {
   )
   @ApiUuidQuery('warehouseId', 'Lọc theo kho.')
   @ApiUuidQuery('itemId', 'Lọc theo mặt hàng.')
+  @ApiUuidQuery(
+    'assetId',
+    'Lọc một tài sản cụ thể; số lượng trả về là 1 khi thiết bị còn trong kho, không phải tổng tồn của mặt hàng.',
+  )
   @ApiOkResponse({
     description:
       'Các dòng số dư dương cùng mặt hàng, kho, đơn vị và lô nếu có.',
@@ -153,6 +157,7 @@ export class InventoryController {
     @Query('lotId') lotId?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('assetId') assetId?: string,
   ) {
     return this.inventoryService.listBalances({
       clerkUserId: auth.clerkUserId,
@@ -162,6 +167,7 @@ export class InventoryController {
         : undefined,
       itemId: itemId ? requireUuid(itemId, 'itemId') : undefined,
       lotId: lotId ? requireUuid(lotId, 'lotId') : undefined,
+      assetId: assetId ? requireUuid(assetId, 'assetId') : undefined,
       ...parsePagination(page, pageSize),
     });
   }

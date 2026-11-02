@@ -9,6 +9,7 @@ import { Sprout, ChevronDown } from "lucide-react";
 const roleLabels: Record<FarmRoleCode, string> = {
   ADMIN: "Quản trị viên",
   FARM_OWNER: "Chủ trại",
+  MAINTENANCE_STAFF: "Nhân viên bảo trì",
   WAREHOUSE_MANAGER: "Quản lý kho",
   STORE_MANAGER: "Quản lý cửa hàng",
   EMPLOYEE: "Nhân viên",

@@ -16,6 +16,7 @@ import {
 
 export const personnelRoleCodes = [
   'FARM_OWNER',
+  'MAINTENANCE_STAFF',
   'WAREHOUSE_MANAGER',
   'STORE_MANAGER',
   'EMPLOYEE',
