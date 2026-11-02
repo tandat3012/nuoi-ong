@@ -22,6 +22,7 @@ import {
   getPaginationItems,
 } from './products-page.logic';
 import { STOREFRONT_CONFIG } from '@/features/commerce/storefront/config/storefront-config';
+import { StoreSearchBar } from '@/features/commerce/storefront/components/store-search-bar';
 import { cn } from '@/shared/lib/utils';
 
 export interface ProductsPageProps {
@@ -305,6 +306,13 @@ export async function ProductsPage({
 
         {/* Vùng hiển thị kết quả sản phẩm */}
         <div className="w-full flex-1">
+          <div className="mb-5 max-w-lg">
+            <p className="mb-2 text-sm font-medium text-foreground">
+              Tìm kiếm sản phẩm
+            </p>
+            <StoreSearchBar idSuffix="products" />
+          </div>
+
           {/* Thanh công cụ: đếm sản phẩm, bộ lọc di động và chọn sắp xếp */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
             <p className="text-sm font-medium text-muted-foreground">
