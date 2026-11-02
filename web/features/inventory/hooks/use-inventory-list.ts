@@ -76,6 +76,7 @@ export function useInventoryList(
   return {
     filters,
     balances: current?.response?.data ?? [],
+    selectedAsset: current?.response?.selectedAsset,
     pageInfo: current?.response?.page,
     isLoading: !current,
     error: current?.error,
@@ -85,6 +86,13 @@ export function useInventoryList(
       setFilters((previous) => changeInventoryItem(previous, itemId)),
     changeLot: (lotId?: string) =>
       setFilters((previous) => changeInventoryLot(previous, lotId)),
+    changeAsset: (assetId?: string) =>
+      setFilters((previous) => ({
+        ...previous,
+        assetId,
+        lotId: undefined,
+        page: 1,
+      })),
     changePage: (page: number) =>
       setFilters((previous) => ({ ...previous, page: Math.max(1, page) })),
     reload: () => setFilters((previous) => ({ ...previous })),

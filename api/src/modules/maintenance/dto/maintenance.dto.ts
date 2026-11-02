@@ -1,6 +1,10 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsDateString,
+  IsInt,
+  Min,
+  Max,
+  IsNotEmpty,
   IsIn,
   IsOptional,
   IsString,
@@ -26,6 +30,7 @@ export class CreateMaintenanceRecordDto {
   @IsOptional() @IsString() @MaxLength(4000) description?: string | null;
   @IsOptional() @IsUUID() performedByMemberId?: string | null;
   @IsOptional() @IsUUID() supplierId?: string | null;
+  @IsOptional() @IsDateString() expectedReturnAt?: string | null;
   @ApiPropertyOptional({ example: '500000.00', pattern: COST.source })
   @IsOptional()
   @Matches(COST)
@@ -53,6 +58,7 @@ export class UpdateMaintenanceRecordDto {
   @IsOptional() @IsString() @MaxLength(4000) resultNote?: string | null;
   @IsOptional() @IsUUID() performedByMemberId?: string | null;
   @IsOptional() @IsUUID() supplierId?: string | null;
+  @IsOptional() @IsDateString() expectedReturnAt?: string | null;
   @ApiPropertyOptional({ example: '500000.00', pattern: COST.source })
   @IsOptional()
   @Matches(COST)
@@ -68,6 +74,8 @@ export class UpdateMaintenanceRecordDto {
 }
 
 export class CompleteMaintenanceRecordDto {
+  @IsIn(['PASSED', 'FAILED']) outcome!: 'PASSED' | 'FAILED';
+  @IsOptional() @IsInt() @Min(1) @Max(120) intervalMonths?: number;
   @ApiPropertyOptional({ maxLength: 4000, nullable: true })
   @IsOptional()
   @IsString()
@@ -85,4 +93,15 @@ export class CompleteMaintenanceRecordDto {
   @IsOptional()
   @Matches(COST)
   otherCost?: string;
+}
+
+export class ReceiveMaintenanceDto {
+  @IsDateString() receivedAt!: string;
+}
+export class MaintenanceReturnDto {
+  @IsUUID() warehouseId!: string;
+  @IsUUID() locationId!: string;
+}
+export class RejectMaintenanceReturnDto {
+  @IsString() @IsNotEmpty() @MaxLength(4000) reason!: string;
 }

@@ -23,6 +23,7 @@ export interface InventoryBalance {
 }
 
 export interface InventoryFilters {
+  assetId?: string;
   warehouseId?: string;
   itemId?: string;
   lotId?: string;
@@ -79,7 +80,15 @@ export interface InventoryTransaction {
 
 export type InventoryLedgerResponse = PaginatedResponse<InventoryTransaction>;
 
-export type InventoryListResponse = PaginatedResponse<InventoryBalance>;
+export type InventoryListResponse = PaginatedResponse<InventoryBalance> & {
+  selectedAsset?: {
+    id: string;
+    assetCode: string;
+    serialNumber: string | null;
+    status: import("@/features/assets/types/asset").AssetStatus;
+    locationName: string | null;
+  };
+};
 
 export interface InventoryItemOption {
   item: {
@@ -102,9 +111,7 @@ export type InventoryAdjustmentReasonCode =
   | "OTHER";
 
 export type InventoryAdjustmentStatus =
-  | "PENDING_APPROVAL"
-  | "CONFIRMED"
-  | "REJECTED";
+  "PENDING_APPROVAL" | "CONFIRMED" | "REJECTED";
 
 export interface CreateInventoryAdjustmentInput {
   idempotencyKey: string;

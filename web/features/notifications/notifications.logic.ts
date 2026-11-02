@@ -9,6 +9,9 @@ export function notificationHref(
     case 'STOCK_ISSUE': return `/issues/${id}`;
     case 'STOCK_TRANSFER': return `/transfers?id=${id}`;
     case 'STOCK_COUNT': return `/counts?id=${id}`;
+    case 'MAINTENANCE_RETURN':
+    case 'MAINTENANCE_RECORD': return `/maintenance?id=${id}`;
+    case 'MAINTENANCE_ASSET': return `/assets/${id}`;
     case 'MAINTENANCE_REQUEST': return `/requests?type=maintenance&id=${id}`;
     case 'ASSET_TRANSFER_REQUEST': return `/requests?type=transfer&id=${id}`;
     case 'ASSET': return `/assets/${id}`;

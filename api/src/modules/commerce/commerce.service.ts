@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
+import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 import {
   assets,
   farms,
@@ -562,7 +563,7 @@ export class CommerceService {
         SELECT 1 FROM ${maintenanceRecords}
         WHERE ${maintenanceRecords.assetId} = ${assets.id}
           AND ${maintenanceRecords.farmId} = ${farmId}
-          AND ${maintenanceRecords.status} IN ('SCHEDULED', 'IN_PROGRESS')
+          AND ${activeMaintenanceCondition}
       )`,
       // Already picked by another unapproved issue (e.g. a confirmed order).
       sql`NOT EXISTS (

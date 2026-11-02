@@ -105,6 +105,8 @@ export const maintenanceStatus = pgEnum('maintenance_status', [
   'IN_PROGRESS',
   'COMPLETED',
   'CANCELLED',
+  'RECEIVED',
+  'FAILED',
 ]);
 export const maintenanceType = pgEnum('maintenance_type', [
   'PREVENTIVE',
@@ -997,6 +999,38 @@ export const maintenanceRecords = pgTable(
       withTimezone: true,
       mode: 'string',
     }),
+    expectedReturnAt: timestamp('expected_return_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    receivedAt: timestamp('received_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    receivedByMemberId: uuid('received_by_member_id').references(
+      () => farmMembers.id,
+    ),
+    inspectedByMemberId: uuid('inspected_by_member_id').references(
+      () => farmMembers.id,
+    ),
+    intervalMonths: integer('interval_months'),
+    nextDueDate: date('next_due_date'),
+    returnStatus: documentStatus('return_status'),
+    returnWarehouseId: uuid('return_warehouse_id').references(
+      () => warehouses.id,
+    ),
+    returnLocationId: uuid('return_location_id').references(() => locations.id),
+    returnCreatedByMemberId: uuid('return_created_by_member_id').references(
+      () => farmMembers.id,
+    ),
+    returnReviewedByMemberId: uuid('return_reviewed_by_member_id').references(
+      () => farmMembers.id,
+    ),
+    returnReviewedAt: timestamp('return_reviewed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    returnRejectionReason: text('return_rejection_reason'),
     status: maintenanceStatus().default('SCHEDULED').notNull(),
     description: text(),
     resultNote: text('result_note'),
@@ -1037,7 +1071,7 @@ export const maintenanceRecords = pgTable(
     uniqueIndex('ux_one_active_maintenance_per_asset')
       .using('btree', table.assetId.asc().nullsLast())
       .where(
-        sql`(status IN ('SCHEDULED'::maintenance_status, 'IN_PROGRESS'::maintenance_status))`,
+        sql`((completed_at IS NULL AND status <> 'CANCELLED'::maintenance_status) OR (received_at IS NOT NULL AND return_status IS DISTINCT FROM 'CONFIRMED'::document_status))`,
       ),
     foreignKey({
       columns: [table.assetId],
@@ -1070,11 +1104,19 @@ export const maintenanceRecords = pgTable(
     ),
     check(
       'ck_maintenance_time_order',
-      sql`((started_at IS NULL) OR (scheduled_at IS NULL) OR (started_at >= scheduled_at)) AND ((completed_at IS NULL) OR (started_at IS NULL) OR (completed_at >= started_at))`,
+      sql`(completed_at IS NULL OR started_at IS NULL OR completed_at >= started_at)`,
+    ),
+    check(
+      'ck_maintenance_interval',
+      sql`interval_months IS NULL OR interval_months BETWEEN 1 AND 120`,
+    ),
+    check(
+      'ck_maintenance_return',
+      sql`(received_at IS NULL OR (started_at IS NOT NULL AND received_at >= started_at)) AND (status::text <> 'RECEIVED' OR received_at IS NOT NULL) AND (return_status IS NULL OR (status::text IN ('COMPLETED','FAILED') AND received_at IS NOT NULL AND return_warehouse_id IS NOT NULL AND return_location_id IS NOT NULL AND return_created_by_member_id IS NOT NULL))`,
     ),
     check(
       'ck_maintenance_status_fields',
-      sql`((status = 'SCHEDULED'::maintenance_status) AND (started_at IS NULL) AND (completed_at IS NULL)) OR ((status = 'IN_PROGRESS'::maintenance_status) AND (started_at IS NOT NULL) AND (completed_at IS NULL)) OR ((status = 'COMPLETED'::maintenance_status) AND (started_at IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = 'CANCELLED'::maintenance_status) AND (completed_at IS NULL))`,
+      sql`((status = 'SCHEDULED'::maintenance_status) AND (started_at IS NULL) AND (completed_at IS NULL)) OR ((status::text IN ('IN_PROGRESS', 'RECEIVED')) AND (started_at IS NOT NULL) AND (completed_at IS NULL)) OR ((status::text IN ('COMPLETED', 'FAILED')) AND (started_at IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = 'CANCELLED'::maintenance_status) AND (completed_at IS NULL))`,
     ),
   ],
 );
@@ -1944,6 +1986,15 @@ export const notifications = pgTable(
       .notNull(),
   },
   (table) => [
+    uniqueIndex('ux_maintenance_notification_milestone')
+      .on(
+        table.userId,
+        table.entityType,
+        table.entityId,
+        table.type,
+        sql`(data->>'milestone')`,
+      )
+      .where(sql`entity_type IN ('MAINTENANCE_RECORD','MAINTENANCE_ASSET')`),
     foreignKey({
       columns: [table.userId],
       foreignColumns: [users.id],

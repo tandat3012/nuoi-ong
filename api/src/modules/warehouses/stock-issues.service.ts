@@ -12,7 +12,6 @@ import {
   eq,
   getTableColumns,
   gte,
-  inArray,
   isNull,
   sql,
   SQL,
@@ -50,6 +49,7 @@ import {
 } from '../notifications/notification-events';
 import { quantityMillis } from '../store-orders/store-order.rules';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 
 type Filters = PaginationParams & {
   farmId: string;
@@ -532,10 +532,7 @@ export class StockIssuesService {
               and(
                 eq(maintenanceRecords.farmId, farmId),
                 eq(maintenanceRecords.assetId, asset.id),
-                inArray(maintenanceRecords.status, [
-                  'SCHEDULED',
-                  'IN_PROGRESS',
-                ]),
+                activeMaintenanceCondition,
               ),
             )
             .limit(1);

@@ -3,18 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  and,
-  asc,
-  count,
-  eq,
-  ilike,
-  inArray,
-  isNull,
-  or,
-  sql,
-  SQL,
-} from 'drizzle-orm';
+import { and, asc, count, eq, ilike, isNull, or, sql, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -34,8 +23,19 @@ import {
 import { ReturnAssetDto } from './dto/return-asset.dto';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 
 type AssetStatus = (typeof assetStatus.enumValues)[number];
+
+const maintenanceRetryEligible = sql<boolean>`(
+  ${assets.status} = 'MAINTENANCE'
+  AND EXISTS (SELECT 1 FROM ${maintenanceRecords}
+    WHERE ${maintenanceRecords.assetId} = ${assets.id}
+      AND ${maintenanceRecords.status} = 'FAILED'
+      AND ${maintenanceRecords.returnStatus} = 'CONFIRMED')
+  AND NOT EXISTS (SELECT 1 FROM ${maintenanceRecords}
+    WHERE ${maintenanceRecords.assetId} = ${assets.id} AND ${activeMaintenanceCondition})
+)`;
 
 export interface AssetListFilters extends PaginationParams {
   farmId: string;
@@ -156,7 +156,7 @@ export class AssetsService {
           and(
             eq(maintenanceRecords.farmId, farmId),
             eq(maintenanceRecords.assetId, id),
-            inArray(maintenanceRecords.status, ['SCHEDULED', 'IN_PROGRESS']),
+            activeMaintenanceCondition,
           ),
         )
         .limit(1);
@@ -289,6 +289,13 @@ export class AssetsService {
       this.databaseService.db
         .select({
           asset: assets,
+          maintenanceRetryEligible,
+          latestMaintenanceStatus: sql<
+            string | null
+          >`(SELECT m.status::text FROM maintenance_records m WHERE m.asset_id = ${assets.id} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`,
+          latestMaintenanceReturnStatus: sql<
+            string | null
+          >`(SELECT m.return_status::text FROM maintenance_records m WHERE m.asset_id = ${assets.id} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`,
           itemCode: items.code,
           itemName: items.name,
           locationCode: locations.code,
@@ -355,6 +362,13 @@ export class AssetsService {
     const [asset] = await this.databaseService.db
       .select({
         asset: assets,
+        maintenanceRetryEligible,
+        latestMaintenanceStatus: sql<
+          string | null
+        >`(SELECT m.status::text FROM maintenance_records m WHERE m.asset_id = ${assets.id} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`,
+        latestMaintenanceReturnStatus: sql<
+          string | null
+        >`(SELECT m.return_status::text FROM maintenance_records m WHERE m.asset_id = ${assets.id} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`,
         itemCode: items.code,
         itemName: items.name,
         locationCode: locations.code,

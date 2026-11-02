@@ -35,8 +35,12 @@ import {
   requireUuid,
 } from '../../common/query-params';
 import { maintenanceStatus } from '../../db/schema';
+import { parseDateRange } from '../../common/date-range';
 import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import {
+  ReceiveMaintenanceDto,
+  MaintenanceReturnDto,
+  RejectMaintenanceReturnDto,
   CompleteMaintenanceRecordDto,
   CreateMaintenanceRecordDto,
   UpdateMaintenanceRecordDto,
@@ -58,6 +62,18 @@ const recordSchema = {
       enum: ['PREVENTIVE', 'CORRECTIVE', 'INSPECTION'],
     },
     scheduledAt: { type: 'string', format: 'date-time', nullable: true },
+    expectedReturnAt: { type: 'string', format: 'date-time', nullable: true },
+    receivedAt: { type: 'string', format: 'date-time', nullable: true },
+    intervalMonths: { type: 'integer', nullable: true },
+    nextDueDate: { type: 'string', format: 'date', nullable: true },
+    returnStatus: {
+      type: 'string',
+      enum: ['PENDING_APPROVAL', 'CONFIRMED', 'REJECTED'],
+      nullable: true,
+    },
+    returnWarehouseId: { type: 'string', format: 'uuid', nullable: true },
+    returnLocationId: { type: 'string', format: 'uuid', nullable: true },
+    returnRejectionReason: { type: 'string', nullable: true },
     startedAt: { type: 'string', format: 'date-time', nullable: true },
     completedAt: { type: 'string', format: 'date-time', nullable: true },
     status: { type: 'string', enum: [...maintenanceStatus.enumValues] },
@@ -122,15 +138,20 @@ export class MaintenanceController {
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId?: string,
     @Query('assetId') assetId?: string,
+    @Query('recordId') recordId?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.service.list({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
+      recordId: recordId ? requireUuid(recordId, 'recordId') : undefined,
       assetId: assetId ? requireUuid(assetId, 'assetId') : undefined,
       status: parseOptionalEnum(status, maintenanceStatus.enumValues, 'status'),
+      ...parseDateRange(dateFrom, dateTo),
       ...parsePagination(page, pageSize),
     });
   }
@@ -168,7 +189,8 @@ export class MaintenanceController {
     description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
   })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên hoặc chủ trang trại được tạo hồ sơ.',
+    description:
+      'Nhân viên bảo trì, quản lý kho hoặc quản trị trang trại được lập lịch.',
   })
   async create(
     @CurrentAuth() auth: { clerkUserId: string },
@@ -240,13 +262,14 @@ export class MaintenanceController {
   })
   @ApiNotFoundResponse({ description: 'Không tìm thấy hồ sơ bảo trì.' })
   @ApiConflictResponse({
-    description: 'Hồ sơ đã hoàn tất hoặc đã hủy nên không thể sửa.',
+    description: 'Chỉ hồ sơ đã lập lịch mới được sửa.',
   })
   @ApiUnauthorizedResponse({
     description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
   })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên hoặc chủ trang trại được cập nhật hồ sơ.',
+    description:
+      'Nhân viên bảo trì, quản lý kho hoặc quản trị trang trại được sửa lịch.',
   })
   async update(
     @CurrentAuth() auth: { clerkUserId: string },
@@ -260,6 +283,78 @@ export class MaintenanceController {
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         input,
+      ),
+    };
+  }
+
+  @Post(':id/receive')
+  @ApiOperation({ summary: 'Nhân viên bảo trì nhận lại thiết bị' })
+  async receive(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string,
+    @Body() input: ReceiveMaintenanceDto,
+  ) {
+    return {
+      data: await this.service.receive(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input.receivedAt,
+      ),
+    };
+  }
+
+  @Post(':id/return-receipt')
+  @ApiOperation({ summary: 'Lập/gửi lại phiếu nhập thiết bị sau nghiệm thu' })
+  async submitReturn(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string,
+    @Body() input: MaintenanceReturnDto,
+  ) {
+    return {
+      data: await this.service.submitReturn(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input,
+      ),
+    };
+  }
+
+  @Post(':id/return-receipt/approve')
+  @ApiOperation({ summary: 'Quản lý kho duyệt nhập lại bảo trì' })
+  async approveReturn(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string,
+  ) {
+    return {
+      data: await this.service.reviewReturn(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        true,
+      ),
+    };
+  }
+
+  @Post(':id/return-receipt/reject')
+  @ApiOperation({ summary: 'Quản lý kho từ chối phiếu nhập lại bảo trì' })
+  async rejectReturn(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string,
+    @Body() input: RejectMaintenanceReturnDto,
+  ) {
+    return {
+      data: await this.service.reviewReturn(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        false,
+        input.reason,
       ),
     };
   }
@@ -281,7 +376,7 @@ export class MaintenanceController {
     description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
   })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên hoặc chủ trang trại được bắt đầu hồ sơ.',
+    description: 'Chỉ nhân viên bảo trì được xác nhận gửi đi.',
   })
   async start(
     @CurrentAuth() auth: { clerkUserId: string },
@@ -303,7 +398,8 @@ export class MaintenanceController {
   @ApiFarmIdQuery()
   @ApiBody({ type: CompleteMaintenanceRecordDto, required: false })
   @ApiCreatedResponse({
-    description: 'Hồ sơ raw sau khi chuyển sang COMPLETED.',
+    description:
+      'Hồ sơ sau nghiệm thu: COMPLETED nếu đạt, FAILED nếu không đạt.',
     schema: { type: 'object', properties: { data: recordSchema } },
   })
   @ApiBadRequestResponse({
@@ -311,19 +407,19 @@ export class MaintenanceController {
   })
   @ApiNotFoundResponse({ description: 'Không tìm thấy hồ sơ bảo trì.' })
   @ApiConflictResponse({
-    description: 'Chỉ hồ sơ IN_PROGRESS mới hoàn tất được.',
+    description: 'Chỉ hồ sơ RECEIVED mới nghiệm thu được.',
   })
   @ApiUnauthorizedResponse({
     description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
   })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên hoặc chủ trang trại được hoàn tất hồ sơ.',
+    description: 'Chỉ nhân viên bảo trì được nghiệm thu.',
   })
   async complete(
     @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
-    @Query('farmId') farmId?: string,
-    @Body() input?: CompleteMaintenanceRecordDto,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: CompleteMaintenanceRecordDto,
   ) {
     return {
       data: await this.service.complete(
@@ -348,13 +444,14 @@ export class MaintenanceController {
   })
   @ApiNotFoundResponse({ description: 'Không tìm thấy hồ sơ bảo trì.' })
   @ApiConflictResponse({
-    description: 'Chỉ hồ sơ SCHEDULED hoặc IN_PROGRESS mới hủy được.',
+    description: 'Chỉ hồ sơ SCHEDULED mới được hủy.',
   })
   @ApiUnauthorizedResponse({
     description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
   })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên hoặc chủ trang trại được hủy hồ sơ.',
+    description:
+      'Nhân viên bảo trì, quản lý kho hoặc quản trị trang trại được hủy lịch.',
   })
   async cancel(
     @CurrentAuth() auth: { clerkUserId: string },
