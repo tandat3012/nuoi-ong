@@ -75,6 +75,8 @@ export interface IssueFilters {
   page: number;
   pageSize: number;
   status?: IssueStatus;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export interface CreateIssueInput extends NumberingOptions {

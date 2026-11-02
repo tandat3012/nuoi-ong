@@ -16,6 +16,7 @@ import { ReceiptDraftPicker, type DraftChoice } from './receipt-draft-picker';
 import { PageHeader } from '@/shared/components/ui/page-header';
 import { Button } from '@/shared/components/ui/button';
 import { Select } from '@/shared/components/ui/select';
+import { DateRangeFilter } from '@/shared/components/ui/date-range-filter';
 import { canCreateStockDocuments, useStockDocumentQuery } from '@/features/stock-documents';
 import { useNotificationRefresh } from '@/features/notifications';
 import { BeeLoader } from '@/shared/components/ui/bee-loader';
@@ -53,6 +54,7 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
     error,
     changeStatus,
     changeWarehouse,
+    changeDateRange,
     changePage,
     reload,
   } = useReceiptList(farmId);
@@ -154,6 +156,7 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
             </button>
           )}
         </div>
+        <DateRangeFilter onApply={changeDateRange} />
       </div>
       {isLoading ? (
         <BeeLoader label="Đang tải danh sách phiếu nhập..." />
@@ -169,8 +172,8 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
         </div>
       ) : receipts.length === 0 ? (
         <p role="status">
-          {filters.status
-            ? 'Không có phiếu nhập phù hợp với trạng thái đã chọn.'
+          {filters.status || filters.dateFrom || filters.dateTo
+            ? 'Không có phiếu nhập phù hợp với bộ lọc đã chọn.'
             : filters.warehouseId
               ? 'Không có phiếu nhập trong kho đã chọn.'
               : 'Chưa có phiếu nhập trong trang trại.'}

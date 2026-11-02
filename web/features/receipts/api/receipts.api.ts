@@ -76,6 +76,8 @@ export function getReceipts(
       pageSize: filters.pageSize,
       status: filters.status,
       warehouseId: filters.warehouseId,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
     },
   });
 }

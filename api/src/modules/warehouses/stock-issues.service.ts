@@ -13,6 +13,7 @@ import {
   getTableColumns,
   gte,
   isNull,
+  lte,
   sql,
   SQL,
 } from 'drizzle-orm';
@@ -55,6 +56,8 @@ type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
   status?: typeof stockIssues.$inferSelect.status;
+  dateFrom?: string;
+  dateTo?: string;
 };
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -76,6 +79,10 @@ export class StockIssuesService {
     const conditions: SQL[] = [eq(stockIssues.farmId, filters.farmId)];
 
     if (filters.status) conditions.push(eq(stockIssues.status, filters.status));
+    if (filters.dateFrom)
+      conditions.push(gte(stockIssues.issueDate, filters.dateFrom));
+    if (filters.dateTo)
+      conditions.push(lte(stockIssues.issueDate, filters.dateTo));
 
     const where = and(...conditions);
     const [data, totals] = await Promise.all([

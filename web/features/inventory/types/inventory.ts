@@ -46,6 +46,8 @@ export interface InventoryLedgerFilters {
   warehouseId?: string;
   itemId?: string;
   transactionType?: InventoryTransactionType;
+  dateFrom?: string;
+  dateTo?: string;
   page: number;
   pageSize: number;
 }

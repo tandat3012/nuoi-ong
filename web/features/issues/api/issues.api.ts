@@ -28,6 +28,8 @@ export function getIssues(
       page: filters.page,
       pageSize: filters.pageSize,
       status: filters.status,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
     },
   });
 }

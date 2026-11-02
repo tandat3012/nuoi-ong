@@ -39,6 +39,8 @@ describe('InventoryController transactions query', () => {
       warehouseId,
       itemId,
       'MAINTENANCE_ISSUE',
+      undefined,
+      undefined,
       '3',
       '200',
     );
@@ -53,6 +55,39 @@ describe('InventoryController transactions query', () => {
       pageSize: 100,
       offset: 200,
     });
+  });
+
+  it('passes a valid date range and rejects an inverted or invalid one', async () => {
+    await controller.listTransactions(
+      auth,
+      farmId,
+      undefined,
+      undefined,
+      undefined,
+      '2026-10-01',
+      '2026-10-31',
+    );
+    expect(service.listTransactions).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-10-01', dateTo: '2026-10-31' }),
+    );
+    service.listTransactions.mockReset();
+    for (const [from, to] of [
+      ['2026-10-31', '2026-10-01'],
+      ['2026-02-30', undefined],
+      ['01/10/2026', undefined],
+    ])
+      expect(() =>
+        controller.listTransactions(
+          auth,
+          farmId,
+          undefined,
+          undefined,
+          undefined,
+          from,
+          to,
+        ),
+      ).toThrow(BadRequestException);
+    expect(service.listTransactions).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid UUID, transaction type, or page', () => {
@@ -72,6 +107,8 @@ describe('InventoryController transactions query', () => {
       controller.listTransactions(
         auth,
         farmId,
+        undefined,
+        undefined,
         undefined,
         undefined,
         undefined,

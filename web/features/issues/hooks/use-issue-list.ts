@@ -57,6 +57,8 @@ export function useIssueList(farmId: string) {
     error: current?.error,
     changeStatus: (status?: IssueStatus) =>
       setFilters((previous) => ({ ...previous, status, page: 1 })),
+    changeDateRange: (range: { dateFrom: string; dateTo: string }) =>
+      setFilters((previous) => ({ ...previous, ...range, page: 1 })),
     changePage: (page: number) =>
       setFilters((previous) => ({ ...previous, page: Math.max(1, page) })),
     reload: () => setFilters((previous) => ({ ...previous })),
