@@ -14,6 +14,7 @@ describe('notification detail navigation', () => {
     ['STOCK_ISSUE', '/receipts/document-id?type=issue'],
     ['STOCK_COUNT', '/counts/document-id'],
     ['STOCK_TRANSFER', '/transfers/document-id'],
+    ['ASSET_TRANSFER_REQUEST', '/assets/transfer-requests/document-id'],
   ])('routes %s notifications to their corresponding document detail', (type, route) => {
     expect(notificationRoute(notification(type))).toBe(route);
   });

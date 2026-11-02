@@ -43,7 +43,7 @@ App được chép nguyên từ commit `3f2a20a` của nhánh mobile. Chỉ nh�
 | `InventoryActionScreen` (phiếu chuyển) | Có lựa chọn "Tài sản", gửi `assetId` vào `/stock-transfers` | Bỏ lựa chọn "Tài sản" | `dev` cấm chuyển tài sản bằng phiếu chuyển kho |
 | `AssetDetailScreen`, `InventoryDetailScreen`, `ItemQrResultScreen`, `InventoryQrResultScreen` | Có nút "Điều chuyển" cho tài sản | Ẩn nút này khi mặt hàng là ASSET | Cùng lý do như dòng trên |
 
-**Còn thiếu:** app chưa có màn tạo yêu cầu chuyển tài sản (`asset-transfer-requests`). Hiện việc này làm trên web. Chỗ cần làm được đánh dấu `shortcut:` trong `AssetDetailScreen.tsx`.
+**Cập nhật hiện tại:** nhân viên có thể gửi yêu cầu chuyển tài sản từ màn chi tiết sau khi quét QR, chọn kho và vị trí đích rồi theo dõi trạng thái qua màn yêu cầu, thông báo hoặc lịch sử. Người có quyền duyệt xử lý trên web. Phiếu chuyển kho chỉ nhận vật tư theo số lượng hoặc theo lô; tài sản dùng `/asset-transfer-requests`.
 
 **Không đổi:** chữ "qrToken" trên màn quét vẫn giữ nguyên. Khi nhập tay, người dùng gõ **mã tài sản** vào ô đó.
 

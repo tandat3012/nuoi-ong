@@ -197,7 +197,7 @@ function NotificationCard({ notification, onPress }: { notification: AppNotifica
 function iconForNotification(notification: AppNotification): 'build' | 'inventory-2' | 'swap-horiz' | 'receipt-long' | 'notifications-none' {
   const entityType = notification.data?.documentType ?? notification.entityType;
   if (entityType === 'MAINTENANCE_REQUEST') return 'build';
-  if (entityType === 'STOCK_TRANSFER') return 'swap-horiz';
+  if (entityType === 'STOCK_TRANSFER' || entityType === 'ASSET_TRANSFER_REQUEST') return 'swap-horiz';
   if (entityType === 'STOCK_RECEIPT' || entityType === 'STOCK_ISSUE') return 'receipt-long';
   if (entityType === 'STOCK_COUNT') return 'inventory-2';
   return 'notifications-none';

@@ -1,12 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
+import { colors, spacing, typography } from '@/src/core/theme/tokens';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
-import { AppShell, Card, Icon, PageHeader, Pill, PrimaryButton } from '@/src/shared/ui/MobileShell';
+import { AppShell, Card, PageHeader, Pill } from '@/src/shared/ui/MobileShell';
 
 type RequestDetail = { data: {
   id: string;
@@ -57,14 +57,9 @@ function reviewerLabel(request: RequestDetail['data']) {
 export default function MaintenanceRequestDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const { data: auth, currentFarmId, getAccessToken } = useAuthContext();
-  const membership = auth?.memberships.find(({ farm }) => farm.id === currentFarmId);
-  const canApprove = membership?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER') ?? false;
+  const { currentFarmId, getAccessToken } = useAuthContext();
   const [request, setRequest] = useState<RequestDetail['data'] | null>(null);
-  const [scheduledAt, setScheduledAt] = useState('');
-  const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function reload() {
@@ -81,23 +76,8 @@ export default function MaintenanceRequestDetailScreen() {
     return () => { cancelled = true; };
   }, [currentFarmId, getAccessToken, id]);
 
-  async function decide(action: 'approve' | 'reject') {
-    if (!currentFarmId || !id) return;
-    if (action === 'approve' && !scheduledAt.trim()) { Alert.alert('Thiếu lịch', 'Nhập thời gian bảo trì dự kiến theo ISO, ví dụ 2026-11-02T09:00:00.000Z.'); return; }
-    if (action === 'reject' && reason.trim().length < 3) { Alert.alert('Thiếu lý do', 'Nhập lý do từ chối (ít nhất 3 ký tự).'); return; }
-    setSaving(true);
-    try {
-      const token = await getAccessToken();
-      if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
-      await apiRequest(`/maintenance-requests/${encodeURIComponent(id)}/${action}`, { method: 'POST', token, params: { farmId: currentFarmId }, body: action === 'approve' ? { scheduledAt: new Date(scheduledAt).toISOString() } : { rejectionReason: reason.trim() } });
-      await reload();
-      Alert.alert(action === 'approve' ? 'Đã duyệt' : 'Đã từ chối', action === 'approve' ? 'Đã tạo hồ sơ bảo trì theo lịch đã chọn.' : 'Yêu cầu đã được trả về người gửi.');
-    } catch (cause) { Alert.alert('Không thể xử lý', cause instanceof Error ? cause.message : 'API trả về lỗi.'); }
-    finally { setSaving(false); }
-  }
-
   return <AppShell active="receipts">
-    <PageHeader title="Yêu cầu bảo trì" subtitle="Theo dõi và duyệt sự cố tài sản" onBack={() => router.back()} action={<NotificationBell />} />
+    <PageHeader title="Yêu cầu bảo trì" subtitle="Theo dõi sự cố tài sản" onBack={() => router.back()} action={<NotificationBell />} />
     {loading ? <Card><Text style={styles.muted}>Đang tải yêu cầu…</Text></Card> : error ? <Card><Text style={styles.error}>{error}</Text></Card> : request ? <>
       <Card style={styles.card}>
         <View style={styles.row}><Text style={styles.asset}>{request.itemName}</Text><Pill tone={request.status === 'CONFIRMED' ? 'success' : request.status === 'REJECTED' ? 'danger' : 'amber'}><Text style={styles.status}>{statusLabel(request.status)}</Text></Pill></View>
@@ -122,9 +102,8 @@ export default function MaintenanceRequestDetailScreen() {
           <Text style={styles.label}>Mã hồ sơ bảo trì</Text><Text style={styles.value}>{request.maintenanceRecordId}</Text>
         </> : null}
       </Card>
-      {canApprove && request.status === 'PENDING_APPROVAL' ? <Card style={styles.card}><Text style={styles.section}>Xử lý yêu cầu</Text><Text style={styles.label}>Lịch bảo trì khi duyệt</Text><TextInput value={scheduledAt} onChangeText={setScheduledAt} placeholder="2026-11-02T09:00:00.000Z" placeholderTextColor={colors.outline} style={styles.input} autoCapitalize="none" /><PrimaryButton label={saving ? 'Đang lưu…' : 'Duyệt và lập lịch'} icon="check" onPress={() => void decide('approve')} /><Text style={styles.label}>Lý do nếu từ chối</Text><TextInput value={reason} onChangeText={setReason} placeholder="Nhập lý do rõ ràng" placeholderTextColor={colors.outline} style={[styles.input, styles.multiline]} multiline /><Pressable disabled={saving} onPress={() => void decide('reject')} style={styles.reject}><Icon name="close" color={colors.error} /><Text style={styles.rejectText}>Từ chối yêu cầu</Text></Pressable></Card> : null}
     </> : <Card><Text style={styles.muted}>Không tìm thấy yêu cầu này trong farm đang chọn.</Text></Card>}
   </AppShell>;
 }
 
-const styles = StyleSheet.create({ card: { gap: spacing.spaceSm, backgroundColor: colors.surfaceContainerLowest }, row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.spaceSm }, asset: { ...typography.headlineMd, color: colors.deepAmberStrong, flex: 1 }, code: { ...typography.labelMd, color: colors.primary }, label: { ...typography.labelSm, color: colors.onSurfaceVariant, marginTop: spacing.spaceXs }, value: { ...typography.bodyMd, color: colors.onSurface }, status: { ...typography.labelSm, color: colors.onSurfaceVariant }, section: { ...typography.headlineSm, color: colors.deepAmberStrong }, muted: { ...typography.bodyMd, color: colors.onSurfaceVariant }, error: { ...typography.bodyMd, color: colors.error }, input: { minHeight: 48, borderWidth: 1, borderColor: colors.outlineVariant, borderRadius: radius.default, paddingHorizontal: spacing.spaceMd, color: colors.onSurface, backgroundColor: colors.surface }, multiline: { minHeight: 84, textAlignVertical: 'top', paddingTop: spacing.spaceSm }, reject: { minHeight: 44, borderWidth: 1, borderColor: colors.error, borderRadius: radius.default, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: spacing.spaceSm }, rejectText: { ...typography.labelMd, color: colors.error } });
+const styles = StyleSheet.create({ card: { gap: spacing.spaceSm, backgroundColor: colors.surfaceContainerLowest }, row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.spaceSm }, asset: { ...typography.headlineMd, color: colors.deepAmberStrong, flex: 1 }, code: { ...typography.labelMd, color: colors.primary }, label: { ...typography.labelSm, color: colors.onSurfaceVariant, marginTop: spacing.spaceXs }, value: { ...typography.bodyMd, color: colors.onSurface }, status: { ...typography.labelSm, color: colors.onSurfaceVariant }, section: { ...typography.headlineSm, color: colors.deepAmberStrong }, muted: { ...typography.bodyMd, color: colors.onSurfaceVariant }, error: { ...typography.bodyMd, color: colors.error } });

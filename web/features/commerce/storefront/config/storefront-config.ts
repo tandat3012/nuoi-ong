@@ -195,7 +195,7 @@ export const STOREFRONT_CONFIG = {
     secondaryAction: {
       label: 'Câu chuyện Mộc Ong',
       href: '/about',
-      isImplemented: false,
+      isImplemented: true,
     },
     trustLine: 'Chất lượng từ tâm · Tư vấn tận tình · Giao hàng toàn quốc',
     image: {
@@ -330,7 +330,7 @@ export const STOREFRONT_CONFIG = {
     viewAll: {
       label: 'Xem bài viết',
       href: '/blog',
-      isImplemented: false,
+      isImplemented: true,
     },
     items: [
       {
@@ -339,8 +339,8 @@ export const STOREFRONT_CONFIG = {
         title: '5 điều cần chuẩn bị trước mùa mật mới',
         description: 'Một đàn ong khỏe mạnh là khởi đầu cho mùa mật bội thu.',
         icon: 'sprout',
-        href: '/blog/chuan-bi-truoc-mua-mat-moi',
-        isImplemented: false,
+        href: '/blog#chuan-bi-truoc-mua-mat-moi',
+        isImplemented: true,
         isFixture: true,
       },
       {
@@ -349,8 +349,8 @@ export const STOREFRONT_CONFIG = {
         title: 'Cách chọn thùng ong phù hợp với đàn của bạn',
         description: 'Từ chất liệu đến kích thước, chọn đúng ngôi nhà cho đàn ong.',
         icon: 'package',
-        href: '/blog/chon-thung-ong-phu-hop',
-        isImplemented: false,
+        href: '/blog#chon-thung-ong-phu-hop',
+        isImplemented: true,
         isFixture: true,
       },
       {
@@ -359,8 +359,8 @@ export const STOREFRONT_CONFIG = {
         title: 'Mật ong nguyên chất: nhận biết và bảo quản',
         description: 'Giữ trọn hương vị và dưỡng chất của món quà thiên nhiên.',
         icon: 'droplets',
-        href: '/blog/mat-ong-nguyen-chat-nhan-biet-va-bao-quan',
-        isImplemented: false,
+        href: '/blog#mat-ong-nguyen-chat-nhan-biet-va-bao-quan',
+        isImplemented: true,
         isFixture: true,
       },
     ],
@@ -380,19 +380,19 @@ export const STOREFRONT_CONFIG = {
     { label: 'Tài sản', href: '/products?category=tai-san', isImplemented: true },
     { label: 'Thiết bị', href: '/products?category=thiet-bi', isImplemented: true },
     { label: 'Mật ong', href: '/products?category=mat-ong', isImplemented: true },
-    { label: 'Kinh nghiệm nuôi ong', href: '/blog', isImplemented: false },
-    { label: 'Về Mộc Ong', href: '/about', isImplemented: false },
-    { label: 'Liên hệ', href: '/contact', isImplemented: false },
+    { label: 'Kinh nghiệm nuôi ong', href: '/blog', isImplemented: true },
+    { label: 'Về Mộc Ong', href: '/about', isImplemented: true },
+    { label: 'Liên hệ', href: '/contact', isImplemented: true },
   ] as const satisfies readonly StorefrontNavItem[],
   footer: {
     groups: [
       {
         title: 'Khám phá Mộc Ong',
         links: [
-          { label: 'Về chúng tôi', href: '/about', isImplemented: false },
+          { label: 'Về chúng tôi', href: '/about', isImplemented: true },
           { label: 'Sản phẩm', href: '/products', isImplemented: true },
-          { label: 'Kinh nghiệm nuôi ong', href: '/blog', isImplemented: false },
-          { label: 'Liên hệ', href: '/contact', isImplemented: false },
+          { label: 'Kinh nghiệm nuôi ong', href: '/blog', isImplemented: true },
+          { label: 'Liên hệ', href: '/contact', isImplemented: true },
         ],
       },
       {

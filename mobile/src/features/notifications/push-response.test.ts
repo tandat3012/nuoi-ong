@@ -58,6 +58,7 @@ describe('push response routing', () => {
       ['STOCK_COUNT', 'STOCK_COUNT_CONFIRMED', `/counts/${validPayload.entityId}`],
       ['STOCK_TRANSFER', 'STOCK_TRANSFER_PENDING_APPROVAL', `/transfers/${validPayload.entityId}`],
       ['MAINTENANCE_REQUEST', 'MAINTENANCE_REQUEST_REJECTED', `/maintenance/requests/${validPayload.entityId}`],
+      ['ASSET_TRANSFER_REQUEST', 'ASSET_TRANSFER_REQUEST_CONFIRMED', `/assets/transfer-requests/${validPayload.entityId}`],
     ] as const;
     for (const [entityType, type, route] of cases) {
       expect(resolvePushResponse({ ...validPayload, entityType, type }, account)).toMatchObject({
