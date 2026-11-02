@@ -10,10 +10,14 @@ import {
 } from '@/src/shared/ui/MobileShell';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import type { FarmRoleCode } from '@/src/features/auth/types';
+import { useAuthContext } from '@/src/features/auth/context/AuthContext';
+import { canUseMobileOperations } from '@/src/features/auth/mobile-access';
 
 export const roleLabels: Record<FarmRoleCode, string> = {
   ADMIN: 'Quản trị viên',
   FARM_OWNER: 'Chủ trại',
+  WAREHOUSE_MANAGER: 'Quản lý kho',
+  STORE_MANAGER: 'Quản lý cửa hàng',
   EMPLOYEE: 'Nhân viên',
   GUEST: 'Khách',
 };
@@ -28,6 +32,8 @@ export function AccountLayout({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const { data, currentFarmId } = useAuthContext();
+  const canOperate = canUseMobileOperations(data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.roles);
   return (
     <AppShell active="dashboard" showScrollIndicator>
       <PageHeader
@@ -38,7 +44,7 @@ export function AccountLayout({
             ? router.back()
             : router.replace('/dashboard' as never)
         }
-        action={<NotificationBell />}
+        action={canOperate ? <NotificationBell /> : undefined}
       />
       {children}
     </AppShell>

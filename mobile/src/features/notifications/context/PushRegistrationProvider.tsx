@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { Alert, AppState, Linking } from 'react-native';
 import type { NotificationResponse } from 'expo-notifications';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
+import { canUseMobileOperations } from '@/src/features/auth/mobile-access';
 import { markNotificationRead } from '../api';
 import { resolvePushResponse, type PushResponsePayload } from '../push-response';
 import type { PushRegistrationState } from '../push-registration-manager';
@@ -69,6 +70,7 @@ export function PushRegistrationProvider({
           farmIds: data.memberships.map(({ farm }) => farm.id),
         }
       : { userId: null, farmIds: [] };
+  const hasEmployeeMembership = data?.memberships.some(({ roles }) => canUseMobileOperations(roles)) ?? false;
 
   function enqueueResponse(response: NotificationResponse) {
     const key = responseKey(response);
@@ -116,6 +118,10 @@ export function PushRegistrationProvider({
       pushRegistrationManager.setSession(null);
       return;
     }
+    if (!hasEmployeeMembership) {
+      void pushRegistrationManager.sessionEnded();
+      return;
+    }
     const changed = pushRegistrationManager.setSession({
       key: `${userId}:${sessionId}`,
       clerkUserId: userId,
@@ -129,6 +135,7 @@ export function PushRegistrationProvider({
   }, [
     data?.user.id,
     data?.user.clerkUserId,
+    hasEmployeeMembership,
     getToken,
     isLoaded,
     isSignedIn,
@@ -249,6 +256,11 @@ export function PushRegistrationProvider({
       consumeResponse(key);
       return;
     }
+    if (!canUseMobileOperations(data.memberships.find(({ farm }) => farm.id === resolution.payload.farmId)?.roles)) {
+      Alert.alert('Xử lý trên web', 'Tài khoản quản lý vui lòng mở thông báo và xử lý phiếu trên web.');
+      consumeResponse(key);
+      return;
+    }
 
     activeTapKey.current = key;
     setPendingTap({
@@ -298,6 +310,10 @@ export function PushRegistrationProvider({
       data.user.id !== pendingTap.payload.recipientUserId ||
       !data.memberships.some(({ farm }) => farm.id === pendingTap.payload.farmId)
     ) {
+      consumeResponse(key);
+      return;
+    }
+    if (!canUseMobileOperations(data.memberships.find(({ farm }) => farm.id === pendingTap.payload.farmId)?.roles)) {
       consumeResponse(key);
       return;
     }

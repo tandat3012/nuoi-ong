@@ -9,6 +9,7 @@ import NotificationBell from '@/src/features/notifications/presentation/Notifica
 import { formatQuantity } from '@/src/shared/format-quantity';
 import { formatApiDateTime as formatDateTime } from '@/src/shared/format-date-time';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
+import { canUseMobileOperations } from '@/src/features/auth/mobile-access';
 import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
 import { documentCodeLabel, listBalances, listWarehouses, type Paginated, type StockIssue, type StockReceipt } from '@/src/features/inventory/api';
 import { listAuditLogs, type AuditLog } from '@/src/features/activity/api';
@@ -38,9 +39,10 @@ export default function DashboardScreen() {
   const syncTransform = { transform: [{ rotate: syncRotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] };
   const selectedMembership = data?.memberships.find(({ farm: candidate }) => candidate.id === currentFarmId);
   const membership = selectedMembership ?? (data?.memberships.length === 1 ? data.memberships[0] : undefined);
+  const canOperate = canUseMobileOperations(membership?.roles);
   const farm = membership?.farm;
   const role = membership?.roles[0] ?? 'GUEST';
-  const roleLabel = { ADMIN: 'Quản trị viên', FARM_OWNER: 'Chủ trại', EMPLOYEE: 'Nhân viên', GUEST: 'Khách' }[role] ?? role;
+  const roleLabel = { ADMIN: 'Quản trị viên', FARM_OWNER: 'Chủ trại', WAREHOUSE_MANAGER: 'Quản lý kho', STORE_MANAGER: 'Quản lý cửa hàng', EMPLOYEE: 'Nhân viên', GUEST: 'Khách' }[role] ?? role;
   const userName = data?.user.fullName?.trim() || 'Người dùng';
   const initials = userName.trim().split(/\s+/).slice(-2).map((part) => part[0]).join('').toUpperCase();
   useEffect(() => {
@@ -69,7 +71,7 @@ export default function DashboardScreen() {
   }
 
   useEffect(() => {
-    if (!currentFarmId) { setSummary({ warehouseCount: 0, itemCount: 0, balanceCount: 0, totalQuantity: 0, pendingCount: 0, activities: [] }); return; }
+    if (!currentFarmId || !canOperate) { setSummary({ warehouseCount: 0, itemCount: 0, balanceCount: 0, totalQuantity: 0, pendingCount: 0, activities: [] }); setSummaryError(null); return; }
     let cancelled = false;
     void getAccessToken().then((token) => {
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
@@ -93,9 +95,9 @@ export default function DashboardScreen() {
       setSummaryError(null);
     }).catch((cause: unknown) => { if (!cancelled) setSummaryError(cause instanceof Error ? cause.message : 'Không thể tải tổng quan.'); });
     return () => { cancelled = true; };
-  }, [currentFarmId, getAccessToken, reloadNonce]);
+  }, [canOperate, currentFarmId, getAccessToken, reloadNonce]);
   useEffect(() => {
-    if (!currentFarmId) { setAuditActivities([]); setAuditError(null); return; }
+    if (!currentFarmId || !canOperate) { setAuditActivities([]); setAuditError(null); return; }
     let cancelled = false;
     void getAccessToken().then((token) => {
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
@@ -108,9 +110,9 @@ export default function DashboardScreen() {
       if (!cancelled) setAuditError(cause instanceof Error ? cause.message : 'Không thể tải lịch sử thao tác.');
     });
     return () => { cancelled = true; };
-  }, [currentFarmId, getAccessToken, reloadNonce]);
+  }, [canOperate, currentFarmId, getAccessToken, reloadNonce]);
   return <AppShell active="dashboard">
-    <PageHeader title={farm?.name ?? 'Chưa chọn trang trại'} subtitle="● Hệ thống quản lý trại • Trực tuyến" action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={sync} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.sync, pressed && styles.pressed]}><Animated.View style={syncTransform}><Icon name="sync" color={colors.primary} /></Animated.View></Pressable></View>} />
+    <PageHeader title={farm?.name ?? 'Chưa chọn trang trại'} subtitle="● Hệ thống quản lý trại • Trực tuyến" action={canOperate ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={sync} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.sync, pressed && styles.pressed]}><Animated.View style={syncTransform}><Icon name="sync" color={colors.primary} /></Animated.View></Pressable></View> : undefined} />
     <Card style={styles.farmCard}>
       <HoneyCardArtwork />
       <View style={styles.farmTop}>
@@ -139,33 +141,55 @@ export default function DashboardScreen() {
         <View style={styles.profileSettings}><Icon name="settings" size={19} color={colors.primary} /></View>
       </Card>
     </Pressable>
-    <Card style={styles.shift}><View style={styles.shiftHead}><View style={styles.shiftTitle}><Icon name="bar-chart" color={colors.primary} /><Text style={styles.shiftName} numberOfLines={3}>Tổng quan vận hành</Text></View><Pill tone={summaryError ? 'danger' : 'success'}><Text style={styles.quality} numberOfLines={2}>{summaryError ? 'Lỗi API' : 'DB trực tuyến'}</Text></Pill></View><View style={styles.shiftStats}><MiniStat label="Mục tồn kho" value={String(summary.balanceCount)} icon="inventory-2" /><MiniStat label="Phiếu chờ duyệt" value={String(summary.pendingCount)} icon="description" tone="amber" badge="Từ DB" /><MiniStat label="Kho đang hoạt động" value={String(summary.warehouseCount)} icon="warehouse" tone="normal" badge="Từ DB" /></View></Card>
+    {canOperate ? <>
+    <Card style={styles.shift}>
+      <View style={styles.shiftTitle}>
+        <Icon name="bar-chart" color={colors.primary} />
+        <Text style={styles.shiftName}>Tổng quan vận hành</Text>
+      </View>
+      <View style={styles.shiftStats}>
+        <MiniStat label="Mục tồn kho" value={String(summary.balanceCount)} icon="inventory-2" />
+        <MiniStat label="Phiếu chờ duyệt" value={String(summary.pendingCount)} icon="description" tone="amber" />
+        <MiniStat label="Kho đang hoạt động" value={String(summary.warehouseCount)} icon="warehouse" />
+      </View>
+    </Card>
     <SectionTitle title="Tác vụ hiện trường" count={`${summary.itemCount} MỤC DB`} />
     <Pressable onPress={() => router.push('/scan' as never)} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.scanAction, pressed && styles.pressed]}><LinearGradient colors={[colors.primary, colors.primaryContainer, colors.secondary]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.scanGradient}><View style={styles.scanIcon}><Icon name="qr-code-scanner" size={25} color={colors.onPrimary} /></View><View style={styles.scanCopy}><View style={styles.scanTitleRow}><Text style={styles.scanTitle} numberOfLines={2}>Quét QR Thùng ong & Thiết bị</Text><Pill tone="cream"><Text style={styles.aiScan}>AI SCAN</Text></Pill></View><Text style={styles.scanMeta} numberOfLines={2}>Tra cứu nhật ký đàn, tầng kế & vị trí đặt</Text></View><View style={styles.scanArrow}><Icon name="arrow-forward" size={21} color={colors.onPrimary} /></View></LinearGradient></Pressable>
-    <View style={styles.actionGrid}><Action icon="inventory-2" title="Tra cứu tồn kho" sub={`${summary.warehouseCount} kho từ DB`} onPress={() => router.push('/inventory' as never)} /><Action icon="input" title="Tạo phiếu nhập" sub={`${summary.pendingCount} phiếu chờ duyệt`} onPress={() => router.push('/receipts/new' as never)} /><Action icon="output" title="Tạo phiếu xuất" sub="Xuất trại / Bảo trì" onPress={() => router.push('/receipts/new' as never)} /><Action icon="checklist" title="Kiểm kê thực tế" sub="Mở danh sách phiếu DB" onPress={() => router.push('/receipts' as never)} /><Action icon="build" title="Tạo phiếu bảo trì" sub="Thiết bị hiện trường" onPress={() => router.push('/receipts' as never)} /><Action icon="warehouse" title="Quản lý kho" sub={`${summary.itemCount} mục từ DB`} onPress={() => router.push('/inventory' as never)} /></View>
+    <View style={styles.actionGrid}><Action icon="inventory-2" title="Tra cứu tồn kho" sub={`${summary.warehouseCount} kho từ DB`} onPress={() => router.push('/inventory' as never)} /><Action icon="input" title="Tạo phiếu nhập" sub={`${summary.pendingCount} phiếu chờ duyệt`} onPress={() => router.push('/receipts/new' as never)} /><Action icon="output" title="Tạo phiếu xuất" sub="Xuất trại / Bảo trì" onPress={() => router.push('/receipts/new' as never)} /><Action icon="checklist" title="Kiểm kê thực tế" sub="Mở danh sách phiếu DB" onPress={() => router.push('/receipts' as never)} /><Action icon="build" title="Báo sự cố" sub="Thiết bị hiện trường" onPress={() => router.push('/receipts' as never)} /><Action icon="warehouse" title="Tra cứu kho" sub={`${summary.itemCount} mục từ DB`} onPress={() => router.push('/inventory' as never)} /></View>
     <Pressable onPress={() => router.push('/receipts' as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.maintenance, pressed && styles.pressed]}><View style={styles.maintenanceIcon}><Icon name="build" color={colors.error} /></View><View style={styles.maintenanceCopy}><Text style={styles.maintenanceTitle} numberOfLines={3}>Bảo trì thiết bị hiện trường</Text><Text style={styles.maintenanceMeta} numberOfLines={2}>{summary.itemCount} mục tồn kho từ DB</Text></View><Icon name="chevron-right" color={colors.outline} /></Pressable>
     <SectionTitle title="Hoạt động hiện trường" action={<Pressable onPress={() => router.push('/receipts' as never)}><Text style={styles.link}>Xem tất cả →</Text></Pressable>} />
     {summary.activities.length === 0 ? <Text style={styles.emptyText}>{summaryError ?? 'Chưa có hoạt động từ DB.'}</Text> : summary.activities.map((activity) => <Activity key={activity.code} {...activity} />)}
     <SectionTitle title="Lịch sử thao tác" action={<Pressable onPress={() => router.push('/activity' as never)}><Text style={styles.link}>Xem tất cả →</Text></Pressable>} />
     {auditActivities.length === 0 ? <Text style={styles.emptyText}>{auditError ?? 'Chưa có thao tác được ghi nhận.'}</Text> : auditActivities.map((activity) => <Pressable key={activity.code} accessibilityRole="button" accessibilityLabel="Xem chi tiết thao tác" onPress={() => router.push(`/activity/${encodeURIComponent(activity.code.split(':')[0])}` as never)} style={({ pressed }) => pressed && styles.pressed}><Activity {...activity} /></Pressable>)}
     <Card style={styles.warehouse}><Image source={{ uri: warehouseImage }} style={styles.warehouseImage} /><View style={styles.warehouseCopy}><Text style={styles.warehouseName} numberOfLines={2}>{summary.warehouseCount ? `Đã kết nối ${summary.warehouseCount} kho trong farm` : 'Chưa có kho trong farm'}</Text><Text style={styles.warehouseMeta} numberOfLines={2}>Tồn kho: {summary.balanceCount} sản phẩm • {formatQuantity(summary.totalQuantity)} đơn vị</Text></View><View style={styles.warehouseStatus}><Pill tone={summaryError ? 'danger' : 'success'}><Text style={styles.online}>{summaryError ? 'ERROR' : 'ONLINE'}</Text></Pill><Text style={styles.warehouseUpdated}>API</Text></View></Card>
+    </> : <Card><Text>Ứng dụng di động dành cho nhân viên hiện trường. Vui lòng dùng bản web để quản lý trang trại, kho và tài sản.</Text></Card>}
     <Modal visible={farmSheetOpen} transparent animationType="slide" onRequestClose={() => setFarmSheetOpen(false)}><View style={styles.sheetBackdrop}><View style={styles.sheet}><View style={styles.sheetHead}><Text style={styles.sheetTitle}>Chọn trại đang làm việc</Text><Pressable onPress={() => setFarmSheetOpen(false)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.iconOnly, pressed && styles.pressed]}><Icon name="close" color={colors.onSurfaceVariant} /></Pressable></View>{(data?.memberships ?? []).map(({ farm: candidate }) => <Pressable key={candidate.id} onPress={() => setPendingFarmId(candidate.id)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.farmOption, pendingFarmId === candidate.id && styles.farmOptionActive, pressed && styles.pressed]}><Icon name={pendingFarmId === candidate.id ? 'radio-button-checked' : 'radio-button-unchecked'} color={pendingFarmId === candidate.id ? colors.primary : colors.outline} /><View style={styles.farmOptionCopy}><Text style={styles.farmOptionName}>{candidate.name}</Text><Text style={styles.farmOptionCode}>{candidate.code}</Text></View></Pressable>)}<PrimaryAction label="Xác nhận chuyển trại" onPress={() => void confirmFarmSelection()} /></View></View></Modal>
   </AppShell>;
 }
 
 function HoneyCardArtwork() {
-  return <Image
-    pointerEvents="none"
-    accessible={false}
-    source={require('../../../../app/assets/honey-card-artwork.png')}
-    resizeMode="stretch"
-    style={styles.honeyCardArtwork}
-  />;
+  return <View pointerEvents="none" style={styles.honeyCardArtwork}>
+    <Image
+      accessible={false}
+      source={require('../../../../app/assets/honey-card-artwork.png')}
+      resizeMode="stretch"
+      style={{ width: '100%', height: '100%' }}
+    />
+  </View>;
 }
 
 function PrimaryAction({ label, onPress }: { label: string; onPress: () => void }) { return <Pressable onPress={onPress} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.sheetButton, pressed && styles.pressed]}><Icon name="check" color={colors.onPrimary} /><Text style={styles.sheetButtonText}>{label}</Text></Pressable>; }
 
-function MiniStat({ label, value, icon, tone = 'normal', progress, badge }: { label: string; value: string; icon: Parameters<typeof Icon>[0]['name']; tone?: 'normal' | 'amber' | 'danger'; progress?: number; badge?: string }) { const tint = tone === 'danger' ? colors.error : tone === 'amber' ? colors.honey : colors.primary; return <View style={styles.miniStat}><View style={styles.miniStatHead}><Text numberOfLines={2} style={styles.miniLabel}>{label}</Text><View style={[styles.miniIcon, { backgroundColor: tone === 'danger' ? colors.errorContainer : tone === 'amber' ? colors.honeyChip : colors.surfaceContainerLow }]}><Icon name={icon} size={18} color={tint} /></View></View><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[styles.miniValue, { color: tint }]}>{value}</Text>{progress !== undefined ? <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: colors.secondary }]} /></View> : <View style={[styles.miniBadge, { backgroundColor: tone === 'danger' ? colors.errorContainer : colors.honeyChip }]}><Text numberOfLines={1} style={[styles.miniBadgeText, { color: tint }]}>{badge}</Text></View>}</View>; }
+function MiniStat({ label, value, icon, tone = 'normal' }: { label: string; value: string; icon: Parameters<typeof Icon>[0]['name']; tone?: 'normal' | 'amber' | 'danger' }) {
+  const tint = tone === 'danger' ? colors.error : tone === 'amber' ? colors.honey : colors.primary;
+  return <View style={styles.miniStat}>
+    <View style={[styles.miniIcon, { backgroundColor: tone === 'danger' ? colors.errorContainer : tone === 'amber' ? colors.honeyChip : colors.surfaceContainerLow }]}>
+      <Icon name={icon} size={18} color={tint} />
+    </View>
+    <Text style={styles.miniLabel}>{label}</Text>
+    <Text style={[styles.miniValue, { color: tint }]}>{value}</Text>
+  </View>;
+}
 function Action({ icon, title, sub, onPress }: { icon: Parameters<typeof Icon>[0]['name']; title: string; sub: string; onPress: () => void }) { return <Pressable onPress={onPress} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.action, pressed && styles.pressed]}><View style={styles.actionIcon}><Icon name={icon} color={colors.primary} /></View><Text style={styles.actionTitle}>{title}</Text><Text style={styles.actionSub}>{sub}</Text></Pressable>; }
   function Activity({ code, status, title, detail, quantity, createdAt, tone }: { code: string; status: string; title: string; detail: string; quantity: string; createdAt: string; tone: 'amber' | 'success' | 'danger' }) { return <Card style={[styles.activity, tone === 'success' && styles.activitySuccess, tone === 'danger' && styles.activityDanger]}><View style={styles.activityHead}><Pill tone="cream"><Text numberOfLines={1} style={styles.activityCode}>{code}</Text></Pill><Text numberOfLines={1} style={styles.activityTime}>◷ {formatDateTime(createdAt)}</Text><Pill tone={tone === 'amber' ? 'amber' : tone === 'success' ? 'success' : 'danger'}><Text numberOfLines={1} style={styles.activityStatus}>{status}</Text></Pill></View><Text numberOfLines={2} style={styles.activityTitle}>{title}</Text><Text numberOfLines={3} style={styles.activityDetail}>{detail}</Text>{quantity ? <View style={styles.activityBottom}><Text numberOfLines={2} style={styles.activityQuantity}>{quantity}</Text></View> : null}</Card>; }
 
@@ -225,22 +249,15 @@ const styles = StyleSheet.create({
   role: { ...typography.labelMd, color: colors.statusSuccess, flexShrink: 1 },
   profileSettings: { width: 44, height: 44, flexShrink: 0, borderRadius: 10, borderWidth: 1, borderColor: colors.borderAmberGlow, alignItems: 'center', justifyContent: 'center' },
   shift: { borderColor: colors.secondaryContainer, backgroundColor: colors.parchment },
-  shiftHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, flexWrap: 'wrap' },
-  shiftTitle: { flex: 1, minWidth: 130, flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
+  shiftTitle: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
   shiftName: { ...typography.headlineSm, color: colors.deepAmber, flexShrink: 1 },
-  quality: { ...typography.labelSm, color: colors.deepAmber, flexShrink: 1 },
   time: { padding: spacing.spaceSm, borderRadius: radius.default, backgroundColor: colors.surfaceContainerLow },
   timeText: { ...typography.bodySm, color: colors.onSurfaceVariant },
-  shiftStats: { flexDirection: 'row', gap: spacing.spaceSm, marginTop: spacing.spaceMd },
-  miniStat: { flex: 1, minWidth: 0, minHeight: 116, padding: spacing.spaceSm, borderRadius: radius.lg, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant, alignItems: 'center' },
-  miniStatHead: { width: '100%', flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.spaceXs },
-  miniIcon: { width: 32, height: 32, borderRadius: radius.default, alignItems: 'center', justifyContent: 'center' },
-  miniLabel: { ...typography.labelSm, color: colors.onSurfaceVariant, marginTop: spacing.spaceSm, flexShrink: 1, flex: 1 },
-  miniValue: { ...typography.headlineMd, fontSize: 24, lineHeight: 30, marginTop: spacing.spaceXs, flexShrink: 1, textAlign: 'center' },
-  progressTrack: { width: '100%', height: 6, marginTop: spacing.spaceSm, borderRadius: radius.full, backgroundColor: colors.outlineVariant, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: radius.full },
-  miniBadge: { maxWidth: '100%', marginTop: spacing.spaceSm, paddingHorizontal: spacing.spaceSm, paddingVertical: 3, borderRadius: radius.full },
-  miniBadgeText: { ...typography.labelSm, fontSize: 9, lineHeight: 13, flexShrink: 1 },
+  shiftStats: { gap: spacing.spaceSm, marginTop: spacing.spaceMd },
+  miniStat: { minWidth: 0, minHeight: 56, padding: spacing.spaceSm, borderRadius: radius.lg, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant, flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
+  miniIcon: { width: 32, height: 32, flexShrink: 0, borderRadius: radius.default, alignItems: 'center', justifyContent: 'center' },
+  miniLabel: { ...typography.labelSm, color: colors.onSurfaceVariant, flex: 1, minWidth: 0 },
+  miniValue: { ...typography.headlineMd, fontSize: 24, lineHeight: 30, flexShrink: 0, textAlign: 'right' },
   scanAction: { minHeight: 64, borderRadius: radius.lg, overflow: 'hidden', shadowColor: colors.deepAmber, shadowOpacity: 0.18, shadowRadius: 10, elevation: 3 },
   scanGradient: { minHeight: 64, padding: spacing.spaceMd, flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
   scanIcon: { width: 44, height: 44, borderRadius: radius.full, borderWidth: 1, borderColor: colors.primaryFixed, alignItems: 'center', justifyContent: 'center' },

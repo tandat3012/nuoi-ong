@@ -35,6 +35,7 @@ export function notificationRoute(notification: AppNotification) {
     case 'STOCK_COUNT': return `/counts/${entityId}`;
     case 'STOCK_TRANSFER': return `/transfers/${entityId}`;
     case 'MAINTENANCE_REQUEST': return `/maintenance/requests/${entityId}`;
+    case 'ASSET_TRANSFER_REQUEST': return `/assets/transfer-requests/${entityId}`;
     default: return null;
   }
 }

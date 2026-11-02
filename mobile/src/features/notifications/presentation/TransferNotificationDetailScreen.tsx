@@ -1,98 +1,175 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Animated, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
 
 import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import { formatQuantity } from '@/src/shared/format-quantity';
+import { formatApiDateTime } from '@/src/shared/format-date-time';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
-import { documentCodeLabel, listItems, listWarehouses, unwrap } from '@/src/features/inventory/api';
-import { apiRequest, MobileApiError } from '@/src/shared/api/client';
+import { documentCodeLabel, formatDate, statusLabel, type Paginated, type Warehouse } from '@/src/features/inventory/api';
+import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
+import { OperationResultDialog } from '@/src/shared/ui/OperationResultDialog';
+import { AppShell, Card, HoneycombDecor, Icon, PageHeader, Pill, PrimaryButton, SectionTitle } from '@/src/shared/ui/MobileShell';
 import NotificationBell from './NotificationBell';
-import { AppShell, Card, Icon, Pill, SectionTitle } from '@/src/shared/ui/MobileShell';
 
 type TransferDetail = {
-  transfer: { id: string; transferCode: string | null; status: string; fromWarehouseId: string; toWarehouseId: string; note?: string | null; rejectionReason?: string | null; createdAt?: string; transferDate?: string | null };
-  items: { id: string; itemId: string; quantity: string; lotId?: string | null; assetId?: string | null; note?: string | null }[];
+  transfer: {
+    id: string; transferCode: string | null; status: string; fromWarehouseId: string; toWarehouseId: string;
+    note?: string | null; rejectionReason?: string | null; createdAt?: string; transferDate?: string | null;
+    confirmedAt?: string | null; createdByMemberId: string;
+  };
+  items: {
+    id: string; itemId: string; itemCode?: string | null; itemName?: string | null;
+    quantity: string; unitSymbol?: string | null; unitName?: string | null;
+    lotId?: string | null; lotNumber?: string | null; lotExpiryDate?: string | null; note?: string | null;
+  }[];
 };
+
+function statusTone(status: string): 'success' | 'amber' | 'danger' | 'cream' {
+  if (status === 'CONFIRMED') return 'success';
+  if (status === 'REJECTED' || status === 'CANCELLED') return 'danger';
+  if (status === 'PENDING_APPROVAL') return 'amber';
+  return 'cream';
+}
 
 export default function TransferNotificationDetailScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id?: string }>();
-  const { currentFarmId, getAccessToken } = useAuthContext();
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { data, currentFarmId, getAccessToken } = useAuthContext();
   const [detail, setDetail] = useState<TransferDetail | null>(null);
-  const [labels, setLabels] = useState<Map<string, string>>(new Map());
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const syncRotation = useRef(new Animated.Value(0)).current;
+  const submittingRef = useRef(false);
 
-  useEffect(() => {
-    if (!currentFarmId || !params.id) { setLoading(false); return; }
-    let cancelled = false;
+  const reload = useCallback(async () => {
+    if (!currentFarmId || !id) { setError('Thiếu trang trại hoặc mã phiếu.'); setLoading(false); return; }
     setLoading(true);
-    void getAccessToken().then((token) => {
+    try {
+      const token = await getAccessToken();
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
-      return Promise.all([
-        apiRequest<{ data: TransferDetail }>(`/stock-transfers/${encodeURIComponent(params.id!)}`, { token, params: { farmId: currentFarmId }, skipCache: true }),
-        listWarehouses(token, currentFarmId),
-        listItems(token, currentFarmId),
+      const [response, warehousePage] = await Promise.all([
+        apiRequest<{ data: TransferDetail }>(`/stock-transfers/${encodeURIComponent(id)}`, { token, params: { farmId: currentFarmId }, skipCache: true }),
+        apiRequest<Paginated<Warehouse>>('/warehouses', { token, params: { farmId: currentFarmId, page: 1, pageSize: 100 } }),
       ]);
-    }).then(([response, warehouses, items]) => {
-      if (cancelled) return;
-      const transferDetail = unwrap(response);
-      setDetail(transferDetail);
-      const nextLabels = new Map<string, string>();
-      warehouses.data.filter((row) => row.farmId === currentFarmId).forEach((row) => nextLabels.set(row.id, `${row.code} · ${row.name}`));
-      items.data.filter((row) => row.farmId === currentFarmId).forEach((row) => nextLabels.set(row.id, `${row.code} · ${row.name}`));
-      setLabels(nextLabels);
+      setDetail(response.data);
+      setWarehouses(new Map(warehousePage.data.filter((row) => row.farmId === currentFarmId).map((row) => [row.id, `${row.code} · ${row.name}`])));
       setError(null);
-    }).catch((cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : 'Không thể tải chi tiết phiếu chuyển kho.'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [currentFarmId, getAccessToken, params.id]);
+    } catch (cause: unknown) {
+      setDetail(null);
+      setError(cause instanceof Error ? cause.message : 'Không thể tải chi tiết phiếu điều chuyển.');
+    } finally { setLoading(false); }
+  }, [currentFarmId, getAccessToken, id]);
+
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
+
+  function sync() {
+    clearApiCache();
+    syncRotation.setValue(0);
+    Animated.timing(syncRotation, { toValue: 1, duration: 700, useNativeDriver: true }).start();
+    void reload();
+  }
+
+  async function submit() {
+    if (submittingRef.current || !currentFarmId || !id || !detail || detail.transfer.status !== 'DRAFT') return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
+      await apiRequest(`/stock-transfers/${encodeURIComponent(id)}/submit`, { method: 'POST', token, params: { farmId: currentFarmId } });
+      clearApiCache();
+      await reload();
+      setSubmitted(true);
+    } catch (cause: unknown) {
+      Alert.alert('Không thể gửi duyệt', cause instanceof Error ? cause.message : 'Vui lòng thử lại.');
+      if (cause instanceof MobileApiError && cause.status === 409) void reload();
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }
 
   const transfer = detail?.transfer;
-  return <AppShell active="receipts">
-    <View style={styles.top}><Pressable onPress={() => router.back()} style={styles.back}><Icon name="arrow-back" color={colors.primary} /></Pressable><View style={styles.titleCopy}><Text style={styles.eyebrow}>CHI TIẾT PHIẾU</Text><Text style={styles.title}>Chuyển kho</Text></View><NotificationBell /></View>
-    {loading ? <Text style={styles.message}>Đang tải chi tiết phiếu...</Text> : error ? <Text style={styles.error}>{error}</Text> : transfer ? <>
-      <Card style={styles.card}>
-        <SectionTitle title="Thông tin phiếu" />
-        <View style={styles.codeRow}><Text style={styles.code}>{documentCodeLabel(transfer.transferCode, transfer.id)}</Text><Pill tone={transfer.status === 'CONFIRMED' ? 'success' : transfer.status === 'REJECTED' ? 'danger' : 'amber'}><Text style={styles.status}>{transfer.status}</Text></Pill></View>
-        <Text style={styles.label}>Thời gian</Text><Text style={styles.value}>{new Date(transfer.transferDate ?? transfer.createdAt ?? '').toLocaleString('vi-VN')}</Text>
-      </Card>
-      <Card style={styles.card}>
-        <SectionTitle title="Lộ trình điều chuyển" />
-        <Text style={styles.label}>Từ kho</Text><Text style={styles.value}>{labels.get(transfer.fromWarehouseId) ?? 'Kho không xác định'}</Text>
-        <Text style={styles.label}>Đến kho</Text><Text style={styles.value}>{labels.get(transfer.toWarehouseId) ?? 'Kho không xác định'}</Text>
-        {transfer.note ? <><Text style={styles.label}>Ghi chú</Text><Text style={styles.value}>{transfer.note}</Text></> : null}
-        {transfer.rejectionReason ? <Text style={styles.rejection}>Lý do từ chối: {transfer.rejectionReason}</Text> : null}
-      </Card>
-      <Card style={styles.card}>
-        <SectionTitle title="Vật tư chuyển" count={`${detail.items.length} mục`} />
-        {detail.items.map((line) => <View key={line.id} style={styles.line}>
-          <Text style={styles.value}>{labels.get(line.itemId) ?? 'Vật tư'}</Text>
-          <Text style={styles.quantity}>Số lượng: {formatQuantity(line.quantity)}</Text>
-          {line.lotId ? <Text style={styles.label}>Mã lô: {line.lotId}</Text> : null}
-          {line.assetId ? <Text style={styles.label}>Asset ID: {line.assetId}</Text> : null}
-        </View>)}
-      </Card>
-    </> : <Text style={styles.message}>Không tìm thấy phiếu chuyển kho.</Text>}
-  </AppShell>;
+  const member = data?.memberships.find(({ farm }) => farm.id === currentFarmId);
+  const canSubmit = Boolean(transfer && transfer.status === 'DRAFT' && transfer.createdByMemberId === member?.memberId && member.roles.includes('EMPLOYEE'));
+  const source = transfer ? warehouses.get(transfer.fromWarehouseId) ?? transfer.fromWarehouseId : '';
+  const destination = transfer ? warehouses.get(transfer.toWarehouseId) ?? transfer.toWarehouseId : '';
+  const syncTransform = { transform: [{ rotate: syncRotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] };
+
+  return <>
+    <AppShell active="receipts">
+      <PageHeader title="Phiếu điều chuyển" subtitle={member?.farm.name ?? 'Nhật ký kho vận'} onBack={() => router.back()} action={<View style={styles.headerActions}><NotificationBell /><Pressable accessibilityLabel="Làm mới phiếu" onPress={sync} style={styles.sync}><Animated.View style={syncTransform}><Icon name="sync" color={colors.primary} /></Animated.View></Pressable></View>} />
+      {loading ? <Card><Text style={styles.message}>Đang tải phiếu điều chuyển...</Text></Card> : error ? <Card><Text style={styles.error}>{error}</Text></Card> : transfer ? <>
+        <Card style={[styles.hero, transfer.status === 'DRAFT' && styles.draft]}>
+          <HoneycombDecor tone={statusTone(transfer.status) === 'success' ? 'green' : 'amber'} />
+          <View style={styles.heroContent}>
+            <Text style={styles.eyebrow}>CHUYỂN VẬT TƯ GIỮA CÁC KHO</Text>
+            <View style={styles.heroHead}><View style={styles.heroTitle}><Text style={styles.code}>{documentCodeLabel(transfer.transferCode, transfer.id)}</Text><Text style={styles.muted}>Tạo lúc {formatApiDateTime(transfer.createdAt)}</Text></View><Pill tone={statusTone(transfer.status)}><Text style={styles.status}>{statusLabel(transfer.status)}</Text></Pill></View>
+            <View style={styles.route}><Icon name="warehouse" color={colors.primary} /><View style={styles.routeCopy}><Text style={styles.routeLabel}>Kho nguồn</Text><Text style={styles.routeName}>{source}</Text></View></View>
+            <View style={styles.routeArrow}><Icon name="south" size={19} color={colors.secondary} /></View>
+            <View style={styles.route}><Icon name="warehouse" color={colors.statusSuccessStrong} /><View style={styles.routeCopy}><Text style={styles.routeLabel}>Kho đích</Text><Text style={styles.routeName}>{destination}</Text></View></View>
+          </View>
+        </Card>
+        <Card style={styles.card}>
+          <SectionTitle title="Thông tin phiếu" />
+          <Info label="Ngày điều chuyển" value={formatDate(transfer.transferDate)} />
+          {transfer.confirmedAt ? <Info label="Thời gian xác nhận" value={formatApiDateTime(transfer.confirmedAt)} /> : null}
+          <Info label="Ghi chú" value={transfer.note || 'Không có ghi chú'} />
+          {transfer.rejectionReason ? <Text style={styles.rejection}>Lý do từ chối: {transfer.rejectionReason}</Text> : null}
+        </Card>
+        <SectionTitle title="Vật tư điều chuyển" count={`${detail.items.length} mục`} />
+        {detail.items.map((line) => <Card key={line.id} style={styles.lineCard}>
+          <View style={styles.lineHead}><View style={styles.lineIcon}><Icon name="inventory-2" color={colors.primary} /></View><View style={styles.lineCopy}><Text style={styles.lineName}>{line.itemName || 'Vật tư'}</Text><Text style={styles.muted}>{line.itemCode || line.itemId}</Text></View><Pill tone="cream"><Text style={styles.quantity}>{formatQuantity(line.quantity)} {line.unitSymbol || line.unitName || ''}</Text></Pill></View>
+          {line.lotId ? <Info label="Lô hàng" value={line.lotNumber || line.lotId} /> : null}
+          {line.lotExpiryDate ? <Info label="Hạn sử dụng" value={formatDate(line.lotExpiryDate)} /> : null}
+          {line.note ? <Info label="Ghi chú dòng hàng" value={line.note} /> : null}
+        </Card>)}
+        <Card style={styles.notice}><Icon name="info-outline" color={colors.primary} /><Text style={styles.noticeText}>{transfer.status === 'DRAFT' ? 'Phiếu nháp chưa được gửi duyệt. Tồn kho chưa thay đổi.' : transfer.status === 'PENDING_APPROVAL' ? 'Phiếu đang chờ quản lý xác nhận. Tồn kho chưa thay đổi.' : transfer.status === 'CONFIRMED' ? 'Phiếu đã được xác nhận và tồn kho được cập nhật.' : 'Phiếu đã kết thúc; tồn kho không thay đổi.'}</Text></Card>
+        {canSubmit ? <PrimaryButton label={submitting ? 'Đang gửi...' : 'Gửi duyệt'} icon="send" loading={submitting} onPress={() => void submit()} /> : null}
+      </> : <Card><Text style={styles.message}>Không tìm thấy phiếu điều chuyển trong trang trại này.</Text></Card>}
+    </AppShell>
+    <OperationResultDialog visible={submitted} title="Phiếu điều chuyển đã gửi duyệt" message="Quản lý sẽ xem và xác nhận trên web. Tồn kho chỉ đổi khi phiếu được xác nhận." actionLabel="Xem phiếu" onAction={() => setSubmitted(false)} />
+  </>;
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return <View style={styles.info}><Text style={styles.label}>{label}</Text><Text style={styles.value}>{value}</Text></View>;
 }
 
 const styles = StyleSheet.create({
-  top: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
-  back: { width: 40, height: 40, borderRadius: radius.full, backgroundColor: colors.surfaceContainer, alignItems: 'center', justifyContent: 'center' },
-  titleCopy: { flex: 1 },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
+  sync: { width: 36, height: 36, borderRadius: radius.full, backgroundColor: colors.parchment, borderWidth: 1, borderColor: colors.outlineVariant, alignItems: 'center', justifyContent: 'center' },
+  hero: { position: 'relative', overflow: 'hidden', backgroundColor: colors.parchmentWarm },
+  draft: { borderStyle: 'dashed' },
+  heroContent: { position: 'relative', zIndex: 1, gap: spacing.spaceMd },
   eyebrow: { ...typography.labelSm, color: colors.secondary },
-  title: { ...typography.headlineMd, color: colors.deepAmberStrong },
-  card: { gap: spacing.spaceXs, backgroundColor: colors.parchmentWarm },
-  codeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.spaceSm, marginBottom: spacing.spaceSm },
-  code: { ...typography.labelLg, color: colors.primary },
+  heroHead: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.spaceSm, flexWrap: 'wrap' },
+  heroTitle: { flex: 1, minWidth: 0 },
+  code: { ...typography.headlineMd, color: colors.deepAmberStrong },
   status: { ...typography.labelSm, color: colors.onSurfaceVariant },
-  label: { ...typography.bodySm, color: colors.onSurfaceVariant, marginTop: spacing.spaceXs },
-  value: { ...typography.labelLg, color: colors.onSurface },
-  line: { gap: spacing.spaceXs, paddingVertical: spacing.spaceSm, borderBottomWidth: 1, borderBottomColor: colors.outlineVariant },
-  quantity: { ...typography.bodyMd, color: colors.primary },
-  message: { ...typography.bodyMd, color: colors.onSurfaceVariant, textAlign: 'center', paddingVertical: spacing.spaceLg },
-  error: { ...typography.bodyMd, color: colors.error, paddingVertical: spacing.spaceLg },
-  rejection: { ...typography.bodyMd, color: colors.error, marginTop: spacing.spaceSm },
+  muted: { ...typography.bodySm, color: colors.onSurfaceVariant },
+  route: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
+  routeCopy: { flex: 1, minWidth: 0 },
+  routeLabel: { ...typography.labelSm, color: colors.onSurfaceVariant },
+  routeName: { ...typography.labelLg, color: colors.onSurface, flexShrink: 1 },
+  routeArrow: { paddingLeft: spacing.spaceXs },
+  card: { gap: spacing.spaceSm, backgroundColor: colors.surfaceContainerLowest },
+  info: { gap: 2 },
+  label: { ...typography.labelSm, color: colors.onSurfaceVariant },
+  value: { ...typography.bodyMd, color: colors.onSurface },
+  rejection: { ...typography.bodySm, color: colors.error, backgroundColor: colors.errorContainer, borderRadius: radius.default, padding: spacing.spaceSm },
+  lineCard: { gap: spacing.spaceSm, backgroundColor: colors.surfaceContainerLowest },
+  lineHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, flexWrap: 'wrap' },
+  lineIcon: { width: 38, height: 38, borderRadius: radius.default, backgroundColor: colors.honeyChip, alignItems: 'center', justifyContent: 'center' },
+  lineCopy: { flex: 1, minWidth: 0 },
+  lineName: { ...typography.labelLg, color: colors.deepAmberStrong },
+  quantity: { ...typography.labelSm, color: colors.primary },
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.spaceSm, backgroundColor: colors.parchmentWarm },
+  noticeText: { ...typography.bodySm, color: colors.onSurfaceVariant, flex: 1 },
+  message: { ...typography.bodyMd, color: colors.onSurfaceVariant },
+  error: { ...typography.bodyMd, color: colors.error },
 });

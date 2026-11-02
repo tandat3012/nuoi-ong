@@ -1,7 +1,7 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AppShell, Card, Icon, PageHeader, Pill } from '@/src/shared/ui/MobileShell';
 import { colors, dimensions, radius, shadows, spacing, typography } from '@/src/core/theme/tokens';
@@ -41,6 +41,7 @@ type MaintenanceRecord = {
   resultNote: string | null;
 };
 type MaintenanceRequestPage = { data: Array<{ id: string; status: string }> };
+type TransferRequestPage = { data: Array<{ id: string; status: string }> };
 
 export default function AssetDetailScreen() {
   const router = useRouter();
@@ -50,14 +51,24 @@ export default function AssetDetailScreen() {
   const [lookup, setLookup] = useState<AssetLookup['data'] | null>(null);
   const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
   const [hasPendingMaintenanceRequest, setHasPendingMaintenanceRequest] = useState(false);
+  const [pendingTransferRequestId, setPendingTransferRequestId] = useState<string | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const syncRotation = useRef(new Animated.Value(0)).current;
+  const firstFocus = useRef(true);
+  useFocusEffect(useCallback(() => {
+    if (firstFocus.current) firstFocus.current = false;
+    else {
+      clearApiCache();
+      setReloadNonce((value) => value + 1);
+    }
+  }, []));
   useEffect(() => {
     if (!currentFarmId || !token) return;
     let cancelled = false;
     setLookup(null);
     setMaintenanceRecords([]);
+    setPendingTransferRequestId(null);
     setLookupError(null);
     void getAccessToken()
       .then((accessToken) => {
@@ -75,14 +86,22 @@ export default function AssetDetailScreen() {
             params: { farmId: currentFarmId, assetId: assetResponse.data.asset.id, page: 1, pageSize: 1, status: 'PENDING_APPROVAL' },
             skipCache: true,
           });
-          return { assetResponse, maintenanceResponse, requestResponse };
+          const transferResponse = assetResponse.data.asset.status === 'TRANSFER_PENDING'
+            ? await apiRequest<TransferRequestPage>('/asset-transfer-requests', {
+              token: accessToken,
+              params: { farmId: currentFarmId, assetId: assetResponse.data.asset.id, page: 1, pageSize: 1, status: 'PENDING_APPROVAL' },
+              skipCache: true,
+            })
+            : null;
+          return { assetResponse, maintenanceResponse, requestResponse, transferResponse };
         });
       })
-      .then(({ assetResponse, maintenanceResponse, requestResponse }) => {
+      .then(({ assetResponse, maintenanceResponse, requestResponse, transferResponse }) => {
         if (!cancelled) {
           setLookup(assetResponse.data);
           setMaintenanceRecords(maintenanceResponse.data);
           setHasPendingMaintenanceRequest(requestResponse.data.some((request) => request.status === 'PENDING_APPROVAL'));
+          setPendingTransferRequestId(transferResponse?.data.find((request) => request.status === 'PENDING_APPROVAL')?.id ?? null);
           setLookupError(null);
         }
       })
@@ -109,17 +128,15 @@ export default function AssetDetailScreen() {
   const latestMaintenance = maintenanceRecords[0];
   const currentMembership = data?.memberships.find(({ farm }) => farm.id === currentFarmId);
   const hasActiveMaintenance = maintenanceRecords.some((record) => ['SCHEDULED', 'IN_PROGRESS'].includes(record.status));
-  const canManageMaintenance = Boolean(currentMembership?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER'))
-    && !['MAINTENANCE', 'LOST', 'RETIRED'].includes(lookup?.asset.status ?? '')
-    && !hasActiveMaintenance;
   const canRequestMaintenance = Boolean(currentMembership?.roles.includes('EMPLOYEE'))
     && ['AVAILABLE', 'ASSIGNED', 'IN_USE'].includes(lookup?.asset.status ?? '')
     && !hasActiveMaintenance
     && !hasPendingMaintenanceRequest;
-  // shortcut: dev forbids ASSET in stock transfers; hidden until the app uses asset-transfer-requests.
-  const canTransferAsset = false;
-  const canReturnAsset = Boolean(currentMembership?.roles.some((role) => role === 'ADMIN' || role === 'FARM_OWNER'))
-    && ['ASSIGNED', 'IN_USE'].includes(lookup?.asset.status ?? '');
+  const canTransferAsset = Boolean(currentMembership?.roles.includes('EMPLOYEE'))
+    && lookup?.asset.status === 'AVAILABLE'
+    && Boolean(lookup.locationWarehouseId)
+    && !hasActiveMaintenance
+    && !hasPendingMaintenanceRequest;
   const nextMaintenance = maintenanceRecords.find((record) => record.status === 'SCHEDULED');
   const purchaseDate = lookup?.asset.purchaseDate ? formatDate(lookup.asset.purchaseDate) : 'Chưa có dữ liệu';
   const warrantyExpiry = lookup?.asset.warrantyExpiryDate ? formatDate(lookup.asset.warrantyExpiryDate) : 'Chưa có dữ liệu';
@@ -137,20 +154,15 @@ export default function AssetDetailScreen() {
     <View style={styles.actionMatrix}>
       <Text style={styles.actionSectionTitle}>Thao tác khả dụng</Text>
       <View style={styles.actionRow}>
-        {canManageMaintenance ? <Pressable onPress={() => router.push(`/receipts?maintenanceAssetId=${encodeURIComponent(lookup.asset.id)}` as never)} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.primaryOperationAction, pressed && styles.pressed]}>
-          <Icon name="build" size={18} color={colors.onPrimary} /><Text style={styles.primaryOperationText} numberOfLines={2}>Tạo phiếu bảo trì</Text>
-        </Pressable> : null}
         {canRequestMaintenance ? <Pressable onPress={() => router.push(`/receipts?maintenanceAssetId=${encodeURIComponent(lookup.asset.id)}` as never)} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.primaryOperationAction, pressed && styles.pressed]}>
           <Icon name="report-problem" size={18} color={colors.onPrimary} /><Text style={styles.primaryOperationText} numberOfLines={2}>Báo sự cố cần duyệt</Text>
         </Pressable> : null}
-        {canTransferAsset ? <Pressable onPress={() => router.push(`/transfers/new?assetId=${encodeURIComponent(lookup.asset.id)}&sourceWarehouseId=${encodeURIComponent(lookup.locationWarehouseId!)}` as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.secondaryOperationAction, pressed && styles.pressed]}>
-          <Icon name="swap-horiz" size={18} color={colors.primary} /><Text style={styles.secondaryOperationText} numberOfLines={2}>Điều chuyển kho</Text>
-        </Pressable> : null}
-        {canReturnAsset ? <Pressable onPress={() => router.push(`/assets/return?assetId=${encodeURIComponent(lookup.asset.id)}` as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.secondaryOperationAction, pressed && styles.pressed]}>
-          <Icon name="keyboard-return" size={18} color={colors.primary} /><Text style={styles.secondaryOperationText} numberOfLines={2}>Trả tài sản về kho</Text>
+        {canTransferAsset ? <Pressable onPress={() => router.push(`/assets/transfer-request?assetCode=${encodeURIComponent(lookup.asset.assetCode)}` as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.secondaryOperationAction, pressed && styles.pressed]}>
+          <Icon name="swap-horiz" size={18} color={colors.primary} /><Text style={styles.secondaryOperationText} numberOfLines={2}>Yêu cầu chuyển tài sản</Text>
         </Pressable> : null}
       </View>
-      {!canManageMaintenance && !canRequestMaintenance && !canTransferAsset && !canReturnAsset ? <Text style={styles.noActionText}>{hasPendingMaintenanceRequest ? 'Tài sản đã có yêu cầu bảo trì đang chờ duyệt.' : 'Không có thao tác phù hợp với trạng thái tài sản và quyền của tài khoản hiện tại.'}</Text> : null}
+      {!canRequestMaintenance && !canTransferAsset ? <Text style={styles.noActionText}>{lookup.asset.status === 'TRANSFER_PENDING' ? 'Tài sản đang chờ duyệt yêu cầu chuyển.' : hasPendingMaintenanceRequest ? 'Tài sản đã có yêu cầu bảo trì đang chờ duyệt.' : 'Không có thao tác phù hợp với trạng thái tài sản và quyền của tài khoản hiện tại.'}</Text> : null}
+      {pendingTransferRequestId ? <Pressable accessibilityRole="button" onPress={() => router.push(`/assets/transfer-requests/${encodeURIComponent(pendingTransferRequestId)}` as never)} style={styles.historyAction}><Text style={styles.historyActionText}>Xem yêu cầu chuyển đang chờ duyệt</Text><Icon name="chevron-right" size={18} color={colors.primary} /></Pressable> : null}
       <Pressable onPress={() => router.replace('/scan' as never)} android_ripple={{ color: colors.statusSuccessBorder }} style={({ pressed }) => [styles.nextScanAction, pressed && styles.pressed]}>
         <Icon name="qr-code-scanner" size={16} color={colors.statusSuccessStrong} /><Text style={styles.nextScanText} numberOfLines={2}>Quét mã tiếp theo</Text>
       </Pressable>

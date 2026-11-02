@@ -1,5 +1,5 @@
-import InventoryActionScreen from '@/src/features/inventory/presentation/InventoryActionScreen';
+import { Redirect } from 'expo-router';
 
 export default function AssetReturnRoute() {
-  return <InventoryActionScreen mode="assetReturn" />;
+  return <Redirect href="/dashboard" />;
 }

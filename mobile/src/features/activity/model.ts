@@ -9,7 +9,7 @@ export const actionLabels: Record<string, string> = {
 export const entityLabels: Record<string, string> = {
   STOCK_RECEIPT: 'Phiếu nhập kho', STOCK_ISSUE: 'Phiếu xuất kho', STOCK_COUNT: 'Phiếu kiểm kê',
   STOCK_TRANSFER: 'Phiếu điều chuyển', INVENTORY: 'Tồn kho', ITEM: 'Vật tư', ASSET: 'Tài sản',
-  MAINTENANCE: 'Bảo trì',
+  MAINTENANCE: 'Bảo trì', ASSET_TRANSFER_REQUEST: 'Yêu cầu chuyển tài sản',
 };
 const statusLabels: Record<string, string> = {
   DRAFT: 'Nháp', COUNTING: 'Đang kiểm kê', PENDING_APPROVAL: 'Chờ duyệt', CONFIRMED: 'Đã xác nhận',
@@ -26,6 +26,7 @@ const fieldLabels: Record<string, string> = {
   code: 'Mã', name: 'Tên', receiptCode: 'Mã phiếu nhập', issueCode: 'Mã phiếu xuất',
   transferCode: 'Mã phiếu điều chuyển', countCode: 'Mã phiếu kiểm kê', assetCode: 'Mã tài sản',
   warehouseId: 'Kho', sourceWarehouseId: 'Kho nguồn', destinationWarehouseId: 'Kho đích',
+  fromLocationId: 'Vị trí nguồn', toLocationId: 'Vị trí đích',
   fromWarehouseId: 'Kho nguồn', toWarehouseId: 'Kho đích', itemCode: 'Mã vật tư', itemName: 'Tên vật tư',
   itemId: 'Vật tư', lotId: 'Lô', assetId: 'Tài sản', locationId: 'Vị trí',
   quantity: 'Số lượng', actualQuantity: 'Số lượng thực tế', systemQuantity: 'Số lượng hệ thống',
@@ -147,6 +148,7 @@ export function relatedRecordRoute(log: AuditLog) {
     case 'STOCK_RECEIPT': return `/receipts/${id}?type=receipt`;
     case 'STOCK_ISSUE': return `/receipts/${id}?type=issue`;
     case 'STOCK_COUNT': return `/counts/${id}`;
+    case 'ASSET_TRANSFER_REQUEST': return `/assets/transfer-requests/${id}`;
     case 'ITEM': case 'ASSET': case 'STOCK_TRANSFER': case 'MAINTENANCE': case 'MAINTENANCE_RECORD':
       return `/activity/record?type=${normalizeEntity(log.entityType)}&id=${id}`;
     case 'INVENTORY': {

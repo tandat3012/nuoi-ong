@@ -8,6 +8,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, dimensions, gradients, radius, shadows, spacing, typography } from '@/src/core/theme/tokens';
+import { useAuthContext } from '@/src/features/auth/context/AuthContext';
+import { canUseMobileOperations } from '@/src/features/auth/mobile-access';
 
 export type IconName = ComponentProps<typeof MaterialIcons>['name'];
 export type NavKey = 'dashboard' | 'inventory' | 'scan' | 'receipts';
@@ -128,6 +130,8 @@ export function PrimaryButton({ label, icon = 'check', onPress, compact = false,
 
 export function AppShell({ active, children, scroll = true, showScrollIndicator = false, scanWarehouseId }: { active: NavKey; children: ReactNode; scroll?: boolean; showScrollIndicator?: boolean; scanWarehouseId?: string }) {
   const router = useRouter();
+  const { data, currentFarmId } = useAuthContext();
+  const canOperate = canUseMobileOperations(data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.roles);
   const insets = useSafeAreaInsets();
   const content = <View style={styles.contentWidth}>{children}</View>;
   return (
@@ -136,7 +140,7 @@ export function AppShell({ active, children, scroll = true, showScrollIndicator 
         {scroll ? <ScrollView showsVerticalScrollIndicator={showScrollIndicator} contentContainerStyle={{ paddingBottom: dimensions.bottomNavHeight + insets.bottom + spacing.spaceLg }}>{content}</ScrollView> : content}
         <View style={[styles.bottomDock, { paddingBottom: insets.bottom }]}> 
           <View style={styles.bottomNav}>
-            {navItems.map((item) => {
+            {navItems.filter((item) => item.key === 'dashboard' || canOperate).map((item) => {
               const selected = active === item.key;
               const destination = item.key === 'dashboard' ? '/dashboard' : item.key === 'receipts' ? '/receipts' : item.key === 'inventory' ? '/inventory' : `/scan${scanWarehouseId ? `?warehouseId=${encodeURIComponent(scanWarehouseId)}` : ''}`;
               return <Pressable key={item.key} onPress={() => router.navigate(destination as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.navItem, selected && item.key === 'scan' && styles.navItemScanActive, pressed && styles.pressed]}>
