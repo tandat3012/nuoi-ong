@@ -11,6 +11,11 @@ export const storeStatusLabels: Record<StoreProductStatus, string> = {
   ARCHIVED: "Lưu trữ",
 };
 
+/** Whole VND within the API's safe-integer limit, as the money DTOs require. */
+export function isVndAmount(value: string) {
+  return /^(0|[1-9]\d{0,15})$/.test(value) && Number.isSafeInteger(Number(value));
+}
+
 export function canManageStore(roles: readonly string[]) {
   return hasAnyRole(roles, STORE_MANAGE_ROLES);
 }

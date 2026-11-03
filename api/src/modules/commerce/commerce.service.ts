@@ -23,6 +23,7 @@ import {
   storeProductVariants,
   storeRegion,
   storeSettings,
+  storeShippingFees,
   storeSourceWarehouses,
   storeVariantItems,
   units,
@@ -243,6 +244,16 @@ export class CommerceService {
     ]);
 
     return { data, page: this.pageInfo(pagination, total.value) };
+  }
+
+  /** Delivery fee per region as whole-VND strings; every region is seeded by migration 0034. */
+  async shippingFees(db: Db | Transaction = this.databaseService.db) {
+    const rows = await db
+      .select({ region: storeShippingFees.region, fee: storeShippingFees.fee })
+      .from(storeShippingFees);
+    return Object.fromEntries(
+      rows.map(({ region, fee }) => [region, fee]),
+    ) as Partial<Record<StoreRegion, string>>;
   }
 
   /**

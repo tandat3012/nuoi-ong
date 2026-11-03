@@ -230,6 +230,17 @@ export class CommerceController {
     return this.commerceService.listCategories(parsePagination(page, pageSize));
   }
 
+  @Get('shipping-fees')
+  @Public()
+  @ApiOperation({ summary: 'Phí giao hàng theo miền' })
+  @ApiOkResponse({
+    description:
+      'data là { NORTH, CENTRAL, SOUTH } dạng chuỗi VNĐ; server cộng đúng phí này vào đơn.',
+  })
+  async shippingFees() {
+    return { data: await this.commerceService.shippingFees() };
+  }
+
   @Get('payment-methods')
   @Public()
   @ApiOperation({ summary: 'Phương thức thanh toán đang mở' })

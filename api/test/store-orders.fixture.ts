@@ -156,6 +156,18 @@ export async function seedOrders(db: OrderTestDb) {
     warehouseService,
     hooks,
   );
+  // Fixed fees so totals do not depend on what an admin saved in this database.
+  await db
+    .insert(schema.storeShippingFees)
+    .values([
+      { region: 'NORTH', fee: '40000' },
+      { region: 'CENTRAL', fee: '20000' },
+      { region: 'SOUTH', fee: '30000' },
+    ])
+    .onConflictDoUpdate({
+      target: schema.storeShippingFees.region,
+      set: { fee: sql`excluded.fee` },
+    });
   const input = (quantity = 3) => ({
     idempotencyKey: randomUUID(),
     recipientName: 'Khách mua hàng',

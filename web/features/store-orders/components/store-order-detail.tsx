@@ -6,17 +6,14 @@ import { useAuthenticatedRequest } from "@/features/auth";
 import { ApiError } from "@/shared/api/client";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
-import { Input } from "@/shared/components/ui/input";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
   getStoreOrder,
   runStoreOrderAction,
-  setStoreOrderShippingFee,
 } from "../store-orders.api";
 import {
   canCompleteOrder,
   canConfirmOrder,
-  canEditShippingFee,
   canShipOrder,
   pendingReplenishments,
   canStaffCancelDetail,
@@ -59,7 +56,6 @@ export function StoreOrderDetail({
     error?: string;
   } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [shippingFee, setShippingFee] = useState("");
   const [cancelReason, setCancelReason] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const current =
@@ -76,7 +72,6 @@ export function StoreOrderDetail({
       .then(({ data }) => {
         if (cancelled) return;
         setResult({ farmId, id, attempt, detail: data });
-        setShippingFee(data.order.shippingFee);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -90,7 +85,6 @@ export function StoreOrderDetail({
 
   function applyDetail(result: OrderDetail) {
     setResult({ farmId, id, attempt, detail: result });
-    setShippingFee(result.order.shippingFee);
     setActionError(null);
   }
 
@@ -122,39 +116,6 @@ export function StoreOrderDetail({
       );
       applyDetail(data);
       setCancelReason("");
-    } catch (error: unknown) {
-      setActionError(orderErrorMessage(error));
-      if (error instanceof ApiError && error.status === 409)
-        setAttempt((value) => value + 1);
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function saveShippingFee() {
-    if (!detail || isSaving || !canWrite || !canEditShippingFee(detail.order))
-      return;
-    const amount = shippingFee.trim();
-    if (
-      !/^(?:0|[1-9]\d*)$/.test(amount) ||
-      amount.length > 16 ||
-      !Number.isSafeInteger(Number(amount))
-    ) {
-      setActionError(
-        "Phí giao hàng phải là số nguyên VND không âm trong giới hạn hỗ trợ.",
-      );
-      return;
-    }
-    setIsSaving(true);
-    setActionError(null);
-    try {
-      const { data } = await setStoreOrderShippingFee(
-        request,
-        farmId,
-        id,
-        amount,
-      );
-      applyDetail(data);
     } catch (error: unknown) {
       setActionError(orderErrorMessage(error));
       if (error instanceof ApiError && error.status === 409)
@@ -451,30 +412,6 @@ export function StoreOrderDetail({
               <aside className="space-y-4 rounded-xl border bg-card p-5">
                 <h2 className="font-semibold">Phí và tổng tiền</h2>
                 <OrderAmounts order={detail.order} />
-                {canEditShippingFee(detail.order) && (
-                  <div className="space-y-2 border-t pt-4">
-                    <label className="block space-y-1 text-sm">
-                      <span>Phí giao hàng (₫)</span>
-                      <Input
-                        inputMode="decimal"
-                        value={shippingFee}
-                        onChange={(event) => setShippingFee(event.target.value)}
-                        disabled={!canWrite || isSaving}
-                      />
-                    </label>
-                    <Button
-                      variant="outline"
-                      disabled={
-                        !canWrite ||
-                        isSaving ||
-                        shippingFee.trim() === detail.order.shippingFee
-                      }
-                      onClick={() => void saveShippingFee()}
-                    >
-                      Cập nhật phí giao hàng
-                    </Button>
-                  </div>
-                )}
               </aside>
             </div>
           </section>

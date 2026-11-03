@@ -47,6 +47,10 @@ import {
   getStorePaymentMethods,
   type StorePaymentMethods,
 } from "@/features/commerce/orders/payment-methods.api";
+import {
+  getStoreShippingFees,
+  type StoreShippingFees,
+} from "@/features/commerce/orders/shipping-fees.api";
 
 type CheckoutFields = {
   recipientName: string;
@@ -209,6 +213,27 @@ export function CheckoutPage() {
     () => calculateCartTotals(checkoutItems),
     [checkoutItems],
   );
+  const [shippingFees, setShippingFees] = useState<
+    StoreShippingFees | "error" | null
+  >(null);
+  const shippingFee =
+    storeRegion.region && shippingFees && shippingFees !== "error"
+      ? shippingFees[storeRegion.region]
+      : undefined;
+  const orderTotal =
+    totals.subtotal !== null && shippingFee !== undefined
+      ? totals.subtotal + Number(shippingFee)
+      : null;
+
+  function loadShippingFees() {
+    return getStoreShippingFees()
+      .then(setShippingFees)
+      .catch(() => setShippingFees("error"));
+  }
+
+  useEffect(() => {
+    void loadShippingFees();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -337,6 +362,13 @@ export function CheckoutPage() {
       return;
     }
 
+    if (shippingFee === undefined) {
+      setError(
+        "Chưa tải được phí giao hàng. Vui lòng tải lại trang rồi đặt hàng.",
+      );
+      return;
+    }
+
     const currentInput = {
       recipientName: fields.recipientName.trim(),
       phone: fields.phone.trim(),
@@ -344,6 +376,7 @@ export function CheckoutPage() {
       region: storeRegion.region!,
       note: fields.note.trim() || undefined,
       paymentMethod: fields.paymentMethod,
+      expectedShippingFee: shippingFee,
       items: cartOrderItems(verified.items),
     } satisfies Omit<CreateOrderInput, "idempotencyKey">;
     const input: Omit<CreateOrderInput, "idempotencyKey"> = currentInput;
@@ -440,6 +473,8 @@ export function CheckoutPage() {
           // The error above still explains why the order was not sent.
         }
       }
+      if (knownFailure && code === "SHIPPING_FEE_CHANGED")
+        await loadShippingFees();
     } finally {
       submitPending.current = false;
       setIsSubmitting(false);
@@ -869,12 +904,28 @@ export function CheckoutPage() {
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Phí giao hàng</dt>
-              <dd className="text-right">Cửa hàng xác nhận sau khi đặt</dd>
+              <dd className="text-right font-semibold">
+                {shippingFee !== undefined
+                  ? formatVndCurrency(Number(shippingFee))
+                  : shippingFees === "error"
+                    ? "Không tải được"
+                    : storeRegion.region
+                      ? "Đang tải…"
+                      : "Chọn miền giao hàng"}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3 border-t border-border pt-2 text-base">
+              <dt className="font-semibold">Tổng thanh toán</dt>
+              <dd className="font-bold">
+                {items.length && orderTotal !== null
+                  ? (formatVndCurrency(orderTotal) ?? "Chưa xác định")
+                  : "—"}
+              </dd>
             </div>
           </dl>
           <p className="text-xs text-muted-foreground">
-            Phí giao hàng chưa được tính ở bước này. Cửa hàng sẽ liên hệ xác
-            nhận khi xử lý đơn.
+            Tổng đã gồm phí giao hàng; COD và mã QR chuyển khoản dùng đúng số
+            tiền này.
           </p>
           <p className="text-xs text-muted-foreground">
             {storeRegion.region

@@ -22,6 +22,7 @@ Các endpoint này dùng `@Public()`; API nội bộ vẫn giữ xác thực và
   - có miền: `AVAILABLE` (một kho bán của miền đủ `quantity`), `INSUFFICIENT_IN_REGION` (đủ 1 bước nhưng không đủ `quantity`), `REGION_NOT_SUPPORTED` (không kho bán nào của miền bán variant này), `OUT_IN_REGION` (miền khác còn), `OUT_OF_STOCK`.
   - Có miền thì `inStock` chỉ tính kho của miền đó.
 - `POST cart/availability {region, items[{variantId, quantity}]}` trả `canOrder` (một kho của miền đủ cả giỏ), nhãn từng dòng và `groups` (mảng `variantId`) gợi ý tách đơn khi `canOrder=false`. Không trả id kho.
+- Phí giao hàng: `GET store/shipping-fees` trả `{ NORTH, CENTRAL, SOUTH }` (chuỗi VNĐ, bảng `store_shipping_fees`, một dòng mỗi miền, dùng chung mọi trại). Tạo đơn chép phí của miền vào `shipping_fee`, `total = subtotal + shipping_fee`; COD và VietQR đều dùng `total` này. Gửi `expectedShippingFee` (phí khách đã thấy) thì phí đã đổi trả `409 SHIPPING_FEE_CHANGED`. Không còn sửa phí tay trên đơn.
 - Tạo đơn: server duyệt kho bán theo mã trại, chọn kho đầu tiên đủ **toàn bộ** giỏ và ghi item của trại đó vào dòng đơn. Miền không có kho bán trả `409 REGION_NOT_SUPPORTED`. Không kho nào đủ một món trả `409 INSUFFICIENT_STOCK`; mỗi món có nơi đủ nhưng không chung một kho trả `409 CART_NOT_FULFILLABLE`.
 - `QUANTITY` dùng balance không gắn lô. `LOT` chỉ cộng lô đúng item/trang trại và chưa hết hạn; ngày hết hạn bằng hôm nay vẫn hợp lệ, ngày tính theo UTC như module kho.
 - `ASSET` cần balance đủ và cá thể `AVAILABLE` có vị trí thuộc kho bán. Dữ liệu thiếu vị trí được coi là chưa sẵn hàng. Cá thể đang bảo trì hoặc đã nằm trong phiếu xuất chưa duyệt (vd. đơn đã xác nhận) không được tính.
@@ -37,6 +38,7 @@ Module `store-admin` (`/api/v1/store-admin/...`), mọi request cần `?farmId=`
 - Xem catalog: `ADMIN`, `FARM_OWNER`, `STORE_MANAGER`. Sửa catalog chung (sản phẩm, danh mục, biến thể, giá, ảnh): chỉ `ADMIN`.
 - `GET/PUT settings`, `PUT/DELETE products/:id/variants/:variantId/item`: `ADMIN`/`FARM_OWNER` chọn kho bán, miền phục vụ và vật tư của trại cho từng variant. Vật tư phải cùng đơn vị với variant. Không đổi kho bán khi kho cũ còn đơn `PENDING`/`CONFIRMED`/`SHIPPING` (`409`).
 - Tạo variant gắn luôn vật tư của trại đang chọn; vật tư đó quyết định `unit_id` của variant.
+- `PUT shipping-fees` (chỉ `ADMIN`): nhận đủ `{ NORTH, CENTRAL, SOUTH }`, áp dụng cho đơn đặt sau đó; đơn đã đặt giữ phí cũ. Web sửa ở thẻ "Phí giao hàng theo miền" trên `/store-products`.
 - `GET sales-stock` (`ADMIN`, `FARM_OWNER`, `STORE_MANAGER`): mỗi variant trại đã gắn, tồn vật lý tại kho bán, `held` (phiếu xuất `DRAFT`/`PENDING_APPROVAL`), `available = max(onHand - held, 0)` và `saleable`. Chỉ nhân viên thấy số; khách chỉ thấy nhãn.
 
 - Sản phẩm tạo ở `DRAFT`; `PUBLISHED` cần ít nhất một biến thể active gắn item/đơn vị đang hoạt động cùng farm. Không xóa sản phẩm/biến thể: dùng `ARCHIVED` và `active=false`.

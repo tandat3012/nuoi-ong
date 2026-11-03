@@ -4,7 +4,6 @@ import {
   Controller,
   Get,
   Param,
-  Patch,
   Post,
   Query,
   UseGuards,
@@ -21,10 +20,7 @@ import { storeOrderStatus, storePaymentStatus } from '../../db/schema';
 import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
-import {
-  CancelStoreOrderDto,
-  StoreOrderShippingFeeDto,
-} from './dto/store-order.dto';
+import { CancelStoreOrderDto } from './dto/store-order.dto';
 import { orderDateRange } from './store-order.query';
 import { StoreOrdersService } from './store-orders.service';
 import { STORE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
@@ -101,23 +97,6 @@ export class StoreOrdersController {
       data: await this.orders.staffGet(
         requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
-      ),
-    };
-  }
-
-  @Patch(':id/shipping-fee')
-  async shippingFee(
-    @CurrentAuth() auth: { clerkUserId: string },
-    @Query('farmId') farmId: string,
-    @Param('id') id: string,
-    @Body() input: StoreOrderShippingFeeDto,
-  ) {
-    return {
-      data: await this.orders.shippingFee(
-        requireUuid(farmId, 'farmId'),
-        auth.clerkUserId,
-        requireUuid(id, 'id'),
-        input.shippingFee,
       ),
     };
   }

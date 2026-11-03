@@ -47,10 +47,6 @@ export function canShipOrder(detail: OrderDetail) {
   );
 }
 
-export function canEditShippingFee(order: Order) {
-  return order.status === "PENDING" && order.paymentStatus === "UNPAID";
-}
-
 export function canCompleteOrder(detail: OrderDetail) {
   return (
     detail.order.status === "SHIPPING" &&
@@ -73,6 +69,7 @@ export function canonicalOrderPayload(
     region: input.region,
     note: input.note?.trim() || undefined,
     paymentMethod: input.paymentMethod,
+    expectedShippingFee: input.expectedShippingFee,
     items: [...input.items]
       .map(({ variantId, quantity, expectedUnitPrice }) => ({
         variantId,
@@ -107,6 +104,9 @@ export function parseOrderAttemptPayload(
       (input.note !== undefined && typeof input.note !== "string") ||
       (input.paymentMethod !== "COD" &&
         input.paymentMethod !== "BANK_TRANSFER") ||
+      (input.expectedShippingFee !== undefined &&
+        !(typeof input.expectedShippingFee === "string" &&
+          /^(?:0|[1-9]\d*)$/.test(input.expectedShippingFee))) ||
       !Array.isArray(input.items) ||
       input.items.length === 0 ||
       !input.items.every(
@@ -248,7 +248,7 @@ const FIELD_ERRORS: [field: string, message: string][] = [
     "Giỏ hàng có dòng không hợp lệ (mỗi dòng 1–10.000, tối đa 100 sản phẩm). Hãy cập nhật giỏ rồi thử lại.",
   ],
   ["Duplicate variant", "Giỏ hàng có sản phẩm bị lặp. Hãy cập nhật giỏ rồi thử lại."],
-  ["shippingFee", "Phí giao hàng phải là số tiền VNĐ nguyên, không âm."],
+  ["expectedShippingFee", "Phí giao hàng không hợp lệ. Hãy tải lại trang thanh toán."],
   ["reason", "Lý do hủy cần từ 1 đến 1.000 ký tự."],
 ];
 
@@ -276,6 +276,8 @@ export function orderErrorMessage(error: unknown) {
   const messages: Record<string, string> = {
     PRICE_CHANGED:
       "Giá sản phẩm đã thay đổi. Hãy kiểm tra giá mới rồi xác nhận lại.",
+    SHIPPING_FEE_CHANGED:
+      "Phí giao hàng vừa được cập nhật. Hãy kiểm tra tổng tiền mới rồi đặt hàng lại.",
     INSUFFICIENT_STOCK:
       "Tồn kho không đủ cho một hoặc nhiều sản phẩm trong giỏ.",
     VARIANT_UNAVAILABLE: "Sản phẩm hoặc quy cách không còn bán.",
@@ -307,8 +309,6 @@ export function orderErrorMessage(error: unknown) {
     "Cancelled orders cannot be paid":
       "Đơn đã hủy không thể ghi nhận thanh toán.",
     "Order warehouse is not active": "Kho gắn với đơn đã ngừng hoạt động.",
-    "Shipping fee can only change on PENDING, UNPAID orders":
-      "Chỉ có thể cập nhật phí giao hàng cho đơn chờ xác nhận và chưa thanh toán.",
     "Store belongs to another farm":
       "Cửa hàng không thuộc trại đang chọn. Hãy chuyển sang trại sở hữu cửa hàng.",
     "Order item no longer exists in the farm":

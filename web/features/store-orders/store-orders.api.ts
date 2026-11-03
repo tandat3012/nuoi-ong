@@ -29,18 +29,6 @@ export function getStoreOrder(
   );
 }
 
-export function setStoreOrderShippingFee(
-  request: AuthenticatedRequest,
-  farmId: string,
-  id: string,
-  shippingFee: string,
-) {
-  return request<{ data: OrderDetail }>(
-    `/store-orders/${encodeURIComponent(id)}/shipping-fee`,
-    { method: "PATCH", params: { farmId }, data: { shippingFee } },
-  );
-}
-
 export function runStoreOrderAction(
   request: AuthenticatedRequest,
   farmId: string,
