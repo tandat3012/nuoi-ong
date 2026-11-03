@@ -173,6 +173,11 @@ export const storeOrders = pgTable(
       () => farmMembers.id,
       { onDelete: 'restrict' },
     ),
+    // Who took the order out for delivery; kept on COMPLETED, cleared when returned.
+    shipperMemberId: uuid('shipper_member_id').references(
+      () => farmMembers.id,
+      { onDelete: 'restrict' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -213,6 +218,10 @@ export const storeOrders = pgTable(
     check(
       'ck_store_orders_payment',
       sql`(${table.paymentStatus} = 'UNPAID' AND ${table.paidAt} IS NULL AND ${table.paidByMemberId} IS NULL AND ${table.paymentTransactionId} IS NULL) OR (${table.paymentStatus} = 'PAID' AND ${table.paidAt} IS NOT NULL AND (${table.paidByMemberId} IS NOT NULL OR ${table.paymentTransactionId} IS NOT NULL))`,
+    ),
+    check(
+      'ck_store_orders_shipper',
+      sql`${table.status} <> 'SHIPPING' OR ${table.shipperMemberId} IS NOT NULL`,
     ),
     check(
       'ck_store_orders_status_fields',

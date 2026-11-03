@@ -7,6 +7,7 @@ const item = (href) =>
 const access = (overrides = {}) => ({
   canManageFarm: true,
   canManageStore: true,
+  canDeliver: true,
   canAccessFarmArea: true,
   canViewHistory: true,
   isStoreFarm: true,
@@ -36,4 +37,13 @@ test('direct routes resolve to their navigation item', () => {
   assert.equal(findNavigationItem('/receipts-x'), undefined);
   assert.equal(findNavigationItem('/dashboard'), undefined);
   assert.equal(isNavigationItemAllowed(item('/store-orders'), access({ isStoreFarm: false })), true);
+});
+
+test('delivery staff see only the delivery screen of the store section', () => {
+  const shipper = access({ canManageFarm: false, canManageStore: false, canAccessFarmArea: false, canViewHistory: false });
+  assert.equal(isNavigationItemVisible(item('/deliveries'), shipper), true);
+  assert.equal(isNavigationItemVisible(item('/deliveries'), { ...shipper, isStoreFarm: false }), false);
+  for (const href of ['/store-orders', '/store-products', '/inventory'])
+    assert.equal(isNavigationItemVisible(item(href), shipper), false, href);
+  assert.equal(isNavigationItemVisible(item('/deliveries'), access({ canDeliver: false })), false);
 });

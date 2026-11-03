@@ -115,6 +115,121 @@ describe('Store orders (migrated PostgreSQL)', () => {
       ).toBe('585000');
     }));
 
+  it('lets delivery staff take an order, return it with a reason and mark it delivered', () =>
+    inRollback(async ({ ids, service, issues, input }, tx) => {
+      const [deliveryRole] = await tx
+        .select()
+        .from(schema.roles)
+        .where(eq(schema.roles.code, 'DELIVERY_STAFF'));
+      const shippers = [randomUUID(), randomUUID()];
+      const members = [randomUUID(), randomUUID()];
+      await tx.insert(schema.users).values(
+        shippers.map((id, index) => ({
+          id,
+          authProvider: 'CLERK',
+          authProviderUserId: id,
+          email: `${id}@orders.test`,
+          fullName: `Shipper ${index + 1}`,
+        })),
+      );
+      await tx.insert(schema.farmMembers).values(
+        members.map((id, index) => ({
+          id,
+          farmId: ids.farm,
+          userId: shippers[index],
+        })),
+      );
+      await tx.insert(schema.farmMemberRoles).values(
+        members.map((farmMemberId) => ({
+          farmMemberId,
+          roleId: deliveryRole.id,
+        })),
+      );
+      const { order } = await service.create(ids.customer, input());
+      const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
+      // Not ready to take until the stock issue is approved.
+      expect(
+        await service.deliveries(ids.farm, shippers[0], 'available'),
+      ).toEqual([]);
+      await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
+      const [ready] = await service.deliveries(
+        ids.farm,
+        shippers[0],
+        'available',
+      );
+      expect(ready).toMatchObject({
+        id: order.id,
+        total: '585000',
+        phone: '0901234567',
+        items: [{ quantity: 3 }],
+      });
+      await expect(
+        service.confirm(ids.farm, shippers[0], order.id),
+      ).rejects.toThrow('Order processing permission');
+
+      const taken = await service.ship(ids.farm, shippers[0], order.id);
+      // Non-managers get the delivery view only, never the staff detail.
+      expect(taken).toMatchObject({ id: order.id, status: 'SHIPPING' });
+      for (const key of ['order', 'customer', 'payments', 'replenishments'])
+        expect(taken).not.toHaveProperty(key);
+      const out = await service.staffGet(ids.farm, order.id);
+      expect(out.order.shipperMemberId).toBe(members[0]);
+      expect(out.shipper).toEqual({
+        memberId: members[0],
+        fullName: 'Shipper 1',
+      });
+      expect(
+        await service.deliveries(ids.farm, shippers[0], 'mine'),
+      ).toHaveLength(1);
+      expect(await service.deliveries(ids.farm, shippers[1], 'mine')).toEqual(
+        [],
+      );
+      await expect(
+        service.complete(ids.farm, shippers[1], order.id),
+      ).rejects.toThrow('Only the shipper');
+      await expect(
+        service.returnDelivery(ids.farm, shippers[1], order.id, 'Nhầm'),
+      ).rejects.toThrow('Only the shipper');
+
+      const returned = await service.returnDelivery(
+        ids.farm,
+        shippers[0],
+        order.id,
+        'Khách không nghe máy',
+      );
+      expect(returned).toMatchObject({ status: 'CONFIRMED', shippedAt: null });
+      expect(returned).not.toHaveProperty('customer');
+      expect(
+        (await service.staffGet(ids.farm, order.id)).order.shipperMemberId,
+      ).toBeNull();
+      await service.ship(ids.farm, shippers[1], order.id);
+      expect(
+        await service.complete(ids.farm, shippers[1], order.id),
+      ).toMatchObject({ status: 'COMPLETED', paymentStatus: 'PAID' });
+      const done = await service.staffGet(ids.farm, order.id);
+      expect(done.order).toMatchObject({
+        status: 'COMPLETED',
+        paymentStatus: 'PAID',
+        paidByMemberId: members[1],
+        shipperMemberId: members[1],
+      });
+      expect(
+        done.deliveryLog.map(({ action, actorName }) => [action, actorName]),
+      ).toEqual([
+        ['DELIVERY_CLAIM', 'Shipper 1'],
+        ['DELIVERY_RETURN', 'Shipper 1'],
+        ['DELIVERY_CLAIM', 'Shipper 2'],
+        ['DELIVERY_COMPLETE', 'Shipper 2'],
+      ]);
+      expect(done.deliveryLog[1].data).toMatchObject({
+        reason: 'Khách không nghe máy',
+        shipperMemberId: members[0],
+      });
+      expect(
+        (await service.customerGet(ids.customer, order.id)).order,
+      ).not.toHaveProperty('shipperMemberId');
+    }));
+
   it('takes prices from the server and snapshots fractional stock steps', () =>
     inRollback(async ({ ids, service, input }) => {
       const detail = await service.create(ids.customer, input());
@@ -268,9 +383,8 @@ describe('Store orders (migrated PostgreSQL)', () => {
         )[0].quantityOnHand,
       ).toBe('9.625');
       await service.ship(ids.farm, ids.staff, order.id);
-      expect(
-        (await service.complete(ids.farm, ids.staff, order.id)).order,
-      ).toMatchObject({
+      await service.complete(ids.farm, ids.staff, order.id);
+      expect((await service.staffGet(ids.farm, order.id)).order).toMatchObject({
         status: 'COMPLETED',
         paymentStatus: 'PAID',
         paidByMemberId: ids.member,

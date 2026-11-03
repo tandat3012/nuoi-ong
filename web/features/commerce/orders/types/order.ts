@@ -51,6 +51,8 @@ export interface Order {
   paidByMemberId: string | null;
   paymentTransactionId: string | null;
   handledByMemberId: string | null;
+  /** Who took the order out for delivery; cleared when the delivery is returned. */
+  shipperMemberId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,7 +78,8 @@ type StaffOrderField =
   | "stockIssueId"
   | "paidByMemberId"
   | "paymentTransactionId"
-  | "handledByMemberId";
+  | "handledByMemberId"
+  | "shipperMemberId";
 export type CustomerOrder = Omit<Order, StaffOrderField>;
 export type CustomerOrderItem = Omit<OrderItem, "itemId">;
 
@@ -155,6 +158,21 @@ export interface OrderDetail {
   payments: OrderPaymentTransaction[];
   /** Top-up transfers from source warehouses into the sales warehouse. */
   replenishments: OrderReplenishment[];
+  shipper: { memberId: string; fullName: string } | null;
+  /** Take, return and delivered steps, oldest first. */
+  deliveryLog: OrderDeliveryLogEntry[];
+}
+
+export type DeliveryAction =
+  | "DELIVERY_CLAIM"
+  | "DELIVERY_RETURN"
+  | "DELIVERY_COMPLETE";
+
+export interface OrderDeliveryLogEntry {
+  action: DeliveryAction;
+  actorName: string | null;
+  data: { reason?: string; collectedCod?: boolean } | null;
+  createdAt: string;
 }
 
 export interface OrderReplenishment {

@@ -4,6 +4,7 @@ export type FarmRoleCode =
   | 'MAINTENANCE_STAFF'
   | 'WAREHOUSE_MANAGER'
   | 'STORE_MANAGER'
+  | 'DELIVERY_STAFF'
   | 'EMPLOYEE'
   | 'GUEST';
 

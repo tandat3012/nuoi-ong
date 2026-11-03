@@ -5,6 +5,7 @@ import {
   FARM_ADMIN_ROLES,
   FARM_AREA_ROLES,
   HISTORY_ROLES,
+  STORE_DELIVERY_ROLES,
   STORE_MANAGE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
   hasAnyRole,
@@ -23,6 +24,7 @@ export function useFarmMembership() {
     canManageFarm: hasAnyRole(roles, FARM_ADMIN_ROLES),
     canManageWarehouse: hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES),
     canManageStore: hasAnyRole(roles, STORE_MANAGE_ROLES),
+    canDeliver: hasAnyRole(roles, STORE_DELIVERY_ROLES),
     /** The store catalog is shared by every farm; only admins edit it. */
     canEditCatalog: roles.includes('ADMIN'),
     canAccessFarmArea: hasAnyRole(roles, FARM_AREA_ROLES),

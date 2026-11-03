@@ -35,6 +35,10 @@ import {
 import { documentCodeLabel } from "@/features/stock-documents";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import {
+  ReturnDeliveryDialog,
+  deliveryActionLabels,
+} from "@/features/deliveries";
 
 export function StoreOrderDetail({
   farmId,
@@ -58,6 +62,7 @@ export function StoreOrderDetail({
   const [actionError, setActionError] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [returning, setReturning] = useState(false);
   const current =
     result?.farmId === farmId && result.id === id && result.attempt === attempt
       ? result
@@ -128,6 +133,14 @@ export function StoreOrderDetail({
   return (
     <div className="space-y-6">
       {confirmDialog}
+      {returning && detail && (
+        <ReturnDeliveryDialog
+          farmId={farmId}
+          order={detail.order}
+          onReturned={() => setAttempt((value) => value + 1)}
+          onClose={() => setReturning(false)}
+        />
+      )}
       <Link href="/store-orders" className="text-sm text-primary underline">
         ← Danh sách đơn hàng
       </Link>
@@ -307,7 +320,7 @@ export function StoreOrderDetail({
                       isLoading={isSaving}
                       onClick={() => void runAction("ship")}
                     >
-                      Bắt đầu giao
+                      Nhận giao
                     </Button>
                   )}
                   {detail.order.status === "SHIPPING" && (
@@ -318,7 +331,16 @@ export function StoreOrderDetail({
                       isLoading={isSaving}
                       onClick={() => void runAction("complete")}
                     >
-                      Hoàn tất giao hàng
+                      Đã giao xong
+                    </Button>
+                  )}
+                  {detail.order.status === "SHIPPING" && (
+                    <Button
+                      variant="outline"
+                      disabled={!canWrite || isSaving}
+                      onClick={() => setReturning(true)}
+                    >
+                      Trả về chờ giao
                     </Button>
                   )}
                   {detail.order.paymentStatus === "UNPAID" &&
@@ -412,6 +434,28 @@ export function StoreOrderDetail({
               <aside className="space-y-4 rounded-xl border bg-card p-5">
                 <h2 className="font-semibold">Phí và tổng tiền</h2>
                 <OrderAmounts order={detail.order} />
+                <div className="space-y-2 border-t pt-4 text-sm">
+                  <h2 className="font-semibold">Giao hàng</h2>
+                  <p>
+                    Người giao:{" "}
+                    {detail.shipper?.fullName ??
+                      (detail.order.status === "COMPLETED"
+                        ? "Không ghi nhận"
+                        : "Chưa có")}
+                  </p>
+                  {detail.deliveryLog.length > 0 && (
+                    <ol className="space-y-1 text-muted-foreground">
+                      {detail.deliveryLog.map((entry, index) => (
+                        <li key={index}>
+                          {new Date(entry.createdAt).toLocaleString("vi-VN")} ·{" "}
+                          {deliveryActionLabels[entry.action] ?? entry.action}
+                          {entry.actorName ? ` · ${entry.actorName}` : ""}
+                          {entry.data?.reason ? ` · ${entry.data.reason}` : ""}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
               </aside>
             </div>
           </section>
@@ -428,8 +472,8 @@ function actionConfirmation(
   if (action === "confirm")
     return `Xác nhận đơn ${detail.order.code}? Nếu kho bán thiếu hàng, hệ thống tạo phiếu chuyển từ kho nguồn và đơn chuyển sang "Đang chuẩn bị hàng".`;
   if (action === "ship")
-    return `Chuyển đơn ${detail.order.code} sang đang giao?`;
+    return `Nhận giao đơn ${detail.order.code}? Bạn sẽ được ghi nhận là người giao.`;
   if (action === "complete")
-    return `Hoàn tất giao đơn ${detail.order.code}? COD sẽ được ghi nhận đã thanh toán.`;
+    return `Đơn ${detail.order.code} đã giao xong? COD sẽ được ghi nhận đã thu tiền.`;
   return `Ghi nhận đơn ${detail.order.code} đã thanh toán?`;
 }

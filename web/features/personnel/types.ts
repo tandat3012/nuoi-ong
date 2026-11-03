@@ -68,6 +68,7 @@ export const ROLE_LABELS: Record<string, string> = {
   MAINTENANCE_STAFF: "Nhân viên bảo trì",
   WAREHOUSE_MANAGER: "Quản lý kho",
   STORE_MANAGER: "Quản lý cửa hàng",
+  DELIVERY_STAFF: "Nhân viên giao hàng",
   EMPLOYEE: "Nhân viên",
   GUEST: "Khách",
 };
