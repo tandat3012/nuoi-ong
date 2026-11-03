@@ -197,6 +197,62 @@
       "when": 1793441825228,
       "tag": "0027_vietqr-payments",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793473661224,
+      "tag": "0028_store-sales-warehouse-per-farm",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793527742551,
+      "tag": "0029_store-source-warehouses",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793533614404,
+      "tag": "0030_store-order-preparing",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793534765665,
+      "tag": "0031_store-internal-rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793538859862,
+      "tag": "0032_maintenance-statuses",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793538859863,
+      "tag": "0033_maintenance-returns",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793681422077,
+      "tag": "0034_store-shipping-fees",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793682900983,
+      "tag": "0035_order-delivery",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,8 @@ export interface ReceiptFilters {
   pageSize: number;
   status?: ReceiptStatus;
   warehouseId?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export interface CreateReceiptInput extends NumberingOptions {

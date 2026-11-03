@@ -64,6 +64,21 @@ export function assetError(
 ): { message: string; reloadRequired: boolean } {
   const status =
     error && typeof error === "object" && "status" in error ? error.status : 0;
+  if (status === 400 && error instanceof Error) {
+    if (
+      error.message === "Expected return cannot precede scheduled maintenance"
+    )
+      return {
+        message:
+          "Ngày hẹn trả không được sớm hơn lịch bảo trì dự kiến. Vui lòng chọn lại.",
+        reloadRequired: false,
+      };
+    if (error.message === "Expected return must be in the future")
+      return {
+        message: "Ngày hẹn trả phải ở tương lai. Vui lòng chọn lại.",
+        reloadRequired: false,
+      };
+  }
   if (status === 401)
     return {
       message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",

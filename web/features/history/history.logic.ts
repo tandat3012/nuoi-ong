@@ -9,6 +9,7 @@ export const HISTORY_ENTITY_LABELS: Record<string, string> = {
   ASSET_TRANSFER_REQUEST: "Yêu cầu chuyển tài sản",
   ASSET: "Tài sản",
   PERSONNEL: "Nhân sự",
+  STORE_ORDER: "Đơn hàng",
 };
 
 export const HISTORY_ACTION_LABELS: Record<string, string> = {
@@ -33,6 +34,9 @@ export const HISTORY_ACTION_LABELS: Record<string, string> = {
   ASSET_MAINTENANCE_STARTED: "Bắt đầu bảo trì",
   ASSET_MAINTENANCE_COMPLETED: "Hoàn tất bảo trì",
   ASSET_MAINTENANCE_CANCELLED: "Dừng bảo trì",
+  DELIVERY_CLAIM: "Nhận giao đơn",
+  DELIVERY_RETURN: "Trả đơn giao",
+  DELIVERY_COMPLETE: "Giao xong đơn",
   PERSONNEL_ADDED: "Thêm nhân sự",
   PERSONNEL_PROFILE_CHANGED: "Cập nhật hồ sơ công việc",
   PERSONNEL_ROLES_CHANGED: "Thay đổi quyền",

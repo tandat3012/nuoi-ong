@@ -15,7 +15,10 @@ export const backOfficeRoutes = [
   '/scan',
   '/personnel',
   '/store-products',
+  '/store-stock',
   '/store-orders',
+  '/deliveries',
+  '/store-payments',
   '/store-reports',
 ] as const;
 

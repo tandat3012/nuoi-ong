@@ -25,7 +25,7 @@ const exports = evaluate('../../proxy.ts', (name) =>
 );
 
 test('warehouse pages require Clerk protection while storefront pages remain public', async () => {
-  for (const pathname of ['/warehouses', '/warehouses/warehouse-a', '/counts', '/counts/', '/transfers', '/transfers/', '/inventory', '/checkout', '/orders/abc']) {
+  for (const pathname of ['/warehouses', '/warehouses/warehouse-a', '/counts', '/counts/', '/transfers', '/transfers/', '/inventory', '/store-stock', '/store-payments', '/checkout', '/orders/abc']) {
     let protectedCalls = 0;
     await exports.default({ protect: () => { protectedCalls++; return Promise.resolve(); } }, { nextUrl: { pathname } });
     assert.equal(protectedCalls, 1, pathname);

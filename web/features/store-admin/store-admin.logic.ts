@@ -1,4 +1,5 @@
 import type { StoreProductStatus } from "./types/store-admin";
+export { storeRegionLabels } from "../commerce/orders/order.logic.ts";
 import { STORE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
 
 export const STORE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -9,6 +10,11 @@ export const storeStatusLabels: Record<StoreProductStatus, string> = {
   PUBLISHED: "Đang bán",
   ARCHIVED: "Lưu trữ",
 };
+
+/** Whole VND within the API's safe-integer limit, as the money DTOs require. */
+export function isVndAmount(value: string) {
+  return /^(0|[1-9]\d{0,15})$/.test(value) && Number.isSafeInteger(Number(value));
+}
 
 export function canManageStore(roles: readonly string[]) {
   return hasAnyRole(roles, STORE_MANAGE_ROLES);
@@ -48,12 +54,15 @@ export function storeAdminError(error: unknown): string {
   if (status === 401)
     return "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.";
   if (status === 403)
-    return "Chỉ quản trị viên hoặc chủ trang trại sở hữu kho bán hàng được quản trị cửa hàng.";
+    return "Bạn không có quyền với thao tác này. Chỉ quản trị viên được sửa catalog chung; chủ trại cấu hình bán hàng của trại.";
   if (status === 404) return "Dữ liệu không tồn tại hoặc đã bị xóa.";
   if (status === 409)
-    return "Slug đã tồn tại hoặc vật tư đã gắn với quy cách bán khác.";
+    return message.includes("Kho bán")
+      ? message
+      : "Slug đã tồn tại hoặc vật tư đã gắn với quy cách bán khác.";
   if (status === 413) return "Ảnh tối đa 10MB.";
-  if (status === 502) return "Không tải được ảnh lên Cloudinary. Vui lòng thử lại.";
+  if (status === 502)
+    return "Không tải được ảnh lên Cloudinary. Vui lòng thử lại.";
   if (status === 503) return "Cửa hàng chưa được cấu hình kho bán.";
   if (status === 400) return "Dữ liệu không hợp lệ: " + message;
   return "Không thể tải dữ liệu. Vui lòng kiểm tra kết nối và thử lại.";

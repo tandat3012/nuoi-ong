@@ -16,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { IsVndAmount } from '../../../common/money';
+import { storeRegion } from '../../../db/schema';
 import { trimText } from '../../materials/dto/material-validation';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -57,6 +58,13 @@ export class CreateStoreOrderDto {
   @Length(1, 255)
   recipientName!: string;
 
+  @ApiProperty({
+    enum: storeRegion.enumValues,
+    description: 'Miền giao hàng; chỉ kho bán phục vụ miền này được chọn.',
+  })
+  @IsIn(storeRegion.enumValues)
+  region!: (typeof storeRegion.enumValues)[number];
+
   @Transform(trimText)
   @IsString()
   @Length(8, 30)
@@ -81,6 +89,15 @@ export class CreateStoreOrderDto {
   @IsIn(['COD', 'BANK_TRANSFER'])
   paymentMethod!: 'COD' | 'BANK_TRANSFER';
 
+  @ApiPropertyOptional({
+    example: '30000',
+    description:
+      'Phí giao hàng khách đã xem; phí của miền đã đổi trả 409 SHIPPING_FEE_CHANGED.',
+  })
+  @IsOptional()
+  @IsVndAmount()
+  expectedShippingFee?: string;
+
   @ApiProperty({ type: [StoreOrderLineDto], minItems: 1, maxItems: 100 })
   @IsArray()
   @ArrayMinSize(1)
@@ -95,17 +112,19 @@ export class CreateStoreOrderDto {
   items!: StoreOrderLineDto[];
 }
 
-export class StoreOrderShippingFeeDto {
-  @ApiProperty({
-    example: '30000',
-    description: 'Chỉ sửa khi đơn PENDING và UNPAID.',
-  })
-  @IsVndAmount()
-  shippingFee!: string;
-}
-
 export class CancelStoreOrderDto {
   @ApiProperty({ maxLength: 1000 })
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 1000)
+  reason!: string;
+}
+
+export class ReturnStoreOrderDeliveryDto {
+  @ApiProperty({
+    maxLength: 1000,
+    description: 'Lý do không giao được hoặc nhận nhầm.',
+  })
   @Transform(trimText)
   @IsString()
   @Length(1, 1000)

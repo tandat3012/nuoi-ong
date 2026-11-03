@@ -11,6 +11,8 @@ describe('Audit history presentation', () => {
     expect(entityLabel('stock_issue')).toBe('Phiếu xuất kho');
     expect(relatedRecordRoute(log)).toBe('/receipts/issue-1?type=issue');
     expect(relatedRecordRoute({ ...log, entityType: 'stock_transfer' })).toBe('/activity/record?type=STOCK_TRANSFER&id=issue-1');
+    expect(entityLabel('asset_transfer_request')).toBe('Yêu cầu chuyển tài sản');
+    expect(relatedRecordRoute({ ...log, entityType: 'asset_transfer_request' })).toBe('/assets/transfer-requests/issue-1');
   });
   it('does not invent a diff when a snapshot was not stored', () => {
     expect(snapshotChanges(null, { status: 'CONFIRMED' })).toBeNull();

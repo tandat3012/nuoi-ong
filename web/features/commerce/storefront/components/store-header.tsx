@@ -1,16 +1,33 @@
-import * as React from 'react';
-import { Show, SignInButton, UserButton } from '@clerk/nextjs';
-import Link from 'next/link';
-import { ClipboardList, User } from 'lucide-react';
-import { StoreBrand } from './store-brand';
-import { StoreSearchBar } from './store-search-bar';
-import { StoreDesktopNav } from './store-desktop-nav';
-import { StoreMobileNav } from './store-mobile-nav';
-import { StoreCartButton } from '@/features/commerce/cart/components/store-cart-button';
+"use client";
+
+import * as React from "react";
+import { Show, SignInButton, UserButton } from "@clerk/nextjs";
+import Link from "next/link";
+import { ClipboardList, User } from "lucide-react";
+import { StoreBrand } from "./store-brand";
+import { StoreSearchBar } from "./store-search-bar";
+import { StoreDesktopNav } from "./store-desktop-nav";
+import { StoreMobileNav } from "./store-mobile-nav";
+import { StoreCartButton } from "@/features/commerce/cart/components/store-cart-button";
+import { StoreRegionButton } from "@/features/commerce/region/region-context";
 
 export function StoreHeader() {
+  const [hidden, setHidden] = React.useState(false);
+
+  React.useEffect(() => {
+    let previous = window.scrollY;
+    const onScroll = () => {
+      const current = Math.max(0, window.scrollY);
+      if (Math.abs(current - previous) < 5 && current > 0) return;
+      setHidden(current > 100 && current > previous);
+      previous = current;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
-    <header className="border-b border-border bg-card text-foreground shadow-2xs">
+    <header className={`border-b border-border bg-card text-foreground shadow-2xs lg:sticky lg:top-0 lg:z-40 lg:transition-transform lg:duration-200 motion-reduce:transition-none lg:focus-within:translate-y-0 ${hidden ? "lg:-translate-y-full" : ""}`}>
       {/* Khung chính: Brand, Search, Account, Cart */}
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
         <div className="flex items-center justify-between gap-3 sm:gap-6">
@@ -27,6 +44,7 @@ export function StoreHeader() {
 
           {/* Vùng bên phải: Tài khoản & Giỏ hàng */}
           <div className="flex items-center gap-1.5 sm:gap-3">
+            <StoreRegionButton />
             {/* Đăng nhập */}
             <Show when="signed-out">
               <SignInButton>
@@ -35,7 +53,10 @@ export function StoreHeader() {
                   className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-muted/70 hover:text-primary transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
                   aria-label="Đăng nhập tài khoản"
                 >
-                  <User className="size-5 shrink-0 text-primary" aria-hidden="true" />
+                  <User
+                    className="size-5 shrink-0 text-primary"
+                    aria-hidden="true"
+                  />
                   <span className="hidden sm:inline">Đăng nhập</span>
                 </button>
               </SignInButton>
@@ -45,7 +66,10 @@ export function StoreHeader() {
                 href="/orders"
                 className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-foreground hover:bg-muted/70 hover:text-primary"
               >
-                <ClipboardList className="size-5 shrink-0 text-primary" aria-hidden="true" />
+                <ClipboardList
+                  className="size-5 shrink-0 text-primary"
+                  aria-hidden="true"
+                />
                 <span className="hidden lg:inline">Đơn hàng</span>
               </Link>
               <UserButton />

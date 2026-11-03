@@ -241,8 +241,26 @@ describe('Commerce HTTP contract', () => {
       .get('/api/v1/store/products/mat-ong')
       .expect(200);
     expect(response.body).toEqual({ data: detail });
-    expect(service.getProduct).toHaveBeenCalledWith('mat-ong');
+    expect(service.getProduct).toHaveBeenCalledWith('mat-ong', undefined, 1);
     expect(clerkClient.authenticateRequest).not.toHaveBeenCalled();
+  });
+
+  it('passes a valid region and quantity and rejects others', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/store/products/mat-ong?region=SOUTH&quantity=3')
+      .expect(200);
+    expect(service.getProduct).toHaveBeenCalledWith('mat-ong', 'SOUTH', 3);
+    for (const query of ['region=WEST', 'quantity=0', 'quantity=1.5'])
+      await request(app.getHttpServer())
+        .get(`/api/v1/store/products/mat-ong?${query}`)
+        .expect(400);
+    await request(app.getHttpServer())
+      .get('/api/v1/store/products?region=south')
+      .expect(400);
+    await request(app.getHttpServer())
+      .post('/api/v1/store/cart/availability')
+      .send({ region: 'NORTH', items: [] })
+      .expect(400);
   });
 
   it('propagates missing products and unavailable warehouse errors', async () => {

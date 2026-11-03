@@ -19,6 +19,7 @@ import {
   typography,
 } from '@/src/core/theme/tokens';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
+import { canUseMobileOperations } from '@/src/features/auth/mobile-access';
 import { signOutDevice } from '@/src/features/auth/session/sign-out-device';
 import { pushRegistrationManager } from '@/src/features/notifications/push-registration-runtime';
 import { clearApiCache } from '@/src/shared/api/client';
@@ -142,7 +143,7 @@ export default function AccountScreen() {
           </View>
         </View>
       </Card>
-      <SectionTitle title="Cài đặt" />
+      {canUseMobileOperations(membership?.roles) ? <><SectionTitle title="Cài đặt" />
       <Card style={styles.menu}>
         <SettingsRow
           icon="notifications-none"
@@ -151,7 +152,7 @@ export default function AccountScreen() {
           last
           onPress={() => router.push('/account/notifications' as never)}
         />
-      </Card>
+      </Card></> : null}
       <SectionTitle title="Phiên đăng nhập" />
       <Card style={styles.menu}>
         <Text style={styles.sessionNote}>

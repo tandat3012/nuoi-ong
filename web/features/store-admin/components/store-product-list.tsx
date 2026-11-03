@@ -6,7 +6,7 @@ import { imageLoader } from "@/shared/lib/cloudinary-image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ImageOff, Plus } from "lucide-react";
-import { useAuthenticatedRequest } from "@/features/auth";
+import { useAuthenticatedRequest, useFarmMembership } from "@/features/auth";
 import type { PaginatedResponse } from "@/shared/api/contracts";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
@@ -38,6 +38,8 @@ import type {
   StoreProductStatus,
 } from "../types/store-admin";
 import { StoreCategoryForm, StoreProductForm } from "./store-product-form";
+import { StoreSalesSettings } from "./store-sales-settings";
+import { StoreShippingFeesCard } from "./store-shipping-fees";
 
 export const statusVariant = {
   DRAFT: "secondary",
@@ -48,6 +50,7 @@ export const statusVariant = {
 export function StoreProductList({ farmId }: { farmId: string }) {
   const request = useAuthenticatedRequest();
   const router = useRouter();
+  const { canEditCatalog, canManageFarm } = useFarmMembership();
   const [filters, setFilters] = useState<StoreProductFilters>({ page: 1 });
   const [search, setSearch] = useState("");
   const [result, setResult] = useState<PaginatedResponse<StoreProductRow>>();
@@ -83,24 +86,30 @@ export function StoreProductList({ farmId }: { farmId: string }) {
     <div className="space-y-6">
       <PageHeader
         title="Sản phẩm cửa hàng"
-        description="Quản lý sản phẩm, quy cách bán và ảnh hiển thị trên cửa hàng."
+        description="Catalog dùng chung cho mọi trại; mỗi trại gắn vật tư của mình vào quy cách bán."
         actions={
-          <>
-            <Button variant="outline" onClick={() => setDialog("category")}>
-              <Plus className="size-4" aria-hidden="true" />
-              Danh mục
-            </Button>
-            <Button
-              onClick={() => setDialog("product")}
-              disabled={categories.length === 0}
-              title={categories.length === 0 ? "Cần tạo danh mục trước" : undefined}
-            >
-              <Plus className="size-4" aria-hidden="true" />
-              Sản phẩm
-            </Button>
-          </>
+          canEditCatalog && (
+            <>
+              <Button variant="outline" onClick={() => setDialog("category")}>
+                <Plus className="size-4" aria-hidden="true" />
+                Danh mục
+              </Button>
+              <Button
+                onClick={() => setDialog("product")}
+                disabled={categories.length === 0}
+                title={
+                  categories.length === 0 ? "Cần tạo danh mục trước" : undefined
+                }
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                Sản phẩm
+              </Button>
+            </>
+          )
         }
       />
+      {canManageFarm && <StoreSalesSettings farmId={farmId} />}
+      <StoreShippingFeesCard farmId={farmId} canEdit={canManageFarm} />
 
       <form
         className="flex flex-col gap-3 sm:flex-row"
@@ -126,8 +135,7 @@ export function StoreProductList({ farmId }: { farmId: string }) {
               ...current,
               page: 1,
               status: (event.target.value || undefined) as
-                | StoreProductStatus
-                | undefined,
+                StoreProductStatus | undefined,
             }))
           }
         >

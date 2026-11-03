@@ -4,12 +4,11 @@ import {
   Controller,
   Get,
   Param,
-  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   normalizeSearch,
   parseOptionalEnum,
@@ -23,11 +22,14 @@ import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import {
   CancelStoreOrderDto,
-  StoreOrderShippingFeeDto,
+  ReturnStoreOrderDeliveryDto,
 } from './dto/store-order.dto';
 import { orderDateRange } from './store-order.query';
 import { StoreOrdersService } from './store-orders.service';
-import { STORE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  STORE_DELIVERY_ROLES,
+  STORE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 @Controller('store-orders')
 @UseGuards(FarmAccessGuard)
@@ -95,29 +97,32 @@ export class StoreOrdersController {
     };
   }
 
+  @Get('deliveries')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary: 'Đơn chờ giao (available) hoặc đơn mình đang giao (mine)',
+  })
+  async deliveries(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Query('scope') scope?: string,
+  ) {
+    return {
+      data: await this.orders.deliveries(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        parseOptionalEnum(scope, ['available', 'mine'] as const, 'scope') ??
+          'available',
+      ),
+    };
+  }
+
   @Get(':id')
   async get(@Query('farmId') farmId: string, @Param('id') id: string) {
     return {
       data: await this.orders.staffGet(
         requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
-      ),
-    };
-  }
-
-  @Patch(':id/shipping-fee')
-  async shippingFee(
-    @CurrentAuth() auth: { clerkUserId: string },
-    @Query('farmId') farmId: string,
-    @Param('id') id: string,
-    @Body() input: StoreOrderShippingFeeDto,
-  ) {
-    return {
-      data: await this.orders.shippingFee(
-        requireUuid(farmId, 'farmId'),
-        auth.clerkUserId,
-        requireUuid(id, 'id'),
-        input.shippingFee,
       ),
     };
   }
@@ -138,6 +143,8 @@ export class StoreOrdersController {
   }
 
   @Post(':id/ship')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({ summary: 'Nhận giao đơn; người bấm thành người giao' })
   async ship(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
@@ -153,6 +160,10 @@ export class StoreOrdersController {
   }
 
   @Post(':id/complete')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary: 'Đã giao xong (người giao hoặc quản lý cửa hàng)',
+  })
   async complete(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
@@ -163,6 +174,27 @@ export class StoreOrdersController {
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         requireUuid(id, 'id'),
+      ),
+    };
+  }
+
+  @Post(':id/return-delivery')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary: 'Trả đơn đang giao về chờ giao, kèm lý do',
+  })
+  async returnDelivery(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: ReturnStoreOrderDeliveryDto,
+  ) {
+    return {
+      data: await this.orders.returnDelivery(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        input.reason,
       ),
     };
   }

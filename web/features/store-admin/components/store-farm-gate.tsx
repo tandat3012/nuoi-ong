@@ -1,37 +1,29 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Store } from "lucide-react";
-import { useAuthContext, useFarmMembership } from "@/features/auth";
+import { useFarmMembership } from "@/features/auth";
 import { Button } from "@/shared/components/ui/button";
 import { EmptyState } from "@/shared/components/ui/empty-state";
 
-/** Store screens only work on the farm that owns the store warehouse. */
+/** Order, payment and report screens only apply to farms that sell online. */
 export function StoreFarmGate({ children }: { children: React.ReactNode }) {
-  const { data, selectFarm } = useAuthContext();
-  const { storeFarm, isStoreFarm } = useFarmMembership();
+  const router = useRouter();
+  const { isStoreFarm, canManageFarm } = useFarmMembership();
   if (isStoreFarm) return children;
-  if (!storeFarm)
-    return (
-      <EmptyState
-        icon={Store}
-        title="Cửa hàng chưa được cấu hình"
-        description="Chưa chọn kho bán hàng cho cửa hàng. Liên hệ quản trị viên để thiết lập."
-      />
-    );
-  const canSwitch = data.memberships.some(({ farm }) => farm.id === storeFarm.id);
   return (
     <EmptyState
       icon={Store}
-      title="Cửa hàng thuộc trại khác"
+      title="Trại chưa bán online"
       description={
-        canSwitch
-          ? `Cửa hàng thuộc ${storeFarm.name}. Chuyển sang trại này để quản lý sản phẩm, đơn hàng và báo cáo.`
-          : `Cửa hàng thuộc ${storeFarm.name}. Bạn chưa là thành viên của trại này.`
+        canManageFarm
+          ? "Chọn kho bán hàng và miền phục vụ của trại để nhận đơn từ cửa hàng."
+          : "Chủ trại chưa thiết lập kho bán hàng cho trại này."
       }
       action={
-        canSwitch && (
-          <Button type="button" onClick={() => selectFarm(storeFarm.id)}>
-            Chuyển sang {storeFarm.name}
+        canManageFarm && (
+          <Button type="button" onClick={() => router.push("/store-products")}>
+            Cấu hình bán hàng
           </Button>
         )
       }

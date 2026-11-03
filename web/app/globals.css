@@ -122,7 +122,7 @@
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-serif: "Times New Roman", Times, Georgia, Cambria, serif;
 
   --color-store-category-selected: var(--store-category-selected-bg);
   --color-store-category-selected-foreground: var(--store-category-selected-foreground);

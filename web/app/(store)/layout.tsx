@@ -4,6 +4,8 @@ import { StoreHeader } from '@/features/commerce/storefront/components/store-hea
 import { StoreFooter } from '@/features/commerce/storefront/components/store-footer';
 import { CartProvider } from '@/features/commerce/cart/context/cart-context';
 import { CartDrawer } from '@/features/commerce/cart/components/cart-drawer';
+import { StoreRegionProvider } from '@/features/commerce/region/region-context';
+import { getStoreRegion } from '@/features/commerce/region/region.server';
 
 export const metadata: Metadata = {
   title: {
@@ -13,22 +15,24 @@ export const metadata: Metadata = {
   description: 'Mật ong tự nhiên nguyên chất và vật tư thiết bị nuôi ong.',
 };
 
-export default function StoreLayout({
+export default async function StoreLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <CartProvider>
-      <div className="storefront flex min-h-screen flex-col bg-background text-foreground antialiased">
-        <StoreTopBar />
-        <StoreHeader />
-        <div className="flex-1">
-          {children}
+    <StoreRegionProvider initialRegion={await getStoreRegion()}>
+      <CartProvider>
+        <div className="storefront flex min-h-screen flex-col bg-background text-foreground antialiased">
+          <StoreTopBar />
+          <StoreHeader />
+          <div className="flex-1">
+            {children}
+          </div>
+          <StoreFooter />
+          <CartDrawer />
         </div>
-        <StoreFooter />
-        <CartDrawer />
-      </div>
-    </CartProvider>
+      </CartProvider>
+    </StoreRegionProvider>
   );
 }

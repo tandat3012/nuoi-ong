@@ -44,6 +44,7 @@ import {
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
+import { parseDateRange } from '../../common/date-range';
 
 const receiptSchema = {
   type: 'object',
@@ -182,6 +183,8 @@ export class StockReceiptsController {
     @Query('pageSize') pageSize?: string,
     @Query('status') status?: string,
     @Query('warehouseId') warehouseId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.stockReceiptsService.listReceipts({
       clerkUserId: auth.clerkUserId,
@@ -191,6 +194,7 @@ export class StockReceiptsController {
       warehouseId: warehouseId
         ? requireUuid(warehouseId, 'warehouseId')
         : undefined,
+      ...parseDateRange(dateFrom, dateTo),
     });
   }
 

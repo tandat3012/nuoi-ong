@@ -18,6 +18,7 @@ describe('Storefront seed', () => {
     if (!ready) return;
     for (const table of [
       'store_product_images',
+      'store_variant_items',
       'store_product_variants',
       'store_products',
       'store_categories',
@@ -122,8 +123,14 @@ describe('Storefront seed', () => {
     expect((await pool.query(idsSql)).rows).toEqual(first.rows);
     expect(first.rows).toHaveLength(23);
     expect(
-      (await pool.query('SELECT warehouse_id FROM store_settings')).rows,
-    ).toEqual([{ warehouse_id: warehouseId }]);
+      (
+        await pool.query(
+          'SELECT farm_id, sales_warehouse_id, sales_enabled FROM store_settings',
+        )
+      ).rows,
+    ).toEqual([
+      { farm_id: farmId, sales_warehouse_id: warehouseId, sales_enabled: true },
+    ]);
     expect((await pool.query(inventorySql)).rows).toEqual(before.rows);
     const statuses = await pool.query(
       'SELECT DISTINCT status FROM store_products ORDER BY status',
@@ -134,7 +141,10 @@ describe('Storefront seed', () => {
       { status: 'ARCHIVED' },
     ]);
     const step = await pool.query(
-      `SELECT v.price, v.quantity_step FROM store_product_variants v JOIN items i ON i.id = v.item_id WHERE i.code = 'MAT-FEED-SUGAR'`,
+      `SELECT v.price, v.quantity_step FROM store_product_variants v
+       JOIN store_variant_items m ON m.variant_id = v.id
+       JOIN items i ON i.id = m.item_id AND i.unit_id = v.unit_id
+       WHERE i.code = 'MAT-FEED-SUGAR'`,
     );
     expect(step.rows[0]).toEqual({ price: '25000', quantity_step: '0.100' });
   });
@@ -166,13 +176,19 @@ describe('Storefront seed', () => {
   });
 
   it('preserves the configured sales warehouse', async () => {
-    await pool.query('INSERT INTO store_settings (warehouse_id) VALUES ($1)', [
-      alternateWarehouseId,
-    ]);
+    await pool.query(
+      `INSERT INTO store_settings (farm_id, sales_warehouse_id, sales_enabled, regions)
+       VALUES ($1, $2, true, '{SOUTH}')`,
+      [farmId, alternateWarehouseId],
+    );
     await seedStorefront(pool);
     expect(
-      (await pool.query('SELECT warehouse_id FROM store_settings')).rows[0],
-    ).toEqual({ warehouse_id: alternateWarehouseId });
+      (
+        await pool.query(
+          'SELECT sales_warehouse_id, regions FROM store_settings',
+        )
+      ).rows[0],
+    ).toEqual({ sales_warehouse_id: alternateWarehouseId, regions: '{SOUTH}' });
   });
 
   it('rejects missing prerequisites without a partial seed', async () => {
@@ -184,9 +200,9 @@ describe('Storefront seed', () => {
     expect((await pool.query('SELECT id FROM store_categories')).rows).toEqual(
       [],
     );
-    expect((await pool.query('SELECT id FROM store_settings')).rows).toEqual(
-      [],
-    );
+    expect(
+      (await pool.query('SELECT farm_id FROM store_settings')).rows,
+    ).toEqual([]);
   });
 
   it('rolls back instead of reassigning an item already sold by another product', async () => {
@@ -201,8 +217,14 @@ describe('Storefront seed', () => {
       [existingProduct, existingCategory],
     );
     await pool.query(
-      `INSERT INTO store_product_variants (product_id, item_id, name, price)
-       SELECT $1, id, 'Original', 999 FROM items WHERE farm_id = $2 AND code = 'EQ-EXTRACTOR-01'`,
+      `WITH item AS (
+         SELECT id, unit_id FROM items WHERE farm_id = $2 AND code = 'EQ-EXTRACTOR-01'
+       ), variant AS (
+         INSERT INTO store_product_variants (product_id, unit_id, name, price)
+         SELECT $1, unit_id, 'Original', 999 FROM item RETURNING id
+       )
+       INSERT INTO store_variant_items (variant_id, farm_id, item_id)
+       SELECT variant.id, $2, item.id FROM variant, item`,
       [existingProduct, farmId],
     );
     await expect(seedStorefront(pool)).rejects.toThrow(
@@ -220,9 +242,9 @@ describe('Storefront seed', () => {
     expect((await pool.query('SELECT id FROM store_categories')).rows).toEqual([
       { id: existingCategory },
     ]);
-    expect((await pool.query('SELECT id FROM store_settings')).rows).toEqual(
-      [],
-    );
+    expect(
+      (await pool.query('SELECT farm_id FROM store_settings')).rows,
+    ).toEqual([]);
   });
 
   it.each([

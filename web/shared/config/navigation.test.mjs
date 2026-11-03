@@ -7,18 +7,20 @@ const item = (href) =>
 const access = (overrides = {}) => ({
   canManageFarm: true,
   canManageStore: true,
+  canDeliver: true,
   canAccessFarmArea: true,
   canViewHistory: true,
   isStoreFarm: true,
   ...overrides,
 });
 
-test('store screens are hidden on farms that do not own the store', () => {
-  for (const href of ['/store-products', '/store-orders', '/store-reports']) {
+test('order screens are hidden on farms that do not sell online; products stay for setup', () => {
+  for (const href of ['/store-orders', '/store-payments', '/store-reports']) {
     assert.equal(isNavigationItemVisible(item(href), access()), true, href);
     assert.equal(isNavigationItemVisible(item(href), access({ isStoreFarm: false })), false, href);
   }
-  assert.equal(isNavigationItemVisible(item('/inventory'), access({ isStoreFarm: false })), true);
+  for (const href of ['/store-products', '/inventory'])
+    assert.equal(isNavigationItemVisible(item(href), access({ isStoreFarm: false })), true, href);
 });
 
 test('store screens need a store role; farm-area screens hide from store-only managers', () => {
@@ -35,4 +37,13 @@ test('direct routes resolve to their navigation item', () => {
   assert.equal(findNavigationItem('/receipts-x'), undefined);
   assert.equal(findNavigationItem('/dashboard'), undefined);
   assert.equal(isNavigationItemAllowed(item('/store-orders'), access({ isStoreFarm: false })), true);
+});
+
+test('delivery staff see only the delivery screen of the store section', () => {
+  const shipper = access({ canManageFarm: false, canManageStore: false, canAccessFarmArea: false, canViewHistory: false });
+  assert.equal(isNavigationItemVisible(item('/deliveries'), shipper), true);
+  assert.equal(isNavigationItemVisible(item('/deliveries'), { ...shipper, isStoreFarm: false }), false);
+  for (const href of ['/store-orders', '/store-products', '/inventory'])
+    assert.equal(isNavigationItemVisible(item(href), shipper), false, href);
+  assert.equal(isNavigationItemVisible(item('/deliveries'), access({ canDeliver: false })), false);
 });

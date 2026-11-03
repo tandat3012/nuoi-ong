@@ -136,7 +136,7 @@ export function DateInput({
         type={mode === 'date' ? 'date' : 'datetime-local'}
         tabIndex={-1}
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-0 left-0 h-0 w-0 opacity-0"
+        className="pointer-events-none fixed left-1/2 top-1/2 h-px w-px opacity-0"
         value={iso}
         min={min}
         max={max}

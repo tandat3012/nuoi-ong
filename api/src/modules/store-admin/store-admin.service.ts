@@ -1,28 +1,49 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   HttpException,
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, or, sql, SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  or,
+  sql,
+  SQL,
+} from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 import { DatabaseService } from '../../db/database.service';
 import {
+  inventoryBalances,
   items,
+  stockIssueItems,
+  stockIssues,
   storeCategories,
   storeProductImages,
   storeProducts,
   storeProductStatus,
   storeProductVariants,
+  storeOrders,
+  storeRegion,
   storeSettings,
+  storeShippingFees,
+  storeSourceWarehouses,
+  storeVariantItems,
   units,
   warehouses,
 } from '../../db/schema';
+import {
+  UpdateStoreSettingsDto,
+  UpdateStoreShippingFeesDto,
+} from './dto/store-settings.dto';
 import {
   CreateStoreCategoryDto,
   UpdateStoreCategoryDto,
@@ -56,7 +77,7 @@ const imageColumns = {
 
 const variantColumns = {
   id: storeProductVariants.id,
-  itemId: storeProductVariants.itemId,
+  unitId: storeProductVariants.unitId,
   name: storeProductVariants.name,
   price: storeProductVariants.price,
   quantityStep: storeProductVariants.quantityStep,
@@ -72,27 +93,255 @@ export class StoreAdminService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  /** Store data has no farm column; it belongs to the farm of the selling warehouse. */
-  async assertStoreFarm(farmId: string): Promise<void> {
-    const [store] = await this.databaseService.db
-      .select({ farmId: warehouses.farmId })
-      .from(storeSettings)
-      .innerJoin(warehouses, eq(warehouses.id, storeSettings.warehouseId))
-      .where(eq(storeSettings.id, 1))
-      .limit(1);
-
-    if (!store) {
-      throw new ServiceUnavailableException(
-        'Store warehouse is not configured',
-      );
-    }
-    if (store.farmId !== farmId) {
-      throw new ForbiddenException('Store belongs to another farm');
-    }
+  /** Replaces the store-wide delivery fees; placed orders keep the fee they were created with. */
+  async updateShippingFees(input: UpdateStoreShippingFeesDto) {
+    const updatedAt = new Date().toISOString();
+    const rows = await this.databaseService.db
+      .insert(storeShippingFees)
+      .values(
+        storeRegion.enumValues.map((region) => ({
+          region,
+          fee: input[region],
+          updatedAt,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: storeShippingFees.region,
+        set: { fee: sql`excluded.fee`, updatedAt },
+      })
+      .returning({
+        region: storeShippingFees.region,
+        fee: storeShippingFees.fee,
+      });
+    return Object.fromEntries(rows.map(({ region, fee }) => [region, fee]));
   }
 
-  async listProducts(farmId: string, filters: StoreProductListFilters) {
-    await this.assertStoreFarm(farmId);
+  /** Online sales settings of one farm; null fields until the owner sets them up. */
+  async getSettings(farmId: string) {
+    const [settings] = await this.databaseService.db
+      .select({
+        salesEnabled: storeSettings.salesEnabled,
+        regions: storeSettings.regions,
+        salesWarehouse: {
+          id: warehouses.id,
+          code: warehouses.code,
+          name: warehouses.name,
+          status: warehouses.status,
+        },
+      })
+      .from(storeSettings)
+      .leftJoin(warehouses, eq(warehouses.id, storeSettings.salesWarehouseId))
+      .where(eq(storeSettings.farmId, farmId))
+      .limit(1);
+    const sourceWarehouses = await this.databaseService.db
+      .select({
+        id: warehouses.id,
+        code: warehouses.code,
+        name: warehouses.name,
+        status: warehouses.status,
+      })
+      .from(storeSourceWarehouses)
+      .innerJoin(
+        warehouses,
+        eq(warehouses.id, storeSourceWarehouses.warehouseId),
+      )
+      .where(eq(storeSourceWarehouses.farmId, farmId))
+      .orderBy(asc(warehouses.code));
+    return {
+      ...(settings ?? {
+        salesEnabled: false,
+        regions: [],
+        salesWarehouse: null,
+      }),
+      sourceWarehouses,
+    };
+  }
+
+  /**
+   * Physical stock of every variant this farm sells, at its sales warehouse,
+   * with what unapproved stock issues (e.g. confirmed orders) already hold.
+   * shortcut: not paginated, one row per mapped variant; paginate if a farm maps hundreds.
+   */
+  async salesStock(farmId: string) {
+    const settings = await this.getSettings(farmId);
+    const warehouseId = settings.salesWarehouse?.id;
+    if (!warehouseId) return { ...settings, rows: [] };
+
+    const onHand = sql<string>`(
+      SELECT COALESCE(SUM(${inventoryBalances.quantityOnHand}), 0)
+      FROM ${inventoryBalances}
+      WHERE ${inventoryBalances.itemId} = ${items.id}
+        AND ${inventoryBalances.warehouseId} = ${warehouseId}
+    )`;
+    // Shown to staff only; source stock reaches customers by transfer.
+    const sourceOnHand = sql<string>`(
+      SELECT COALESCE(SUM(${inventoryBalances.quantityOnHand}), 0)
+      FROM ${inventoryBalances}
+      JOIN ${storeSourceWarehouses}
+        ON ${storeSourceWarehouses.warehouseId} = ${inventoryBalances.warehouseId}
+      JOIN ${warehouses} sw ON sw.id = ${inventoryBalances.warehouseId}
+      WHERE ${inventoryBalances.itemId} = ${items.id}
+        AND ${storeSourceWarehouses.farmId} = ${farmId}
+        AND sw.status = 'ACTIVE'
+        AND ${inventoryBalances.warehouseId} <> ${warehouseId}
+    )`;
+    const held = sql<string>`(
+      SELECT COALESCE(SUM(${stockIssueItems.quantity}), 0)
+      FROM ${stockIssueItems}
+      JOIN ${stockIssues} ON ${stockIssues.id} = ${stockIssueItems.stockIssueId}
+      WHERE ${stockIssueItems.itemId} = ${items.id}
+        AND ${stockIssues.warehouseId} = ${warehouseId}
+        AND ${stockIssues.status} IN ('DRAFT', 'PENDING_APPROVAL')
+    )`;
+    const rows = await this.databaseService.db
+      .select({
+        productId: storeProducts.id,
+        productName: storeProducts.name,
+        productStatus: storeProducts.status,
+        variantId: storeProductVariants.id,
+        variantName: storeProductVariants.name,
+        variantActive: storeProductVariants.active,
+        itemId: items.id,
+        itemCode: items.code,
+        itemName: items.name,
+        itemStatus: items.status,
+        unitSymbol: units.symbol,
+        unitStatus: units.status,
+        onHand: sql<string>`${onHand}::text`,
+        held: sql<string>`${held}::text`,
+        available: sql<string>`GREATEST(${onHand} - ${held}, 0)::text`,
+        sourceOnHand: sql<string>`${sourceOnHand}::text`,
+      })
+      .from(storeVariantItems)
+      .innerJoin(items, eq(items.id, storeVariantItems.itemId))
+      .innerJoin(
+        storeProductVariants,
+        eq(storeProductVariants.id, storeVariantItems.variantId),
+      )
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.id, storeProductVariants.productId),
+      )
+      .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+      .where(eq(storeVariantItems.farmId, farmId))
+      .orderBy(asc(storeProducts.name), asc(storeProductVariants.name));
+
+    return {
+      ...settings,
+      rows: rows.map(({ unitStatus, ...row }) => ({
+        ...row,
+        // Mirrors CommerceService.eligibleVariantConditions().
+        saleable:
+          unitStatus === 'ACTIVE' &&
+          settings.salesEnabled &&
+          settings.salesWarehouse?.status === 'ACTIVE' &&
+          row.productStatus === 'PUBLISHED' &&
+          row.variantActive &&
+          row.itemStatus === 'ACTIVE',
+      })),
+    };
+  }
+
+  async updateSettings(farmId: string, input: UpdateStoreSettingsDto) {
+    await this.databaseService.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({ salesWarehouseId: storeSettings.salesWarehouseId })
+        .from(storeSettings)
+        .where(eq(storeSettings.farmId, farmId))
+        .for('update');
+      if (input.salesWarehouseId) {
+        const [warehouse] = await tx
+          .select({ id: warehouses.id })
+          .from(warehouses)
+          .where(
+            and(
+              eq(warehouses.id, input.salesWarehouseId),
+              eq(warehouses.farmId, farmId),
+              eq(warehouses.status, 'ACTIVE'),
+            ),
+          )
+          .limit(1);
+        if (!warehouse)
+          throw new BadRequestException(
+            'Sales warehouse must be an active warehouse of this farm',
+          );
+      }
+      const oldWarehouseId = current?.salesWarehouseId;
+      if (oldWarehouseId && oldWarehouseId !== input.salesWarehouseId) {
+        // Open orders hold or will hold stock in the old warehouse (spec §2.2).
+        const [open] = await tx
+          .select({ id: storeOrders.id })
+          .from(storeOrders)
+          .where(
+            and(
+              eq(storeOrders.warehouseId, oldWarehouseId),
+              inArray(storeOrders.status, [
+                'PENDING',
+                'PREPARING',
+                'CONFIRMED',
+                'SHIPPING',
+              ]),
+            ),
+          )
+          .limit(1);
+        if (open)
+          throw new ConflictException({
+            code: 'SALES_WAREHOUSE_IN_USE',
+            message:
+              'Kho bán hiện tại còn đơn chưa hoàn tất; xử lý xong mới được đổi kho.',
+          });
+      }
+      const values = {
+        salesWarehouseId: input.salesWarehouseId ?? null,
+        salesEnabled: input.salesEnabled,
+        regions: [...new Set(input.regions)],
+        updatedAt: new Date().toISOString(),
+      };
+      await this.mapDatabaseError(
+        tx
+          .insert(storeSettings)
+          .values({ farmId, ...values })
+          .onConflictDoUpdate({ target: storeSettings.farmId, set: values }),
+      );
+      // A warehouse that becomes the sales warehouse stops being its own source.
+      if (input.salesWarehouseId)
+        await tx
+          .delete(storeSourceWarehouses)
+          .where(eq(storeSourceWarehouses.warehouseId, input.salesWarehouseId));
+      const sources = input.sourceWarehouseIds;
+      if (!sources) return;
+      if (sources.includes(input.salesWarehouseId ?? ''))
+        throw new BadRequestException(
+          'The sales warehouse cannot also be a source warehouse',
+        );
+      if (sources.length > 0) {
+        const valid = await tx
+          .select({ id: warehouses.id })
+          .from(warehouses)
+          .where(
+            and(
+              inArray(warehouses.id, sources),
+              eq(warehouses.farmId, farmId),
+              eq(warehouses.status, 'ACTIVE'),
+            ),
+          );
+        if (valid.length !== sources.length)
+          throw new BadRequestException(
+            'Source warehouses must be active warehouses of this farm',
+          );
+      }
+      await tx
+        .delete(storeSourceWarehouses)
+        .where(eq(storeSourceWarehouses.farmId, farmId));
+      if (sources.length > 0)
+        await tx
+          .insert(storeSourceWarehouses)
+          .values(sources.map((warehouseId) => ({ warehouseId, farmId })));
+    });
+    return this.getSettings(farmId);
+  }
+
+  async listProducts(filters: StoreProductListFilters) {
     const conditions: SQL[] = [];
     if (filters.status)
       conditions.push(eq(storeProducts.status, filters.status));
@@ -150,7 +399,6 @@ export class StoreAdminService {
   }
 
   async getProduct(farmId: string, id: string) {
-    await this.assertStoreFarm(farmId);
     const db = this.databaseService.db;
     const [product] = await db
       .select({
@@ -173,16 +421,29 @@ export class StoreAdminService {
       db
         .select({
           ...variantColumns,
+          // The item this farm sells for the variant; null until mapped.
           item: {
+            id: items.id,
             code: items.code,
             name: items.name,
             trackingMode: items.trackingMode,
           },
+          farmCount: sql<number>`(
+            SELECT count(*)::int FROM ${storeVariantItems} m
+            WHERE m.variant_id = ${storeProductVariants.id}
+          )`,
           unit: { name: units.name, symbol: units.symbol },
         })
         .from(storeProductVariants)
-        .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-        .innerJoin(units, eq(units.id, items.unitId))
+        .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+        .leftJoin(
+          storeVariantItems,
+          and(
+            eq(storeVariantItems.variantId, storeProductVariants.id),
+            eq(storeVariantItems.farmId, farmId),
+          ),
+        )
+        .leftJoin(items, eq(items.id, storeVariantItems.itemId))
         .where(eq(storeProductVariants.productId, id))
         .orderBy(
           asc(storeProductVariants.createdAt),
@@ -199,7 +460,6 @@ export class StoreAdminService {
   }
 
   async createProduct(farmId: string, input: CreateStoreProductDto) {
-    await this.assertStoreFarm(farmId);
     const [product] = await this.mapDatabaseError(
       this.databaseService.db
         .insert(storeProducts)
@@ -215,7 +475,6 @@ export class StoreAdminService {
     input: UpdateStoreProductDto,
   ) {
     this.assertHasValue(input);
-    await this.assertStoreFarm(farmId);
     const updated = await this.mapDatabaseError(
       this.databaseService.db
         .update(storeProducts)
@@ -234,7 +493,6 @@ export class StoreAdminService {
     id: string,
     status: StoreProductStatus,
   ) {
-    await this.assertStoreFarm(farmId);
     await this.databaseService.db.transaction(async (transaction) => {
       const [product] = await transaction
         .select({ id: storeProducts.id })
@@ -244,19 +502,22 @@ export class StoreAdminService {
       if (!product) throw new NotFoundException('Store product not found');
 
       if (status === 'PUBLISHED') {
-        // Same eligibility as the public catalog in CommerceService.
+        // Same eligibility as the public catalog in CommerceService, minus farm sales settings.
         const [eligible] = await transaction
           .select({ id: storeProductVariants.id })
           .from(storeProductVariants)
-          .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-          .innerJoin(units, eq(units.id, items.unitId))
+          .innerJoin(units, eq(units.id, storeProductVariants.unitId))
           .where(
             and(
               eq(storeProductVariants.productId, id),
               eq(storeProductVariants.active, true),
-              eq(items.farmId, farmId),
-              eq(items.status, 'ACTIVE'),
               eq(units.status, 'ACTIVE'),
+              sql`EXISTS (
+                SELECT 1 FROM ${storeVariantItems}
+                JOIN ${items} ON ${items.id} = ${storeVariantItems.itemId}
+                WHERE ${storeVariantItems.variantId} = ${storeProductVariants.id}
+                  AND ${items.status} = 'ACTIVE'
+              )`,
             ),
           )
           .limit(1);
@@ -280,34 +541,38 @@ export class StoreAdminService {
     productId: string,
     input: CreateStoreVariantDto,
   ) {
-    await this.assertStoreFarm(farmId);
     await this.requireProduct(productId);
     const [item] = await this.databaseService.db
-      .select({ id: items.id })
+      .select({ unitId: items.unitId })
       .from(items)
       .where(and(eq(items.id, input.itemId), eq(items.farmId, farmId)))
       .limit(1);
     if (!item) {
-      throw new BadRequestException('Item does not exist in the store farm');
+      throw new BadRequestException('Item does not exist in this farm');
     }
 
-    const [variant] = await this.mapDatabaseError(
-      this.databaseService.db
-        .insert(storeProductVariants)
-        .values({ ...input, productId })
-        .returning(variantColumns),
+    // The first item fixes the variant's unit and becomes this farm's mapping.
+    const { itemId, ...values } = input;
+    return this.mapDatabaseError(
+      this.databaseService.db.transaction(async (tx) => {
+        const [variant] = await tx
+          .insert(storeProductVariants)
+          .values({ ...values, productId, unitId: item.unitId })
+          .returning(variantColumns);
+        await tx
+          .insert(storeVariantItems)
+          .values({ variantId: variant.id, farmId, itemId });
+        return variant;
+      }),
     );
-    return variant;
   }
 
   async updateVariant(
-    farmId: string,
     productId: string,
     variantId: string,
     input: UpdateStoreVariantDto,
   ) {
     this.assertHasValue(input);
-    await this.assertStoreFarm(farmId);
     const [variant] = await this.mapDatabaseError(
       this.databaseService.db
         .update(storeProductVariants)
@@ -324,8 +589,80 @@ export class StoreAdminService {
     return variant;
   }
 
-  async addImage(
+  /** Sets which item of this farm fulfils the variant. */
+  async setVariantItem(
     farmId: string,
+    productId: string,
+    variantId: string,
+    itemId: string,
+  ) {
+    const [variant] = await this.databaseService.db
+      .select({ unitId: storeProductVariants.unitId })
+      .from(storeProductVariants)
+      .where(
+        and(
+          eq(storeProductVariants.id, variantId),
+          eq(storeProductVariants.productId, productId),
+        ),
+      )
+      .limit(1);
+    if (!variant) throw new NotFoundException('Variant not found');
+    const [item] = await this.databaseService.db
+      .select({ unitId: items.unitId })
+      .from(items)
+      .where(
+        and(
+          eq(items.id, itemId),
+          eq(items.farmId, farmId),
+          eq(items.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    if (!item)
+      throw new BadRequestException('Item is not an active item of this farm');
+    // The variant price is per unit, so every farm must sell it in that unit.
+    if (item.unitId !== variant.unitId)
+      throw new BadRequestException(
+        'Item unit must match the unit of the variant',
+      );
+    const now = new Date().toISOString();
+    await this.mapDatabaseError(
+      this.databaseService.db
+        .insert(storeVariantItems)
+        .values({ variantId, farmId, itemId })
+        .onConflictDoUpdate({
+          target: [storeVariantItems.variantId, storeVariantItems.farmId],
+          set: { itemId, updatedAt: now },
+        }),
+    );
+    return this.getProduct(farmId, productId);
+  }
+
+  /** Stops this farm from supplying the variant; other farms keep selling it. */
+  async removeVariantItem(
+    farmId: string,
+    productId: string,
+    variantId: string,
+  ) {
+    const removed = await this.databaseService.db
+      .delete(storeVariantItems)
+      .where(
+        and(
+          eq(storeVariantItems.variantId, variantId),
+          eq(storeVariantItems.farmId, farmId),
+          sql`EXISTS (
+            SELECT 1 FROM ${storeProductVariants}
+            WHERE ${storeProductVariants.id} = ${variantId}
+              AND ${storeProductVariants.productId} = ${productId}
+          )`,
+        ),
+      )
+      .returning({ variantId: storeVariantItems.variantId });
+    if (removed.length === 0)
+      throw new NotFoundException('Variant is not mapped for this farm');
+  }
+
+  async addImage(
     productId: string,
     file: Express.Multer.File | undefined,
     alt = '',
@@ -337,7 +674,6 @@ export class StoreAdminService {
     if (alt.length > 500) {
       throw new BadRequestException('alt must be at most 500 characters');
     }
-    await this.assertStoreFarm(farmId);
     await this.requireProduct(productId);
 
     // Cloudinary re-checks the real content: the client MIME type is untrusted.
@@ -376,13 +712,7 @@ export class StoreAdminService {
     }
   }
 
-  async updateImage(
-    farmId: string,
-    productId: string,
-    imageId: string,
-    alt: string,
-  ) {
-    await this.assertStoreFarm(farmId);
+  async updateImage(productId: string, imageId: string, alt: string) {
     const [image] = await this.databaseService.db
       .update(storeProductImages)
       .set({ alt, updatedAt: new Date().toISOString() })
@@ -392,8 +722,7 @@ export class StoreAdminService {
     return image;
   }
 
-  async reorderImages(farmId: string, productId: string, imageIds: string[]) {
-    await this.assertStoreFarm(farmId);
+  async reorderImages(productId: string, imageIds: string[]) {
     return this.databaseService.db.transaction(async (transaction) => {
       const current = await transaction
         .select({
@@ -437,8 +766,7 @@ export class StoreAdminService {
     });
   }
 
-  async deleteImage(farmId: string, productId: string, imageId: string) {
-    await this.assertStoreFarm(farmId);
+  async deleteImage(productId: string, imageId: string) {
     const [deleted] = await this.databaseService.db
       .delete(storeProductImages)
       .where(this.imageCondition(productId, imageId))
@@ -450,7 +778,6 @@ export class StoreAdminService {
 
   /** Item picker for variants: display fields only, no cost, location or stock history. */
   async lookupItems(farmId: string, search?: string) {
-    await this.assertStoreFarm(farmId);
     const conditions = [eq(items.farmId, farmId), eq(items.status, 'ACTIVE')];
     if (search)
       conditions.push(
@@ -479,8 +806,7 @@ export class StoreAdminService {
     };
   }
 
-  async listCategories(farmId: string) {
-    await this.assertStoreFarm(farmId);
+  async listCategories() {
     const data = await this.databaseService.db
       .select({
         id: storeCategories.id,
@@ -492,8 +818,7 @@ export class StoreAdminService {
     return { data };
   }
 
-  async createCategory(farmId: string, input: CreateStoreCategoryDto) {
-    await this.assertStoreFarm(farmId);
+  async createCategory(input: CreateStoreCategoryDto) {
     const [category] = await this.mapDatabaseError(
       this.databaseService.db.insert(storeCategories).values(input).returning({
         id: storeCategories.id,
@@ -504,13 +829,8 @@ export class StoreAdminService {
     return category;
   }
 
-  async updateCategory(
-    farmId: string,
-    id: string,
-    input: UpdateStoreCategoryDto,
-  ) {
+  async updateCategory(id: string, input: UpdateStoreCategoryDto) {
     this.assertHasValue(input);
-    await this.assertStoreFarm(farmId);
     const [category] = await this.mapDatabaseError(
       this.databaseService.db
         .update(storeCategories)

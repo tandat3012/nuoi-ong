@@ -5,6 +5,7 @@ import {
   FARM_ADMIN_ROLES,
   FARM_AREA_ROLES,
   HISTORY_ROLES,
+  STORE_DELIVERY_ROLES,
   STORE_MANAGE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
   hasAnyRole,
@@ -15,8 +16,7 @@ export function useFarmMembership() {
   const { data, selectedFarmId } = useAuthContext();
   const membership = data.memberships.find(({ farm }) => farm.id === selectedFarmId);
   const roles = membership?.roles ?? [];
-  const storeFarm = data.storeFarm;
-  const isStoreFarm = !!storeFarm && storeFarm.id === selectedFarmId;
+  const isStoreFarm = !!selectedFarmId && data.storeFarmIds.includes(selectedFarmId);
   return {
     selectedFarmId,
     membership,
@@ -24,11 +24,13 @@ export function useFarmMembership() {
     canManageFarm: hasAnyRole(roles, FARM_ADMIN_ROLES),
     canManageWarehouse: hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES),
     canManageStore: hasAnyRole(roles, STORE_MANAGE_ROLES),
+    canDeliver: hasAnyRole(roles, STORE_DELIVERY_ROLES),
+    /** The store catalog is shared by every farm; only admins edit it. */
+    canEditCatalog: roles.includes('ADMIN'),
     canAccessFarmArea: hasAnyRole(roles, FARM_AREA_ROLES),
     /** Own activity unless farm admin; same staff set as the dashboard metrics. */
     canViewHistory: hasAnyRole(roles, HISTORY_ROLES),
     canViewMetrics: hasAnyRole(roles, HISTORY_ROLES),
-    storeFarm,
     isStoreFarm,
   };
 }

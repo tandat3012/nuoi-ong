@@ -1,8 +1,10 @@
 export type FarmRoleCode =
   | 'ADMIN'
   | 'FARM_OWNER'
+  | 'MAINTENANCE_STAFF'
   | 'WAREHOUSE_MANAGER'
   | 'STORE_MANAGER'
+  | 'DELIVERY_STAFF'
   | 'EMPLOYEE'
   | 'GUEST';
 
@@ -27,6 +29,6 @@ export type AuthContextResponse = {
   };
   memberships: FarmMembership[];
   defaultFarmId: string | null;
-  /** Farm owning the store warehouse; null for customers or when unset. */
-  storeFarm: { id: string; name: string } | null;
+  /** Farms of the user that have online sales settings; empty for customers. */
+  storeFarmIds: string[];
 };

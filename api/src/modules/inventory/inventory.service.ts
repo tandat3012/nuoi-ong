@@ -25,6 +25,7 @@ import {
   inventoryTransactions,
   inventoryTransactionType,
   items,
+  locations,
   stockCounts,
   stockIssues,
   stockReceiptItems,
@@ -46,10 +47,13 @@ type Filters = {
   warehouseId?: string;
   itemId?: string;
   lotId?: string;
+  assetId?: string;
 };
 
 type TransactionFilters = Filters & {
   transactionType?: (typeof inventoryTransactionType.enumValues)[number];
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 @Injectable()
@@ -65,6 +69,33 @@ export class InventoryService {
       filters.clerkUserId,
       false,
     );
+    const [selectedAsset] = filters.assetId
+      ? await this.databaseService.db
+          .select({
+            id: assets.id,
+            assetCode: assets.assetCode,
+            serialNumber: assets.serialNumber,
+            status: assets.status,
+            locationName: locations.name,
+          })
+          .from(assets)
+          .leftJoin(
+            locations,
+            and(
+              eq(locations.id, assets.currentLocationId),
+              eq(locations.farmId, assets.farmId),
+            ),
+          )
+          .where(
+            and(
+              eq(assets.id, filters.assetId),
+              eq(assets.farmId, filters.farmId),
+            ),
+          )
+          .limit(1)
+      : [];
+    if (filters.assetId && !selectedAsset)
+      throw new NotFoundException('Asset not found in this farm');
     const lotIdColumn = sql<string | null>`${inventoryLots}."id"`;
     const lotFarmIdColumn = sql<string | null>`${inventoryLots}."farm_id"`;
     const lotItemIdColumn = sql<string | null>`${inventoryLots}."item_id"`;
@@ -90,6 +121,20 @@ export class InventoryService {
       predicates.push(eq(inventoryBalances.itemId, filters.itemId));
     if (filters.lotId)
       predicates.push(eq(inventoryBalances.lotId, filters.lotId));
+    if (filters.assetId) {
+      predicates.push(
+        eq(items.trackingMode, 'ASSET'),
+        isNull(inventoryBalances.lotId),
+      );
+      predicates.push(sql`EXISTS (
+        SELECT 1 FROM assets a JOIN locations l ON l.id=a.current_location_id AND l.farm_id=a.farm_id
+        WHERE a.id=${filters.assetId} AND a.farm_id=${filters.farmId}
+          AND a.item_id=${inventoryBalances.itemId} AND l.warehouse_id=${inventoryBalances.warehouseId}
+          AND (a.status IN ('AVAILABLE','TRANSFER_PENDING') OR (a.status='MAINTENANCE' AND EXISTS (
+            SELECT 1 FROM maintenance_records m WHERE m.asset_id=a.id AND m.status='FAILED' AND m.return_status='CONFIRMED'
+          )))
+      )`);
+    }
     const validLot = or(
       isNull(inventoryBalances.lotId),
       and(
@@ -150,9 +195,10 @@ export class InventoryService {
     ]);
     const totalItems = Number(totals[0]?.value ?? 0);
     return {
+      ...(selectedAsset ? { selectedAsset } : {}),
       data: rows.map((row) => ({
         id: row.id,
-        quantityOnHand: row.quantityOnHand,
+        quantityOnHand: filters.assetId ? '1.000' : row.quantityOnHand,
         // Keep the Mobile response fields while exposing the richer Web/API shape.
         balance: {
           id: row.id,
@@ -160,7 +206,7 @@ export class InventoryService {
           warehouseId: row.warehouseId,
           itemId: row.itemId,
           lotId: row.lotId,
-          quantityOnHand: row.quantityOnHand,
+          quantityOnHand: filters.assetId ? '1.000' : row.quantityOnHand,
           updatedAt: row.updatedAt,
         },
         itemCode: row.itemCode,
@@ -322,6 +368,16 @@ export class InventoryService {
     if (filters.transactionType) {
       predicates.push(
         eq(inventoryTransactions.transactionType, filters.transactionType),
+      );
+    }
+    if (filters.dateFrom) {
+      predicates.push(
+        sql`${inventoryTransactions.createdAt} >= (${filters.dateFrom}::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')`,
+      );
+    }
+    if (filters.dateTo) {
+      predicates.push(
+        sql`${inventoryTransactions.createdAt} < ((${filters.dateTo}::date + 1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')`,
       );
     }
     const where = and(...predicates);

@@ -9,11 +9,16 @@ import type {
   StoreProductInput,
   StoreProductRow,
   StoreProductStatus,
+  StoreRegion,
+  StoreSalesStock,
+  StoreSettings,
+  StoreSettingsInput,
   StoreVariant,
   StoreVariantInput,
 } from "../types/store-admin";
 
-const product = (id: string) => `/store-admin/products/${encodeURIComponent(id)}`;
+const product = (id: string) =>
+  `/store-admin/products/${encodeURIComponent(id)}`;
 
 export function getStoreProducts(
   request: AuthenticatedRequest,
@@ -83,6 +88,72 @@ export function saveStoreVariant(
       ? `${product(productId)}/variants/${encodeURIComponent(variantId)}`
       : `${product(productId)}/variants`,
     { method: variantId ? "PATCH" : "POST", params: { farmId }, data: input },
+  );
+}
+
+export function setStoreVariantItem(
+  request: AuthenticatedRequest,
+  farmId: string,
+  productId: string,
+  variantId: string,
+  itemId: string,
+) {
+  return request<{ data: StoreProduct }>(
+    `${product(productId)}/variants/${encodeURIComponent(variantId)}/item`,
+    { method: "PUT", params: { farmId }, data: { itemId } },
+  );
+}
+
+export function removeStoreVariantItem(
+  request: AuthenticatedRequest,
+  farmId: string,
+  productId: string,
+  variantId: string,
+) {
+  return request<void>(
+    `${product(productId)}/variants/${encodeURIComponent(variantId)}/item`,
+    { method: "DELETE", params: { farmId } },
+  );
+}
+
+export function getStoreSettings(
+  request: AuthenticatedRequest,
+  farmId: string,
+) {
+  return request<{ data: StoreSettings }>("/store-admin/settings", {
+    params: { farmId },
+  });
+}
+
+export function getStoreSalesStock(
+  request: AuthenticatedRequest,
+  farmId: string,
+) {
+  return request<{ data: StoreSalesStock }>("/store-admin/sales-stock", {
+    params: { farmId },
+  });
+}
+
+export function saveStoreSettings(
+  request: AuthenticatedRequest,
+  farmId: string,
+  input: StoreSettingsInput,
+) {
+  return request<{ data: StoreSettings }>("/store-admin/settings", {
+    method: "PUT",
+    params: { farmId },
+    data: input,
+  });
+}
+
+export function saveStoreShippingFees(
+  request: AuthenticatedRequest,
+  farmId: string,
+  fees: Record<StoreRegion, string>,
+) {
+  return request<{ data: Record<StoreRegion, string> }>(
+    "/store-admin/shipping-fees",
+    { method: "PUT", params: { farmId }, data: fees },
   );
 }
 

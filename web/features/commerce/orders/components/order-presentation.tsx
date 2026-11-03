@@ -13,6 +13,7 @@ import { formatInventoryQuantity } from "@/features/inventory";
 
 import {
   Clock,
+  PackageSearch,
   ShieldCheck,
   Truck,
   CheckCircle2,
@@ -22,6 +23,7 @@ import {
 
 const statusVariant = {
   PENDING: "warning",
+  PREPARING: "warning",
   CONFIRMED: "info",
   SHIPPING: "info",
   COMPLETED: "success",
@@ -31,6 +33,7 @@ const statusVariant = {
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   const Icon = {
     PENDING: Clock,
+    PREPARING: PackageSearch,
     CONFIRMED: ShieldCheck,
     SHIPPING: Truck,
     COMPLETED: CheckCircle2,
@@ -141,9 +144,7 @@ export function OrderAmounts({ order }: { order: CustomerOrder }) {
         <dd>{formatOrderMoney(order.subtotal)}</dd>
       </div>
       <div className="flex justify-between gap-3">
-        <dt className="text-muted-foreground">
-          Phí giao hàng{order.status === "PENDING" ? " (chờ xác nhận)" : ""}
-        </dt>
+        <dt className="text-muted-foreground">Phí giao hàng</dt>
         <dd>{formatOrderMoney(order.shippingFee)}</dd>
       </div>
       <div className="flex justify-between gap-3 border-t pt-2 text-base font-semibold">

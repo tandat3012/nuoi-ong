@@ -1,11 +1,10 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from '../src/db/schema';
 import { DatabaseService } from '../src/db/database.service';
-import { CommerceService } from '../src/modules/commerce/commerce.service';
 import {
   isSepayAuthorized,
   PaymentWebhooksController,
@@ -27,11 +26,7 @@ const ACCOUNT = testBankAccount.STORE_BANK_ACCOUNT_NUMBER;
 const API_KEY = 'test-sepay-key';
 
 function paymentsFor(database: DatabaseService) {
-  return new PaymentsService(
-    database,
-    new CommerceService(database),
-    new WarehousesService(database),
-  );
+  return new PaymentsService(database, new WarehousesService(database));
 }
 
 function sepayBody(content: string, amount: number, id = Date.now()) {
@@ -136,7 +131,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       const { order } = await transferOrder(ctx);
       const controller = new PaymentWebhooksController(ctx.payments);
       await expect(
-        controller.sepay('Apikey wrong', sepayBody(order.code, 555000)),
+        controller.sepay('Apikey wrong', sepayBody(order.code, 585000)),
       ).rejects.toThrow('Invalid webhook API key');
       expect(
         (
@@ -150,7 +145,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       expect(
         await controller.sepay(
           `Apikey ${API_KEY}`,
-          sepayBody(`CT ${order.code} mat ong`, 555000, 9001),
+          sepayBody(`CT ${order.code} mat ong`, 585000, 9001),
         ),
       ).toEqual({ success: true });
       const paid = await ctx.service.staffGet(ctx.ids.farm, order.id);
@@ -161,7 +156,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       });
       expect(paid.order.paymentTransactionId).toBe(paid.payments[0].id);
       expect(paid.payments).toMatchObject([
-        { provider: 'SEPAY', result: 'MATCHED', amount: '555000' },
+        { provider: 'SEPAY', result: 'MATCHED', amount: '585000' },
       ]);
       const audits = await tx
         .select()
@@ -180,7 +175,7 @@ describe('Payments (migrated PostgreSQL)', () => {
     inRollback(async (ctx, tx) => {
       const { order } = await transferOrder(ctx);
       await ctx.payments.sepay({
-        ...sepayBody(order.code, 555000),
+        ...sepayBody(order.code, 585000),
         transferType: 'out',
       });
       expect(
@@ -216,11 +211,11 @@ describe('Payments (migrated PostgreSQL)', () => {
       const results = [
         await simulate(order.code, '555001'),
         await simulate(order.code, '554999'),
-        await simulate('chuyen tien mat ong', '555000'),
-        await simulate('DH999999', '555000'),
-        await simulate(order.code, '555000', '999999999'),
-        await simulate(cancelled.order.code, '555000'),
-        await simulate(cod.order.code, '555000'),
+        await simulate('chuyen tien mat ong', '585000'),
+        await simulate('DH999999', '585000'),
+        await simulate(order.code, '585000', '999999999'),
+        await simulate(cancelled.order.code, '585000'),
+        await simulate(cod.order.code, '585000'),
       ];
       expect(results.map((r) => r.transaction.result)).toEqual([
         'AMOUNT_MISMATCH',
@@ -241,28 +236,30 @@ describe('Payments (migrated PostgreSQL)', () => {
         expect(
           (await ctx.service.staffGet(ctx.ids.farm, id)).order.paymentStatus,
         ).toBe('UNPAID');
-      const history = await ctx.payments.list(ctx.ids.farm, {
+      // Transfers matching no order belong to no farm: only admins see them.
+      const history = await ctx.payments.list(ctx.ids.farm, ctx.ids.staff, {
         page: 1,
         pageSize: 20,
         offset: 0,
       });
-      expect(history.page.totalItems).toBe(7);
-      const mismatches = await ctx.payments.list(ctx.ids.farm, {
+      expect(history.page.totalItems).toBe(5);
+      const adminIds = (
+        await ctx.payments.list(ctx.ids.farm, ctx.ids.admin, {
+          page: 1,
+          pageSize: 100,
+          offset: 0,
+        })
+      ).data.map(({ id }) => id);
+      expect(adminIds).toEqual(
+        expect.arrayContaining(results.map((r) => r.transaction.id)),
+      );
+      const mismatches = await ctx.payments.list(ctx.ids.farm, ctx.ids.staff, {
         page: 1,
         pageSize: 20,
         offset: 0,
         result: 'AMOUNT_MISMATCH',
       });
       expect(mismatches.data).toHaveLength(2);
-      expect(
-        (
-          await ctx.payments.list(ctx.ids.otherFarm, {
-            page: 1,
-            pageSize: 20,
-            offset: 0,
-          })
-        ).page.totalItems,
-      ).toBe(0);
     }));
 
   it('treats a redelivered transaction as a no-op and a second transfer as already paid', () =>
@@ -270,7 +267,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       const { order } = await transferOrder(ctx);
       const first = await ctx.payments.simulate(ctx.ids.farm, ctx.ids.staff, {
         content: order.code,
-        amount: '555000',
+        amount: '585000',
       });
       expect(first).toMatchObject({
         duplicate: false,
@@ -287,7 +284,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       });
       const second = await ctx.payments.simulate(ctx.ids.farm, ctx.ids.staff, {
         content: order.code,
-        amount: '555000',
+        amount: '585000',
       });
       expect(second.transaction.result).toBe('ALREADY_PAID');
       const paid = await ctx.service.staffGet(ctx.ids.farm, order.id);
@@ -318,10 +315,10 @@ describe('Payments (migrated PostgreSQL)', () => {
   it('limits the simulator to enabled environments and store staff', () =>
     inRollback(async (ctx) => {
       const { order } = await transferOrder(ctx);
-      const input = { content: order.code, amount: '555000' };
+      const input = { content: order.code, amount: '585000' };
       await expect(
         ctx.payments.simulate(ctx.ids.otherFarm, ctx.ids.staff, input),
-      ).rejects.toThrow('another farm');
+      ).rejects.toThrow('Active farm membership');
       await expect(
         ctx.payments.simulate(ctx.ids.farm, ctx.ids.customer, input),
       ).rejects.toThrow();
@@ -352,29 +349,15 @@ describe('Payments on concurrent PostgreSQL connections', () => {
   const db = drizzle(pool, { schema });
   let ctx: Awaited<ReturnType<typeof seedOrders>>;
   let payments: PaymentsService;
-  let originalSettings: typeof schema.storeSettings.$inferSelect | undefined;
   let restoreEnv: () => void;
   beforeAll(() => {
     restoreEnv = withEnv(testBankAccount);
   });
   beforeEach(async () => {
-    [originalSettings] = await db
-      .select()
-      .from(schema.storeSettings)
-      .where(eq(schema.storeSettings.id, 1));
     ctx = await seedOrders(db);
     payments = paymentsFor(ctx.database);
   });
   afterEach(async () => {
-    if (originalSettings)
-      await db
-        .update(schema.storeSettings)
-        .set({ warehouseId: originalSettings.warehouseId })
-        .where(eq(schema.storeSettings.id, 1));
-    else
-      await db
-        .delete(schema.storeSettings)
-        .where(eq(schema.storeSettings.id, 1));
     if (ctx) await cleanupOrders(db, ctx.ids);
   });
   afterAll(async () => {
@@ -385,7 +368,7 @@ describe('Payments on concurrent PostgreSQL connections', () => {
   const transfer = (code: string, providerTxId: string) => ({
     providerTxId,
     accountNumber: ACCOUNT,
-    amount: '555000',
+    amount: '585000',
     content: code,
     transactionAt: new Date().toISOString(),
     rawPayload: {},
@@ -426,13 +409,17 @@ describe('Payments on concurrent PostgreSQL connections', () => {
       payments.ingest('SEPAY', transfer('no code', id + '-x')),
     ]);
     expect(unmatched.map((r) => r.duplicate).sort()).toEqual([false, true]);
-    expect(
-      (
-        await db
-          .select({ value: count() })
-          .from(schema.paymentTransactions)
-          .where(eq(schema.paymentTransactions.farmId, ctx.ids.farm))
-      )[0].value,
-    ).toBe(2);
+    const stored = await db
+      .select({ farmId: schema.paymentTransactions.farmId })
+      .from(schema.paymentTransactions)
+      .where(inArray(schema.paymentTransactions.providerTxId, [id, id + '-x']));
+    // The unmatched row has no farm, so the fixture cleanup cannot find it.
+    await db
+      .delete(schema.paymentTransactions)
+      .where(eq(schema.paymentTransactions.providerTxId, id + '-x'));
+    expect(stored.map((row) => row.farmId).sort()).toEqual([
+      ctx.ids.farm,
+      null,
+    ]);
   });
 });

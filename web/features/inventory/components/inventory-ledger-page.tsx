@@ -11,6 +11,7 @@ import { InventoryLedgerTable } from "./inventory-ledger-table";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Select } from "@/shared/components/ui/select";
+import { DateRangeFilter } from "@/shared/components/ui/date-range-filter";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 const TRANSACTION_TYPES: {
@@ -63,8 +64,9 @@ export function InventoryLedgerPage({
 
       <section
         aria-label="Lọc lịch sử biến động"
-        className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3"
+        className="space-y-3 rounded-xl border bg-card p-4"
       >
+        <div className="grid gap-3 sm:grid-cols-3">
         <label className="grid gap-1.5 text-sm font-medium">
           Kho
           <Select
@@ -132,6 +134,8 @@ export function InventoryLedgerPage({
             ))}
           </Select>
         </label>
+        </div>
+        <DateRangeFilter onApply={ledger.changeDateRange} />
       </section>
 
       {references.error && (
@@ -168,7 +172,11 @@ export function InventoryLedgerPage({
         </div>
       ) : ledger.transactions.length === 0 ? (
         <p role="status">
-          {filters.itemId || filters.warehouseId || filters.transactionType
+          {filters.itemId ||
+          filters.warehouseId ||
+          filters.transactionType ||
+          filters.dateFrom ||
+          filters.dateTo
             ? "Không có biến động phù hợp với bộ lọc."
             : "Chưa có lịch sử biến động trong trang trại."}
         </p>

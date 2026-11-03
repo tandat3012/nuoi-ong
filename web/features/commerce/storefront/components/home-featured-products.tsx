@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { STOREFRONT_CONFIG } from '../config/storefront-config';
 import type { StorefrontProduct } from '../../products/types/product';
 import { getProductsStore } from '../../products/api/product.api';
+import { getStoreRegion } from '../../region/region.server';
 import { FeaturedProductsCarousel } from './featured-products-carousel';
 import { StoreLoadError } from './store-load-error';
 
@@ -12,7 +13,10 @@ export async function HomeFeaturedProducts() {
   let failed = false;
 
   try {
-    const result = await getProductsStore({ pageSize: 4 });
+    const result = await getProductsStore({
+      pageSize: 4,
+      region: await getStoreRegion(),
+    });
     products = result.data;
   } catch {
     failed = true;

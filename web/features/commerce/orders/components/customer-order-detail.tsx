@@ -46,6 +46,7 @@ import {
   canCustomerCancel,
   formatOrderMoney,
   orderErrorMessage,
+  storeRegionLabels,
 } from "../order.logic";
 import type { CustomerOrder, CustomerOrderDetail as CustomerOrderDetailType } from "../types/order";
 import {
@@ -138,7 +139,8 @@ function OrderProgressTracker({ order }: { order: CustomerOrder }) {
   }
 
   const isPaid = order.paymentStatus === "PAID";
-  const isConfirmed = ["CONFIRMED", "SHIPPING", "COMPLETED"].includes(order.status);
+  const isPreparing = order.status === "PREPARING";
+  const isConfirmed = ["PREPARING", "CONFIRMED", "SHIPPING", "COMPLETED"].includes(order.status);
   const isShipping = ["SHIPPING", "COMPLETED"].includes(order.status);
   const isCompleted = order.status === "COMPLETED";
 
@@ -152,7 +154,7 @@ function OrderProgressTracker({ order }: { order: CustomerOrder }) {
     },
     {
       title: "Xác nhận & Thanh toán",
-      desc: isPaid ? "Đã thanh toán" : isConfirmed ? "Đã duyệt đơn" : "Đang chờ xử lý",
+      desc: isPaid ? "Đã thanh toán" : isPreparing ? "Đang chuẩn bị hàng" : isConfirmed ? "Đã duyệt đơn" : "Đang chờ xử lý",
       done: isPaid || isConfirmed,
       current: !isPaid && !isConfirmed,
       icon: CreditCard,
@@ -728,6 +730,21 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                     <p className="whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed">
                       {detail.order.address}
                     </p>
+                    {detail.order.region && (
+                      <p className="text-xs text-foreground">
+                        Giao tới: {storeRegionLabels[detail.order.region]}
+                      </p>
+                    )}
+                    {detail.order.status === "PENDING" && (
+                      <p className="text-xs text-muted-foreground">
+                        Đang chờ cửa hàng xác nhận, hàng chưa được giữ.
+                      </p>
+                    )}
+                    {detail.order.status === "PREPARING" && (
+                      <p className="text-xs text-muted-foreground">
+                        Cửa hàng đã nhận đơn và đang chuẩn bị hàng.
+                      </p>
+                    )}
                   </div>
 
                   {detail.order.note && (
@@ -764,18 +781,9 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                     <div className="flex justify-between items-center text-muted-foreground">
                       <dt>Phí giao hàng</dt>
                       <dd className="font-mono text-foreground font-medium">
-                        {detail.order.status === "PENDING" &&
-                        detail.order.shippingFee === "0"
-                          ? "0 ₫ (Chờ xác nhận)"
-                          : formatOrderMoney(detail.order.shippingFee)}
+                        {formatOrderMoney(detail.order.shippingFee)}
                       </dd>
                     </div>
-                    {detail.order.status === "PENDING" &&
-                      detail.order.shippingFee === "0" && (
-                        <p className="text-[11px] text-muted-foreground bg-muted/40 p-2 rounded-md leading-normal">
-                          Cửa hàng sẽ liên hệ xác nhận phí giao hàng theo địa chỉ của bạn trước khi gửi hàng.
-                        </p>
-                      )}
                   </div>
 
                   <div className="flex justify-between items-center text-muted-foreground text-xs pt-1">

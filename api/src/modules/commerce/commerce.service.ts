@@ -3,10 +3,10 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
+import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 import {
   assets,
   farms,
@@ -21,7 +21,11 @@ import {
   storeProductImages,
   storeProducts,
   storeProductVariants,
+  storeRegion,
   storeSettings,
+  storeShippingFees,
+  storeSourceWarehouses,
+  storeVariantItems,
   units,
   warehouses,
 } from '../../db/schema';
@@ -36,9 +40,29 @@ import {
   lte,
   sql,
   SQL,
+  SQLWrapper,
 } from 'drizzle-orm';
 
+export type StoreRegion = (typeof storeRegion.enumValues)[number];
+
+/** Label shown to customers instead of stock numbers. */
+export type Availability =
+  | 'REGION_REQUIRED'
+  | 'AVAILABLE'
+  | 'INSUFFICIENT_IN_REGION'
+  | 'OUT_IN_REGION'
+  | 'REGION_NOT_SUPPORTED'
+  | 'OUT_OF_STOCK';
+
+type AvailabilityFlags = {
+  anywhere: boolean;
+  served: boolean;
+  regionStep: boolean;
+  regionQty: boolean;
+};
+
 export interface ProductListFilters {
+  region?: StoreRegion;
   category?: string;
   q?: string;
   minPrice?: number;
@@ -49,10 +73,13 @@ export interface ProductListFilters {
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 
+/** A farm's sales warehouse; values or SQL columns of the row being checked. */
 export type StoreWarehouse = {
-  warehouseId: string;
-  farmId: string;
+  warehouseId: string | SQL | SQLWrapper;
+  farmId: string | SQL | SQLWrapper;
 };
+
+export type SalesWarehouse = { warehouseId: string; farmId: string };
 
 type ProductRow = {
   id: string;
@@ -67,10 +94,18 @@ type ProductRow = {
 
 type ProductExtras = {
   inStock: boolean;
+  availability: Availability;
   image?: {
     src: string;
     alt: string;
   };
+};
+
+const NO_STOCK: AvailabilityFlags = {
+  anywhere: false,
+  served: false,
+  regionStep: false,
+  regionQty: false,
 };
 
 @Injectable()
@@ -93,8 +128,7 @@ export class CommerceService {
       throw new BadRequestException('minPrice must not exceed maxPrice');
     }
 
-    const warehouse = await this.getStoreWarehouse();
-    const catalog = this.productCatalog(warehouse);
+    const catalog = this.productCatalog();
     const conditions: SQL[] = [];
 
     if (category) conditions.push(eq(catalog.categorySlug, category));
@@ -133,7 +167,7 @@ export class CommerceService {
     ]);
     const extras = await this.loadProductExtras(
       rows.map((row) => row.id),
-      warehouse,
+      filters.region,
     );
 
     return {
@@ -142,9 +176,8 @@ export class CommerceService {
     };
   }
 
-  async getProduct(slug: string) {
-    const warehouse = await this.getStoreWarehouse();
-    const catalog = this.productCatalog(warehouse);
+  async getProduct(slug: string, region?: StoreRegion, quantity = 1) {
+    const catalog = this.productCatalog();
     const [row] = await this.databaseService.db
       .select()
       .from(catalog)
@@ -153,7 +186,7 @@ export class CommerceService {
 
     if (!row) throw new NotFoundException('Product not found');
 
-    const extras = await this.loadProductExtras([row.id], warehouse);
+    const extras = await this.loadProductExtras([row.id], region, quantity);
 
     const images = await this.databaseService.db
       .select({ src: storeProductImages.url, alt: storeProductImages.alt })
@@ -165,15 +198,14 @@ export class CommerceService {
         id: storeProductVariants.id,
         name: storeProductVariants.name,
         price: storeProductVariants.price,
-        inStock: this.variantInStock(warehouse).as('in_stock'),
+        ...this.availabilityFlags(region, quantity),
       })
       .from(storeProductVariants)
-      .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-      .innerJoin(units, eq(units.id, items.unitId))
+      .innerJoin(units, eq(units.id, storeProductVariants.unitId))
       .where(
         and(
           eq(storeProductVariants.productId, row.id),
-          this.eligibleVariantConditions(warehouse.farmId),
+          this.eligibleVariantConditions(),
         ),
       )
       .orderBy(asc(storeProductVariants.id));
@@ -181,10 +213,16 @@ export class CommerceService {
     return {
       ...this.toProduct(row, extras.get(row.id)),
       images,
-      variants: variants.map((variant) => ({
-        ...variant,
-        price: this.toPrice(variant.price),
-      })),
+      variants: variants.map(
+        ({ anywhere, served, regionStep, regionQty, ...variant }) => ({
+          ...variant,
+          price: this.toPrice(variant.price),
+          ...this.toAvailability(
+            { anywhere, served, regionStep, regionQty },
+            region,
+          ),
+        }),
+      ),
     };
   }
 
@@ -208,36 +246,271 @@ export class CommerceService {
     return { data, page: this.pageInfo(pagination, total.value) };
   }
 
-  async getStoreWarehouse(
-    db: Db | Transaction = this.databaseService.db,
-  ): Promise<StoreWarehouse> {
-    const [warehouse] = await db
-      .select({ warehouseId: warehouses.id, farmId: warehouses.farmId })
-      .from(storeSettings)
-      .innerJoin(warehouses, eq(warehouses.id, storeSettings.warehouseId))
-      .innerJoin(farms, eq(farms.id, warehouses.farmId))
-      .where(
-        and(
-          eq(storeSettings.id, 1),
-          eq(warehouses.status, 'ACTIVE'),
-          eq(farms.status, 'ACTIVE'),
-        ),
-      )
-      .limit(1);
-
-    if (!warehouse) {
-      throw new ServiceUnavailableException(
-        'No active warehouse found for the store',
-      );
-    }
-    return warehouse;
+  /** Delivery fee per region as whole-VND strings; every region is seeded by migration 0034. */
+  async shippingFees(db: Db | Transaction = this.databaseService.db) {
+    const rows = await db
+      .select({ region: storeShippingFees.region, fee: storeShippingFees.fee })
+      .from(storeShippingFees);
+    return Object.fromEntries(
+      rows.map(({ region, fee }) => [region, fee]),
+    ) as Partial<Record<StoreRegion, string>>;
   }
 
-  variantInStock(
-    { warehouseId, farmId }: StoreWarehouse,
-    required: SQL = sql`${storeProductVariants.quantityStep}`,
+  /**
+   * Sales warehouses serving `region`, in a stable order for picking one.
+   * Share-locks their settings rows until the transaction ends, so an owner
+   * cannot switch the warehouse while an order is being placed in it.
+   */
+  async salesWarehouses(
+    tx: Transaction,
+    region: StoreRegion,
+  ): Promise<SalesWarehouse[]> {
+    return tx
+      .select({ warehouseId: warehouses.id, farmId: warehouses.farmId })
+      .from(storeSettings)
+      .innerJoin(warehouses, eq(warehouses.id, storeSettings.salesWarehouseId))
+      .innerJoin(farms, eq(farms.id, storeSettings.farmId))
+      .where(and(this.sellingConditions(), this.servesRegion(region)))
+      .orderBy(asc(farms.code), asc(farms.id))
+      .for('share', { of: storeSettings });
+  }
+
+  /**
+   * For each line, the item every candidate warehouse would ship it from, when
+   * that warehouse alone has enough stock. Callers decide whether one warehouse
+   * covers the whole cart.
+   */
+  async cartCoverage(
+    tx: Transaction,
+    region: StoreRegion,
+    lines: { variantId: string; quantity: number }[],
   ) {
+    const candidates = await this.salesWarehouses(tx, region);
+    const coverage: {
+      warehouse: SalesWarehouse;
+      items: Map<string, string>;
+    }[] = [];
+    for (const warehouse of candidates) {
+      const covered = new Map<string, string>();
+      for (const line of lines) {
+        const [row] = await tx
+          .select({
+            itemId: storeVariantItems.itemId,
+            inStock: this.variantInStock(
+              sql`${storeProductVariants.quantityStep} * ${line.quantity}::numeric`,
+              eq(storeSettings.salesWarehouseId, warehouse.warehouseId),
+            ).as('in_stock'),
+          })
+          .from(storeVariantItems)
+          .innerJoin(
+            storeProductVariants,
+            eq(storeProductVariants.id, storeVariantItems.variantId),
+          )
+          .innerJoin(
+            storeProducts,
+            eq(storeProducts.id, storeProductVariants.productId),
+          )
+          .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+          .where(
+            and(
+              eq(storeVariantItems.variantId, line.variantId),
+              eq(storeVariantItems.farmId, warehouse.farmId),
+              this.orderableVariantConditions(),
+            ),
+          )
+          .limit(1);
+        if (row?.inStock) covered.set(line.variantId, row.itemId);
+      }
+      coverage.push({ warehouse, items: covered });
+    }
+    return coverage;
+  }
+
+  /**
+   * Whether one warehouse of `region` can ship the whole cart, the label of
+   * each line, and otherwise groups of lines that could each be one order.
+   */
+  async cartAvailability(
+    region: StoreRegion,
+    lines: { variantId: string; quantity: number }[],
+  ) {
+    return this.databaseService.db.transaction(async (tx) => {
+      const coverage = await this.cartCoverage(tx, region, lines);
+      const statuses = await Promise.all(
+        lines.map(async ({ variantId, quantity }) => {
+          const [flags] = await tx
+            .select(this.availabilityFlags(region, quantity))
+            .from(storeProductVariants)
+            .innerJoin(
+              storeProducts,
+              eq(storeProducts.id, storeProductVariants.productId),
+            )
+            .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+            .where(
+              and(
+                eq(storeProductVariants.id, variantId),
+                this.orderableVariantConditions(),
+              ),
+            );
+          return {
+            variantId,
+            availability: flags
+              ? this.toAvailability(flags, region).availability
+              : ('OUT_OF_STOCK' as const),
+          };
+        }),
+      );
+      const canOrder = coverage.some(
+        ({ items }) => items.size === lines.length,
+      );
+
+      return {
+        canOrder,
+        lines: statuses,
+        groups: canOrder ? [] : this.splitGroups(coverage),
+      };
+    });
+  }
+
+  /**
+   * Groups of variant ids that one warehouse could each ship as one order.
+   * Greedy: the warehouse covering most remaining lines makes each group.
+   */
+  splitGroups(coverage: { items: Map<string, string> }[]) {
+    const groups: string[][] = [];
+    const remaining = new Set(
+      coverage.flatMap(({ items }) => [...items.keys()]),
+    );
+    while (remaining.size > 0) {
+      const best = coverage
+        .map(({ items }) => [...items.keys()].filter((id) => remaining.has(id)))
+        .reduce((a, b) => (b.length > a.length ? b : a));
+      groups.push(best);
+      for (const id of best) remaining.delete(id);
+    }
+
+    return groups;
+  }
+
+  /** The store_settings row belongs to a farm that currently sells online. */
+  sellingConditions() {
+    return and(
+      eq(storeSettings.salesEnabled, true),
+      sql`EXISTS (
+        SELECT 1 FROM ${warehouses}
+        WHERE ${warehouses.id} = ${storeSettings.salesWarehouseId}
+          AND ${warehouses.status} = 'ACTIVE'
+      )`,
+      sql`EXISTS (
+        SELECT 1 FROM ${farms}
+        WHERE ${farms.id} = ${storeSettings.farmId}
+          AND ${farms.status} = 'ACTIVE'
+      )`,
+    )!;
+  }
+
+  /**
+   * Whether ONE sales warehouse alone can supply `required` of the current
+   * variant row. Stock of several warehouses is never added up: an order is
+   * shipped from a single warehouse.
+   */
+  variantInStock(
+    required: SQL = sql`${storeProductVariants.quantityStep}`,
+    scope?: SQL,
+  ) {
+    return this.soldBy(
+      and(
+        scope,
+        this.itemStock(
+          {
+            warehouseId: storeSettings.salesWarehouseId,
+            farmId: storeSettings.farmId,
+          },
+          required,
+        ),
+      ),
+    );
+  }
+
+  private servesRegion(region: StoreRegion) {
+    return sql`${region}::store_region = ANY(${storeSettings.regions})`;
+  }
+
+  /**
+   * Booleans of the current variant row that decide its availability label;
+   * `aggregate` ORs them over the variants of a product.
+   */
+  private availabilityFlags(
+    region?: StoreRegion,
+    quantity = 1,
+    aggregate = false,
+  ) {
+    const step = sql`${storeProductVariants.quantityStep}`;
+    const inRegion = region && this.servesRegion(region);
+    const flags: Record<keyof AvailabilityFlags, SQL> = {
+      anywhere: this.variantInStock(),
+      served: inRegion ? this.soldBy(inRegion) : sql`false`,
+      regionStep: inRegion ? this.variantInStock(step, inRegion) : sql`false`,
+      regionQty: inRegion
+        ? this.variantInStock(sql`${step} * ${quantity}::numeric`, inRegion)
+        : sql`false`,
+    };
+    return Object.fromEntries(
+      Object.entries(flags).map(([key, flag]) => [
+        key,
+        sql<boolean>`${aggregate ? sql`BOOL_OR(${flag})` : flag}`.as(key),
+      ]),
+    ) as Record<keyof AvailabilityFlags, SQL.Aliased<boolean>>;
+  }
+
+  private toAvailability(
+    { anywhere, served, regionStep, regionQty }: AvailabilityFlags,
+    region?: StoreRegion,
+  ): { inStock: boolean; availability: Availability } {
+    if (!region)
+      return {
+        inStock: anywhere,
+        availability: anywhere ? 'REGION_REQUIRED' : 'OUT_OF_STOCK',
+      };
+    const availability: Availability = regionQty
+      ? 'AVAILABLE'
+      : regionStep
+        ? 'INSUFFICIENT_IN_REGION'
+        : !served
+          ? 'REGION_NOT_SUPPORTED'
+          : anywhere
+            ? 'OUT_IN_REGION'
+            : 'OUT_OF_STOCK';
+    return { inStock: regionStep, availability };
+  }
+
+  /** EXISTS a selling farm whose active item is mapped to the current variant row. */
+  private soldBy(extra?: SQL) {
+    return sql<boolean>`EXISTS (
+      SELECT 1 FROM ${storeVariantItems}
+      JOIN ${storeSettings} ON ${storeSettings.farmId} = ${storeVariantItems.farmId}
+      JOIN ${items} ON ${items.id} = ${storeVariantItems.itemId}
+      WHERE ${storeVariantItems.variantId} = ${storeProductVariants.id}
+        AND ${items.status} = 'ACTIVE'
+        AND ${this.sellingConditions()}
+        ${extra ? sql`AND ${extra}` : sql``}
+    )`;
+  }
+
+  /**
+   * Stock of the `items` row in scope that a farm's sales warehouse can sell:
+   * its own plus the farm's active source warehouses, which top it up by
+   * transfer when an order is confirmed. Assets cannot be transferred that
+   * way, so they count only in the sales warehouse.
+   */
+  private itemStock({ warehouseId, farmId }: StoreWarehouse, required: SQL) {
     const today = new Date().toISOString().slice(0, 10);
+    const pool = sql`(b.warehouse_id = ${warehouseId} OR b.warehouse_id IN (
+      SELECT ${storeSourceWarehouses.warehouseId}
+      FROM ${storeSourceWarehouses}
+      JOIN ${warehouses} sw ON sw.id = ${storeSourceWarehouses.warehouseId}
+      WHERE ${storeSourceWarehouses.farmId} = ${farmId} AND sw.status = 'ACTIVE'
+    ))`;
 
     return sql<boolean>`
     CASE ${items.trackingMode}
@@ -247,7 +520,7 @@ export class CommerceService {
         FROM ${inventoryBalances} b
         WHERE b.item_id = ${items.id}
           AND b.farm_id = ${farmId}
-          AND b.warehouse_id = ${warehouseId}
+          AND ${pool}
           AND b.lot_id IS NULL
       )
 
@@ -261,7 +534,7 @@ export class CommerceService {
           AND l.farm_id = b.farm_id
         WHERE b.item_id = ${items.id}
           AND b.farm_id = ${farmId}
-          AND b.warehouse_id = ${warehouseId}
+          AND ${pool}
           AND (
             l.expiry_date IS NULL
             OR l.expiry_date >= ${today}::date
@@ -301,7 +574,7 @@ export class CommerceService {
         SELECT 1 FROM ${maintenanceRecords}
         WHERE ${maintenanceRecords.assetId} = ${assets.id}
           AND ${maintenanceRecords.farmId} = ${farmId}
-          AND ${maintenanceRecords.status} IN ('SCHEDULED', 'IN_PROGRESS')
+          AND ${activeMaintenanceCondition}
       )`,
       // Already picked by another unapproved issue (e.g. a confirmed order).
       sql`NOT EXISTS (
@@ -313,16 +586,24 @@ export class CommerceService {
     );
   }
 
-  eligibleVariantConditions(farmId: string) {
+  /** Active variant with an active unit that at least one selling farm can supply. */
+  eligibleVariantConditions() {
     return and(
       eq(storeProductVariants.active, true),
-      eq(items.farmId, farmId),
-      eq(items.status, 'ACTIVE'),
       eq(units.status, 'ACTIVE'),
+      this.soldBy(),
     );
   }
 
-  private productCatalog(warehouse: StoreWarehouse) {
+  /** What order creation accepts; needs store_products and units joined. */
+  orderableVariantConditions() {
+    return and(
+      eq(storeProducts.status, 'PUBLISHED'),
+      this.eligibleVariantConditions(),
+    )!;
+  }
+
+  private productCatalog() {
     const db = this.databaseService.db;
 
     const variants = db
@@ -331,9 +612,8 @@ export class CommerceService {
         price: sql<string>`MIN(${storeProductVariants.price})`.as('price'),
       })
       .from(storeProductVariants)
-      .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-      .innerJoin(units, eq(units.id, items.unitId))
-      .where(this.eligibleVariantConditions(warehouse.farmId))
+      .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+      .where(this.eligibleVariantConditions())
       .groupBy(storeProductVariants.productId)
       .as('variant_summary');
 
@@ -360,7 +640,8 @@ export class CommerceService {
 
   private async loadProductExtras(
     productIds: string[],
-    warehouse: StoreWarehouse,
+    region?: StoreRegion,
+    quantity = 1,
   ): Promise<Map<string, ProductExtras>> {
     const extras = new Map<string, ProductExtras>();
     if (productIds.length === 0) return extras;
@@ -382,16 +663,13 @@ export class CommerceService {
       db
         .select({
           productId: storeProductVariants.productId,
-          inStock: sql<boolean>`BOOL_OR(${this.variantInStock(warehouse)})`.as(
-            'in_stock',
-          ),
+          ...this.availabilityFlags(region, quantity, true),
         })
         .from(storeProductVariants)
-        .innerJoin(items, eq(items.id, storeProductVariants.itemId))
-        .innerJoin(units, eq(units.id, items.unitId))
+        .innerJoin(units, eq(units.id, storeProductVariants.unitId))
         .where(
           and(
-            this.eligibleVariantConditions(warehouse.farmId),
+            this.eligibleVariantConditions(),
             inArray(storeProductVariants.productId, productIds),
           ),
         )
@@ -402,13 +680,16 @@ export class CommerceService {
       images.map(({ productId, src, alt }) => [productId, { src, alt }]),
     );
     const stockByProduct = new Map(
-      availability.map(({ productId, inStock }) => [productId, inStock]),
+      availability.map(({ productId, ...flags }) => [
+        productId,
+        this.toAvailability(flags, region),
+      ]),
     );
 
     for (const id of productIds) {
       const image = imageByProduct.get(id);
       extras.set(id, {
-        inStock: stockByProduct.get(id) ?? false,
+        ...(stockByProduct.get(id) ?? this.toAvailability(NO_STOCK, region)),
         ...(image ? { image } : {}),
       });
     }
@@ -429,7 +710,7 @@ export class CommerceService {
         name: categoryName,
         slug: categorySlug,
       },
-      ...(extras ?? { inStock: false }),
+      ...(extras ?? { inStock: false, availability: 'OUT_OF_STOCK' }),
     };
   }
 

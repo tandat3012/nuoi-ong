@@ -1,0 +1,1 @@
+ALTER TYPE "public"."store_order_status" ADD VALUE 'PREPARING' BEFORE 'CONFIRMED';

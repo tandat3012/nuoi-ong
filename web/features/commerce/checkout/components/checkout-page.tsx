@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
+import { Minus, Package, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useAuthenticatedRequest } from "@/features/auth";
 import { useCart } from "@/features/commerce/cart/hooks/use-cart";
+import { CartRegionCheck } from "@/features/commerce/cart/components/cart-region-check";
+import { useStoreRegion } from "@/features/commerce/region/region-context";
+import {
+  parseSplitGroups,
+  splitOrderSuggestions,
+} from "@/features/commerce/region/region.logic";
 import type { CartItem } from "@/features/commerce/cart/types/cart";
 import {
   calculateCartTotals,
@@ -13,8 +21,10 @@ import {
 } from "@/features/commerce/cart/components/cart.logic";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { formatVndCurrency } from "@/shared/lib/currency";
+import { imageLoader } from "@/shared/lib/cloudinary-image";
 import { ApiError } from "@/shared/api/client";
 import {
   beginOrderAttempt,
@@ -23,6 +33,7 @@ import {
   loadOrderAttempt,
   orderErrorMessage,
   parseOrderAttemptPayload,
+  storeRegionLabels,
   updateOrderAttempt,
   type OrderAttempt,
 } from "@/features/commerce/orders/order.logic";
@@ -30,11 +41,16 @@ import { createCustomerOrder } from "@/features/commerce/orders/orders.api";
 import type {
   CreateOrderInput,
   PaymentMethod,
+  StoreRegion,
 } from "@/features/commerce/orders/types/order";
 import {
   getStorePaymentMethods,
   type StorePaymentMethods,
 } from "@/features/commerce/orders/payment-methods.api";
+import {
+  getStoreShippingFees,
+  type StoreShippingFees,
+} from "@/features/commerce/orders/shipping-fees.api";
 
 type CheckoutFields = {
   recipientName: string;
@@ -112,7 +128,19 @@ function sameCartContent(
   );
 }
 
-function validateFields(fields: CheckoutFields) {
+/** Order errors, plus which cart lines could be separate orders after a CART_NOT_FULFILLABLE. */
+function failureMessage(failure: unknown, items: CartItem[]) {
+  const groups =
+    failure instanceof ApiError ? parseSplitGroups(failure.details) : null;
+  return groups
+    ? `${orderErrorMessage(failure)} Gợi ý: ${splitOrderSuggestions(groups, items).join("; ")}.`
+    : orderErrorMessage(failure);
+}
+
+function validateFields(
+  fields: CheckoutFields,
+  region: StoreRegion | null,
+) {
   // Mirrors CreateStoreOrderDto so most mistakes are caught before the request.
   const phone = fields.phone.trim();
   const address = fields.address.trim();
@@ -124,6 +152,7 @@ function validateFields(fields: CheckoutFields) {
     return "Số điện thoại chỉ gồm chữ số, khoảng trắng và các ký tự + - ( ).";
   if (phone.length < 8 || phone.length > 30)
     return "Số điện thoại cần từ 8 đến 30 ký tự.";
+  if (!region) return "Vui lòng chọn miền giao hàng.";
   if (!address) return "Vui lòng nhập địa chỉ giao hàng.";
   if (address.length < 5)
     return "Địa chỉ giao hàng quá ngắn, cần ít nhất 5 ký tự.";
@@ -144,9 +173,13 @@ export function CheckoutPage() {
     isReconciling,
     isCheckoutSubmitting,
     reconcileCart,
+    updateQuantity,
+    removeItem,
     clearCart,
     setCheckoutSubmitting,
   } = useCart();
+  const storeRegion = useStoreRegion();
+  const { setRegion } = storeRegion;
   const [fields, setFields] = useState<CheckoutFields>({
     recipientName: "",
     phone: "",
@@ -165,6 +198,7 @@ export function CheckoutPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submitPending = useRef(false);
+  const autoVerifiedKey = useRef<string | null>(null);
   const currentKey = cartSnapshotKey(items);
   const verificationIsCurrent = verified?.key === currentKey;
   const checkoutItems =
@@ -179,6 +213,27 @@ export function CheckoutPage() {
     () => calculateCartTotals(checkoutItems),
     [checkoutItems],
   );
+  const [shippingFees, setShippingFees] = useState<
+    StoreShippingFees | "error" | null
+  >(null);
+  const shippingFee =
+    storeRegion.region && shippingFees && shippingFees !== "error"
+      ? shippingFees[storeRegion.region]
+      : undefined;
+  const orderTotal =
+    totals.subtotal !== null && shippingFee !== undefined
+      ? totals.subtotal + Number(shippingFee)
+      : null;
+
+  function loadShippingFees() {
+    return getStoreShippingFees()
+      .then(setShippingFees)
+      .catch(() => setShippingFees("error"));
+  }
+
+  useEffect(() => {
+    void loadShippingFees();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -213,6 +268,8 @@ export function CheckoutPage() {
             note: savedPayload.note ?? "",
             paymentMethod: savedPayload.paymentMethod,
           });
+          // A pending retry must resend its own region.
+          setRegion(savedPayload.region);
         }
       } catch {
         setError(
@@ -225,7 +282,7 @@ export function CheckoutPage() {
     return () => {
       active = false;
     };
-  }, [isLoaded, userId]);
+  }, [isLoaded, userId, setRegion]);
 
   async function verifyCart() {
     if (
@@ -237,7 +294,6 @@ export function CheckoutPage() {
     )
       return;
     setIsVerifying(true);
-    setCheckoutSubmitting(true);
     setError(null);
     setVerified(null);
     setAcceptedPrices("");
@@ -245,12 +301,29 @@ export function CheckoutPage() {
       const snapshot = await reconcileCart();
       setVerified({ key: cartSnapshotKey(snapshot), items: snapshot });
     } catch {
-      setError("Không thể xác minh giỏ hàng. Vui lòng thử lại.");
+      setError("Không thể cập nhật giá và tồn kho. Vui lòng thử lại.");
     } finally {
       setIsVerifying(false);
-      setCheckoutSubmitting(false);
     }
   }
+
+  // Re-check price and stock automatically whenever the cart content changes;
+  // once per cart state, so a failed check waits for the manual retry.
+  useEffect(() => {
+    if (
+      !isHydrated ||
+      !items.length ||
+      verificationIsCurrent ||
+      isVerifying ||
+      isReconciling ||
+      isCheckoutSubmitting ||
+      attempt?.state === "pending" ||
+      autoVerifiedKey.current === currentKey
+    )
+      return;
+    autoVerifiedKey.current = currentKey;
+    queueMicrotask(() => void verifyCart());
+  });
 
   async function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -265,20 +338,20 @@ export function CheckoutPage() {
       );
       return;
     }
-    const fieldError = validateFields(fields);
+    const fieldError = validateFields(fields, storeRegion.region);
     if (fieldError) {
       setError(fieldError);
       return;
     }
     if (!verificationIsCurrent || !verified) {
       setError(
-        "Giỏ hàng đã thay đổi. Hãy xác minh lại giá và tồn kho trước khi đặt hàng.",
+        "Đang cập nhật giá và tồn kho mới nhất. Vui lòng chờ giây lát rồi đặt hàng.",
       );
       return;
     }
     if (!canSubmitItems(verified.items)) {
       setError(
-        "Có dòng hàng chưa xác minh, hết hàng hoặc không còn hợp lệ. Hãy cập nhật giỏ rồi thử lại.",
+        "Có sản phẩm đã hết hàng hoặc không còn bán. Hãy cập nhật giỏ rồi thử lại.",
       );
       return;
     }
@@ -289,12 +362,21 @@ export function CheckoutPage() {
       return;
     }
 
+    if (shippingFee === undefined) {
+      setError(
+        "Chưa tải được phí giao hàng. Vui lòng tải lại trang rồi đặt hàng.",
+      );
+      return;
+    }
+
     const currentInput = {
       recipientName: fields.recipientName.trim(),
       phone: fields.phone.trim(),
       address: fields.address.trim(),
+      region: storeRegion.region!,
       note: fields.note.trim() || undefined,
       paymentMethod: fields.paymentMethod,
+      expectedShippingFee: shippingFee,
       items: cartOrderItems(verified.items),
     } satisfies Omit<CreateOrderInput, "idempotencyKey">;
     const input: Omit<CreateOrderInput, "idempotencyKey"> = currentInput;
@@ -373,7 +455,7 @@ export function CheckoutPage() {
           : failure instanceof Error &&
               failure.message.startsWith("STORAGE_UNAVAILABLE")
             ? "Không thể lưu mã chống tạo đơn trùng trong phiên này. Hãy bật session storage rồi thử lại."
-            : orderErrorMessage(failure),
+            : failureMessage(failure, items),
       );
       const code =
         failure instanceof ApiError &&
@@ -391,6 +473,8 @@ export function CheckoutPage() {
           // The error above still explains why the order was not sent.
         }
       }
+      if (knownFailure && code === "SHIPPING_FEE_CHANGED")
+        await loadShippingFees();
     } finally {
       submitPending.current = false;
       setIsSubmitting(false);
@@ -444,7 +528,7 @@ export function CheckoutPage() {
         updateOrderAttempt(window.sessionStorage, userId, saved, "failed");
         setAttempt({ ...saved, state: "failed" });
       }
-      setError(orderErrorMessage(failure));
+      setError(failureMessage(failure, items));
       const code =
         failure instanceof ApiError &&
         failure.details &&
@@ -490,7 +574,7 @@ export function CheckoutPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-bold">Đặt hàng</h1>
         <p className="text-sm text-muted-foreground">
-          Kiểm tra lại giá và tồn kho trước khi gửi đơn.
+          Giá và tình trạng hàng được cập nhật tự động trước khi gửi đơn.
         </p>
       </div>
       {attempt?.state === "pending" && (
@@ -563,6 +647,28 @@ export function CheckoutPage() {
                   }
                 />
               </label>
+              <label className="block space-y-1 text-sm">
+                <span>Miền giao hàng *</span>
+                <Select
+                  required
+                  value={storeRegion.region ?? ""}
+                  onChange={(event) =>
+                    storeRegion.setRegion(event.target.value as StoreRegion)
+                  }
+                >
+                  <option value="" disabled>
+                    Chọn miền
+                  </option>
+                  {(Object.keys(storeRegionLabels) as StoreRegion[]).map(
+                    (region) => (
+                      <option key={region} value={region}>
+                        {storeRegionLabels[region]}
+                      </option>
+                    ),
+                  )}
+                </Select>
+              </label>
+              <CartRegionCheck />
               <label className="block space-y-1 text-sm">
                 <span>Địa chỉ giao hàng *</span>
                 <Textarea
@@ -670,32 +776,49 @@ export function CheckoutPage() {
         <aside className="h-fit space-y-4 rounded-xl border bg-card p-5 lg:sticky lg:top-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Đơn hàng</h2>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={
-                isVerifying ||
-                isCheckoutSubmitting ||
-                attempt?.state === "pending" ||
-                !items.length
-              }
-              onClick={() => void verifyCart()}
-            >
-              {isVerifying || isReconciling
-                ? "Đang xác minh…"
-                : "Xác minh giá và tồn kho"}
-            </Button>
+            {isVerifying || isReconciling ? (
+              <span role="status" className="text-xs text-muted-foreground">
+                Đang cập nhật giá…
+              </span>
+            ) : (
+              !verificationIsCurrent &&
+              attempt?.state !== "pending" && (
+                <button
+                  type="button"
+                  disabled={isCheckoutSubmitting}
+                  onClick={() => void verifyCart()}
+                  className="text-xs text-primary underline disabled:opacity-50"
+                >
+                  Thử cập nhật lại
+                </button>
+              )
+            )}
           </div>
           {checkoutItems.map((item) => (
             <div
               key={item.id}
-              className="flex items-start justify-between gap-3 border-b pb-3 text-sm"
+              className="flex items-start gap-3 border-b pb-3 text-sm"
             >
-              <div className="min-w-0">
+              <div className="relative size-16 shrink-0 overflow-hidden rounded-lg border bg-muted/30">
+                {item.image?.src ? (
+                  <Image
+                    src={item.image.src}
+                    loader={imageLoader(item.image.src)}
+                    alt=""
+                    fill
+                    sizes="64px"
+                    className="object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-muted-foreground/40">
+                    <Package className="size-7 stroke-1" aria-hidden="true" />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
                 <p className="font-medium">{item.productName}</p>
                 <p className="text-xs text-muted-foreground">
-                  {item.variantName || "Quy cách"} · {item.quantity} bước bán
+                  {item.variantName || "Quy cách"} · bước bán
                 </p>
                 {item.isPriceChanged && (
                   <p className="text-xs font-medium text-warning">
@@ -705,10 +828,44 @@ export function CheckoutPage() {
                 {item.verification !== "verified" && (
                   <p className="text-xs text-destructive">
                     {item.verification === "pending"
-                      ? "Chưa xác minh"
+                      ? "Đang kiểm tra…"
                       : "Không thể đặt dòng này"}
                   </p>
                 )}
+                <div className="mt-2 inline-flex items-center rounded-lg border bg-background">
+                  <button
+                    type="button"
+                    disabled={
+                      !attemptReady || isSubmitting || isCheckoutSubmitting ||
+                      attempt?.state === "pending"
+                    }
+                    onClick={() =>
+                      item.quantity === 1
+                        ? removeItem(item.id)
+                        : updateQuantity(item.id, item.quantity - 1)
+                    }
+                    aria-label={`${item.quantity === 1 ? "Xóa" : "Giảm số lượng"} ${item.productName}${item.variantName ? ` - ${item.variantName}` : ""}`}
+                    className="flex size-9 items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <Minus className="size-3.5" aria-hidden="true" />
+                  </button>
+                  <span className="min-w-8 text-center text-sm font-semibold" aria-label={`Số lượng ${item.productName}: ${item.quantity}`}>
+                    {item.quantity}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={
+                      !attemptReady || isSubmitting || isCheckoutSubmitting ||
+                      attempt?.state === "pending" || item.quantity >= 10000 ||
+                      (item.purchaseLimit !== undefined && item.quantity >= item.purchaseLimit)
+                    }
+                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                    aria-label={`Tăng số lượng ${item.productName}${item.variantName ? ` - ${item.variantName}` : ""}`}
+                    className="flex size-9 items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <Plus className="size-3.5" aria-hidden="true" />
+                  </button>
+                </div>
               </div>
               <span className="shrink-0 text-right">
                 {formatVndCurrency(
@@ -747,18 +904,35 @@ export function CheckoutPage() {
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Phí giao hàng</dt>
-              <dd className="text-right">Cửa hàng xác nhận sau khi đặt</dd>
+              <dd className="text-right font-semibold">
+                {shippingFee !== undefined
+                  ? formatVndCurrency(Number(shippingFee))
+                  : shippingFees === "error"
+                    ? "Không tải được"
+                    : storeRegion.region
+                      ? "Đang tải…"
+                      : "Chọn miền giao hàng"}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3 border-t border-border pt-2 text-base">
+              <dt className="font-semibold">Tổng thanh toán</dt>
+              <dd className="font-bold">
+                {items.length && orderTotal !== null
+                  ? (formatVndCurrency(orderTotal) ?? "Chưa xác định")
+                  : "—"}
+              </dd>
             </div>
           </dl>
           <p className="text-xs text-muted-foreground">
-            Phí giao hàng chưa được tính ở bước này. Cửa hàng sẽ liên hệ xác
-            nhận khi xử lý đơn.
+            Tổng đã gồm phí giao hàng; COD và mã QR chuyển khoản dùng đúng số
+            tiền này.
           </p>
-          {!verificationIsCurrent && (
-            <p role="status" className="text-xs text-warning">
-              Giỏ hàng chưa được xác minh sau lần thay đổi gần nhất.
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {storeRegion.region
+              ? `Giao tới: ${storeRegionLabels[storeRegion.region]}. `
+              : ""}
+            Đơn sẽ chờ cửa hàng xác nhận; hàng chưa được giữ cho tới lúc đó.
+          </p>
           <Button
             type="submit"
             className="w-full"
@@ -772,7 +946,11 @@ export function CheckoutPage() {
               !canSubmitItems(verified?.items ?? [])
             }
           >
-            {isSubmitting ? "Đang gửi đơn hàng…" : "Đặt hàng"}
+            {isSubmitting
+              ? "Đang gửi đơn hàng…"
+              : !verificationIsCurrent && (isVerifying || isReconciling)
+                ? "Đang cập nhật giá…"
+                : "Đặt hàng"}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
             {userId

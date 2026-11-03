@@ -1,10 +1,16 @@
 export type OrderStatus =
-  "PENDING" | "CONFIRMED" | "SHIPPING" | "COMPLETED" | "CANCELLED";
+  | "PENDING"
+  | "PREPARING"
+  | "CONFIRMED"
+  | "SHIPPING"
+  | "COMPLETED"
+  | "CANCELLED";
 export type PaymentMethod = "COD" | "BANK_TRANSFER";
 export type PaymentStatus = "UNPAID" | "PAID";
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   PENDING: "Chờ xác nhận",
+  PREPARING: "Đang chuẩn bị hàng",
   CONFIRMED: "Đã xác nhận",
   SHIPPING: "Đang giao",
   COMPLETED: "Hoàn tất",
@@ -26,6 +32,8 @@ export interface Order {
   recipientName: string;
   phone: string;
   address: string;
+  /** Null on orders placed before delivery regions existed. */
+  region: StoreRegion | null;
   note: string | null;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
@@ -43,6 +51,8 @@ export interface Order {
   paidByMemberId: string | null;
   paymentTransactionId: string | null;
   handledByMemberId: string | null;
+  /** Who took the order out for delivery; cleared when the delivery is returned. */
+  shipperMemberId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,7 +78,8 @@ type StaffOrderField =
   | "stockIssueId"
   | "paidByMemberId"
   | "paymentTransactionId"
-  | "handledByMemberId";
+  | "handledByMemberId"
+  | "shipperMemberId";
 export type CustomerOrder = Omit<Order, StaffOrderField>;
 export type CustomerOrderItem = Omit<OrderItem, "itemId">;
 
@@ -145,6 +156,30 @@ export interface OrderDetail {
   stockIssue: { id: string; issueCode: string | null; status: string } | null;
   customer: OrderCustomer;
   payments: OrderPaymentTransaction[];
+  /** Top-up transfers from source warehouses into the sales warehouse. */
+  replenishments: OrderReplenishment[];
+  shipper: { memberId: string; fullName: string } | null;
+  /** Take, return and delivered steps, oldest first. */
+  deliveryLog: OrderDeliveryLogEntry[];
+}
+
+export type DeliveryAction =
+  | "DELIVERY_CLAIM"
+  | "DELIVERY_RETURN"
+  | "DELIVERY_COMPLETE";
+
+export interface OrderDeliveryLogEntry {
+  action: DeliveryAction;
+  actorName: string | null;
+  data: { reason?: string; collectedCod?: boolean } | null;
+  createdAt: string;
+}
+
+export interface OrderReplenishment {
+  id: string;
+  transferCode: string | null;
+  status: string;
+  fromWarehouseName: string;
 }
 
 export interface CustomerOrderDetail {
@@ -154,13 +189,18 @@ export interface CustomerOrderDetail {
   payment: OrderTransferInstructions | null;
 }
 
+export type StoreRegion = "NORTH" | "CENTRAL" | "SOUTH";
+
 export interface CreateOrderInput {
   idempotencyKey: string;
   recipientName: string;
   phone: string;
   address: string;
+  region: StoreRegion;
   note?: string;
   paymentMethod: PaymentMethod;
+  /** The fee shown at checkout; the API rejects the order if the region's fee changed. */
+  expectedShippingFee?: string;
   items: { variantId: string; quantity: number; expectedUnitPrice?: string }[];
 }
 

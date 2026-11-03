@@ -9,6 +9,7 @@ const documentTypes = new Set([
   'STOCK_TRANSFER',
   'STOCK_COUNT',
   'MAINTENANCE_REQUEST',
+  'ASSET_TRANSFER_REQUEST',
 ]);
 
 const statuses = ['PENDING_APPROVAL', 'CONFIRMED', 'REJECTED'] as const;

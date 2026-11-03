@@ -2,12 +2,14 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -21,6 +23,8 @@ import {
   farmMembers,
   items,
   stockIssues,
+  stockTransfers,
+  units,
   users,
   warehouses,
 } from './schema';
@@ -31,13 +35,25 @@ export const storeProductStatus = pgEnum('store_product_status', [
   'ARCHIVED',
 ]);
 
+export const storeRegion = pgEnum('store_region', [
+  'NORTH',
+  'CENTRAL',
+  'SOUTH',
+]);
+
+// One row per farm that sells online; the store itself is shared by every farm.
 export const storeSettings = pgTable(
   'store_settings',
   {
-    id: integer().primaryKey().default(1),
-    warehouseId: uuid('warehouse_id')
-      .notNull()
-      .references(() => warehouses.id, { onDelete: 'restrict' }),
+    farmId: uuid('farm_id')
+      .primaryKey()
+      .references(() => farms.id, { onDelete: 'restrict' }),
+    salesWarehouseId: uuid('sales_warehouse_id'),
+    salesEnabled: boolean('sales_enabled').default(false).notNull(),
+    regions: storeRegion()
+      .array()
+      .default(sql`'{}'`)
+      .notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -45,11 +61,42 @@ export const storeSettings = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [check('ck_store_settings_singleton', sql`${table.id} = 1`)],
+  (table) => [
+    unique('uq_store_settings_sales_warehouse').on(table.salesWarehouseId),
+    foreignKey({
+      columns: [table.salesWarehouseId, table.farmId],
+      foreignColumns: [warehouses.id, warehouses.farmId],
+      name: 'fk_store_settings_sales_warehouse_farm',
+    }).onDelete('restrict'),
+    check(
+      'ck_store_settings_enabled',
+      sql`NOT ${table.salesEnabled} OR (${table.salesWarehouseId} IS NOT NULL AND cardinality(${table.regions}) > 0)`,
+    ),
+  ],
 );
+
+// Store-wide delivery fee per region; checkout copies it into store_orders.shipping_fee.
+export const storeShippingFees = pgTable(
+  'store_shipping_fees',
+  {
+    region: storeRegion().primaryKey(),
+    fee: numeric({ precision: 18, scale: 0 }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      'ck_store_shipping_fees_fee',
+      sql`${table.fee} >= 0 AND ${table.fee} <= 9007199254740991`,
+    ),
+  ],
+).enableRLS();
 
 export const storeOrderStatus = pgEnum('store_order_status', [
   'PENDING',
+  // Confirmed by staff but waiting for top-up transfers into the sales warehouse.
+  'PREPARING',
   'CONFIRMED',
   'SHIPPING',
   'COMPLETED',
@@ -81,6 +128,8 @@ export const storeOrders = pgTable(
     recipientName: varchar('recipient_name', { length: 255 }).notNull(),
     phone: varchar({ length: 30 }).notNull(),
     address: text().notNull(),
+    // Delivery region chosen at checkout; NULL on orders placed before regions existed.
+    region: storeRegion(),
     note: text(),
     paymentMethod: storePaymentMethod('payment_method').notNull(),
     paymentStatus: storePaymentStatus('payment_status')
@@ -124,6 +173,11 @@ export const storeOrders = pgTable(
       () => farmMembers.id,
       { onDelete: 'restrict' },
     ),
+    // Who took the order out for delivery; kept on COMPLETED, cleared when returned.
+    shipperMemberId: uuid('shipper_member_id').references(
+      () => farmMembers.id,
+      { onDelete: 'restrict' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -164,6 +218,10 @@ export const storeOrders = pgTable(
     check(
       'ck_store_orders_payment',
       sql`(${table.paymentStatus} = 'UNPAID' AND ${table.paidAt} IS NULL AND ${table.paidByMemberId} IS NULL AND ${table.paymentTransactionId} IS NULL) OR (${table.paymentStatus} = 'PAID' AND ${table.paidAt} IS NOT NULL AND (${table.paidByMemberId} IS NOT NULL OR ${table.paymentTransactionId} IS NOT NULL))`,
+    ),
+    check(
+      'ck_store_orders_shipper',
+      sql`${table.status} <> 'SHIPPING' OR ${table.shipperMemberId} IS NOT NULL`,
     ),
     check(
       'ck_store_orders_status_fields',
@@ -276,9 +334,10 @@ export const storeProductVariants = pgTable(
     productId: uuid('product_id')
       .notNull()
       .references(() => storeProducts.id, { onDelete: 'restrict' }),
-    itemId: uuid('item_id')
+    // Every farm item mapped to this variant must use this unit; the price is per unit.
+    unitId: uuid('unit_id')
       .notNull()
-      .references(() => items.id, { onDelete: 'restrict' }),
+      .references(() => units.id, { onDelete: 'restrict' }),
     name: varchar({ length: 255 }).notNull(),
     price: numeric({ precision: 18, scale: 0 }).notNull(),
     quantityStep: numeric('quantity_step', { precision: 18, scale: 3 })
@@ -293,7 +352,6 @@ export const storeProductVariants = pgTable(
       .notNull(),
   },
   (table) => [
-    unique('uq_store_product_variants_item').on(table.itemId),
     index('idx_store_product_variants_product').on(table.productId),
     check(
       'ck_store_product_variants_name',
@@ -309,6 +367,73 @@ export const storeProductVariants = pgTable(
     ),
   ],
 );
+
+// Which item of each selling farm fulfils a shared catalog variant.
+export const storeVariantItems = pgTable(
+  'store_variant_items',
+  {
+    variantId: uuid('variant_id')
+      .notNull()
+      .references(() => storeProductVariants.id, { onDelete: 'restrict' }),
+    farmId: uuid('farm_id')
+      .notNull()
+      .references(() => farms.id, { onDelete: 'restrict' }),
+    itemId: uuid('item_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.variantId, table.farmId] }),
+    unique('uq_store_variant_items_item').on(table.itemId),
+    foreignKey({
+      columns: [table.itemId, table.farmId],
+      foreignColumns: [items.id, items.farmId],
+      name: 'fk_store_variant_items_item_farm',
+    }).onDelete('restrict'),
+  ],
+);
+
+/** Working warehouses of a farm whose stock tops up its sales warehouse. */
+export const storeSourceWarehouses = pgTable(
+  'store_source_warehouses',
+  {
+    warehouseId: uuid('warehouse_id').primaryKey(),
+    farmId: uuid('farm_id')
+      .notNull()
+      .references(() => storeSettings.farmId, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.warehouseId, table.farmId],
+      foreignColumns: [warehouses.id, warehouses.farmId],
+      name: 'fk_store_source_warehouses_warehouse_farm',
+    }).onDelete('restrict'),
+  ],
+).enableRLS();
+
+/** Transfers created into the sales warehouse so an order can be confirmed. */
+export const storeOrderReplenishments = pgTable(
+  'store_order_replenishments',
+  {
+    stockTransferId: uuid('stock_transfer_id')
+      .primaryKey()
+      .references(() => stockTransfers.id, { onDelete: 'restrict' }),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => storeOrders.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index('idx_store_order_replenishments_order').on(table.orderId)],
+).enableRLS();
 
 export const storeOrderItems = pgTable(
   'store_order_items',
@@ -368,9 +493,10 @@ export const paymentTransactions = pgTable(
   'payment_transactions',
   {
     id: uuid().defaultRandom().primaryKey(),
-    farmId: uuid('farm_id')
-      .notNull()
-      .references(() => farms.id, { onDelete: 'restrict' }),
+    // NULL when no order matched: the receiving bank account is shared by every farm.
+    farmId: uuid('farm_id').references(() => farms.id, {
+      onDelete: 'restrict',
+    }),
     provider: paymentProvider().notNull(),
     providerTxId: varchar('provider_tx_id', { length: 100 }).notNull(),
     accountNumber: varchar('account_number', { length: 50 }).notNull(),
@@ -415,6 +541,10 @@ export const paymentTransactions = pgTable(
     check(
       'ck_payment_transactions_order',
       sql`${table.result} IN ('ORDER_NOT_FOUND', 'WRONG_ACCOUNT') OR ${table.orderId} IS NOT NULL`,
+    ),
+    check(
+      'ck_payment_transactions_farm',
+      sql`${table.orderId} IS NULL OR ${table.farmId} IS NOT NULL`,
     ),
   ],
 ).enableRLS();

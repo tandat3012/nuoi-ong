@@ -959,10 +959,6 @@ export default function ReceiptDetailScreen() {
               {documentType === 'issue' && issueInventoryError ? <Text style={styles.documentError}>{issueInventoryError}</Text> : null}
               {documentType === 'issue' && !warehouseId ? <Text style={styles.emptyItemsText}>Cần chọn kho trước để kiểm tra vật phẩm còn tồn.</Text> : null}
               {documentType === 'issue' && warehouseId && !issueInventoryLoading && !issueInventoryError && issueInventoryReady && pickerItems.length === 0 ? <Text style={styles.emptyItemsText}>Kho này chưa có vật phẩm nào còn tồn để xuất. Vật phẩm chưa có tồn chỉ xuất hiện khi lập phiếu nhập.</Text> : null}
-              <Pressable onPress={() => { setPickerOpen(false); router.push('/materials/new' as never); }} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.createMaterial, pressed && styles.pressed]}>
-                <Icon name="add-circle-outline" size={20} color={colors.primary} />
-                <Text style={styles.createMaterialText}>Tạo vật tư mới</Text>
-              </Pressable>
             </ScrollView>
           </View>
         </View>

@@ -43,6 +43,7 @@ import {
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
+import { parseDateRange } from '../../common/date-range';
 
 const issueSchema = {
   type: 'object',
@@ -155,12 +156,15 @@ export class StockIssuesController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('status') status?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.service.list({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
       ...parsePagination(page, pageSize),
       status: parseOptionalEnum(status, documentStatus.enumValues, 'status'),
+      ...parseDateRange(dateFrom, dateTo),
     });
   }
   @ApiOperation({ summary: 'Tạo phiếu xuất kho nháp' })

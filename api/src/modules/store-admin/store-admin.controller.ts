@@ -63,7 +63,18 @@ import {
   STORE_IMAGE_MAX_BYTES,
   StoreAdminService,
 } from './store-admin.service';
-import { STORE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  FARM_ADMIN_ROLES,
+  STORE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
+import {
+  SetStoreVariantItemDto,
+  UpdateStoreSettingsDto,
+  UpdateStoreShippingFeesDto,
+} from './dto/store-settings.dto';
+
+// The catalog is shared by every farm, so only system admins edit it.
+const CATALOG_ROLE = 'ADMIN';
 
 @Controller('store-admin')
 @UseGuards(FarmAccessGuard)
@@ -73,7 +84,7 @@ import { STORE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 @ApiFarmIdQuery()
 @ApiForbiddenResponse({
   description:
-    'Chỉ quản trị viên, chủ trang trại hoặc quản lý cửa hàng của trại sở hữu kho bán hàng.',
+    'Xem catalog: quản trị viên, chủ trại, quản lý cửa hàng. Sửa catalog chung: chỉ ADMIN. Cấu hình bán của trại: ADMIN hoặc chủ trại.',
 })
 export class StoreAdminController {
   constructor(private readonly storeAdminService: StoreAdminService) {}
@@ -85,14 +96,13 @@ export class StoreAdminController {
   @ApiEnumQuery('status', storeProductStatus.enumValues, 'Trạng thái.')
   @ApiUuidQuery('categoryId', 'Lọc theo danh mục cửa hàng.')
   listProducts(
-    @Query('farmId') farmId?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
     @Query('status') status?: string,
     @Query('categoryId') categoryId?: string,
   ) {
-    return this.storeAdminService.listProducts(requireUuid(farmId, 'farmId'), {
+    return this.storeAdminService.listProducts({
       ...parsePagination(page, pageSize),
       search: normalizeSearch(search),
       status: parseOptionalEnum(
@@ -118,6 +128,7 @@ export class StoreAdminController {
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Post('products')
   @ApiOperation({ summary: 'Tạo sản phẩm (mặc định DRAFT)' })
   @ApiConflictResponse({ description: 'Slug đã tồn tại.' })
@@ -133,6 +144,7 @@ export class StoreAdminController {
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Patch('products/:id')
   @ApiOperation({ summary: 'Sửa thông tin sản phẩm' })
   @ApiUuidParam('id', 'ID sản phẩm.')
@@ -151,6 +163,7 @@ export class StoreAdminController {
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Patch('products/:id/status')
   @ApiOperation({
     summary: 'Đổi trạng thái sản phẩm',
@@ -175,6 +188,7 @@ export class StoreAdminController {
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Post('products/:id/variants')
   @ApiOperation({ summary: 'Thêm biến thể (quy cách bán)' })
   @ApiUuidParam('id', 'ID sản phẩm.')
@@ -193,19 +207,18 @@ export class StoreAdminController {
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Patch('products/:id/variants/:variantId')
   @ApiOperation({ summary: 'Sửa biến thể; tắt bằng active=false' })
   @ApiUuidParam('id', 'ID sản phẩm.')
   @ApiUuidParam('variantId', 'ID biến thể.')
   async updateVariant(
-    @Query('farmId') farmId: string,
     @Param('id') id: string,
     @Param('variantId') variantId: string,
     @Body() input: UpdateStoreVariantDto,
   ) {
     return {
       data: await this.storeAdminService.updateVariant(
-        requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
         requireUuid(variantId, 'variantId'),
         input,
@@ -213,6 +226,7 @@ export class StoreAdminController {
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Post('products/:id/images')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: STORE_IMAGE_MAX_BYTES } }),
@@ -235,14 +249,12 @@ export class StoreAdminController {
     },
   })
   async addImage(
-    @Query('farmId') farmId: string,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body('alt') alt?: string,
   ) {
     return {
       data: await this.storeAdminService.addImage(
-        requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
         file,
         typeof alt === 'string' ? alt : '',
@@ -250,36 +262,34 @@ export class StoreAdminController {
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Put('products/:id/images/order')
   @ApiOperation({ summary: 'Sắp xếp lại ảnh; ảnh đầu là ảnh đại diện' })
   @ApiUuidParam('id', 'ID sản phẩm.')
   async reorderImages(
-    @Query('farmId') farmId: string,
     @Param('id') id: string,
     @Body() input: ReorderStoreImagesDto,
   ) {
     return {
       data: await this.storeAdminService.reorderImages(
-        requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
         input.imageIds,
       ),
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Patch('products/:id/images/:imageId')
   @ApiOperation({ summary: 'Sửa mô tả (alt) ảnh' })
   @ApiUuidParam('id', 'ID sản phẩm.')
   @ApiUuidParam('imageId', 'ID ảnh.')
   async updateImage(
-    @Query('farmId') farmId: string,
     @Param('id') id: string,
     @Param('imageId') imageId: string,
     @Body() input: UpdateStoreImageDto,
   ) {
     return {
       data: await this.storeAdminService.updateImage(
-        requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
         requireUuid(imageId, 'imageId'),
         input.alt,
@@ -287,6 +297,7 @@ export class StoreAdminController {
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Delete('products/:id/images/:imageId')
   @HttpCode(204)
   @ApiOperation({ summary: 'Xóa ảnh khỏi sản phẩm và Cloudinary' })
@@ -294,14 +305,115 @@ export class StoreAdminController {
   @ApiUuidParam('imageId', 'ID ảnh.')
   @ApiNoContentResponse({ description: 'Đã xóa.' })
   async deleteImage(
-    @Query('farmId') farmId: string,
     @Param('id') id: string,
     @Param('imageId') imageId: string,
   ) {
     await this.storeAdminService.deleteImage(
-      requireUuid(farmId, 'farmId'),
       requireUuid(id, 'id'),
       requireUuid(imageId, 'imageId'),
+    );
+  }
+
+  @Get('settings')
+  @FarmRoles(...FARM_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Cấu hình bán online của trại: kho bán, miền phục vụ',
+  })
+  async getSettings(@Query('farmId') farmId: string) {
+    return {
+      data: await this.storeAdminService.getSettings(
+        requireUuid(farmId, 'farmId'),
+      ),
+    };
+  }
+
+  @Put('shipping-fees')
+  @FarmRoles(...FARM_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Sửa phí giao hàng theo miền (dùng chung mọi trại)',
+    description:
+      'ADMIN hoặc chủ trại (FARM_OWNER). Áp dụng cho đơn đặt sau khi lưu; đơn đã đặt giữ phí cũ. Đọc phí hiện tại qua GET /store/shipping-fees.',
+  })
+  async updateShippingFees(@Body() input: UpdateStoreShippingFeesDto) {
+    return {
+      data: await this.storeAdminService.updateShippingFees(input),
+    };
+  }
+
+  @Get('sales-stock')
+  @ApiOperation({
+    summary:
+      'Tồn bán hàng: tồn vật lý, đang giữ và khả dụng tại kho bán của trại',
+  })
+  async salesStock(@Query('farmId') farmId: string) {
+    return {
+      data: await this.storeAdminService.salesStock(
+        requireUuid(farmId, 'farmId'),
+      ),
+    };
+  }
+
+  @Put('settings')
+  @FarmRoles(...FARM_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Lưu cấu hình bán online của trại',
+    description:
+      'Mỗi trại có đúng một kho bán. Bật bán cần kho bán và ít nhất một miền. Không đổi kho khi kho cũ còn đơn chưa hoàn tất.',
+  })
+  @ApiConflictResponse({ description: 'Kho bán cũ còn đơn chưa hoàn tất.' })
+  async updateSettings(
+    @Query('farmId') farmId: string,
+    @Body() input: UpdateStoreSettingsDto,
+  ) {
+    return {
+      data: await this.storeAdminService.updateSettings(
+        requireUuid(farmId, 'farmId'),
+        input,
+      ),
+    };
+  }
+
+  @Put('products/:id/variants/:variantId/item')
+  @FarmRoles(...FARM_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Chọn vật tư của trại cung cấp quy cách bán',
+    description: 'Vật tư phải đang hoạt động và cùng đơn vị với quy cách.',
+  })
+  @ApiUuidParam('id', 'ID sản phẩm.')
+  @ApiUuidParam('variantId', 'ID biến thể.')
+  @ApiConflictResponse({ description: 'Vật tư đã gắn với quy cách khác.' })
+  async setVariantItem(
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Param('variantId') variantId: string,
+    @Body() input: SetStoreVariantItemDto,
+  ) {
+    return {
+      data: await this.storeAdminService.setVariantItem(
+        requireUuid(farmId, 'farmId'),
+        requireUuid(id, 'id'),
+        requireUuid(variantId, 'variantId'),
+        input.itemId,
+      ),
+    };
+  }
+
+  @Delete('products/:id/variants/:variantId/item')
+  @HttpCode(204)
+  @FarmRoles(...FARM_ADMIN_ROLES)
+  @ApiOperation({ summary: 'Ngừng cung cấp quy cách bán từ trại này' })
+  @ApiUuidParam('id', 'ID sản phẩm.')
+  @ApiUuidParam('variantId', 'ID biến thể.')
+  @ApiNoContentResponse({ description: 'Đã gỡ.' })
+  async removeVariantItem(
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Param('variantId') variantId: string,
+  ) {
+    await this.storeAdminService.removeVariantItem(
+      requireUuid(farmId, 'farmId'),
+      requireUuid(id, 'id'),
+      requireUuid(variantId, 'variantId'),
     );
   }
 
@@ -322,37 +434,31 @@ export class StoreAdminController {
 
   @Get('categories')
   @ApiOperation({ summary: 'Tất cả danh mục cửa hàng' })
-  listCategories(@Query('farmId') farmId: string) {
-    return this.storeAdminService.listCategories(requireUuid(farmId, 'farmId'));
+  listCategories() {
+    return this.storeAdminService.listCategories();
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Post('categories')
   @ApiOperation({ summary: 'Tạo danh mục cửa hàng' })
   @ApiConflictResponse({ description: 'Slug đã tồn tại.' })
-  async createCategory(
-    @Query('farmId') farmId: string,
-    @Body() input: CreateStoreCategoryDto,
-  ) {
+  async createCategory(@Body() input: CreateStoreCategoryDto) {
     return {
-      data: await this.storeAdminService.createCategory(
-        requireUuid(farmId, 'farmId'),
-        input,
-      ),
+      data: await this.storeAdminService.createCategory(input),
     };
   }
 
+  @FarmRoles(CATALOG_ROLE)
   @Patch('categories/:id')
   @ApiOperation({ summary: 'Sửa danh mục cửa hàng' })
   @ApiUuidParam('id', 'ID danh mục.')
   @ApiConflictResponse({ description: 'Slug đã tồn tại.' })
   async updateCategory(
-    @Query('farmId') farmId: string,
     @Param('id') id: string,
     @Body() input: UpdateStoreCategoryDto,
   ) {
     return {
       data: await this.storeAdminService.updateCategory(
-        requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
         input,
       ),

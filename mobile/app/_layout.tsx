@@ -18,7 +18,8 @@ import { ClerkProvider } from '@clerk/clerk-expo';
 import * as SecureStore from 'expo-secure-store';
 import { Pressable, Text, View } from 'react-native';
 
-import { AuthContextProvider } from '@/src/features/auth/context/AuthContext';
+import { AuthContextProvider, useAuthContext } from '@/src/features/auth/context/AuthContext';
+import { canUseMobileOperations } from '@/src/features/auth/mobile-access';
 import { PushRegistrationProvider } from '@/src/features/notifications/context/PushRegistrationProvider';
 import { pushRegistrationManager } from '@/src/features/notifications/push-registration-runtime';
 import { completeSessionStartup } from '@/src/features/auth/session/startup-runtime';
@@ -117,6 +118,10 @@ function SessionStartup({ children }: { children: ReactNode }) {
 
 function AppNavigator() {
   const { isSignedIn } = useAuth();
+  const { data, currentFarmId, isLoading } = useAuthContext();
+  const membership = data?.memberships.find(({ farm }) => farm.id === currentFarmId);
+  const canOperate = canUseMobileOperations(membership?.roles);
+  if (isSignedIn && isLoading) return null;
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" options={{ animation: 'none' }} />
@@ -124,33 +129,8 @@ function AppNavigator() {
       <Stack.Protected guard={!!isSignedIn}>
         {[
           'dashboard',
-          'inventory',
-          'inventory-detail',
-          'low-stock',
-          'activity',
-          'activity/[id]',
-          'activity/record',
-          'assets/return',
-          'counts/[id]',
-          'counts/new',
-          'lots/[id]',
-          'maintenance/new',
-          'maintenance/history',
-          'maintenance/requests/[id]',
-          'materials/new',
-          'receipts/index',
-          'receipts/[id]',
-          'receipts/new',
-          'scan/index',
-          'scan/[qrToken]',
-          'scan/item/[itemId]',
-          'scan/inventory/[balanceId]',
-          'transfers/[id]',
-          'transfers/new',
-          'notifications',
           'account/index',
           'account/profile',
-          'account/notifications',
         ].map((name) => (
           <Stack.Screen
             key={name}
@@ -162,6 +142,18 @@ function AppNavigator() {
             }
           />
         ))}
+        <Stack.Protected guard={canOperate}>
+          {[
+            'inventory', 'inventory-detail', 'low-stock',
+            'activity', 'activity/[id]', 'activity/record',
+            'assets/return', 'assets/transfer-request', 'assets/transfer-requests/[id]', 'materials/new',
+            'counts/[id]', 'counts/new', 'lots/[id]',
+            'maintenance/new', 'maintenance/history', 'maintenance/requests/[id]',
+            'receipts/index', 'receipts/[id]', 'receipts/new',
+            'scan/index', 'scan/[qrToken]', 'scan/item/[itemId]', 'scan/inventory/[balanceId]',
+            'transfers/[id]', 'transfers/new', 'notifications', 'account/notifications',
+          ].map((name) => <Stack.Screen key={name} name={name} />)}
+        </Stack.Protected>
       </Stack.Protected>
     </Stack>
   );

@@ -51,7 +51,9 @@ export function AssetDetail({
   const [success, setSuccess] = useState(false);
   const [requestType, setRequestType] = useState<RequestType | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
-  const [requestSuccess, setRequestSuccess] = useState<RequestType | null>(null);
+  const [requestSuccess, setRequestSuccess] = useState<RequestType | null>(
+    null,
+  );
   const [action, setAction] = useState<
     AssetActionKind | "edit" | "label" | null
   >(null);
@@ -147,6 +149,11 @@ export function AssetDetail({
   const view = current?.view;
   const asset = view?.asset;
   const writable = canWriteAssets(roles);
+  const canScheduleMaintenance = roles.some((role) =>
+    ["ADMIN", "FARM_OWNER", "WAREHOUSE_MANAGER", "MAINTENANCE_STAFF"].includes(
+      role,
+    ),
+  );
   const requestActions = assetRequestActions(roles, asset?.status ?? "");
   const feedback = {
     error: returnError,
@@ -216,8 +223,12 @@ export function AssetDetail({
       )}
       {requestSuccess && (
         <p role="status" className="rounded-lg border bg-muted p-4 text-sm">
-          Đã gửi yêu cầu {requestSuccess === "maintenance" ? "bảo trì" : "chuyển tài sản"}.{" "}
-          <Link href={`/requests?type=${requestSuccess}`} className="text-primary underline">
+          Đã gửi yêu cầu{" "}
+          {requestSuccess === "maintenance" ? "bảo trì" : "chuyển tài sản"}.{" "}
+          <Link
+            href={`/requests?type=${requestSuccess}`}
+            className="text-primary underline"
+          >
             Xem yêu cầu
           </Link>
         </p>
@@ -263,31 +274,65 @@ export function AssetDetail({
                   Sửa thông tin
                 </Button>
               )}
-              {writable &&
-                assetActions(asset.status).map((value) => (
-                  <Button
-                    key={value}
-                    variant="outline"
-                    disabled={returnError?.reloadRequired}
-                    onClick={(event) => {
-                      operationTrigger.current = event.currentTarget;
-                      setAction(value);
-                    }}
-                  >
-                    {ASSET_ACTION_LABELS[value]}
-                  </Button>
-                ))}
+              {(writable || canScheduleMaintenance) &&
+                assetActions(asset.status)
+                  .filter((value) => writable || value === "maintenance")
+                  .map((value) => (
+                    <Button
+                      key={value}
+                      variant="outline"
+                      disabled={returnError?.reloadRequired}
+                      onClick={(event) => {
+                        operationTrigger.current = event.currentTarget;
+                        setAction(value);
+                      }}
+                    >
+                      {ASSET_ACTION_LABELS[value]}
+                    </Button>
+                  ))}
               {requestActions.maintenance && (
-                <Button variant="outline" onClick={() => { setRequestSuccess(null); setRequestType("maintenance"); }}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRequestSuccess(null);
+                    setRequestType("maintenance");
+                  }}
+                >
                   Báo cần sửa
                 </Button>
               )}
               {requestActions.transfer && (
-                <Button variant="outline" onClick={() => { setRequestSuccess(null); setRequestType("transfer"); }}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRequestSuccess(null);
+                    setRequestType("transfer");
+                  }}
+                >
                   Yêu cầu chuyển
                 </Button>
               )}
             </section>
+            {(view.latestMaintenanceStatus === "FAILED" ||
+              view.maintenanceRetryEligible) && (
+              <div
+                role="status"
+                className="rounded border border-amber-600 p-4"
+              >
+                <p>
+                  Bảo trì không thành công. Thiết bị chưa được cấp phát hoặc sử
+                  dụng.
+                </p>
+                {view.maintenanceRetryEligible && canScheduleMaintenance && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setAction("maintenance")}
+                  >
+                    Lập lịch bảo trì lại
+                  </Button>
+                )}
+              </div>
+            )}
             <dl className="grid min-w-0 gap-x-8 gap-y-5 rounded-xl border bg-card p-5 sm:grid-cols-2 xl:grid-cols-3">
               {[
                 ["Mã tài sản", asset.assetCode],

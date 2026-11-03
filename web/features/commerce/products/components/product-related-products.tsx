@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { getProductsStore } from '../api/product.api';
+import { getStoreRegion } from '../../region/region.server';
 import { ProductCard } from './product-card';
 import { filterRelatedProducts } from './product-detail.logic';
 import { cn } from '@/shared/lib/utils';
@@ -26,6 +27,7 @@ export async function ProductRelatedProducts({
     const result = await getProductsStore({
       category: categorySlug,
       pageSize: 5,
+      region: await getStoreRegion(),
     });
 
     relatedItems = filterRelatedProducts(

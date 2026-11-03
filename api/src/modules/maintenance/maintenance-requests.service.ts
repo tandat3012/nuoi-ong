@@ -5,15 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  and,
-  count,
-  desc,
-  eq,
-  getTableColumns,
-  inArray,
-  sql,
-} from 'drizzle-orm';
+import { and, count, desc, eq, getTableColumns, sql } from 'drizzle-orm';
+import { activeMaintenanceCondition } from './maintenance-state';
 import { alias } from 'drizzle-orm/pg-core';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
@@ -399,7 +392,7 @@ export class MaintenanceRequestsService {
         and(
           eq(maintenanceRecords.farmId, farmId),
           eq(maintenanceRecords.assetId, assetId),
-          inArray(maintenanceRecords.status, ['SCHEDULED', 'IN_PROGRESS']),
+          activeMaintenanceCondition,
         ),
       )
       .limit(1);

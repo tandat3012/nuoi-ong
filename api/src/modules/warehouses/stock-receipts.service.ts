@@ -4,7 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, getTableColumns, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  lte,
+  sql,
+} from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -41,6 +50,8 @@ export interface StockReceiptListFilters extends PaginationParams {
   clerkUserId: string;
   status?: typeof stockReceipts.$inferSelect.status;
   warehouseId?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 @Injectable()
@@ -61,6 +72,10 @@ export class StockReceiptsService {
       conditions.push(eq(stockReceipts.status, filters.status));
     if (filters.warehouseId)
       conditions.push(eq(stockReceipts.warehouseId, filters.warehouseId));
+    if (filters.dateFrom)
+      conditions.push(gte(stockReceipts.receiptDate, filters.dateFrom));
+    if (filters.dateTo)
+      conditions.push(lte(stockReceipts.receiptDate, filters.dateTo));
     const [data, total] = await Promise.all([
       this.databaseService.db
         .select({

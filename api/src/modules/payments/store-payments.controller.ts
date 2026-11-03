@@ -25,12 +25,13 @@ export class StorePaymentsController {
 
   @Get()
   list(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('result') result?: string,
   ) {
-    return this.payments.list(requireUuid(farmId, 'farmId'), {
+    return this.payments.list(requireUuid(farmId, 'farmId'), auth.clerkUserId, {
       ...parsePagination(page, pageSize),
       result: parseOptionalEnum(
         result,

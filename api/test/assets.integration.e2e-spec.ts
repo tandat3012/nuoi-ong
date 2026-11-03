@@ -49,6 +49,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
   const inactiveLocationId = randomUUID();
   const wrongWarehouseLocationId = randomUUID();
   const foreignLocationId = randomUUID();
+  const maintenanceSupplierId = randomUUID();
   const assetIds = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
   const foreignAssetId = randomUUID();
   const qrTokens = assetIds.map(() => randomUUID());
@@ -104,7 +105,12 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     const response = await http()
       .post('/api/v1/maintenance-records')
       .query({ farmId })
-      .send({ assetId, maintenanceType: 'INSPECTION' })
+      .send({
+        assetId,
+        maintenanceType: 'INSPECTION',
+        supplierId: maintenanceSupplierId,
+        expectedReturnAt: new Date(Date.now() + 86400000 * 3).toISOString(),
+      })
       .expect(201);
     return (response.body as unknown as { data: { id: string } }).data.id;
   };
@@ -497,6 +503,15 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       ],
     );
 
+    // This fixture owner also performs the technician duties; isolated workflow tests cover separated roles.
+    await pool.query(
+      "INSERT INTO farm_member_roles(farm_member_id,role_id) SELECT $1,id FROM roles WHERE code='MAINTENANCE_STAFF' ON CONFLICT DO NOTHING",
+      [ownerMemberId],
+    );
+    await pool.query(
+      'INSERT INTO suppliers(id,farm_id,code,name) VALUES($1,$2,$3,$3)',
+      [maintenanceSupplierId, farmId, tag + '-repairer'],
+    );
     const module = await Test.createTestingModule({
       controllers: [
         AssetsController,
@@ -603,6 +618,9 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         'DELETE FROM stock_document_counters WHERE farm_id=ANY($1::uuid[])',
         [[farmId, foreignFarmId]],
       );
+      await pool.query('DELETE FROM suppliers WHERE id=$1', [
+        maintenanceSupplierId,
+      ]);
       await pool.query('DELETE FROM farms WHERE id=ANY($1::uuid[])', [
         [farmId, foreignFarmId],
       ]);
@@ -1504,36 +1522,57 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     expect((await readAsset(assetIds[2])).status).toBe('MAINTENANCE');
     expect(await balance(warehouseId)).toBe('0.000');
     expect(await transactionRows(assetIds[2])).toHaveLength(1);
-    await maintenanceAction(recordId, 'complete')
-      .send({ resultNote: 'Inspected' })
+    await maintenanceAction(recordId, 'receive')
+      .send({ receivedAt: new Date().toISOString() })
       .expect(201);
-    expect((await readAsset(assetIds[2])).status).toBe('IN_USE');
+    await maintenanceAction(recordId, 'complete')
+      .send({ outcome: 'PASSED', resultNote: 'Inspected', intervalMonths: 3 })
+      .expect(201);
+    expect((await readAsset(assetIds[2])).status).toBe('MAINTENANCE');
     expect(await balance(warehouseId)).toBe('0.000');
     const holder = await http()
       .get(`/api/v1/assets/${assetIds[2]}/holder`)
       .query({ farmId })
       .expect(200);
     expect(holder.body as unknown).toEqual({ data: null });
-    expect((await returnAsset(assetIds[2])).status).toBe(201);
+    expect((await returnAsset(assetIds[2])).status).toBe(409);
+    await maintenanceAction(recordId, 'return-receipt')
+      .send(destinationInput())
+      .expect(201);
+    await maintenanceAction(recordId, 'return-receipt/approve').expect(201);
+    expect((await readAsset(assetIds[2])).status).toBe('AVAILABLE');
     expect(await balance(destinationWarehouseId)).toBe('1.000');
     expect(
       (await transactionRows(assetIds[2])).map((row) => row.quantity_change),
     ).toEqual(['-1.000', '1.000']);
   });
 
-  it('can repeat maintenance after completing an in-stock repair before explicit return', async () => {
+  it('can repeat maintenance only after approved receipt and cannot cancel an external repair', async () => {
     await seedBalance();
     const first = await scheduleMaintenance(assetIds[2]);
     await maintenanceAction(first, 'start').expect(201);
-    await maintenanceAction(first, 'complete').expect(201);
+    await maintenanceAction(first, 'receive')
+      .send({ receivedAt: new Date().toISOString() })
+      .expect(201);
+    await maintenanceAction(first, 'complete')
+      .send({ outcome: 'PASSED', resultNote: 'Inspected', intervalMonths: 3 })
+      .expect(201);
+    await http()
+      .post('/api/v1/maintenance-records')
+      .query({ farmId })
+      .send({ assetId: assetIds[2], maintenanceType: 'INSPECTION' })
+      .expect(409);
+    await maintenanceAction(first, 'return-receipt')
+      .send({ warehouseId, locationId })
+      .expect(201);
+    await maintenanceAction(first, 'return-receipt/approve').expect(201);
     const second = await scheduleMaintenance(assetIds[2]);
     await maintenanceAction(second, 'start').expect(201);
-    await maintenanceAction(second, 'cancel').expect(201);
-    expect((await readAsset(assetIds[2])).status).toBe('IN_USE');
+    await maintenanceAction(second, 'cancel').expect(409);
+    expect((await readAsset(assetIds[2])).status).toBe('MAINTENANCE');
     expect(await balance(warehouseId)).toBe('0.000');
-    expect(await transactionRows(assetIds[2])).toHaveLength(1);
-    expect((await returnAsset(assetIds[2])).status).toBe(201);
-    expect(await transactionRows(assetIds[2])).toHaveLength(2);
+    expect(await transactionRows(assetIds[2])).toHaveLength(3);
+    expect((await returnAsset(assetIds[2])).status).toBe(409);
   });
 
   it('still rejects an ASSIGNED asset with no active assignment when starting maintenance', async () => {

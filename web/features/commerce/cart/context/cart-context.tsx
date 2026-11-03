@@ -122,7 +122,6 @@ export function CartProvider({ children }: CartProviderProps) {
   const addItem = React.useCallback((input: AddToCartInput): boolean => {
     if (checkoutSubmittingRef.current || !isValidCartInput(input)) return false;
     dispatch({ type: 'add', input });
-    setIsDrawerOpen(true);
 
     return true;
   }, [dispatch]);

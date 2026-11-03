@@ -12,8 +12,8 @@ import {
   eq,
   getTableColumns,
   gte,
-  inArray,
   isNull,
+  lte,
   sql,
   SQL,
 } from 'drizzle-orm';
@@ -50,11 +50,14 @@ import {
 } from '../notifications/notification-events';
 import { quantityMillis } from '../store-orders/store-order.rules';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 
 type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
   status?: typeof stockIssues.$inferSelect.status;
+  dateFrom?: string;
+  dateTo?: string;
 };
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -76,6 +79,10 @@ export class StockIssuesService {
     const conditions: SQL[] = [eq(stockIssues.farmId, filters.farmId)];
 
     if (filters.status) conditions.push(eq(stockIssues.status, filters.status));
+    if (filters.dateFrom)
+      conditions.push(gte(stockIssues.issueDate, filters.dateFrom));
+    if (filters.dateTo)
+      conditions.push(lte(stockIssues.issueDate, filters.dateTo));
 
     const where = and(...conditions);
     const [data, totals] = await Promise.all([
@@ -532,10 +539,7 @@ export class StockIssuesService {
               and(
                 eq(maintenanceRecords.farmId, farmId),
                 eq(maintenanceRecords.assetId, asset.id),
-                inArray(maintenanceRecords.status, [
-                  'SCHEDULED',
-                  'IN_PROGRESS',
-                ]),
+                activeMaintenanceCondition,
               ),
             )
             .limit(1);

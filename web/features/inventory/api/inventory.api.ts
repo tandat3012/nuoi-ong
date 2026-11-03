@@ -80,7 +80,12 @@ export function getInventoryTransactions(
   filters: InventoryLedgerFilters,
 ) {
   return request<InventoryLedgerResponse>("/inventory/transactions", {
-    params: { farmId, ...filters },
+    params: {
+      farmId,
+      ...filters,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
+    },
   });
 }
 

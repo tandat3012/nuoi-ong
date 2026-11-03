@@ -65,8 +65,10 @@ export type PersonnelHistory = {
 export const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Quản trị viên",
   FARM_OWNER: "Chủ trại",
+  MAINTENANCE_STAFF: "Nhân viên bảo trì",
   WAREHOUSE_MANAGER: "Quản lý kho",
   STORE_MANAGER: "Quản lý cửa hàng",
+  DELIVERY_STAFF: "Nhân viên giao hàng",
   EMPLOYEE: "Nhân viên",
   GUEST: "Khách",
 };

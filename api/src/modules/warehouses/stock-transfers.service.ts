@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import {
   and,
@@ -35,6 +36,7 @@ import {
 } from './dto/stock-transfer.dto';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
+import { StockTransferHooks } from './stock-transfer-hooks';
 import {
   confirmationCode,
   ignoreLegacyCode,
@@ -61,6 +63,8 @@ export class StockTransfersService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly warehousesService: WarehousesService,
+    @Optional()
+    private readonly hooks: StockTransferHooks = new StockTransferHooks(),
   ) {}
   async list(f: Filters) {
     await this.warehousesService.assertFarmAccess(
@@ -318,6 +322,7 @@ export class StockTransfersService {
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
     await this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
       const row = await this.only(id, farmId, tx, true);
       if (row.status !== 'PENDING_APPROVAL')
         throw new ConflictException(
@@ -345,6 +350,7 @@ export class StockTransfersService {
           { ...this.notification(row, 'REJECTED'), rejectionReason: reason },
           row.createdByMemberId,
         );
+      await this.hooks.run('rejected', tx, id, member);
     });
     return this.withItems(id, farmId);
   }
@@ -356,6 +362,7 @@ export class StockTransfersService {
       WAREHOUSE_MANAGE_ROLES,
     );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
       const row = await this.only(id, farmId, tx, true);
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(row.status))
@@ -469,6 +476,7 @@ export class StockTransfersService {
           this.notification(confirmed, 'CONFIRMED'),
           row.createdByMemberId,
         );
+      await this.hooks.run('confirmed', tx, id, member);
     });
     await confirmation.catch(rethrowCodeConflict);
     return this.withItems(id, farmId);

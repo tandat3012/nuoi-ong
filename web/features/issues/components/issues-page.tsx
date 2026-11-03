@@ -14,6 +14,7 @@ import { IssueDraftForm } from "./issue-draft-form";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Select } from "@/shared/components/ui/select";
+import { DateRangeFilter } from "@/shared/components/ui/date-range-filter";
 import { canCreateStockDocuments } from "@/features/stock-documents";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
@@ -42,6 +43,7 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
     isLoading,
     error,
     changeStatus,
+changeDateRange,
     changePage,
     reload,
   } = useIssueList(farmId);
@@ -94,7 +96,8 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
           </>
         }
       />
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
+      <div className="space-y-3 rounded-xl border bg-card p-4">
+        <div className="flex flex-wrap items-center gap-3">
         <label htmlFor="issue-status" className="text-sm font-medium">
           Trạng thái
         </label>
@@ -114,6 +117,8 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
             </option>
           ))}
         </Select></div>
+        </div>
+        <DateRangeFilter onApply={changeDateRange} />
       </div>
       {isLoading ? (
         <BeeLoader label="Đang tải danh sách phiếu xuất..." />
@@ -129,8 +134,8 @@ function FarmIssuesPage({ farmId }: { farmId: string }) {
         </div>
       ) : issues.length === 0 ? (
         <p role="status">
-          {filters.status
-            ? "Không có phiếu xuất phù hợp với trạng thái đã chọn."
+          {filters.status || filters.dateFrom || filters.dateTo
+            ? "Không có phiếu xuất phù hợp với bộ lọc đã chọn."
             : "Chưa có phiếu xuất trong trang trại."}
         </p>
       ) : (

@@ -14,6 +14,7 @@ test("history uses the protected dashboard routes and existing staff navigation 
     assert.equal(isNavigationItemVisible(item, {
       canManageFarm: false,
       canManageStore: false,
+      canDeliver: false,
       canAccessFarmArea: true,
       canViewHistory: staff,
       isStoreFarm: false,

@@ -24,6 +24,7 @@ test("only approvers and employees create documents", () => {
   assert.equal(canCreateStockDocuments(["ADMIN"]), true);
   assert.equal(canCreateStockDocuments(["EMPLOYEE"]), true);
   assert.equal(canCreateStockDocuments(["GUEST"]), false);
+  assert.equal(canCreateStockDocuments(["MAINTENANCE_STAFF"]), false);
   assert.equal(canCreateStockDocuments([]), false);
 });
 
@@ -112,11 +113,30 @@ test("rejection reasons are trimmed and bounded", () => {
 test("document query IDs accept UUIDs and ignore missing or invalid values", () => {
   const id = "123e4567-e89b-42d3-a456-426614174000";
   assert.equal(stockDocumentQueryId(new URLSearchParams({ id })), id);
-  assert.equal(stockDocumentQueryId(new URLSearchParams({ id: id.toUpperCase() })), id.toUpperCase());
-  assert.equal(stockDocumentQueryId(new URLSearchParams(`id=${encodeURIComponent(id)}`)), id);
-  assert.equal(stockDocumentQueryId(new URLSearchParams(`id=${id}&id=invalid`)), id);
-  for (const value of ["", "invalid", "../other", "id?x=1", ` ${id}`, `${id}/other`]) {
-    assert.equal(stockDocumentQueryId(new URLSearchParams({ id: value })), null);
+  assert.equal(
+    stockDocumentQueryId(new URLSearchParams({ id: id.toUpperCase() })),
+    id.toUpperCase(),
+  );
+  assert.equal(
+    stockDocumentQueryId(new URLSearchParams(`id=${encodeURIComponent(id)}`)),
+    id,
+  );
+  assert.equal(
+    stockDocumentQueryId(new URLSearchParams(`id=${id}&id=invalid`)),
+    id,
+  );
+  for (const value of [
+    "",
+    "invalid",
+    "../other",
+    "id?x=1",
+    ` ${id}`,
+    `${id}/other`,
+  ]) {
+    assert.equal(
+      stockDocumentQueryId(new URLSearchParams({ id: value })),
+      null,
+    );
   }
   assert.equal(stockDocumentQueryId(new URLSearchParams()), null);
 });
@@ -124,12 +144,26 @@ test("document query IDs accept UUIDs and ignore missing or invalid values", () 
 test("receipt, transfer and count URLs preserve filters when opening, replacing or closing a document", () => {
   const id = "123e4567-e89b-42d3-a456-426614174000";
   for (const path of ["/receipts", "/transfers", "/counts"]) {
-    const params = new URLSearchParams("status=DRAFT&page=2&id=old&id=duplicate");
-    assert.equal(stockDocumentHref(path, params, id), `${path}?status=DRAFT&page=2&id=${id}`);
-    assert.equal(stockDocumentHref(path, params, null), `${path}?status=DRAFT&page=2`);
+    const params = new URLSearchParams(
+      "status=DRAFT&page=2&id=old&id=duplicate",
+    );
+    assert.equal(
+      stockDocumentHref(path, params, id),
+      `${path}?status=DRAFT&page=2&id=${id}`,
+    );
+    assert.equal(
+      stockDocumentHref(path, params, null),
+      `${path}?status=DRAFT&page=2`,
+    );
     assert.equal(params.toString(), "status=DRAFT&page=2&id=old&id=duplicate");
-    assert.equal(stockDocumentHref(path, new URLSearchParams({ id }), null), path);
-    assert.equal(stockDocumentHref(path, new URLSearchParams(), id), `${path}?id=${id}`);
+    assert.equal(
+      stockDocumentHref(path, new URLSearchParams({ id }), null),
+      path,
+    );
+    assert.equal(
+      stockDocumentHref(path, new URLSearchParams(), id),
+      `${path}?id=${id}`,
+    );
   }
 });
 
@@ -139,28 +173,60 @@ test("labels an uncoded draft by its short id and keeps a permanent code", async
     documentCodeLabel(null, "1a2b3c4d-0000-4000-8000-000000000000"),
     "Nháp #1a2b3c4d",
   );
-  assert.equal(documentCodeLabel("PN-2026-000001", "1a2b3c4d"), "PN-2026-000001");
+  assert.equal(
+    documentCodeLabel("PN-2026-000001", "1a2b3c4d"),
+    "PN-2026-000001",
+  );
 });
 
 test("normalizes owner numbering options like the API and requires a reason with a code", async () => {
-  const { numberingOptionsPayload, numberingOptionsError, isFarmOwner } = await import(
-    "./stock-document.logic.ts"
+  const { numberingOptionsPayload, numberingOptionsError, isFarmOwner } =
+    await import("./stock-document.logic.ts");
+  assert.deepEqual(
+    numberingOptionsPayload({
+      externalReference: "  HĐ 12 ",
+      requestedCode: " pn-2026-000123 ",
+      requestedCodeReason: " Khớp giấy ",
+    }),
+    {
+      externalReference: "HĐ 12",
+      requestedCode: "PN-2026-000123",
+      requestedCodeReason: "Khớp giấy",
+    },
   );
   assert.deepEqual(
-    numberingOptionsPayload({ externalReference: "  HĐ 12 ", requestedCode: " pn-2026-000123 ", requestedCodeReason: " Khớp giấy " }),
-    { externalReference: "HĐ 12", requestedCode: "PN-2026-000123", requestedCodeReason: "Khớp giấy" },
-  );
-  assert.deepEqual(
-    numberingOptionsPayload({ externalReference: " ", requestedCode: "  ", requestedCodeReason: "ignored" }),
+    numberingOptionsPayload({
+      externalReference: " ",
+      requestedCode: "  ",
+      requestedCodeReason: "ignored",
+    }),
     { externalReference: null, requestedCode: null },
   );
   assert.equal(
-    numberingOptionsError(numberingOptionsPayload({ externalReference: "", requestedCode: "X", requestedCodeReason: " " })),
+    numberingOptionsError(
+      numberingOptionsPayload({
+        externalReference: "",
+        requestedCode: "X",
+        requestedCodeReason: " ",
+      }),
+    ),
     "Cần nhập lý do khi yêu cầu mã phiếu.",
   );
-  assert.equal(numberingOptionsError({ requestedCode: "X".repeat(51), requestedCodeReason: "r" }), "Mã phiếu yêu cầu không được quá 50 ký tự.");
   assert.equal(
-    numberingOptionsError(numberingOptionsPayload({ externalReference: "", requestedCode: "ß".repeat(50), requestedCodeReason: "r" })),
+    numberingOptionsError({
+      requestedCode: "X".repeat(51),
+      requestedCodeReason: "r",
+    }),
+    "Mã phiếu yêu cầu không được quá 50 ký tự.",
+  );
+  assert.equal(
+    numberingOptionsError(
+      numberingOptionsPayload({
+        externalReference: "",
+        requestedCode: "ß".repeat(50),
+        requestedCodeReason: "r",
+      }),
+    ),
     "Mã phiếu yêu cầu không được quá 50 ký tự.",
   );
   assert.equal(isFarmOwner(["ADMIN"]), false);
@@ -168,9 +234,11 @@ test("normalizes owner numbering options like the API and requires a reason with
 });
 
 test("warehouse managers approve; employees only create; store managers do neither", async () => {
-  const { canApproveStockDocuments, canCreateStockDocuments } = await import("./stock-document.logic.ts");
+  const { canApproveStockDocuments, canCreateStockDocuments } =
+    await import("./stock-document.logic.ts");
   assert.equal(canApproveStockDocuments(["WAREHOUSE_MANAGER"]), true);
   assert.equal(canApproveStockDocuments(["EMPLOYEE"]), false);
+  assert.equal(canApproveStockDocuments(["MAINTENANCE_STAFF"]), false);
   assert.equal(canCreateStockDocuments(["EMPLOYEE"]), true);
   assert.equal(canCreateStockDocuments(["STORE_MANAGER"]), false);
 });

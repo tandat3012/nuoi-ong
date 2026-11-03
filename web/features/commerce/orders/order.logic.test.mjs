@@ -3,8 +3,8 @@ import { test } from "node:test";
 import {
   beginOrderAttempt,
   canCompleteOrder,
+  canConfirmOrder,
   canCustomerCancel,
-  canEditShippingFee,
   canShipOrder,
   canStaffCancel,
   canStaffCancelDetail,
@@ -33,15 +33,13 @@ const order = (patch = {}) => ({
   ...patch,
 });
 
-test("order cancellation and shipping fee rules match V1 transitions", () => {
+test("order cancellation rules match V1 transitions", () => {
   assert.equal(canCustomerCancel(order()), true);
   assert.equal(canCustomerCancel(order({ status: "CONFIRMED" })), false);
   assert.equal(canCustomerCancel(order({ paymentStatus: "PAID" })), false);
   assert.equal(canStaffCancel(order({ status: "CONFIRMED" })), true);
   assert.equal(canStaffCancel(order({ status: "SHIPPING" })), false);
   assert.equal(canStaffCancel(order({ paymentStatus: "PAID" })), false);
-  assert.equal(canEditShippingFee(order()), true);
-  assert.equal(canEditShippingFee(order({ status: "CONFIRMED" })), false);
 });
 
 test("only paid bank transfers can complete; COD completion remains available", () => {
@@ -116,11 +114,31 @@ test("saved payloads are validated before restoring or retrying", () => {
     recipientName: "Mai",
     phone: "0912",
     address: "A",
+    region: "SOUTH",
     paymentMethod: "COD",
     items: [{ variantId: "variant", quantity: 1, expectedUnitPrice: "0" }],
   });
   assert.equal(parseOrderAttemptPayload(payload)?.items[0].quantity, 1);
   assert.equal(parseOrderAttemptPayload('{"items":[{"quantity":1}]}'), null);
+  // Attempts saved before checkout asked for a region cannot be retried as-is.
+  assert.equal(
+    parseOrderAttemptPayload(payload.replace('"region":"SOUTH",', "")),
+    null,
+  );
+  const withFee = canonicalOrderPayload({
+    recipientName: "Mai",
+    phone: "0912",
+    address: "A",
+    region: "SOUTH",
+    paymentMethod: "COD",
+    expectedShippingFee: "30000",
+    items: [{ variantId: "variant", quantity: 1, expectedUnitPrice: "0" }],
+  });
+  assert.equal(parseOrderAttemptPayload(withFee)?.expectedShippingFee, "30000");
+  assert.equal(
+    parseOrderAttemptPayload(withFee.replace('"30000"', '"-1"')),
+    null,
+  );
 });
 
 test("the same pending payload reuses its key; uncertain changed payloads are blocked", () => {
@@ -183,6 +201,24 @@ test("explains server validation errors per field instead of a generic message",
     orderErrorMessage(badRequest(["property foo should not exist"])),
     /Yêu cầu chưa được chấp nhận/,
   );
+});
+
+test("lets staff re-confirm a PREPARING order only once its transfers are settled", () => {
+  const detail = (status, transfers) => ({
+    order: { status },
+    replenishments: transfers.map((transferStatus, index) => ({
+      id: String(index),
+      status: transferStatus,
+    })),
+  });
+  assert.equal(canConfirmOrder(detail("PENDING", [])), true);
+  assert.equal(
+    canConfirmOrder(detail("PREPARING", ["CONFIRMED", "PENDING_APPROVAL"])),
+    false,
+  );
+  assert.equal(canConfirmOrder(detail("PREPARING", ["CONFIRMED"])), true);
+  assert.equal(canConfirmOrder(detail("CONFIRMED", [])), false);
+  assert.equal(canStaffCancel({ status: "PREPARING", paymentStatus: "UNPAID" }), true);
 });
 
 test("tells farm staff why they cannot check out", () => {

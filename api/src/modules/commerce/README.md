@@ -12,21 +12,35 @@ Các endpoint này dùng `@Public()`; API nội bộ vẫn giữ xác thực và
 
 ## Dữ liệu công khai
 
-- Kho bán lấy từ `store_settings.id = 1`. Thiếu cấu hình hoặc kho/trang trại không hoạt động trả `503`.
-- Chỉ trả sản phẩm `PUBLISHED` có ít nhất một variant `active`, gắn item và đơn vị hoạt động; item phải cùng trang trại với kho bán.
+- Catalog dùng chung cho mọi trại. Một trại có nhiều kho; chủ trại chọn đúng **một** kho làm kho bán (`store_settings`, mỗi trại một dòng). Chỉ kho bán có miền giao (`regions`) và `sales_enabled`; các kho còn lại là kho làm việc. Chủ trại có thể đánh dấu kho làm việc là **kho nguồn** (`store_source_warehouses`): tồn `QUANTITY`/`LOT` của kho nguồn được tính chung với kho bán (vẫn chỉ trong một trại, `ASSET` chỉ tính kho bán). Khi xác nhận đơn mà kho bán thiếu, server tạo phiếu chuyển `PENDING_APPROVAL` từ kho nguồn vào kho bán (lô theo FEFO, trừ phần phiếu xuất/chuyển chưa duyệt đang giữ), báo người duyệt kho, ghi vào `store_order_replenishments` và chuyển đơn sang `PREPARING` ("Đang chuẩn bị hàng"); bấm lại khi phiếu còn chờ không tạo phiếu mới. Duyệt xong phiếu cuối cùng thì, trong cùng transaction (`StockTransferHooks`), đơn tự tạo phiếu xuất SALE và sang `CONFIRMED`; nếu lúc đó kho bán lại thiếu (tồn kho bán không được giữ khi `PREPARING`), đơn ở lại `PREPARING` để staff xác nhận lại. Từ chối một phiếu thì huỷ các phiếu còn chờ và đưa đơn về `PENDING`; staff huỷ đơn `PREPARING` thì huỷ luôn phiếu chuyển chưa duyệt. Khách chỉ huỷ được đơn `PENDING`. Trại tắt bán, kho/trại không hoạt động thì không cung cấp hàng; không còn trả `503`.
+- Chỉ trả sản phẩm `PUBLISHED` có ít nhất một variant `active` với đơn vị hoạt động và ít nhất một trại đang bán đã gắn item hoạt động vào variant đó (`store_variant_items`).
 - `price` là giá thấp nhất của các variant hợp lệ, kể cả variant hết hàng. Lọc và sort giá dùng cùng giá này. Đây là giá khởi điểm; variant còn hàng có thể có giá cao hơn.
 - Giá được so sánh bằng numeric trong DB, chỉ chuyển thành `number` khi trả response. Giá hiển thị vượt số nguyên an toàn của JavaScript trả `500` thay vì làm tròn âm thầm.
-- `inStock` đúng khi có variant hợp lệ đủ tồn cho ít nhất một `quantityStep` tại kho bán. Hết hàng vẫn được hiển thị.
+- `inStock` đúng khi **một** kho bán đủ tồn cho ít nhất một `quantityStep` của variant hợp lệ; tồn của nhiều kho không được cộng. Kho làm việc (mọi kho khác của trại) không tính. Hết hàng vẫn được hiển thị.
+- Danh sách/chi tiết nhận `?region=NORTH|CENTRAL|SOUTH`; chi tiết nhận thêm `?quantity=` (số bước, mặc định 1). Sản phẩm và variant trả `availability`, không bao giờ trả số tồn:
+  - không có miền: `REGION_REQUIRED` (còn ở đâu đó) hoặc `OUT_OF_STOCK`;
+  - có miền: `AVAILABLE` (một kho bán của miền đủ `quantity`), `INSUFFICIENT_IN_REGION` (đủ 1 bước nhưng không đủ `quantity`), `REGION_NOT_SUPPORTED` (không kho bán nào của miền bán variant này), `OUT_IN_REGION` (miền khác còn), `OUT_OF_STOCK`.
+  - Có miền thì `inStock` chỉ tính kho của miền đó.
+- `POST cart/availability {region, items[{variantId, quantity}]}` trả `canOrder` (một kho của miền đủ cả giỏ), nhãn từng dòng và `groups` (mảng `variantId`) gợi ý tách đơn khi `canOrder=false`. Không trả id kho.
+- Phí giao hàng: `GET store/shipping-fees` trả `{ NORTH, CENTRAL, SOUTH }` (chuỗi VNĐ, bảng `store_shipping_fees`, một dòng mỗi miền, dùng chung mọi trại). Tạo đơn chép phí của miền vào `shipping_fee`, `total = subtotal + shipping_fee`; COD và VietQR đều dùng `total` này. Gửi `expectedShippingFee` (phí khách đã thấy) thì phí đã đổi trả `409 SHIPPING_FEE_CHANGED`. Không còn sửa phí tay trên đơn.
+- Tạo đơn: server duyệt kho bán theo mã trại, chọn kho đầu tiên đủ **toàn bộ** giỏ và ghi item của trại đó vào dòng đơn. Miền không có kho bán trả `409 REGION_NOT_SUPPORTED`. Không kho nào đủ một món trả `409 INSUFFICIENT_STOCK`; mỗi món có nơi đủ nhưng không chung một kho trả `409 CART_NOT_FULFILLABLE`.
 - `QUANTITY` dùng balance không gắn lô. `LOT` chỉ cộng lô đúng item/trang trại và chưa hết hạn; ngày hết hạn bằng hôm nay vẫn hợp lệ, ngày tính theo UTC như module kho.
 - `ASSET` cần balance đủ và cá thể `AVAILABLE` có vị trí thuộc kho bán. Dữ liệu thiếu vị trí được coi là chưa sẵn hàng. Cá thể đang bảo trì hoặc đã nằm trong phiếu xuất chưa duyệt (vd. đơn đã xác nhận) không được tính.
 - Ảnh đại diện là ảnh có `position` nhỏ nhất, trả `image: { src, alt }`; thiếu ảnh thì bỏ trường `image`.
 - Chỉ trả trường catalog công khai, không trả giá vốn, item nội bộ hoặc serial. ID là UUID từ DB.
 
-Sản phẩm gồm `id`, `slug`, `name`, `description`, `category: { id, name, slug }`, `price`, `inStock` và `image` nếu có. Chi tiết dùng cùng quy tắc hiển thị với danh sách. Chi tiết trả thêm `images: { src, alt }[]` theo `position` (rỗng nếu chưa có ảnh).
+Sản phẩm gồm `id`, `slug`, `name`, `description`, `category: { id, name, slug }`, `price`, `inStock`, `availability` và `image` nếu có. Chi tiết dùng cùng quy tắc hiển thị với danh sách. Chi tiết trả thêm `images: { src, alt }[]` theo `position` (rỗng nếu chưa có ảnh).
 
 ## Quản trị cửa hàng
 
-Module `store-admin` (`/api/v1/store-admin/...`) cho `ADMIN` / `FARM_OWNER` quản lý sản phẩm mọi trạng thái, biến thể, danh mục và ảnh. Mọi request cần `?farmId=` của trang trại sở hữu kho bán (`store_settings`); farm khác trả `403`, chưa cấu hình kho bán trả `503`.
+Module `store-admin` (`/api/v1/store-admin/...`), mọi request cần `?farmId=`:
+
+- Xem catalog: `ADMIN`, `FARM_OWNER`, `STORE_MANAGER`. Sửa catalog chung (sản phẩm, danh mục, biến thể, giá, ảnh): chỉ `ADMIN`.
+- `GET/PUT settings`, `PUT/DELETE products/:id/variants/:variantId/item`: `ADMIN`/`FARM_OWNER` chọn kho bán, miền phục vụ và vật tư của trại cho từng variant. Vật tư phải cùng đơn vị với variant. Không đổi kho bán khi kho cũ còn đơn `PENDING`/`CONFIRMED`/`SHIPPING` (`409`).
+- Tạo variant gắn luôn vật tư của trại đang chọn; vật tư đó quyết định `unit_id` của variant.
+- Giao hàng (`STORE_DELIVERY_ROLES` = quản lý cửa hàng + `EMPLOYEE` + `DELIVERY_STAFF`): `GET store-orders/deliveries?scope=available|mine` liệt kê đơn `CONFIRMED` có phiếu xuất đã duyệt (chờ giao) hoặc đơn `SHIPPING` mình đang giao, kèm người nhận, SĐT, địa chỉ, dòng hàng và tổng. `POST :id/ship` (Nhận giao) chuyển sang `SHIPPING` và ghi `shipper_member_id` là người bấm. `POST :id/complete` (Đã giao xong) chuyển `COMPLETED`; COD ghi người giao là người thu tiền, chuyển khoản phải `PAID` trước. `POST :id/return-delivery {reason}` trả đơn về `CONFIRMED` và xoá người giao. Complete/return chỉ người đang giao hoặc quản lý cửa hàng. Mỗi bước ghi `audit_logs` (`STORE_ORDER`, `DELIVERY_CLAIM`/`DELIVERY_RETURN`/`DELIVERY_COMPLETE`); chi tiết đơn của staff trả `shipper` và `deliveryLog`. Ba thao tác trả chi tiết đơn đầy đủ cho quản lý cửa hàng, còn `EMPLOYEE`/`DELIVERY_STAFF` chỉ nhận dạng xem giao hàng (như `deliveries`, không có email khách, thanh toán hay kho). Web: `/deliveries`.
+- `PUT shipping-fees` (`ADMIN` hoặc `FARM_OWNER`): nhận đủ `{ NORTH, CENTRAL, SOUTH }`, áp dụng cho đơn đặt sau đó; đơn đã đặt giữ phí cũ. Web sửa ở thẻ "Phí giao hàng theo miền" trên `/store-products`.
+- `GET sales-stock` (`ADMIN`, `FARM_OWNER`, `STORE_MANAGER`): mỗi variant trại đã gắn, tồn vật lý tại kho bán, `held` (phiếu xuất `DRAFT`/`PENDING_APPROVAL`), `available = max(onHand - held, 0)` và `saleable`. Chỉ nhân viên thấy số; khách chỉ thấy nhãn.
 
 - Sản phẩm tạo ở `DRAFT`; `PUBLISHED` cần ít nhất một biến thể active gắn item/đơn vị đang hoạt động cùng farm. Không xóa sản phẩm/biến thể: dùng `ARCHIVED` và `active=false`.
 - Ảnh tải qua `POST products/:id/images` (multipart `file`, `alt`), JPEG/PNG/WebP ≤ 10MB, lưu lên Cloudinary thư mục `nuoi-ong/products` dưới dạng WebP, cạnh dài tối đa 2000px, `quality: auto:good` (ảnh cũ không được nén lại). Web hiển thị qua loader `web/shared/lib/cloudinary-image.ts` (`f_auto,q_auto,w_<width>`). DB giữ `url` (`secure_url`) và `public_id`; lưu DB lỗi thì xóa file vừa tải. Xóa ảnh xóa dòng DB trước rồi xóa trên Cloudinary (lỗi chỉ log). `PUT products/:id/images/order` nhận đủ danh sách ID theo thứ tự mới.
@@ -69,17 +83,18 @@ pnpm build
 
 | Bảng                     | Trách nhiệm                                                                     |
 | ------------------------ | ------------------------------------------------------------------------------- |
-| `store_settings`         | Tối đa một bản ghi (`id = 1`), chọn kho bán hàng qua `warehouse_id`             |
+| `store_settings`         | Một dòng mỗi trại: `sales_warehouse_id` (kho của chính trại, duy nhất), `regions`, `sales_enabled` |
+| `store_variant_items`    | Vật tư của từng trại cung cấp một variant; mỗi item một variant, mỗi trại một item/variant |
 | `store_categories`       | Tên, slug duy nhất của danh mục bán hàng                                        |
 | `store_products`         | Nội dung, danh mục và trạng thái `DRAFT` / `PUBLISHED` / `ARCHIVED`             |
 | `store_product_images`   | Gallery dùng chung cho các biến thể, ảnh có `position` nhỏ nhất là ảnh đại diện |
-| `store_product_variants` | Mỗi lựa chọn mua gắn một `item`, giá VNĐ, bước số lượng và cờ `active`          |
+| `store_product_variants` | Lựa chọn mua: đơn vị, giá VNĐ, bước số lượng và cờ `active`                     |
 
 - Sản phẩm mặc định `DRAFT`. Một sản phẩm đơn vẫn cần một biến thể; khi triển khai API xuất bản phải kiểm tra có biến thể hợp lệ. Chuyển về nháp sẽ ẩn sản phẩm, không giữ thêm phiên bản công khai song song.
-- Mỗi `item_id` chỉ xuất hiện ở một biến thể. Giá bán thuộc biến thể, đơn vị lấy từ `items.unit_id`; chưa có combo/quy đổi đơn vị.
+- Mỗi `item_id` chỉ gắn với một biến thể (qua `store_variant_items`). Giá bán thuộc biến thể và tính theo `unit_id` của biến thể; mọi item gắn vào phải cùng đơn vị. Chưa có combo/quy đổi đơn vị.
 - `price` là `numeric(18,0)`, không âm; `quantity_step` là `numeric(18,3)`, dương, mặc định `1`. Cả hai cấm `NaN`. Drizzle/pg trả numeric dưới dạng chuỗi để giữ độ chính xác; API chỉ chuyển giá sang `number` sau khi kiểm tra phạm vi số nguyên an toàn.
 - PostgreSQL làm tròn numeric theo scale khi ghi. API ghi sau này phải từ chối giá lẻ đồng và bước có quá 3 chữ số thập phân trước khi gửi DB. Số lượng đặt phải là bội số dương của bước; tối thiểu bằng một bước. Quy tắc tính/làm tròn tiền thuộc bước triển khai đơn hàng.
-- Migration `0015` dùng trigger buộc bước của item `ASSET` bằng `1`, kiểm tra cả thay đổi biến thể và đổi `items.tracking_mode`. Trigger khóa chia sẻ item khi kiểm tra để tránh tranh chấp với đổi cách quản lý.
+- Trigger (từ `0028`) buộc bước bằng `1` khi variant gắn item `ASSET`, kiểm tra khi đổi bước, khi gắn/đổi item trong `store_variant_items` và khi đổi `items.tracking_mode`. Trigger khóa chia sẻ item khi kiểm tra để tránh tranh chấp với đổi cách quản lý.
 - Ảnh có thứ tự không âm, duy nhất trong từng sản phẩm. Khi đổi chỗ hai ảnh, API cần dùng vị trí tạm còn trống trong transaction để tránh vi phạm unique.
 - Các khóa ngoại dùng `RESTRICT` khi xóa; không xóa dây chuyền item, kho hoặc nội dung có dữ liệu phụ thuộc. `updated_at` được cập nhật bởi service khi ghi, theo convention hiện tại.
 - Không lưu tồn kho, serial, hoặc `in_stock` lặp lại trong storefront. `inventory_balances`, `inventory_lots`, `assets` là nguồn dữ liệu cho bước tích hợp sau.
@@ -104,7 +119,7 @@ pnpm db:seed:storefront
 
 - Cần sáu mặt hàng mẫu của `pnpm db:seed` tồn tại, hoạt động và có đúng đơn vị. Script không tự chạy seed gốc hoặc tạo/sửa hàng, tài sản, lô hay tồn kho.
 - Dùng kho đã cấu hình trong `store_settings`; nếu chưa có, dùng `WH-MAIN` của `FARM-DEMO`. Kho và trang trại phải hoạt động, các item được tìm trong đúng trang trại của kho.
-- Upsert theo slug danh mục/sản phẩm, `item_id` của biến thể, cặp `(product_id, position)` của ảnh và `id = 1` của cấu hình. Chạy lại giữ ID, cập nhật nội dung/giá/trạng thái mẫu; không xóa các bản ghi thêm ngoài seed. Nếu item đã gắn với sản phẩm khác, báo lỗi và rollback thay vì chuyển sản phẩm của item.
+- Upsert theo slug danh mục/sản phẩm, item của biến thể (qua `store_variant_items`), cặp `(product_id, position)` của ảnh và `farm_id` của cấu hình (FARM-DEMO, bật bán cho cả 3 miền nếu chưa chọn miền). Chạy lại giữ ID, cập nhật nội dung/giá/trạng thái mẫu; không xóa các bản ghi thêm ngoài seed. Nếu item đã gắn với sản phẩm khác, báo lỗi và rollback thay vì chuyển sản phẩm của item.
 - Có 4 danh mục, 6 sản phẩm/biến thể, 7 ảnh minh họa và một cấu hình kho; gồm bản nháp, đã xuất bản, ngừng bán và bước số lượng lẻ. Giá là minh họa; ảnh dùng chung `/assets/bee-farm-hero.jpg` sẵn có trên web, cần thay bằng ảnh sản phẩm thật.
 - Cả lần seed dùng một transaction, khóa advisory tránh hai lần seed chạy đồng thời. Thiếu điều kiện hoặc lỗi SQL sẽ rollback. CLI từ chối môi trường production và host ngoài local.
 - Test seed dùng DB test riêng, storefront trống và chưa có `FARM-DEMO`; không chạy bộ test này trên DB chứa dữ liệu phát triển cần giữ.
