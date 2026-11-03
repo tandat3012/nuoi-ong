@@ -328,11 +328,11 @@ export class StoreAdminController {
   }
 
   @Put('shipping-fees')
-  @FarmRoles(CATALOG_ROLE)
+  @FarmRoles(...FARM_ADMIN_ROLES)
   @ApiOperation({
     summary: 'Sửa phí giao hàng theo miền (dùng chung mọi trại)',
     description:
-      'Chỉ ADMIN. Áp dụng cho đơn đặt sau khi lưu; đơn đã đặt giữ phí cũ. Đọc phí hiện tại qua GET /store/shipping-fees.',
+      'ADMIN hoặc chủ trại (FARM_OWNER). Áp dụng cho đơn đặt sau khi lưu; đơn đã đặt giữ phí cũ. Đọc phí hiện tại qua GET /store/shipping-fees.',
   })
   async updateShippingFees(@Body() input: UpdateStoreShippingFeesDto) {
     return {

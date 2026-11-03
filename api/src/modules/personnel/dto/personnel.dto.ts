@@ -19,6 +19,7 @@ export const personnelRoleCodes = [
   'MAINTENANCE_STAFF',
   'WAREHOUSE_MANAGER',
   'STORE_MANAGER',
+  'DELIVERY_STAFF',
   'EMPLOYEE',
   'GUEST',
 ] as const;

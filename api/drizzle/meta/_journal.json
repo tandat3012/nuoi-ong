@@ -246,6 +246,13 @@
       "when": 1793681422077,
       "tag": "0034_store-shipping-fees",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793682900983,
+      "tag": "0035_order-delivery",
+      "breakpoints": true
     }
   ]
 }

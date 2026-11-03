@@ -119,3 +119,14 @@ export class CancelStoreOrderDto {
   @Length(1, 1000)
   reason!: string;
 }
+
+export class ReturnStoreOrderDeliveryDto {
+  @ApiProperty({
+    maxLength: 1000,
+    description: 'Lý do không giao được hoặc nhận nhầm.',
+  })
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 1000)
+  reason!: string;
+}

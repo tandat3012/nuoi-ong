@@ -22,6 +22,7 @@ import {
 import { DatabaseService } from '../../db/database.service';
 import {
   assets,
+  auditLogs,
   farmMembers,
   inventoryBalances,
   inventoryLots,
@@ -64,6 +65,7 @@ import {
 } from './store-order.rules';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
+  STORE_DELIVERY_ROLES,
   STORE_MANAGE_ROLES,
   hasAnyRole,
 } from '../auth/farm-access/farm-role-groups';
@@ -308,7 +310,37 @@ export class StoreOrdersService implements StockTransferHook {
       .innerJoin(warehouses, eq(warehouses.id, stockTransfers.fromWarehouseId))
       .where(eq(storeOrderReplenishments.orderId, id))
       .orderBy(asc(storeOrderReplenishments.createdAt), asc(stockTransfers.id));
-    return { ...detail, payments, replenishments };
+    const [shipper] = detail.order.shipperMemberId
+      ? await this.databaseService.db
+          .select({ memberId: farmMembers.id, fullName: users.fullName })
+          .from(farmMembers)
+          .innerJoin(users, eq(users.id, farmMembers.userId))
+          .where(eq(farmMembers.id, detail.order.shipperMemberId))
+          .limit(1)
+      : [];
+    const deliveryLog = await this.databaseService.db
+      .select({
+        action: auditLogs.action,
+        actorName: users.fullName,
+        data: auditLogs.newData,
+        createdAt: auditLogs.createdAt,
+      })
+      .from(auditLogs)
+      .leftJoin(users, eq(users.id, auditLogs.userId))
+      .where(
+        and(
+          eq(auditLogs.entityType, 'STORE_ORDER'),
+          eq(auditLogs.entityId, id),
+        ),
+      )
+      .orderBy(asc(auditLogs.createdAt), asc(auditLogs.id));
+    return {
+      ...detail,
+      payments,
+      replenishments,
+      shipper: shipper ?? null,
+      deliveryLog,
+    };
   }
 
   async customerProfile(farmId: string, userId: string) {
@@ -785,8 +817,10 @@ export class StoreOrdersService implements StockTransferHook {
     }
   }
 
+  /** The caller takes a confirmed order out for delivery and becomes its shipper. */
   async ship(farmId: string, clerkUserId: string, id: string) {
-    const memberId = await this.staffMember(farmId, clerkUserId);
+    const caller = await this.deliveryMember(farmId, clerkUserId);
+    const { memberId } = caller;
     await this.databaseService.db.transaction(async (tx) => {
       const order = await this.lockOrder(
         tx,
@@ -815,16 +849,20 @@ export class StoreOrdersService implements StockTransferHook {
         .set({
           status: 'SHIPPING',
           shippedAt: now,
+          shipperMemberId: memberId,
           handledByMemberId: memberId,
           updatedAt: now,
         })
         .where(eq(storeOrders.id, id));
+      await this.auditDelivery(tx, order, memberId, 'DELIVERY_CLAIM', {});
     });
-    return this.staffGet(farmId, id);
+    return this.deliveryResult(farmId, id, caller);
   }
 
+  /** Delivered: the shipper (or a store manager) closes the order; COD cash counts as collected by them. */
   async complete(farmId: string, clerkUserId: string, id: string) {
-    const memberId = await this.staffMember(farmId, clerkUserId);
+    const caller = await this.deliveryMember(farmId, clerkUserId);
+    const { memberId } = caller;
     await this.databaseService.db.transaction(async (tx) => {
       const order = await this.lockOrder(
         tx,
@@ -833,6 +871,7 @@ export class StoreOrdersService implements StockTransferHook {
       );
       if (order.status !== 'SHIPPING')
         throw new ConflictException('Only SHIPPING orders can be completed');
+      this.assertShipper(order, caller);
       if (
         order.paymentMethod === 'BANK_TRANSFER' &&
         order.paymentStatus !== 'PAID'
@@ -857,8 +896,140 @@ export class StoreOrdersService implements StockTransferHook {
             : {}),
         })
         .where(eq(storeOrders.id, id));
+      await this.auditDelivery(tx, order, memberId, 'DELIVERY_COMPLETE', {
+        collectedCod:
+          order.paymentMethod === 'COD' && order.paymentStatus === 'UNPAID',
+      });
     });
-    return this.staffGet(farmId, id);
+    return this.deliveryResult(farmId, id, caller);
+  }
+
+  /** Delivery failed or was taken by mistake: back to CONFIRMED so anyone can take it again. */
+  async returnDelivery(
+    farmId: string,
+    clerkUserId: string,
+    id: string,
+    reason: string,
+  ) {
+    const caller = await this.deliveryMember(farmId, clerkUserId);
+    await this.databaseService.db.transaction(async (tx) => {
+      const order = await this.lockOrder(
+        tx,
+        id,
+        eq(storeOrders.farmId, farmId),
+      );
+      if (order.status !== 'SHIPPING')
+        throw new ConflictException('Only SHIPPING orders can be returned');
+      this.assertShipper(order, caller);
+      const now = new Date().toISOString();
+      await tx
+        .update(storeOrders)
+        .set({
+          status: 'CONFIRMED',
+          shippedAt: null,
+          shipperMemberId: null,
+          handledByMemberId: caller.memberId,
+          updatedAt: now,
+        })
+        .where(eq(storeOrders.id, id));
+      await this.auditDelivery(tx, order, caller.memberId, 'DELIVERY_RETURN', {
+        reason,
+        shipperMemberId: order.shipperMemberId,
+      });
+    });
+    return this.deliveryResult(farmId, id, caller);
+  }
+
+  /** Orders ready to take (`available`) or out with the caller (`mine`), with what to hand over. */
+  async deliveries(
+    farmId: string,
+    clerkUserId: string,
+    scope: 'available' | 'mine',
+  ) {
+    const { memberId } = await this.deliveryMember(farmId, clerkUserId);
+    return this.deliveryRows(
+      and(
+        eq(storeOrders.farmId, farmId),
+        scope === 'mine'
+          ? and(
+              eq(storeOrders.status, 'SHIPPING'),
+              eq(storeOrders.shipperMemberId, memberId),
+            )
+          : and(
+              eq(storeOrders.status, 'CONFIRMED'),
+              eq(stockIssues.status, 'CONFIRMED'),
+            ),
+      )!,
+    );
+  }
+
+  /**
+   * After a delivery action: managers get the staff detail; other delivery
+   * roles only the delivery view (no customer email, payments or warehouse data).
+   */
+  private async deliveryResult(
+    farmId: string,
+    id: string,
+    caller: { manages: boolean },
+  ) {
+    if (caller.manages) return this.staffGet(farmId, id);
+    const [order] = await this.deliveryRows(
+      and(eq(storeOrders.farmId, farmId), eq(storeOrders.id, id))!,
+    );
+    return order;
+  }
+
+  private async deliveryRows(where: SQL) {
+    const db = this.databaseService.db;
+    const rows = await db
+      .select({
+        id: storeOrders.id,
+        orderNumber: storeOrders.orderNumber,
+        status: storeOrders.status,
+        recipientName: storeOrders.recipientName,
+        phone: storeOrders.phone,
+        address: storeOrders.address,
+        region: storeOrders.region,
+        note: storeOrders.note,
+        paymentMethod: storeOrders.paymentMethod,
+        paymentStatus: storeOrders.paymentStatus,
+        total: storeOrders.total,
+        confirmedAt: storeOrders.confirmedAt,
+        shippedAt: storeOrders.shippedAt,
+      })
+      .from(storeOrders)
+      .innerJoin(stockIssues, eq(stockIssues.id, storeOrders.stockIssueId))
+      .where(where)
+      .orderBy(asc(storeOrders.confirmedAt), asc(storeOrders.id))
+      // shortcut: oldest 100 only, no paging; add paging if a farm queues more.
+      .limit(100);
+    const lines = rows.length
+      ? await db
+          .select({
+            orderId: storeOrderItems.orderId,
+            productName: storeOrderItems.productName,
+            variantName: storeOrderItems.variantName,
+            quantity: storeOrderItems.quantity,
+          })
+          .from(storeOrderItems)
+          .where(
+            inArray(
+              storeOrderItems.orderId,
+              rows.map(({ id }) => id),
+            ),
+          )
+          .orderBy(asc(storeOrderItems.id))
+      : [];
+    return rows.map(({ orderNumber, ...row }) => ({
+      ...row,
+      code: orderCode(orderNumber),
+      items: lines
+        .filter((line) => line.orderId === row.id)
+        .map(({ orderId, ...line }) => {
+          void orderId;
+          return line;
+        }),
+    }));
   }
 
   async markPaid(farmId: string, clerkUserId: string, id: string) {
@@ -1293,6 +1464,7 @@ export class StoreOrdersService implements StockTransferHook {
       stockIssueId,
       paidByMemberId,
       handledByMemberId,
+      shipperMemberId,
       paymentTransactionId,
       ...data
     } = order;
@@ -1302,6 +1474,7 @@ export class StoreOrdersService implements StockTransferHook {
       stockIssueId,
       paidByMemberId,
       handledByMemberId,
+      shipperMemberId,
       paymentTransactionId,
     ];
     return data;
@@ -1400,6 +1573,45 @@ export class StoreOrdersService implements StockTransferHook {
     if (!hasAnyRole(roleCodes, STORE_MANAGE_ROLES))
       throw new ForbiddenException('Order processing permission is required');
     return memberId;
+  }
+
+  /** Delivery staff, employees and store managers; `manages` lets them act on others' deliveries. */
+  private async deliveryMember(farmId: string, clerkUserId: string) {
+    await this.assertStoreFarm(farmId);
+    const { memberId, roleCodes } =
+      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    if (!hasAnyRole(roleCodes, STORE_DELIVERY_ROLES))
+      throw new ForbiddenException('Delivery permission is required');
+    return { memberId, manages: hasAnyRole(roleCodes, STORE_MANAGE_ROLES) };
+  }
+
+  private assertShipper(
+    order: Order,
+    caller: { memberId: string; manages: boolean },
+  ) {
+    if (!caller.manages && order.shipperMemberId !== caller.memberId)
+      throw new ForbiddenException(
+        'Only the shipper of this order or a store manager can do this',
+      );
+  }
+
+  private async auditDelivery(
+    tx: Transaction,
+    order: Order,
+    memberId: string,
+    action: 'DELIVERY_CLAIM' | 'DELIVERY_RETURN' | 'DELIVERY_COMPLETE',
+    data: Record<string, unknown>,
+  ) {
+    await tx.insert(auditLogs).values({
+      farmId: order.farmId,
+      userId: sql`(SELECT user_id FROM farm_members WHERE id = ${memberId})`,
+      action,
+      entityType: 'STORE_ORDER',
+      entityId: order.id,
+      newData: { code: orderCode(order.orderNumber), ...data },
+      // Real time, so steps inside one outer transaction still sort in order.
+      createdAt: sql`clock_timestamp()`,
+    });
   }
 
   private dateConditions(

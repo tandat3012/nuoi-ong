@@ -16,6 +16,7 @@ export function notificationHref(
     case 'ASSET_TRANSFER_REQUEST': return `/requests?type=transfer&id=${id}`;
     case 'ASSET': return `/assets/${id}`;
     case 'PERSONNEL': return `/personnel/${id}`;
+    case 'STORE_ORDER': return `/store-orders/${id}`;
     default: return null;
   }
 }

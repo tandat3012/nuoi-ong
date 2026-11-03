@@ -20,6 +20,7 @@ import {
   Tags,
   History,
   PackageCheck,
+  Truck,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -33,7 +34,7 @@ export type NavigationItem = {
   storeOnly?: boolean;
 };
 
-type NavigationRequirement = 'manageFarm' | 'manageStore' | 'farmArea' | 'history';
+type NavigationRequirement = 'manageFarm' | 'manageStore' | 'deliver' | 'farmArea' | 'history';
 
 export type NavigationSection = {
   title: string;
@@ -79,6 +80,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
       { href: '/store-products', label: 'Sản phẩm cửa hàng', icon: Store, requires: 'manageStore', description: 'Sản phẩm, quy cách, kho bán và miền phục vụ.' },
       { href: '/store-stock', label: 'Tồn bán hàng', icon: PackageCheck, requires: 'manageStore', storeOnly: true, description: 'Tồn vật lý, đang giữ và khả dụng tại kho bán.' },
       { href: '/store-orders', label: 'Đơn hàng', icon: ShoppingCart, requires: 'manageStore', storeOnly: true, description: 'Xác nhận đơn, theo dõi giao hàng và thanh toán.' },
+      { href: '/deliveries', label: 'Giao hàng', icon: Truck, requires: 'deliver', storeOnly: true, description: 'Nhận đơn đã xác nhận, giao cho khách và báo giao xong.' },
       { href: '/store-payments', label: 'Thanh toán', icon: Landmark, requires: 'manageStore', storeOnly: true, description: 'Giao dịch chuyển khoản VietQR và đối soát đơn.' },
       { href: '/store-reports', label: 'Báo cáo bán hàng', icon: ChartNoAxesCombined, requires: 'manageStore', storeOnly: true, description: 'Doanh thu, sản phẩm và khách hàng.' },
     ],
@@ -95,6 +97,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
 export type NavigationAccess = {
   canManageFarm: boolean;
   canManageStore: boolean;
+  canDeliver: boolean;
   canAccessFarmArea: boolean;
   canViewHistory: boolean;
   isStoreFarm: boolean;
@@ -103,6 +106,7 @@ export type NavigationAccess = {
 const requirementAccess = {
   manageFarm: 'canManageFarm',
   manageStore: 'canManageStore',
+  deliver: 'canDeliver',
   farmArea: 'canAccessFarmArea',
   history: 'canViewHistory',
 } as const satisfies Record<NavigationRequirement, keyof NavigationAccess>;
