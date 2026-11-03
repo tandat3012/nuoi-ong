@@ -21,7 +21,7 @@ import type { StoreRegion } from "../types/store-admin";
 
 const regions = Object.keys(storeRegionLabels) as StoreRegion[];
 
-/** Store-wide delivery fee per region; everyone on the page sees it, only ADMIN edits. */
+/** Store-wide delivery fee per region; everyone on the page sees it, ADMIN and FARM_OWNER edit. */
 export function StoreShippingFeesCard({
   farmId,
   canEdit,
@@ -115,7 +115,7 @@ export function StoreShippingFeesCard({
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Chỉ quản trị viên được sửa phí giao hàng.
+              Chỉ quản trị viên hoặc chủ trại được sửa phí giao hàng.
             </p>
           )}
         </form>
