@@ -75,6 +75,24 @@ export const storeSettings = pgTable(
   ],
 );
 
+// Store-wide delivery fee per region; checkout copies it into store_orders.shipping_fee.
+export const storeShippingFees = pgTable(
+  'store_shipping_fees',
+  {
+    region: storeRegion().primaryKey(),
+    fee: numeric({ precision: 18, scale: 0 }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      'ck_store_shipping_fees_fee',
+      sql`${table.fee} >= 0 AND ${table.fee} <= 9007199254740991`,
+    ),
+  ],
+).enableRLS();
+
 export const storeOrderStatus = pgEnum('store_order_status', [
   'PENDING',
   // Confirmed by staff but waiting for top-up transfers into the sales warehouse.

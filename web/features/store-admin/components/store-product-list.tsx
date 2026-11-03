@@ -39,6 +39,7 @@ import type {
 } from "../types/store-admin";
 import { StoreCategoryForm, StoreProductForm } from "./store-product-form";
 import { StoreSalesSettings } from "./store-sales-settings";
+import { StoreShippingFeesCard } from "./store-shipping-fees";
 
 export const statusVariant = {
   DRAFT: "secondary",
@@ -108,6 +109,7 @@ export function StoreProductList({ farmId }: { farmId: string }) {
         }
       />
       {canManageFarm && <StoreSalesSettings farmId={farmId} />}
+      <StoreShippingFeesCard farmId={farmId} canEdit={canEditCatalog} />
 
       <form
         className="flex flex-col gap-3 sm:flex-row"

@@ -75,14 +75,54 @@ describe('Store orders (migrated PostgreSQL)', () => {
       );
     }));
 
+  it('adds the fee of the delivery region and rejects a fee the customer did not see', () =>
+    inRollback(async ({ ids, service, input, database }) => {
+      const admin = new StoreAdminService(
+        database,
+        {} as unknown as CloudinaryService,
+      );
+      await expect(
+        service.create(ids.customer, {
+          ...input(),
+          expectedShippingFee: '20000',
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'SHIPPING_FEE_CHANGED', shippingFee: '30000' },
+      });
+      const placed = await service.create(ids.customer, {
+        ...input(),
+        expectedShippingFee: '30000',
+      });
+      expect(placed.order).toMatchObject({
+        shippingFee: '30000',
+        total: '585000',
+      });
+      expect(
+        await admin.updateShippingFees({
+          NORTH: '0',
+          CENTRAL: '15000',
+          SOUTH: '45000',
+        }),
+      ).toEqual({ NORTH: '0', CENTRAL: '15000', SOUTH: '45000' });
+      const next = await service.create(ids.customer, input());
+      expect(next.order).toMatchObject({
+        shippingFee: '45000',
+        total: '600000',
+      });
+      // Orders already placed keep their fee.
+      expect(
+        (await service.customerGet(ids.customer, placed.order.id)).order.total,
+      ).toBe('585000');
+    }));
+
   it('takes prices from the server and snapshots fractional stock steps', () =>
     inRollback(async ({ ids, service, input }) => {
       const detail = await service.create(ids.customer, input());
       expect(detail.order).toMatchObject({
         status: 'PENDING',
         subtotal: '555000',
-        total: '555000',
-        shippingFee: '0',
+        total: '585000',
+        shippingFee: '30000',
       });
       expect(
         (await service.staffGet(ids.farm, detail.order.id)).order,
@@ -256,7 +296,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
       );
       expect(issue.issue.warehouseId).toBe(ids.warehouse);
       expect(issue.items[0].quantity).toBe('0.375');
-      expect(confirmed.order.total).toBe('555000');
+      expect(confirmed.order.total).toBe('585000');
     }));
 
   it('keeps internal storefront tables behind row-level security', () =>
@@ -758,13 +798,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
         ...input(),
         paymentMethod: 'BANK_TRANSFER',
       });
-      const updated = await service.shippingFee(
-        ids.farm,
-        ids.staff,
-        order.id,
-        '30000',
-      );
-      expect(updated.order.total).toBe('585000');
+      expect(order.total).toBe('585000');
       const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
       await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
       await service.ship(ids.farm, ids.staff, order.id);
@@ -778,9 +812,6 @@ describe('Store orders (migrated PostgreSQL)', () => {
       await service.complete(ids.farm, ids.staff, order.id);
       const pending = await service.create(ids.customer, input());
       await service.markPaid(ids.farm, ids.staff, pending.order.id);
-      await expect(
-        service.shippingFee(ids.farm, ids.staff, pending.order.id, '1'),
-      ).rejects.toThrow('UNPAID');
       await expect(
         service.customerCancel(ids.customer, pending.order.id, 'Không mua'),
       ).rejects.toThrow('refund');
@@ -796,11 +827,10 @@ describe('Store orders (migrated PostgreSQL)', () => {
       });
       expect(payment).toMatchObject({
         accountNumber: testBankAccount.STORE_BANK_ACCOUNT_NUMBER,
-        amount: '555000',
+        amount: '585000',
         content: order.code,
       });
       expect(payment?.qrSvg).toMatch(/^<svg/);
-      await service.shippingFee(ids.farm, ids.staff, order.id, '30000');
       expect(
         (await service.customerGet(ids.customer, order.id)).payment?.amount,
       ).toBe('585000');
@@ -1027,7 +1057,6 @@ describe('Store orders (migrated PostgreSQL)', () => {
     inRollback(async ({ ids, service, issues, input }, tx) => {
       await service.create(ids.customer, input(1));
       const { order } = await service.create(ids.customer, input(2));
-      await service.shippingFee(ids.farm, ids.staff, order.id, '30000');
       const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
       await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
       await service.ship(ids.farm, ids.staff, order.id);

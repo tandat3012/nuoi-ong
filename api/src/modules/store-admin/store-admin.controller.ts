@@ -70,6 +70,7 @@ import {
 import {
   SetStoreVariantItemDto,
   UpdateStoreSettingsDto,
+  UpdateStoreShippingFeesDto,
 } from './dto/store-settings.dto';
 
 // The catalog is shared by every farm, so only system admins edit it.
@@ -323,6 +324,19 @@ export class StoreAdminController {
       data: await this.storeAdminService.getSettings(
         requireUuid(farmId, 'farmId'),
       ),
+    };
+  }
+
+  @Put('shipping-fees')
+  @FarmRoles(CATALOG_ROLE)
+  @ApiOperation({
+    summary: 'Sửa phí giao hàng theo miền (dùng chung mọi trại)',
+    description:
+      'Chỉ ADMIN. Áp dụng cho đơn đặt sau khi lưu; đơn đã đặt giữ phí cũ. Đọc phí hiện tại qua GET /store/shipping-fees.',
+  })
+  async updateShippingFees(@Body() input: UpdateStoreShippingFeesDto) {
+    return {
+      data: await this.storeAdminService.updateShippingFees(input),
     };
   }
 

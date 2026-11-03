@@ -181,6 +181,8 @@ export interface CreateOrderInput {
   region: StoreRegion;
   note?: string;
   paymentMethod: PaymentMethod;
+  /** The fee shown at checkout; the API rejects the order if the region's fee changed. */
+  expectedShippingFee?: string;
   items: { variantId: string; quantity: number; expectedUnitPrice?: string }[];
 }
 

@@ -208,7 +208,20 @@ export class StoreOrdersService implements StockTransferHook {
             lineTotal,
           };
         });
-        const amount = checkedMoney(subtotal);
+        const shippingFee = (await this.commerce.shippingFees(tx))[
+          input.region
+        ];
+        if (shippingFee === undefined)
+          throw new Error(`No shipping fee for region ${input.region}`);
+        if (
+          input.expectedShippingFee !== undefined &&
+          input.expectedShippingFee !== shippingFee
+        )
+          throw new ConflictException({
+            code: 'SHIPPING_FEE_CHANGED',
+            message: 'Phí giao hàng đã thay đổi. Vui lòng kiểm tra lại.',
+            shippingFee,
+          });
         const [order] = await tx
           .insert(storeOrders)
           .values({
@@ -221,8 +234,9 @@ export class StoreOrdersService implements StockTransferHook {
             region: input.region,
             note: input.note || null,
             paymentMethod: input.paymentMethod,
-            subtotal: amount,
-            total: amount,
+            subtotal: checkedMoney(subtotal),
+            shippingFee,
+            total: checkedMoney(subtotal + BigInt(shippingFee)),
             idempotencyKey: input.idempotencyKey,
             requestFingerprint: fingerprint,
           })
@@ -432,36 +446,6 @@ export class StoreOrdersService implements StockTransferHook {
     };
     for (const row of statusRows) counts[row.status] = row.value;
     return { counts, ...summary, daily, topProducts, topCustomers };
-  }
-
-  async shippingFee(
-    farmId: string,
-    clerkUserId: string,
-    id: string,
-    fee: string,
-  ) {
-    const memberId = await this.staffMember(farmId, clerkUserId);
-    await this.databaseService.db.transaction(async (tx) => {
-      const order = await this.lockOrder(
-        tx,
-        id,
-        eq(storeOrders.farmId, farmId),
-      );
-      if (order.status !== 'PENDING' || order.paymentStatus !== 'UNPAID')
-        throw new ConflictException(
-          'Shipping fee can only change on PENDING, UNPAID orders',
-        );
-      await tx
-        .update(storeOrders)
-        .set({
-          shippingFee: fee,
-          total: checkedMoney(BigInt(order.subtotal) + BigInt(fee)),
-          handledByMemberId: memberId,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(storeOrders.id, id));
-    });
-    return this.staffGet(farmId, id);
   }
 
   async confirm(farmId: string, clerkUserId: string, id: string) {
@@ -1350,6 +1334,7 @@ export class StoreOrdersService implements StockTransferHook {
           region: input.region,
           note: input.note || null,
           paymentMethod: input.paymentMethod,
+          expectedShippingFee: input.expectedShippingFee ?? null,
           items: input.items
             .map((line) => ({
               variantId: line.variantId.toLowerCase(),

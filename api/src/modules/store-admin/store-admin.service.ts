@@ -32,13 +32,18 @@ import {
   storeProductStatus,
   storeProductVariants,
   storeOrders,
+  storeRegion,
   storeSettings,
+  storeShippingFees,
   storeSourceWarehouses,
   storeVariantItems,
   units,
   warehouses,
 } from '../../db/schema';
-import { UpdateStoreSettingsDto } from './dto/store-settings.dto';
+import {
+  UpdateStoreSettingsDto,
+  UpdateStoreShippingFeesDto,
+} from './dto/store-settings.dto';
 import {
   CreateStoreCategoryDto,
   UpdateStoreCategoryDto,
@@ -87,6 +92,29 @@ export class StoreAdminService {
     private readonly databaseService: DatabaseService,
     private readonly cloudinaryService: CloudinaryService,
   ) {}
+
+  /** Replaces the store-wide delivery fees; placed orders keep the fee they were created with. */
+  async updateShippingFees(input: UpdateStoreShippingFeesDto) {
+    const updatedAt = new Date().toISOString();
+    const rows = await this.databaseService.db
+      .insert(storeShippingFees)
+      .values(
+        storeRegion.enumValues.map((region) => ({
+          region,
+          fee: input[region],
+          updatedAt,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: storeShippingFees.region,
+        set: { fee: sql`excluded.fee`, updatedAt },
+      })
+      .returning({
+        region: storeShippingFees.region,
+        fee: storeShippingFees.fee,
+      });
+    return Object.fromEntries(rows.map(({ region, fee }) => [region, fee]));
+  }
 
   /** Online sales settings of one farm; null fields until the owner sets them up. */
   async getSettings(farmId: string) {

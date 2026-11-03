@@ -144,9 +144,7 @@ export function OrderAmounts({ order }: { order: CustomerOrder }) {
         <dd>{formatOrderMoney(order.subtotal)}</dd>
       </div>
       <div className="flex justify-between gap-3">
-        <dt className="text-muted-foreground">
-          Phí giao hàng{order.status === "PENDING" ? " (chờ xác nhận)" : ""}
-        </dt>
+        <dt className="text-muted-foreground">Phí giao hàng</dt>
         <dd>{formatOrderMoney(order.shippingFee)}</dd>
       </div>
       <div className="flex justify-between gap-3 border-t pt-2 text-base font-semibold">

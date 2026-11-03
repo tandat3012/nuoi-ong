@@ -89,6 +89,15 @@ export class CreateStoreOrderDto {
   @IsIn(['COD', 'BANK_TRANSFER'])
   paymentMethod!: 'COD' | 'BANK_TRANSFER';
 
+  @ApiPropertyOptional({
+    example: '30000',
+    description:
+      'Phí giao hàng khách đã xem; phí của miền đã đổi trả 409 SHIPPING_FEE_CHANGED.',
+  })
+  @IsOptional()
+  @IsVndAmount()
+  expectedShippingFee?: string;
+
   @ApiProperty({ type: [StoreOrderLineDto], minItems: 1, maxItems: 100 })
   @IsArray()
   @ArrayMinSize(1)
@@ -101,15 +110,6 @@ export class CreateStoreOrderDto {
   @ValidateNested({ each: true })
   @Type(() => StoreOrderLineDto)
   items!: StoreOrderLineDto[];
-}
-
-export class StoreOrderShippingFeeDto {
-  @ApiProperty({
-    example: '30000',
-    description: 'Chỉ sửa khi đơn PENDING và UNPAID.',
-  })
-  @IsVndAmount()
-  shippingFee!: string;
 }
 
 export class CancelStoreOrderDto {
