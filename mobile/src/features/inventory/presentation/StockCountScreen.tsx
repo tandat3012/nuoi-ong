@@ -6,12 +6,13 @@ import { AppShell, Card, Icon, Pill, PrimaryButton, SectionTitle } from '@/src/s
 import { colors, dimensions, radius, spacing, typography } from '@/src/core/theme/tokens';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { formatQuantity } from '@/src/shared/format-quantity';
+import { quantityInputNumber, validateQuantityInput } from '@/src/shared/quantity-input';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
 import { documentCodeLabel, listBalances, listItems, listWarehouses, unwrap, type Item, type StockCountDetail, type Warehouse } from '@/src/features/inventory/api';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { OperationResultDialog } from '@/src/shared/ui/OperationResultDialog';
 
-type CountItem = { id: string; itemId: string; lotId?: string | null; assetId?: string | null; name: string; code: string; system: number; unit: string; initial: number; icon: 'toys' | 'grid-view' | 'medication'; reason?: string };
+type CountItem = { id: string; itemId: string; lotId?: string | null; assetId?: string | null; name: string; code: string; imageUrl?: string | null; system: number; unit: string; initial: number; icon: 'toys' | 'grid-view' | 'medication'; reason?: string };
 type CountLoadResult = { detailResponse: StockCountDetail | null; itemResponse: Awaited<ReturnType<typeof listItems>>; warehouseResponse: Awaited<ReturnType<typeof listWarehouses>>; balanceResponse: Awaited<ReturnType<typeof listBalances>> | null };
 
 const honeycombBorderImage = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBKySLYr_2aB1HqM6wOg1d_bAjSbFQd2SibqjBOFrHHnz0-AUgzUguTCrq85FmurMSO6uJcxfVt4vDBd1GJ6dfS6lcHZz0gnWEeklCFbz8XiYR_u0-E8QE2E8TbDrB3pzvRLGapoMRMV3SbSTnMqLDUivF5SDgJnk11QeKunQZt1eY_Fkb4CW9IJ7rwLsOmE74G-baMq627wJYYeEOJ-ezrWKxZ8LdQiBTiPZA_MxaYe9vOU-KyDP-5A';
@@ -23,6 +24,7 @@ export default function StockCountScreen() {
   const { data, currentFarmId, getAccessToken } = useAuthContext();
   const [countItems, setCountItems] = useState<CountItem[]>([]);
   const [values, setValues] = useState<Record<string, number>>({});
+  const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>({});
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [countCode, setCountCode] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
@@ -64,11 +66,11 @@ export default function StockCountScreen() {
       const itemById = new Map(catalog.map((item) => [item.id, item]));
       if (detailResponse) {
         const detail = unwrap(detailResponse);
-        const mapped = detail.items.map((line) => { const item = itemById.get(line.itemId); return { id: line.id, itemId: line.itemId, lotId: line.lotId, assetId: line.assetId, name: item?.name ?? 'Vật tư không còn trong danh mục', code: item?.code ?? line.itemId, system: Number(line.systemQuantity ?? 0), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(line.actualQuantity ?? 0), icon: 'grid-view' as const, reason: line.note ?? undefined }; });
-        setCountItems(mapped); setValues(Object.fromEntries(mapped.map((item) => [item.id, item.initial]))); setReasons(Object.fromEntries(mapped.filter((item) => item.reason).map((item) => [item.id, item.reason ?? '']))); setCountCode(documentCodeLabel(detail.count.countCode, detail.count.id)); setWarehouseId(detail.count.warehouseId); setCountStatus(detail.count.status);
+        const mapped = detail.items.map((line) => { const item = itemById.get(line.itemId); return { id: line.id, itemId: line.itemId, lotId: line.lotId, assetId: line.assetId, name: item?.name ?? 'Vật tư không còn trong danh mục', code: item?.code ?? line.itemId, imageUrl: item?.imageUrl, system: Number(line.systemQuantity ?? 0), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(line.actualQuantity ?? 0), icon: 'grid-view' as const, reason: line.note ?? undefined }; });
+        setCountItems(mapped); setValues(Object.fromEntries(mapped.map((item) => [item.id, item.initial]))); setQuantityInputs({}); setReasons(Object.fromEntries(mapped.filter((item) => item.reason).map((item) => [item.id, item.reason ?? '']))); setCountCode(documentCodeLabel(detail.count.countCode, detail.count.id)); setWarehouseId(detail.count.warehouseId); setCountStatus(detail.count.status);
       } else {
-        const mapped = balanceResponse?.data.filter((row) => row.trackingMode !== 'ASSET').map(({ balance, itemCode, itemName }) => { const item = itemById.get(balance.itemId); return { id: balance.id, itemId: balance.itemId, lotId: balance.lotId, name: itemName, code: itemCode, system: Number(balance.quantityOnHand), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(balance.quantityOnHand), icon: 'grid-view' as const }; }) ?? [];
-        setCountItems(mapped); setValues(Object.fromEntries(mapped.map((item) => [item.id, item.initial]))); setCountCode(''); setWarehouseId(warehouseResponse.data[0]?.id ?? ''); setCountStatus('DRAFT');
+        const mapped = balanceResponse?.data.filter((row) => row.trackingMode !== 'ASSET').map(({ balance, itemCode, itemName }) => { const item = itemById.get(balance.itemId); return { id: balance.id, itemId: balance.itemId, lotId: balance.lotId, name: itemName, code: itemCode, imageUrl: item?.imageUrl, system: Number(balance.quantityOnHand), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(balance.quantityOnHand), icon: 'grid-view' as const }; }) ?? [];
+        setCountItems(mapped); setValues(Object.fromEntries(mapped.map((item) => [item.id, item.initial]))); setQuantityInputs({}); setCountCode(''); setWarehouseId(warehouseResponse.data[0]?.id ?? ''); setCountStatus('DRAFT');
       }
       setError(null);
     }).catch((cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : 'Không thể tải phiếu kiểm kê.'); }).finally(() => { if (!cancelled) setLoading(false); });
@@ -76,12 +78,22 @@ export default function StockCountScreen() {
   }, [currentFarmId, getAccessToken, params.id]);
 
   function adjustCount(id: string, delta: number) {
-    setValues((current) => ({ ...current, [id]: Math.max(0, (current[id] ?? 0) + delta) }));
+    const next = Math.max(0, (values[id] ?? 0) + delta);
+    if (validateQuantityInput(String(next), { allowZero: true })) return;
+    setValues((current) => ({ ...current, [id]: next }));
+    setQuantityInputs((current) => ({ ...current, [id]: String(next) }));
+  }
+
+  function changeCountInput(id: string, raw: string) {
+    setQuantityInputs((current) => ({ ...current, [id]: raw }));
+    if (!validateQuantityInput(raw, { allowZero: true })) {
+      setValues((current) => ({ ...current, [id]: quantityInputNumber(raw) }));
+    }
   }
 
   function addCatalogItem(item: Item) {
     if (countItems.some((line) => line.itemId === item.id)) { setItemPickerOpen(false); return; }
-    const line: CountItem = { id: `new-${item.id}`, itemId: item.id, name: item.name, code: item.code, system: 0, unit: item.unitSymbol ?? item.unitName ?? item.itemType ?? 'đơn vị', initial: 0, icon: 'grid-view', reason: '' };
+    const line: CountItem = { id: `new-${item.id}`, itemId: item.id, name: item.name, code: item.code, imageUrl: item.imageUrl, system: 0, unit: item.unitSymbol ?? item.unitName ?? item.itemType ?? 'đơn vị', initial: 0, icon: 'grid-view', reason: '' };
     setCountItems((current) => [...current, line]);
     setValues((current) => ({ ...current, [line.id]: 0 }));
     setReasons((current) => ({ ...current, [line.id]: '' }));
@@ -97,9 +109,10 @@ export default function StockCountScreen() {
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
       const response = await listBalances(token, currentFarmId, id);
       const itemById = new Map(catalogItems.map((item) => [item.id, item]));
-      const mapped = response.data.filter((row) => row.trackingMode !== 'ASSET').map(({ balance, itemCode, itemName }) => { const item = itemById.get(balance.itemId); return { id: balance.id, itemId: balance.itemId, lotId: balance.lotId, name: itemName, code: itemCode, system: Number(balance.quantityOnHand), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(balance.quantityOnHand), icon: 'grid-view' as const }; });
+      const mapped = response.data.filter((row) => row.trackingMode !== 'ASSET').map(({ balance, itemCode, itemName }) => { const item = itemById.get(balance.itemId); return { id: balance.id, itemId: balance.itemId, lotId: balance.lotId, name: itemName, code: itemCode, imageUrl: item?.imageUrl, system: Number(balance.quantityOnHand), unit: item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị', initial: Number(balance.quantityOnHand), icon: 'grid-view' as const }; });
       setCountItems(mapped);
       setValues(Object.fromEntries(mapped.map((item) => [item.id, item.initial])));
+      setQuantityInputs({});
       setReasons({});
     } catch (cause: unknown) {
       Alert.alert('Không thể tải tồn kho', cause instanceof Error ? cause.message : 'Không thể tải vật tư của kho đã chọn.');
@@ -107,11 +120,17 @@ export default function StockCountScreen() {
   }
 
   function countPayload() {
-    return countItems.map((item) => ({ itemId: item.itemId, ...(item.lotId ? { lotId: item.lotId } : {}), ...(item.assetId ? { assetId: item.assetId } : {}), actualQuantity: String(values[item.id] ?? 0), note: reasons[item.id] || null }));
+    return countItems.map((item) => ({ itemId: item.itemId, ...(item.lotId ? { lotId: item.lotId } : {}), ...(item.assetId ? { assetId: item.assetId } : {}), actualQuantity: (quantityInputs[item.id] ?? String(values[item.id] ?? 0)).trim().replace(',', '.'), note: reasons[item.id] || null }));
   }
 
   async function saveCount(submit: boolean) {
     if (!currentFarmId || !warehouseId || countItems.length === 0) { Alert.alert('Thiếu dữ liệu', 'Cần có farm, kho và ít nhất một vật tư từ DB.'); return; }
+    const invalid = countItems.find((item) => validateQuantityInput(quantityInputs[item.id] ?? String(values[item.id] ?? 0), { allowZero: true }));
+    if (invalid) {
+      const entered = quantityInputs[invalid.id] ?? String(values[invalid.id] ?? 0);
+      Alert.alert('Số đếm không hợp lệ', `${invalid.name}: “${entered || 'trống'}”. ${validateQuantityInput(entered, { allowZero: true })}`);
+      return;
+    }
     try {
       const token = await getAccessToken();
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
@@ -137,7 +156,7 @@ export default function StockCountScreen() {
     <View style={styles.businessTabs}><Pressable onPress={() => undefined} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.businessTabActive, pressed && styles.pressed]}><Icon name="fact-check" size={17} color={colors.onPrimary} /><Text style={styles.businessTabActiveText}>Kiểm kê kho</Text></Pressable><Pressable onPress={() => undefined} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.businessTab, pressed && styles.pressed]}><Icon name="input" size={17} color={colors.onSurfaceVariant} /><Text style={styles.businessTabText}>Phiếu nhập</Text></Pressable><Pressable onPress={() => undefined} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.businessTab, pressed && styles.pressed]}><Icon name="output" size={17} color={colors.onSurfaceVariant} /><Text style={styles.businessTabText}>Phiếu xuất</Text></Pressable></View>
     <Card style={styles.countInfo}><View style={styles.countInfoBanner}><Image source={{ uri: honeycombBorderImage }} style={styles.honeycombImage} resizeMode="cover" /></View><View style={styles.countInfoBody}><View style={styles.countInfoTop}><View style={styles.countCode}><Icon name="inventory" size={16} color={colors.deepAmber} /><Text style={styles.countCodeText}>{countCode || 'Mã cấp khi xác nhận'}</Text></View><View style={styles.draftBadge}><View style={styles.draftDot} /><Text style={styles.draftText}>{countStatus}</Text></View></View><View style={styles.countInfoBottom}><View style={styles.countInfoCopy}><Pressable disabled={Boolean(params.id)} onPress={() => setWarehousePickerOpen(true)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.metaLine, pressed && styles.pressed]}><View style={styles.metaIcon}><Icon name="warehouse" size={16} color={colors.primary} /></View><Text style={styles.warehouseMetaText} numberOfLines={2}>{warehouseName}</Text><Icon name="expand-more" size={18} color={colors.primary} /></Pressable><View style={styles.metaLine}><View style={styles.metaIcon}><Icon name="badge" size={16} color={colors.primary} /></View><Text style={styles.counterMetaText}>Người dùng hiện tại</Text></View></View><Image source={{ uri: countHeaderImage }} style={styles.countHeaderImage} resizeMode="contain" /></View></View></Card>
     <SectionTitle title="Chi tiết vật tư & thiết bị" count={`${countItems.length} mục`} action={<Pressable onPress={() => setItemPickerOpen(true)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.addItem, pressed && styles.pressed]}><Icon name="add-circle" size={17} color={colors.primary} /><Text style={styles.addItemText}>Thêm vật tư</Text></Pressable>} />
-    {loading ? <Text style={styles.emptyText}>Đang tải dữ liệu kiểm kê từ DB...</Text> : error ? <Text style={styles.errorText}>{error}</Text> : countItems.length === 0 ? <Card style={styles.emptyCard}><Text style={styles.emptyText}>Chưa có vật tư trong kho này.</Text><Text style={styles.emptyHint}>Bấm “Thêm vật tư” để tạo dòng kiểm kê từ danh mục DB.</Text></Card> : countItems.map((item) => { const actual = values[item.id] ?? 0; const diff = actual - item.system; return <Card key={item.id} style={styles.item}><View style={styles.itemHead}><View style={styles.itemIdentity}><View style={[styles.itemIcon, diff < 0 && styles.itemIconDanger]}><Icon name={item.icon} size={22} color={diff < 0 ? colors.primary : colors.statusSuccessStrong} /></View><View style={styles.itemCopy}><Text style={styles.itemName} numberOfLines={3}>{item.name}</Text><Text style={styles.itemCode} numberOfLines={2}>Mã: {item.code}</Text></View></View><Pill tone={diff === 0 ? 'success' : 'danger'}><Text numberOfLines={3} style={diff === 0 ? styles.success : styles.danger}>{diff === 0 ? '✓ Khớp tồn (0)' : `↓ Hụt ${formatQuantity(Math.abs(diff))} ${item.unit}`}</Text></Pill></View><View style={styles.countGrid}><View style={styles.systemColumn}><Text style={styles.label} numberOfLines={2}>Tồn hệ thống</Text><Text style={styles.system} numberOfLines={2}>{formatQuantity(item.system)} <Text style={styles.unit}>{item.unit}</Text></Text></View><View style={styles.actual}><Text style={styles.label} numberOfLines={2}>Thực tế đếm</Text><View style={styles.counter}><Pressable onPress={() => adjustCount(item.id, -1)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.quantityButton, pressed && styles.pressed]}><Text style={styles.quantityText}>−</Text></Pressable><TextInput value={String(actual)} onChangeText={(value) => setValues((current) => ({ ...current, [item.id]: Math.max(0, Number.parseInt(value || '0', 10) || 0) }))} keyboardType="number-pad" style={[styles.input, diff < 0 && styles.inputDanger]} /><Pressable onPress={() => adjustCount(item.id, 1)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.quantityButton, pressed && styles.pressed]}><Text style={styles.quantityText}>+</Text></Pressable></View></View></View>{diff !== 0 || item.reason !== undefined ? <View style={styles.reason}><View style={styles.reasonLabel}><Icon name="edit-note" size={16} color={colors.primary} /><Text style={styles.reasonText} numberOfLines={3}>Lý do chênh lệch:</Text></View><TextInput multiline value={reasons[item.id]} onChangeText={(value) => setReasons((current) => ({ ...current, [item.id]: value }))} placeholder="Nhập lý do chênh lệch..." placeholderTextColor={colors.onSurfaceVariant} style={styles.reasonInput} /></View> : null}</Card>; })}
+    {loading ? <Text style={styles.emptyText}>Đang tải dữ liệu kiểm kê từ DB...</Text> : error ? <Text style={styles.errorText}>{error}</Text> : countItems.length === 0 ? <Card style={styles.emptyCard}><Text style={styles.emptyText}>Chưa có vật tư trong kho này.</Text><Text style={styles.emptyHint}>Bấm “Thêm vật tư” để tạo dòng kiểm kê từ danh mục DB.</Text></Card> : countItems.map((item) => { const actual = values[item.id] ?? 0; const diff = actual - item.system; const quantityError = validateQuantityInput(quantityInputs[item.id] ?? String(actual), { allowZero: true }); return <Card key={item.id} style={styles.item}><View style={styles.itemHead}><View style={styles.itemIdentity}><View style={[styles.itemIcon, diff < 0 && styles.itemIconDanger]}>{item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name={item.icon} size={22} color={diff < 0 ? colors.primary : colors.statusSuccessStrong} />}</View><View style={styles.itemCopy}><Text style={styles.itemName} numberOfLines={3}>{item.name}</Text><Text style={styles.itemCode} numberOfLines={2}>Mã: {item.code}</Text></View></View><Pill tone={quantityError ? 'amber' : diff === 0 ? 'success' : diff < 0 ? 'danger' : 'amber'}><Text numberOfLines={3} style={quantityError ? styles.amber : diff === 0 ? styles.success : diff < 0 ? styles.danger : styles.amber}>{quantityError ? 'Số đếm chưa hợp lệ' : diff === 0 ? '✓ Khớp tồn (0)' : `${diff < 0 ? '↓ Hụt' : '↑ Dư'} ${formatQuantity(Math.abs(diff))} ${item.unit}`}</Text></Pill></View><View style={styles.countGrid}><View style={styles.systemColumn}><Text style={styles.label} numberOfLines={2}>Tồn hệ thống</Text><Text style={styles.system} numberOfLines={2}>{formatQuantity(item.system)} <Text style={styles.unit}>{item.unit}</Text></Text></View><View style={styles.actual}><Text style={styles.label} numberOfLines={2}>Thực tế đếm</Text><View style={styles.counter}><Pressable onPress={() => adjustCount(item.id, -1)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.quantityButton, pressed && styles.pressed]}><Text style={styles.quantityText}>−</Text></Pressable><TextInput value={quantityInputs[item.id] ?? formatQuantity(actual)} onChangeText={(value) => changeCountInput(item.id, value)} keyboardType="decimal-pad" selectTextOnFocus style={[styles.input, (diff < 0 || quantityError) && styles.inputDanger]} /><Pressable onPress={() => adjustCount(item.id, 1)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.quantityButton, pressed && styles.pressed]}><Text style={styles.quantityText}>+</Text></Pressable></View></View></View>{quantityError ? <Text style={styles.countError}>{quantityError}</Text> : null}{diff !== 0 || item.reason !== undefined ? <View style={styles.reason}><View style={styles.reasonLabel}><Icon name="edit-note" size={16} color={colors.primary} /><Text style={styles.reasonText} numberOfLines={3}>Lý do chênh lệch:</Text></View><TextInput multiline value={reasons[item.id]} onChangeText={(value) => setReasons((current) => ({ ...current, [item.id]: value }))} placeholder="Nhập lý do chênh lệch..." placeholderTextColor={colors.onSurfaceVariant} style={styles.reasonInput} /></View> : null}</Card>; })}
     <Card style={styles.warning}><Icon name="warning" color={colors.primary} /><View style={styles.warningCopy}><Text style={styles.warningTitle}>Lưu ý trước khi xác nhận</Text><Text style={styles.warningText}>Hệ thống sẽ tạo transaction điều chỉnh theo chênh lệch. Không thể hoàn tác sau khi quản lý xác nhận.</Text></View></Card>
     <View style={styles.actions}><View style={styles.saveAction}><PrimaryButton label="Lưu nháp" icon="save" compact onPress={() => void saveCount(false)} /></View><View style={styles.confirmAction}><PrimaryButton label="Gửi duyệt" icon="task-alt" onPress={() => void saveCount(true)} /></View></View>
   </AppShell>
@@ -198,6 +217,8 @@ const styles = StyleSheet.create({
   itemHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.spaceSm, flexWrap: 'wrap' },
   itemIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.spaceSm },
   itemIcon: { width: 44, height: 44, borderRadius: radius.default, backgroundColor: colors.statusSuccessSurface, borderWidth: 1, borderColor: colors.statusSuccessBorder, alignItems: 'center', justifyContent: 'center' },
+  countError: { ...typography.bodySm, color: colors.error },
+  itemImage: { width: 42, height: 42, borderRadius: radius.default },
   itemIconDanger: { backgroundColor: colors.primaryFixed, borderColor: colors.secondaryContainer },
   itemCopy: { flex: 1, minWidth: 0 },
   pressed: { opacity: 0.82, transform: [{ scale: 0.96 }] },

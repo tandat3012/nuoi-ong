@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { apiRequest } from '@/src/shared/api/client';
-import { balanceMatchesTrackingMode, calculateInventoryForecast, documentCodeLabel, filterAvailableAssetsForScope, filterPositiveBalancesForScope, findLowStockItems, listBalances, listRecentInventoryTransactions, type AvailableAsset, type InventoryBalance, type InventoryTransaction, type Item } from './api';
+import { balanceMatchesTrackingMode, calculateInventoryForecast, documentCodeLabel, filterAvailableAssetsForScope, filterPositiveBalancesForScope, findInventoryLotsBySupplierNumber, findLowStockItems, listBalances, listInventoryTransactions, listRecentInventoryTransactions, type AvailableAsset, type InventoryBalance, type InventoryTransaction, type Item } from './api';
 
 jest.mock('@/src/shared/api/client', () => ({ apiRequest: jest.fn() }));
 
@@ -47,6 +47,27 @@ describe('inventory balance scope', () => {
     expect(request).toHaveBeenNthCalledWith(2, '/inventory', expect.objectContaining({
       params: expect.objectContaining({ farmId: 'farm-a', page: 2, pageSize: 100 }),
     }));
+  });
+
+  it('loads remaining pages concurrently but returns balances in page order', async () => {
+    const request = jest.mocked(apiRequest);
+    request.mockReset();
+    let releasePageTwo!: (value: unknown) => void;
+    const pageTwo = new Promise<unknown>((resolve) => { releasePageTwo = resolve; });
+    request.mockImplementation((_, options) => {
+      const page = Number(options.params?.page);
+      if (page === 1) return Promise.resolve({ data: [], page: { number: 1, size: 100, totalItems: 300, totalPages: 3 } }) as never;
+      if (page === 2) return pageTwo as never;
+      return Promise.resolve({ data: [balance('farm-a', 'warehouse-a', '1', 'third')] }) as never;
+    });
+
+    const resultPromise = listBalances('token', 'farm-a');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(request).toHaveBeenCalledWith('/inventory', expect.objectContaining({ params: expect.objectContaining({ page: 3 }) }));
+    releasePageTwo({ data: [balance('farm-a', 'warehouse-a', '1', 'second')] });
+    const result = await resultPromise;
+    expect(result.data.map(({ balance: row }) => row.itemId)).toEqual(['second', 'third']);
   });
 
   it('does not treat a quantity-tracked item balance as a lot balance', () => {
@@ -133,7 +154,7 @@ describe('inventory forecast', () => {
     expect(calculateInventoryForecast(rows, [balance('farm-a', 'warehouse-a', '0', 'item-a')], 'farm-a', 'warehouse-a', now)).toEqual([]);
   });
 
-  it('requests transaction pages by farm and selected warehouse and stops once history exceeds 30 days', async () => {
+  it('queries only the 30-day forecast window and preserves the exact cutoff locally', async () => {
     const request = jest.mocked(apiRequest);
     request.mockClear();
     request.mockResolvedValueOnce({ data: [transaction()], page: { number: 1, size: 100, totalItems: 150, totalPages: 2 } } as never);
@@ -141,11 +162,27 @@ describe('inventory forecast', () => {
     const result = await listRecentInventoryTransactions('token', 'farm-a', 'warehouse-a', now);
     expect(result.map(({ id }) => id)).toEqual(['tx-1']);
     expect(request).toHaveBeenNthCalledWith(1, '/inventory/transactions', expect.objectContaining({
-      params: { farmId: 'farm-a', warehouseId: 'warehouse-a', page: 1, pageSize: 100 }, skipCache: true,
+      params: { farmId: 'farm-a', warehouseId: 'warehouse-a', dateFrom: new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), page: 1, pageSize: 100 }, skipCache: true,
     }));
     expect(request).toHaveBeenNthCalledWith(2, '/inventory/transactions', expect.objectContaining({
-      params: { farmId: 'farm-a', warehouseId: 'warehouse-a', page: 2, pageSize: 100 }, skipCache: true,
+      params: { farmId: 'farm-a', warehouseId: 'warehouse-a', dateFrom: new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), page: 2, pageSize: 100 }, skipCache: true,
     }));
+  });
+});
+
+describe('inventory ledger filters', () => {
+  it('keeps the warehouse and type while sending the selected date and page', async () => {
+    const request = jest.mocked(apiRequest);
+    request.mockReset();
+    request.mockResolvedValueOnce({ data: [], page: { number: 2, size: 20, totalItems: 25, totalPages: 2 } } as never);
+    await listInventoryTransactions('token', 'farm-a', {
+      warehouseId: 'warehouse-a', transactionType: 'ISSUE', dateFrom: '2026-10-01', page: 2, pageSize: 20,
+    });
+    expect(request).toHaveBeenCalledWith('/inventory/transactions', {
+      token: 'token',
+      params: { farmId: 'farm-a', warehouseId: 'warehouse-a', transactionType: 'ISSUE', dateFrom: '2026-10-01', page: 2, pageSize: 20 },
+      skipCache: true,
+    });
   });
 });
 
@@ -153,5 +190,26 @@ describe('document code label', () => {
   it('names an uncoded draft by its short id and keeps a permanent code', () => {
     expect(documentCodeLabel(null, '1a2b3c4d-0000-4000-8000-000000000000')).toBe('Nháp #1a2b3c4d');
     expect(documentCodeLabel('PN-2026-000001', '1a2b3c4d')).toBe('PN-2026-000001');
+  });
+});
+
+describe('lot suggestion lookup', () => {
+  it('requests an exact supplier number within the selected farm and item', async () => {
+    const request = jest.mocked(apiRequest);
+    request.mockReset();
+    request.mockResolvedValueOnce({
+      data: [
+        { id: 'lot-a', farmId: 'farm-a', itemId: 'item-a', lotCode: 'LOT-000000001', supplierLotNumber: '001' },
+        { id: 'lot-b', farmId: 'farm-b', itemId: 'item-a', lotCode: 'LOT-000000002', supplierLotNumber: '001' },
+      ],
+      page: { number: 1, size: 100, totalItems: 2, totalPages: 1 },
+    } as never);
+
+    const lots = await findInventoryLotsBySupplierNumber('token', 'farm-a', 'item-a', '001');
+
+    expect(lots.map((lot) => lot.id)).toEqual(['lot-a']);
+    expect(request).toHaveBeenCalledWith('/lots', expect.objectContaining({
+      params: { farmId: 'farm-a', itemId: 'item-a', supplierLotNumber: '001', page: 1, pageSize: 100 },
+    }));
   });
 });

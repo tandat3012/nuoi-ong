@@ -9,6 +9,24 @@ export type Page = {
 
 export type Paginated<T> = { data: T[]; page: Page };
 
+// Keep pagination complete without making a large farm wait for each page in turn.
+// Limit concurrency so opening several screens does not overwhelm the API/DB pool.
+const MAX_CONCURRENT_PAGE_REQUESTS = 4;
+
+async function loadRemainingPages<T>(totalPages: number, loadPage: (page: number) => Promise<T[]>): Promise<T[][]> {
+  if (totalPages <= 1) return [];
+  const pages: T[][] = new Array(totalPages - 1);
+  let nextPage = 2;
+  async function worker() {
+    while (nextPage <= totalPages) {
+      const page = nextPage++;
+      pages[page - 2] = await loadPage(page);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_PAGE_REQUESTS, totalPages - 1) }, () => worker()));
+  return pages;
+}
+
 export type Warehouse = {
   id: string;
   farmId: string;
@@ -24,6 +42,7 @@ export type Item = {
   farmId: string;
   code: string;
   name: string;
+  imageUrl?: string | null;
   itemType: 'MATERIAL' | 'PRODUCT' | 'EQUIPMENT' | string;
   trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' | string;
   minStockLevel?: string;
@@ -57,15 +76,18 @@ export type InventoryBalance = {
   item?: {
     unit?: { name?: string | null; symbol?: string | null };
   };
-  lot?: { id: string; lotNumber?: string | null; expiryDate?: string | null } | null;
-  lotNumber?: string | null;
+  lot?: { id: string; lotCode: string; supplierLotNumber?: string | null; legacyLotNumber?: string | null; expiryDate?: string | null } | null;
+  lotCode?: string | null;
 };
 
 export type InventoryLot = {
   id: string;
   farmId: string;
   itemId: string;
-  lotNumber: string;
+  lotCode: string;
+  supplierLotNumber?: string | null;
+  legacyLotNumber?: string | null;
+  sourceSupplierName?: string | null;
   manufacturedDate?: string | null;
   expiryDate?: string | null;
   initialQuantity: string;
@@ -79,7 +101,29 @@ export type InventoryTransaction = {
   createdAt: string;
   item: { id: string; code: string; name: string; unit?: { name?: string; symbol?: string | null } };
   warehouse: { id: string; code: string; name: string };
+  reason?: string | null;
+  lot?: { id: string; lotCode: string; supplierLotNumber?: string | null } | null;
+  asset?: { id: string; assetCode: string } | null;
+  performer?: { id: string; displayName: string } | null;
 };
+
+export type InventoryTransactionFilters = {
+  warehouseId?: string;
+  itemId?: string;
+  transactionType?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page: number;
+  pageSize: number;
+};
+
+export function listInventoryTransactions(token: string, farmId: string, filters: InventoryTransactionFilters) {
+  return apiRequest<Paginated<InventoryTransaction>>('/inventory/transactions', {
+    token,
+    params: { farmId, ...filters },
+    skipCache: true,
+  });
+}
 
 export type InventoryForecast = {
   itemId: string;
@@ -243,8 +287,15 @@ export type StockDocumentLine = {
   systemQuantity?: string;
   lotId?: string | null;
   assetId?: string | null;
-  lotNumber?: string | null;
-  lotNumberFromLot?: string | null;
+  assetCode?: string | null;
+  serialNumber?: string | null;
+  assetCodeFromAsset?: string | null;
+  assetSerialNumber?: string | null;
+  lotCode?: string | null;
+  supplierLotNumber?: string | null;
+  legacyLotNumber?: string | null;
+  lotSupplierLotNumber?: string | null;
+  lotLegacyLotNumber?: string | null;
   manufacturedDate?: string | null;
   expiryDate?: string | null;
   lotManufacturedDate?: string | null;
@@ -311,19 +362,16 @@ function normalizeItems(response: Paginated<ItemApiRow>): Paginated<Item> {
 
 export async function listItems(token: string, farmId: string, search?: string) {
   const firstPage = normalizeItems(await listItemsPage(token, farmId, 1, search));
-  const pages = [firstPage.data];
-
-  for (let page = 2; page <= firstPage.page.totalPages; page += 1) {
-    const nextPage = normalizeItems(await listItemsPage(token, farmId, page, search));
-    pages.push(nextPage.data);
-  }
+  const remainingPages = await loadRemainingPages(firstPage.page.totalPages, async (page) =>
+    normalizeItems(await listItemsPage(token, farmId, page, search)).data);
+  const data = [firstPage.data, ...remainingPages].flat();
 
   return {
-    data: pages.flat(),
+    data,
     page: {
       ...firstPage.page,
       number: 1,
-      size: pages.flat().length,
+      size: data.length,
       totalPages: firstPage.page.totalPages,
     },
   } satisfies Paginated<Item>;
@@ -341,9 +389,7 @@ export async function listBalances(token: string, farmId: string, warehouseId?: 
     '/inventory',
     { token, params, skipCache },
   );
-  const pages = [firstPage.data];
-
-  for (let page = 2; page <= (firstPage.page?.totalPages ?? 1); page += 1) {
+  const remainingPages = await loadRemainingPages(firstPage.page?.totalPages ?? 1, async (page) => {
     const nextPage = await apiRequest<{ data: InventoryBalance[] }>(
       '/inventory',
       {
@@ -352,43 +398,51 @@ export async function listBalances(token: string, farmId: string, warehouseId?: 
         skipCache,
       },
     );
-    pages.push(nextPage.data);
-  }
+    return nextPage.data;
+  });
 
-  return { data: pages.flat() };
+  return { data: [firstPage.data, ...remainingPages].flat() };
 }
 
-export async function listInventoryLots(token: string, farmId: string, itemId: string) {
+export async function listInventoryLots(token: string, farmId: string, itemId?: string) {
   const params = { farmId, itemId, page: 1, pageSize: 100 };
   const firstPage = await apiRequest<Paginated<InventoryLot>>('/lots', { token, params, skipCache: true });
-  const pages = [firstPage.data];
-  for (let page = 2; page <= firstPage.page.totalPages; page += 1) {
+  const remainingPages = await loadRemainingPages(firstPage.page.totalPages, async (page) => {
     const nextPage = await apiRequest<Paginated<InventoryLot>>('/lots', {
       token,
       params: { ...params, page },
       skipCache: true,
     });
-    pages.push(nextPage.data);
-  }
-  return pages.flat().filter((lot) => lot.farmId === farmId && lot.itemId === itemId);
+    return nextPage.data;
+  });
+  return [firstPage.data, ...remainingPages].flat().filter((lot) => lot.farmId === farmId && (!itemId || lot.itemId === itemId));
+}
+
+export async function findInventoryLotsBySupplierNumber(token: string, farmId: string, itemId: string, supplierLotNumber: string) {
+  const params = { farmId, itemId, supplierLotNumber, page: 1, pageSize: 100 };
+  const firstPage = await apiRequest<Paginated<InventoryLot>>('/lots', { token, params, skipCache: true });
+  const remainingPages = await loadRemainingPages(firstPage.page.totalPages, async (page) => {
+    const nextPage = await apiRequest<Paginated<InventoryLot>>('/lots', { token, params: { ...params, page }, skipCache: true });
+    return nextPage.data;
+  });
+  return [firstPage.data, ...remainingPages].flat().filter((lot) => lot.farmId === farmId && lot.itemId === itemId && lot.supplierLotNumber === supplierLotNumber);
 }
 
 export async function listRecentInventoryTransactions(token: string, farmId: string, warehouseId: string, now = Date.now()) {
-  const params = { farmId, warehouseId, page: 1, pageSize: 100 };
+  const cutoff = now - FORECAST_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  // API dates use Vietnam calendar days. The UTC day of the exact cutoff is
+  // equal to or earlier than its Vietnam day, so no in-window row is lost.
+  const params = { farmId, warehouseId, dateFrom: new Date(cutoff).toISOString().slice(0, 10), page: 1, pageSize: 100 };
   const firstPage = await apiRequest<Paginated<InventoryTransaction>>('/inventory/transactions', {
     token, params, skipCache: true,
   });
-  const transactions = [...firstPage.data];
-  const cutoff = now - FORECAST_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-  for (let page = 2; page <= firstPage.page.totalPages; page += 1) {
-    const oldestTimestamp = transactions.reduce((oldest, row) => Math.min(oldest, Date.parse(row.createdAt)), Number.POSITIVE_INFINITY);
-    if (oldestTimestamp < cutoff) break;
+  const remainingPages = await loadRemainingPages(firstPage.page.totalPages, async (page) => {
     const nextPage = await apiRequest<Paginated<InventoryTransaction>>('/inventory/transactions', {
       token, params: { ...params, page }, skipCache: true,
     });
-    transactions.push(...nextPage.data);
-  }
-  return transactions.filter((transaction) => {
+    return nextPage.data;
+  });
+  return [firstPage.data, ...remainingPages].flat().filter((transaction) => {
     const timestamp = Date.parse(transaction.createdAt);
     return transaction.warehouse.id === warehouseId && Number.isFinite(timestamp) && timestamp >= cutoff && timestamp <= now;
   });
@@ -416,16 +470,14 @@ export async function listAvailableAssets(token: string, farmId: string, warehou
     params: { farmId, warehouseId, status: 'AVAILABLE', page: 1, pageSize: 100 },
     skipCache: true,
   });
-  const pages = [firstPage.data];
-
-  for (let page = 2; page <= firstPage.page.totalPages; page += 1) {
+  const remainingPages = await loadRemainingPages(firstPage.page.totalPages, async (page) => {
     const nextPage = await apiRequest<Paginated<AvailableAsset>>('/assets', {
       token,
       params: { farmId, warehouseId, status: 'AVAILABLE', page, pageSize: 100 },
       skipCache: true,
     });
-    pages.push(nextPage.data);
-  }
+    return nextPage.data;
+  });
 
-  return filterAvailableAssetsForScope(pages.flat(), farmId, warehouseId);
+  return filterAvailableAssetsForScope([firstPage.data, ...remainingPages].flat(), farmId, warehouseId);
 }

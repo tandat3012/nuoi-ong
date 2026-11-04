@@ -25,7 +25,7 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { FARM_ADMIN_ROLES, WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { CreateMaintenanceRequestDto } from './dto/maintenance-request.dto';
 import { MaintenanceService } from './maintenance.service';
 
@@ -330,12 +330,12 @@ export class MaintenanceRequestsService {
     });
   }
 
-  /** Approvers see every request of the farm; anyone else only their own. */
+  /** Only admins and farm owners see every request; other members see their own. */
   private async scope(farmId: string, clerkUserId: string) {
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
     const conditions = [eq(maintenanceRequests.farmId, farmId)];
-    if (!roleCodes.some((code) => WAREHOUSE_MANAGE_ROLES.includes(code)))
+    if (!roleCodes.some((code) => FARM_ADMIN_ROLES.includes(code)))
       conditions.push(eq(maintenanceRequests.requestedByMemberId, memberId));
     return conditions;
   }

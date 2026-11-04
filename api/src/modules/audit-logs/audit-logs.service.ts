@@ -72,7 +72,10 @@ export class AuditLogsService {
   ) {}
 
   async list(filters: AuditLogFilters) {
-    const conditions = await this.scope(filters.farmId, filters.clerkUserId);
+    const { conditions, visibility } = await this.scope(
+      filters.farmId,
+      filters.clerkUserId,
+    );
     if (filters.entityType)
       conditions.push(eq(auditLogs.entityType, filters.entityType));
     if (filters.entityId)
@@ -96,6 +99,7 @@ export class AuditLogsService {
     const totalItems = Number(total?.value ?? 0);
     return {
       data: rows.map((row) => this.present(row)),
+      scope: visibility,
       references: await this.references(filters.farmId, rows),
       page: {
         number: filters.page,
@@ -107,7 +111,7 @@ export class AuditLogsService {
   }
 
   async get(id: string, farmId: string, clerkUserId: string) {
-    const conditions = await this.scope(farmId, clerkUserId);
+    const { conditions } = await this.scope(farmId, clerkUserId);
     const [row] = await this.databaseService.db
       .select(auditLogFields)
       .from(auditLogs)
@@ -118,19 +122,20 @@ export class AuditLogsService {
     return this.present(row);
   }
 
-  /** Owners read the whole farm history; other staff only that of documents they created. */
-  private async scope(farmId: string, clerkUserId: string): Promise<SQL[]> {
-    const { memberId, roleCodes } =
+  /** Admins and owners read farm history; other staff read only actions they performed. */
+  private async scope(farmId: string, clerkUserId: string): Promise<{
+    conditions: SQL[];
+    visibility: 'FARM' | 'PERFORMED_BY_ME';
+  }> {
+    const { userId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
     const conditions = [eq(auditLogs.farmId, farmId)];
-    if (hasAnyRole(roleCodes, FARM_ADMIN_ROLES)) return conditions;
+    if (hasAnyRole(roleCodes, FARM_ADMIN_ROLES))
+      return { conditions, visibility: 'FARM' };
     if (!hasAnyRole(roleCodes, [...STOCK_WRITE_ROLES, 'STORE_MANAGER']))
       throw new ForbiddenException('Audit history permission is required');
-    // shortcut: unindexed JSON filter, scans the farm's audit rows; add a column or expression index when history grows.
-    conditions.push(
-      sql`${auditLogs.newData}->>'createdByMemberId' = ${memberId}`,
-    );
-    return conditions;
+    conditions.push(eq(auditLogs.userId, userId));
+    return { conditions, visibility: 'PERFORMED_BY_ME' };
   }
 
   /**

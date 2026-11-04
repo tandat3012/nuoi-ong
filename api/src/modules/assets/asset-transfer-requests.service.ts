@@ -31,7 +31,7 @@ import {
   pendingMaintenanceRequest,
 } from '../maintenance/maintenance-requests.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { FARM_ADMIN_ROLES, WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { AssetLifecycleService } from './asset-lifecycle.service';
 import { CreateAssetTransferRequestDto } from './dto/asset-lifecycle.dto';
 
@@ -308,12 +308,12 @@ export class AssetTransferRequestsService {
       .$dynamic();
   }
 
-  /** Approvers see every request of the farm; anyone else only their own. */
+  /** Only admins and farm owners see every request; other members see their own. */
   private async scope(farmId: string, clerkUserId: string) {
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
     const conditions = [eq(assetTransferRequests.farmId, farmId)];
-    if (!roleCodes.some((code) => WAREHOUSE_MANAGE_ROLES.includes(code)))
+    if (!roleCodes.some((code) => FARM_ADMIN_ROLES.includes(code)))
       conditions.push(eq(assetTransferRequests.requestedByMemberId, memberId));
     return conditions;
   }

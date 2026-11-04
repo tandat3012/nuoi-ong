@@ -90,6 +90,7 @@ const assetWithLocationSchema = {
     asset: assetSchema,
     itemCode: { type: 'string', example: 'PUMP-01' },
     itemName: { type: 'string', example: 'Máy bơm nước' },
+    itemImageUrl: { type: 'string', nullable: true },
     locationCode: { type: 'string', nullable: true },
     locationName: { type: 'string', nullable: true },
     locationWarehouseId: { type: 'string', format: 'uuid', nullable: true },
@@ -182,6 +183,7 @@ export class AssetsController {
               asset: assetSchema,
               itemCode: { type: 'string', example: 'PUMP-01' },
               itemName: { type: 'string', example: 'Máy bơm nước' },
+              itemImageUrl: { type: 'string', nullable: true },
               locationCode: { type: 'string', nullable: true },
               locationName: { type: 'string', nullable: true },
               locationWarehouseId: {
