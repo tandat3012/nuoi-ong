@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 import type {
@@ -17,6 +18,8 @@ import { CLOUDINARY } from './cloudinary.provider';
 
 @Injectable()
 export class CloudinaryService {
+  private readonly logger = new Logger(CloudinaryService.name);
+
   constructor(@Inject(CLOUDINARY) private readonly client: typeof cloudinary) {}
 
   async uploadFile(
@@ -61,6 +64,15 @@ export class CloudinaryService {
         stream.end(file);
       });
     } catch (error) {
+      // Log only the message, not SDK request objects that may contain credentials.
+      this.logger.error(
+        `Cloudinary upload failed: ${
+          error instanceof Error
+            ? error.message
+            : ((error as { message?: string } | null)?.message ??
+              'Unknown error')
+        }`,
+      );
       throw new BadGatewayException('Cloudinary upload failed', {
         cause: error,
       });

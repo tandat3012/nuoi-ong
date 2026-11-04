@@ -7,7 +7,10 @@ export const CloudinaryProvider = {
   useFactory: () => {
     const config = cloudinary.config();
     cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_NAME || config.cloud_name,
+      cloud_name:
+        process.env.CLOUDINARY_NAME ||
+        process.env.CLOUDINARY_CLOUD_NAME ||
+        config.cloud_name,
       api_key: process.env.CLOUDINARY_API_KEY || config.api_key,
       api_secret: process.env.CLOUDINARY_API_SECRET || config.api_secret,
       secure: true,
