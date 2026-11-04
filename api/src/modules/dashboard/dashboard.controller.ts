@@ -1,12 +1,22 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { parseDateRange } from '../../common/date-range';
 import { requireUuid } from '../../common/query-params';
 import { ApiFarmIdQuery } from '../../common/swagger-docs';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
@@ -14,9 +24,10 @@ import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import {
   STOCK_WRITE_ROLES,
   STORE_MANAGE_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
 } from '../auth/farm-access/farm-role-groups';
 import type { AuthRequest } from '../auth/clerk/types/auth-request.type';
-import { DashboardService } from './dashboard.service';
+import { DashboardService, TIMESERIES_MAX_DAYS } from './dashboard.service';
 
 // Null when the caller's roles do not cover that area (farm operations or store).
 const count = { type: 'integer', example: 0, nullable: true };
@@ -69,6 +80,76 @@ export class DashboardController {
       data: await this.dashboardService.summary(
         requireUuid(farmIdValue, 'farmId'),
         request.farmRoleCodes ?? [],
+      ),
+    };
+  }
+
+  @Get('timeseries')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
+  @ApiOperation({ summary: 'Nhập – xuất và chi phí theo thời gian' })
+  @ApiFarmIdQuery()
+  @ApiQuery({ name: 'dateFrom', required: true, example: '2026-08-01' })
+  @ApiQuery({ name: 'dateTo', required: true, example: '2026-10-31' })
+  @ApiQuery({
+    name: 'warehouseId',
+    required: false,
+    description: 'Một kho; bỏ trống = toàn trang trại.',
+  })
+  @ApiOkResponse({
+    description: `Gom theo ngày (≤31 ngày), tuần (≤92 ngày, bắt đầu thứ Hai) hoặc tháng; tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Nhập = phiếu nhập + điều chỉnh tăng; xuất = phiếu xuất + điều chỉnh giảm; chuyển kho chỉ tính khi chọn một kho; cấp phát/hoàn trả tài sản không tính. Giá trị (VND) theo giá nhập gần nhất tại thời điểm biến động. Chi phí bảo trì tính toàn trang trại theo ngày hoàn thành.`,
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'object',
+          properties: {
+            granularity: { type: 'string', enum: ['day', 'week', 'month'] },
+            unpricedMovements: { type: 'integer', example: 0 },
+            periods: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  period: { type: 'string', example: '2026-10-01' },
+                  inboundValue: { type: 'string', example: '1500000' },
+                  outboundValue: { type: 'string', example: '800000' },
+                  inboundDocuments: { type: 'integer', example: 3 },
+                  outboundDocuments: { type: 'integer', example: 2 },
+                  purchaseCost: { type: 'string', example: '1500000' },
+                  maintenanceLaborCost: { type: 'string', example: '200000' },
+                  maintenanceMaterialCost: { type: 'string', example: '0' },
+                  maintenanceOtherCost: { type: 'string', example: '0' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'farmId/warehouseId/ngày không hợp lệ hoặc quá 366 ngày.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho.',
+  })
+  @ApiNotFoundResponse({ description: 'Kho không thuộc trang trại.' })
+  async timeseries(
+    @Query('farmId') farmIdValue?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('warehouseId') warehouseId?: string,
+  ) {
+    const range = parseDateRange(dateFrom, dateTo);
+    if (!range.dateFrom || !range.dateTo)
+      throw new BadRequestException('dateFrom and dateTo are required');
+    return {
+      data: await this.dashboardService.timeseries(
+        requireUuid(farmIdValue, 'farmId'),
+        range.dateFrom,
+        range.dateTo,
+        warehouseId ? requireUuid(warehouseId, 'warehouseId') : undefined,
       ),
     };
   }
