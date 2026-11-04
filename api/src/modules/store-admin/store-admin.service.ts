@@ -68,6 +68,16 @@ export interface StoreProductListFilters extends PaginationParams {
 export const STORE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 export const STORE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
+/** True when the bytes are a JPEG, PNG or WebP file, whatever MIME type the client sent. */
+export function isStoreImage(file: Buffer) {
+  const head = file.toString('latin1', 0, 12);
+  return (
+    head.startsWith('\xff\xd8\xff') ||
+    head.startsWith('\x89PNG\r\n\x1a\n') ||
+    (head.startsWith('RIFF') && head.slice(8) === 'WEBP')
+  );
+}
+
 const imageColumns = {
   id: storeProductImages.id,
   url: storeProductImages.url,
@@ -668,7 +678,10 @@ export class StoreAdminService {
     alt = '',
   ) {
     if (!file) throw new BadRequestException('file is required');
-    if (!STORE_IMAGE_TYPES.includes(file.mimetype)) {
+    if (
+      !STORE_IMAGE_TYPES.includes(file.mimetype) ||
+      !isStoreImage(file.buffer)
+    ) {
       throw new BadRequestException('file must be a JPEG, PNG or WebP image');
     }
     if (alt.length > 500) {
@@ -676,11 +689,11 @@ export class StoreAdminService {
     }
     await this.requireProduct(productId);
 
-    // Cloudinary re-checks the real content: the client MIME type is untrusted.
     const uploaded = await this.cloudinaryService.uploadFile(file.buffer, {
       folder: 'nuoi-ong/products',
       resource_type: 'image',
-      allowed_formats: ['jpg', 'png', 'webp'],
+      // No allowed_formats: Cloudinary then skips `format` for allowed inputs
+      // and keeps PNGs as PNG. The format is checked above instead.
       // Store a capped WebP instead of the original phone photo.
       transformation: [
         { width: 2000, height: 2000, crop: 'limit', quality: 'auto:good' },

@@ -33,8 +33,10 @@ describe('Store admin (migrated PostgreSQL)', () => {
     uploadFile: jest.fn(),
     deleteFile: jest.fn(),
   };
-  const file = (mimetype = 'image/png') =>
-    ({ buffer: Buffer.from('png'), mimetype }) as Express.Multer.File;
+  const file = (
+    mimetype = 'image/png',
+    buffer = Buffer.from('\x89PNG\r\n\x1a\n', 'latin1'),
+  ) => ({ buffer, mimetype }) as Express.Multer.File;
 
   const service = (tx: Db) =>
     new StoreAdminService(
@@ -472,6 +474,12 @@ describe('Store admin (migrated PostgreSQL)', () => {
       const product = await createProduct(tx);
       await expect(
         service(tx).addImage(product.id, file('image/gif')),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        service(tx).addImage(
+          product.id,
+          file('image/png', Buffer.from('GIF89a')),
+        ),
       ).rejects.toMatchObject({ status: 400 });
       expect(cloudinary.uploadFile).not.toHaveBeenCalled();
 
