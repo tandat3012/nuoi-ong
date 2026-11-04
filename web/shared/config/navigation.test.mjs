@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { findNavigationItem, isNavigationItemAllowed, isNavigationItemVisible, primaryNavigationSections } from './navigation.ts';
+import { isBackOfficePath } from './protected-routes.ts';
 
 const item = (href) =>
   primaryNavigationSections.flatMap((s) => s.items).find((i) => i.href === href);
 const access = (overrides = {}) => ({
   canManageFarm: true,
+  canManageWarehouse: true,
   canManageStore: true,
   canDeliver: true,
   canAccessFarmArea: true,
@@ -46,4 +48,11 @@ test('delivery staff see only the delivery screen of the store section', () => {
   for (const href of ['/store-orders', '/store-products', '/inventory'])
     assert.equal(isNavigationItemVisible(item(href), shipper), false, href);
   assert.equal(isNavigationItemVisible(item('/deliveries'), access({ canDeliver: false })), false);
+});
+
+test('the reports page is for farm admins and warehouse managers only', () => {
+  const reports = item('/reports');
+  assert.equal(isBackOfficePath('/reports'), true);
+  assert.equal(isNavigationItemVisible(reports, access({ isStoreFarm: false })), true);
+  assert.equal(isNavigationItemVisible(reports, access({ canManageWarehouse: false })), false);
 });
