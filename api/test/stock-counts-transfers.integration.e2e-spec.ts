@@ -303,14 +303,16 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       .expect(status);
   });
 
-  // Holds a competing write open, confirms the count, and commits the write
-  // only once the count's transaction is waiting on the balance row.
+  type Write = [sql: string, params: unknown[]];
+  // Holds a competing write open, confirms the count, runs the `after` writes
+  // once the count's transaction waits on the competitor, then commits.
   const confirmDuringWrite = async (
     countId: string,
-    write: string,
-    params: unknown[],
+    first: Write,
+    ...after: Write[]
   ) => {
     const competitor = await pool.connect();
+    let pending: Promise<request.Response> | undefined;
     try {
       await competitor.query('BEGIN');
       const {
@@ -318,8 +320,8 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       } = await competitor.query<{ pid: number }>(
         'SELECT pg_backend_pid() AS pid',
       );
-      await competitor.query(write, params);
-      const pending = confirm('counts', countId).then((response) => response);
+      await competitor.query(...first);
+      pending = confirm('counts', countId).then((response) => response);
       for (let attempt = 0; ; attempt++) {
         const { rowCount } = await pool.query(
           'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
@@ -330,23 +332,87 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
           throw new Error('Count confirmation never waited for the balance');
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
+      for (const write of after) await competitor.query(...write);
       await competitor.query('COMMIT');
       return await pending;
     } catch (error) {
       await competitor.query('ROLLBACK');
+      // Let the confirmation finish so it cannot leak into the next test.
+      await pending?.catch(() => undefined);
       throw error;
     } finally {
       competitor.release();
     }
   };
 
+  const setBalance = (quantity: string) =>
+    pool.query(
+      'UPDATE inventory_balances SET quantity_on_hand=$4 WHERE farm_id=$1 AND warehouse_id=$2 AND item_id=$3',
+      [farm, source, item, quantity],
+    );
+
+  it('detects a 0.001 change on a quantity too large for a float comparison', async () => {
+    await setBalance('100000000000000.001');
+    const id = await create('counts', '100000000000000.000');
+    const response = await confirmDuringWrite(id, [
+      'UPDATE inventory_balances SET quantity_on_hand = quantity_on_hand + 0.001 WHERE farm_id=$1 AND warehouse_id=$2 AND item_id=$3',
+      [farm, source, item],
+    ]);
+    expect(response.status).toBe(409);
+    expect(await balances()).toEqual([
+      { warehouse_id: source, quantity_on_hand: '100000000000000.002' },
+    ]);
+  });
+
+  it('answers STOCK_COUNT_STALE when the count loses a deadlock to another move', async () => {
+    await seedLotBalance();
+    const response = await http()
+      .post('/api/v1/stock-counts')
+      .query({ farmId: farm })
+      .send({
+        warehouseId: source,
+        countCode: randomUUID(),
+        items: [
+          { itemId: item, actualQuantity: '8' },
+          { itemId: lotItem, lotId: lot, actualQuantity: '3' },
+        ],
+      })
+      .expect(201);
+    const body = response.body as { data: { count: { id: string } } };
+    // The count locks lines by item id; the competitor takes them the other way round.
+    const [firstItem, secondItem] = [item, lotItem].sort();
+    const touch = (itemId: string): Write => [
+      'UPDATE inventory_balances SET quantity_on_hand = quantity_on_hand - 1 WHERE farm_id=$1 AND warehouse_id=$2 AND item_id=$3',
+      [farm, source, itemId],
+    ];
+    // The count holds the first balance and waits for the second; the
+    // competitor then asks for the first. Its long deadlock_timeout makes the
+    // count's backend detect the cycle and become the victim.
+    const result = await confirmDuringWrite(
+      body.data.count.id,
+      touch(secondItem),
+      ['SET LOCAL deadlock_timeout = 10000', []],
+      touch(firstItem),
+    );
+    expect(result.status).toBe(409);
+    expect((result.body as { message: string }).message).toBe(
+      'STOCK_COUNT_STALE',
+    );
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '9.000' },
+        { warehouse_id: source, quantity_on_hand: '4.000' },
+      ]),
+    );
+    expect(await ledger()).toEqual([]);
+  });
+
   it('rejects a count as stale when an issue commits during confirmation, keeping the issue', async () => {
     const id = await create('counts', '9');
-    const response = await confirmDuringWrite(
-      id,
+    const response = await confirmDuringWrite(id, [
       'UPDATE inventory_balances SET quantity_on_hand = quantity_on_hand - 3 WHERE farm_id=$1 AND warehouse_id=$2 AND item_id=$3',
       [farm, source, item],
-    );
+    ]);
     expect(response.status).toBe(409);
     expect((response.body as { message: string }).message).toBe(
       'STOCK_COUNT_STALE',
@@ -392,11 +458,10 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       })
       .expect(201);
     const body = response.body as { data: { count: { id: string } } };
-    const result = await confirmDuringWrite(
-      body.data.count.id,
+    const result = await confirmDuringWrite(body.data.count.id, [
       'INSERT INTO inventory_balances (farm_id, warehouse_id, item_id, lot_id, quantity_on_hand) VALUES ($1,$2,$3,$4,5)',
       [farm, source, lotItem, lot],
-    );
+    ]);
     expect(result.status).toBe(409);
     expect((result.body as { message: string }).message).toBe(
       'STOCK_COUNT_STALE',

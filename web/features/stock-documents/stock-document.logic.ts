@@ -88,6 +88,10 @@ const CONFLICTS: [RegExp, string][] = [
   [/can be rejected/, "Phiếu không còn chờ duyệt nên không từ chối được."],
   [/can be confirmed/, "Phiếu không còn chờ xác nhận."],
   [/can be cancelled/, "Phiếu không còn ở trạng thái nháp nên không hủy được."],
+  [
+    /STOCK_COUNT_STALE/,
+    "Tồn kho đã thay đổi từ lúc lập phiếu kiểm kê (có phiếu nhập/xuất/chuyển mới). Hãy kiểm lại và lập phiếu mới.",
+  ],
 ];
 
 /** Vietnamese message for a failed submit/reject; `null` status means no response. */

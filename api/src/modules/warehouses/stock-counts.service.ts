@@ -399,10 +399,9 @@ export class StockCountsService {
           line.lotId,
           true,
         );
-        // Numeric compare: a missing balance is 0 while the snapshot reads '0.000'.
-        if (
-          Number(balance?.quantityOnHand ?? 0) !== Number(line.systemQuantity)
-        )
+        // Both are numeric(18,3) strings; compare exactly, since Number() loses
+        // the last digits of large quantities. A missing balance reads '0.000'.
+        if ((balance?.quantityOnHand ?? '0.000') !== line.systemQuantity)
           throw new ConflictException('STOCK_COUNT_STALE');
         const difference = line.difference;
         if (!difference || Number(difference) === 0) continue;
@@ -485,7 +484,15 @@ export class StockCountsService {
           row.createdByMemberId,
         );
     });
-    await confirmation.catch(rethrowCodeConflict);
+    await confirmation.catch((error: unknown) => {
+      // Writers lock balances in different orders, so PostgreSQL may abort the
+      // count as a deadlock victim; the competing move went through, so the
+      // snapshot is stale either way.
+      const failure = error as { code?: string; cause?: { code?: string } };
+      if ((failure.cause?.code ?? failure.code) === '40P01')
+        throw new ConflictException('STOCK_COUNT_STALE');
+      rethrowCodeConflict(error);
+    });
     return this.withItems(id, farmId);
   }
 
@@ -593,7 +600,7 @@ export class StockCountsService {
     if (item.trackingMode !== 'LOT' && line.lotId)
       throw new Invalid('Only LOT items accept a lotId');
     if (!line.lotId) return;
-    const [lot] = await db
+    const query = db
       .select({ id: inventoryLots.id })
       .from(inventoryLots)
       .where(
@@ -603,6 +610,9 @@ export class StockCountsService {
           eq(inventoryLots.itemId, line.itemId),
         ),
       );
+    // Lot before balance, as receipts into an existing lot do; the count's
+    // ledger row needs this key-share lock on the lot anyway.
+    const [lot] = confirming ? await query.for('key share') : await query;
     if (!lot) throw new NotFoundException('LOT not found');
   }
   private findBalance(

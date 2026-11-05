@@ -182,7 +182,11 @@ for (const kind of ["counts", "transfers"]) {
     f.fail(new f.ApiError("Only active documents can be confirmed", 409));
     await setImmediate();
     assert.equal(f.lock.locked, false);
-    assert.match(f.screen.state[12], /Only active/);
+    // Counts translate known conflicts; transfers still show the server text.
+    assert.match(
+      f.screen.state[12],
+      kind === "counts" ? /không còn chờ xác nhận/ : /Only active/,
+    );
     assert.equal(f.screen.state[5], 1);
     edit.props.onClick();
     assert.equal(f.lock.locked, true);
