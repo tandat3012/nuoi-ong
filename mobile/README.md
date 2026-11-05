@@ -124,7 +124,7 @@ App đọc phần đường dẫn của link: màn quét đã xử lý được 
 ### Nhật ký thay đổi
 
 - `GET /audit-logs` và `GET /audit-logs/:id`.
-- Người duyệt thấy tất cả; EMPLOYEE chỉ thấy nhật ký phiếu của mình; GUEST bị 403.
+- ADMIN và FARM_OWNER thấy lịch sử của trại; EMPLOYEE chỉ thấy thao tác do chính mình thực hiện. Danh sách và chi tiết phiếu kho của nhân viên chỉ gồm phiếu do họ tạo; GUEST bị 403 khi xem lịch sử thao tác.
 - Trường `references` ánh xạ id sang mã hoặc tên, để hiển thị không phải in UUID.
 
 ### Đăng nhập (Clerk)
@@ -182,6 +182,32 @@ pnpm start
 ```
 
 `EXPO_PUBLIC_API_BASE_URL` chỉ dùng khi chạy qua tunnel. Trong mạng LAN, app tự lấy địa chỉ máy từ Metro.
+
+### APK cài trực tiếp, đủ chức năng cho điện thoại Android
+
+Profile `internal-compact` tạo APK release nội bộ, không cần Metro và không giới hạn riêng ARM64. Bản build dùng R8, thu gọn tài nguyên và nén thư viện native để giảm dung lượng. Đây là profile nên dùng khi đưa app cho người khác cài; kích thước thực tế phải đo sau khi EAS build.
+
+Trước khi build, tạo hai biến **plaintext** trong Expo project, môi trường `preview`: `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` và `EXPO_PUBLIC_API_BASE_URL`. Để giữ push notification, lưu `google-services.json` dưới dạng biến **file/secret** tên `GOOGLE_SERVICES_JSON` trong cùng môi trường. Các file local này bị Git bỏ qua nên không được EAS tải lên. Giá trị API phải là URL điện thoại truy cập được, ví dụ `https://api.example.com/api/v1`; `localhost` trên điện thoại không trỏ về máy tính. Với địa chỉ LAN, điện thoại chỉ dùng được khi cùng mạng và IP máy chủ không đổi. Không đặt secret key của Clerk hoặc API trong biến `EXPO_PUBLIC_`.
+
+```powershell
+cd mobile
+npx eas-cli@latest env:list --environment preview
+npx eas-cli@latest build --platform android --profile internal-compact
+```
+
+Nếu thiếu một trong hai biến, cấu hình sẽ dừng build với tên biến cần bổ sung, thay vì tạo APK mở lên rồi lỗi. Sau khi cài, kiểm tra đăng nhập, gọi API và nhận push trên điện thoại trước khi phát hành rộng hơn.
+
+### APK development gọn cho điện thoại ARM64
+
+Profile `development-arm64` chỉ đóng gói thư viện native `arm64-v8a` và dùng biến thể `debugOptimized`. Profile `development` hiện có vẫn tạo APK dùng cho nhiều kiến trúc. Điện thoại cần hỗ trợ `arm64-v8a` (có thể kiểm tra bằng `adb shell getprop ro.product.cpu.abilist`).
+
+```powershell
+cd mobile
+npx eas-cli@latest build --platform android --profile development-arm64
+pnpm exec expo start --dev-client --lan
+```
+
+Đây vẫn là development client: giữ Metro chạy để tải mã nguồn local. Dung lượng APK cần đo trên bản build mới; số liệu `expo export` chỉ phản ánh JavaScript và tài nguyên, không gồm thư viện native.
 
 ### Kiểm tra
 

@@ -4,16 +4,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '@clerk/clerk-expo';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  PlusJakartaSans_400Regular,
-  PlusJakartaSans_500Medium,
-  PlusJakartaSans_600SemiBold,
-  PlusJakartaSans_700Bold,
-} from '@expo-google-fonts/plus-jakarta-sans';
-import {
-  Vollkorn_500Medium,
-  Vollkorn_600SemiBold,
-} from '@expo-google-fonts/vollkorn';
+import { PlusJakartaSans_400Regular } from '@expo-google-fonts/plus-jakarta-sans/400Regular';
+import { PlusJakartaSans_600SemiBold } from '@expo-google-fonts/plus-jakarta-sans/600SemiBold';
+import { PlusJakartaSans_700Bold } from '@expo-google-fonts/plus-jakarta-sans/700Bold';
+import { Vollkorn_500Medium } from '@expo-google-fonts/vollkorn/500Medium';
+import { Vollkorn_600SemiBold } from '@expo-google-fonts/vollkorn/600SemiBold';
 import { ClerkProvider } from '@clerk/clerk-expo';
 import * as SecureStore from 'expo-secure-store';
 import { Pressable, Text, View } from 'react-native';
@@ -144,7 +139,7 @@ function AppNavigator() {
         ))}
         <Stack.Protected guard={canOperate}>
           {[
-            'inventory', 'inventory-detail', 'low-stock',
+            'inventory', 'inventory-detail', 'inventory-ledger', 'low-stock',
             'activity', 'activity/[id]', 'activity/record',
             'assets/return', 'assets/transfer-request', 'assets/transfer-requests/[id]', 'materials/new',
             'counts/[id]', 'counts/new', 'lots/[id]',
@@ -162,7 +157,6 @@ function AppNavigator() {
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     PlusJakartaSans: PlusJakartaSans_400Regular,
-    PlusJakartaSansMedium: PlusJakartaSans_500Medium,
     PlusJakartaSansSemiBold: PlusJakartaSans_600SemiBold,
     PlusJakartaSansBold: PlusJakartaSans_700Bold,
     VollkornMedium: Vollkorn_500Medium,

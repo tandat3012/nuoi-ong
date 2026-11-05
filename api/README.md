@@ -112,7 +112,7 @@ DRAFT ──submit──▶ PENDING_APPROVAL ──confirm──▶ CONFIRMED
 - A submitted document cannot be withdrawn by its creator. REJECTED is final.
 - Submit notifies the farm's approvers; confirm and reject notify the creator.
 
-Every create, edit, submit, confirm, reject and cancel writes an audit log in the same transaction. `GET /audit-logs` returns all entries to approvers and only the employee's own documents to EMPLOYEE (GUEST: 403); its `references` map ids to codes and names.
+Every create, edit, submit, confirm, reject and cancel writes an audit log in the same transaction. `GET /audit-logs` returns all entries to ADMIN and FARM_OWNER, and only actions performed by the signed-in user to other permitted staff (GUEST: 403). Stock document lists and details show employees only documents they created; approvers (ADMIN, FARM_OWNER, WAREHOUSE_MANAGER) see the farm's documents. Its `references` map ids to codes and names.
 
 ## Requests from employees
 

@@ -19,3 +19,8 @@ export function formatApiDateTime(value: string | null | undefined, fallback = '
     timeZone: 'Asia/Ho_Chi_Minh',
   });
 }
+
+/** Stock document dates are DATE columns, so send the Vietnam calendar day only. */
+export function formatVietnamDateOnly(date: Date): string {
+  return new Date(date.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}

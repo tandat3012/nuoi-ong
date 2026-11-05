@@ -392,7 +392,7 @@ describe('Asset transfer requests', () => {
     );
   });
 
-  it('frees the asset on rejection and records the history the requester can read', async () => {
+  it('frees the asset on rejection and separates each actor’s audit history', async () => {
     const request = await create('creator');
     await expect(
       requests.reject(request.id, farm, clerk('owner'), ' ab '),
@@ -415,7 +415,15 @@ describe('Asset transfer requests', () => {
       entityId: request.id,
       ...page,
     });
-    expect(history.data.map((log) => log.action).sort()).toEqual([
+    expect(history.data.map((log) => log.action)).toEqual(['CREATE']);
+    const reviewerHistory = await auditLogs.list({
+      farmId: farm,
+      clerkUserId: clerk('owner'),
+      entityType: 'ASSET_TRANSFER_REQUEST',
+      entityId: request.id,
+      ...page,
+    });
+    expect(reviewerHistory.data.map((log) => log.action).sort()).toEqual([
       'CREATE',
       'REJECT',
     ]);

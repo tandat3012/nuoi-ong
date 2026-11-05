@@ -236,6 +236,7 @@ export class CatalogService {
       itemId: item.id,
       itemCode: item.code,
       itemName: item.name,
+      itemImageUrl: item.imageUrl,
       qrUrl,
       format: 'svg',
       imageDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`,

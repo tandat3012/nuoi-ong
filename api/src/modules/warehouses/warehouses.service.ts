@@ -208,6 +208,18 @@ export class WarehousesService {
     return memberId;
   }
 
+  /** Approvers (admins, farm owners, warehouse managers) read every stock document; others only their own. */
+  async documentReadMemberId(
+    farmId: string,
+    clerkUserId: string,
+  ): Promise<string | null> {
+    const { memberId, roleCodes } = await this.getActiveMembership(
+      farmId,
+      clerkUserId,
+    );
+    return hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ? null : memberId;
+  }
+
   /** Stock documents: approvers act on any document, employees create and submit their own drafts. */
   async assertDocumentWriter(
     farmId: string,
@@ -229,6 +241,7 @@ export class WarehousesService {
     const memberships = await this.databaseService.db
       .select({
         memberId: farmMembers.id,
+        userId: users.id,
         userStatus: users.status,
         memberStatus: farmMembers.status,
         farmStatus: farms.status,
@@ -260,6 +273,7 @@ export class WarehousesService {
     }
     return {
       memberId: activeMemberships[0].memberId,
+      userId: activeMemberships[0].userId,
       roleCodes: activeMemberships.flatMap(({ roleCode }) =>
         roleCode ? [roleCode] : [],
       ),

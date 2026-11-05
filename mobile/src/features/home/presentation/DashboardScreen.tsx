@@ -77,7 +77,7 @@ export default function DashboardScreen() {
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
       return Promise.all([
         listWarehouses(token, currentFarmId),
-        listBalances(token, currentFarmId, undefined, true),
+        listBalances(token, currentFarmId),
         apiRequest<Paginated<StockReceipt>>('/stock-receipts', { token, params: { farmId: currentFarmId, page: 1, pageSize: 5 } }),
         apiRequest<Paginated<StockIssue>>('/stock-issues', { token, params: { farmId: currentFarmId, page: 1, pageSize: 5 } }),
       ]);

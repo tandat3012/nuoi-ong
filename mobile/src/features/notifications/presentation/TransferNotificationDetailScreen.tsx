@@ -21,7 +21,7 @@ type TransferDetail = {
   items: {
     id: string; itemId: string; itemCode?: string | null; itemName?: string | null;
     quantity: string; unitSymbol?: string | null; unitName?: string | null;
-    lotId?: string | null; lotNumber?: string | null; lotExpiryDate?: string | null; note?: string | null;
+    lotId?: string | null; lotCode?: string | null; lotSupplierLotNumber?: string | null; lotExpiryDate?: string | null; note?: string | null;
   }[];
 };
 
@@ -124,7 +124,8 @@ export default function TransferNotificationDetailScreen() {
         <SectionTitle title="Vật tư điều chuyển" count={`${detail.items.length} mục`} />
         {detail.items.map((line) => <Card key={line.id} style={styles.lineCard}>
           <View style={styles.lineHead}><View style={styles.lineIcon}><Icon name="inventory-2" color={colors.primary} /></View><View style={styles.lineCopy}><Text style={styles.lineName}>{line.itemName || 'Vật tư'}</Text><Text style={styles.muted}>{line.itemCode || line.itemId}</Text></View><Pill tone="cream"><Text style={styles.quantity}>{formatQuantity(line.quantity)} {line.unitSymbol || line.unitName || ''}</Text></Pill></View>
-          {line.lotId ? <Info label="Lô hàng" value={line.lotNumber || line.lotId} /> : null}
+          {line.lotId ? <Info label="Mã lô nội bộ" value={line.lotCode || line.lotId} /> : null}
+          {line.lotSupplierLotNumber ? <Info label="Số lô trên hàng" value={line.lotSupplierLotNumber} /> : null}
           {line.lotExpiryDate ? <Info label="Hạn sử dụng" value={formatDate(line.lotExpiryDate)} /> : null}
           {line.note ? <Info label="Ghi chú dòng hàng" value={line.note} /> : null}
         </Card>)}

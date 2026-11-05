@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { formatApiDateTime, normalizeApiTimestamp } from './format-date-time';
+import { formatApiDateTime, formatVietnamDateOnly, normalizeApiTimestamp } from './format-date-time';
 
 describe('API timestamps on mobile', () => {
   it('converts the actual PostgreSQL seed timestamp to an ISO Date input', () => {
@@ -25,5 +25,10 @@ describe('API timestamps on mobile', () => {
     expect(formatApiDateTime('')).toBe('Chưa có thời gian');
     expect(formatApiDateTime('invalid')).toBe('Chưa có thời gian');
     expect(formatApiDateTime('invalid', 'invalid')).toBe('invalid');
+  });
+
+  it('uses the Vietnam calendar day for stock document dates around UTC midnight', () => {
+    expect(formatVietnamDateOnly(new Date('2026-11-03T16:59:59Z'))).toBe('2026-11-03');
+    expect(formatVietnamDateOnly(new Date('2026-11-03T17:00:00Z'))).toBe('2026-11-04');
   });
 });
