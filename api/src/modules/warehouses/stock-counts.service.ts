@@ -375,23 +375,34 @@ export class StockCountsService {
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'COUNTING', 'PENDING_APPROVAL'].includes(row.status))
         throw new ConflictException('Only active counts can be confirmed');
+      // Same lock order as stock issue confirmation, so the two cannot deadlock.
       const lines = await tx
         .select()
         .from(stockCountItems)
-        .where(eq(stockCountItems.stockCountId, id));
+        .where(eq(stockCountItems.stockCountId, id))
+        .orderBy(
+          asc(stockCountItems.itemId),
+          asc(stockCountItems.lotId),
+          asc(stockCountItems.assetId),
+        );
       if (!lines.length)
         throw new BadRequestException('Count must contain at least one item');
       for (const line of lines) {
         await this.assertLine(tx, farmId, line, true);
+        // Row lock: a concurrent issue/receipt/transfer either commits first
+        // (and the count turns stale) or waits until the count is written.
         const [balance] = await this.findBalance(
           tx,
           farmId,
           row.warehouseId,
           line.itemId,
           line.lotId,
+          true,
         );
-        const current = balance?.quantityOnHand ?? '0';
-        if (current !== line.systemQuantity)
+        // Numeric compare: a missing balance is 0 while the snapshot reads '0.000'.
+        if (
+          Number(balance?.quantityOnHand ?? 0) !== Number(line.systemQuantity)
+        )
           throw new ConflictException('STOCK_COUNT_STALE');
         const difference = line.difference;
         if (!difference || Number(difference) === 0) continue;
@@ -403,14 +414,21 @@ export class StockCountsService {
               updatedAt: new Date().toISOString(),
             })
             .where(eq(inventoryBalances.id, balance.id));
-        else
-          await tx.insert(inventoryBalances).values({
-            farmId,
-            warehouseId: row.warehouseId,
-            itemId: line.itemId,
-            lotId: line.lotId,
-            quantityOnHand: line.actualQuantity,
-          });
+        else {
+          // No row to lock: a receipt that created it meanwhile makes the count stale.
+          const [inserted] = await tx
+            .insert(inventoryBalances)
+            .values({
+              farmId,
+              warehouseId: row.warehouseId,
+              itemId: line.itemId,
+              lotId: line.lotId,
+              quantityOnHand: line.actualQuantity,
+            })
+            .onConflictDoNothing()
+            .returning({ id: inventoryBalances.id });
+          if (!inserted) throw new ConflictException('STOCK_COUNT_STALE');
+        }
         await tx.insert(inventoryTransactions).values({
           farmId,
           warehouseId: row.warehouseId,
@@ -593,8 +611,9 @@ export class StockCountsService {
     warehouseId: string,
     itemId: string,
     lotId?: string | null,
+    forUpdate = false,
   ) {
-    return db
+    const query = db
       .select()
       .from(inventoryBalances)
       .where(
@@ -608,5 +627,6 @@ export class StockCountsService {
         ),
       )
       .limit(1);
+    return forUpdate ? query.for('update') : query;
   }
 }
