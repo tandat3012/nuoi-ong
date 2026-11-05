@@ -8,15 +8,30 @@ Plan from the 2026-11-05 review against the thesis outline (`docs/Đề cương 
 - [x] `/reports` page (Thống kê): Chart.js bar charts, 7/30 day and 3/12 month presets, custom range, warehouse filter, VND ⇄ document toggle; web tests, tsc and eslint pass
 - [x] Demo history seed (`api/scripts/seed-demo-history.ts`): about 13 weeks of documents and maintenance through the real services; seeded production `TRAI-ONG-CHINH` and local `FARM-DEMO` on 2026-11-05
 - [x] Check `/reports` in the browser
-- [ ] PR into `dev`, release to `main`, check `/reports` on production
+- [x] PR into `dev` (#128, #129), hotfix synced (#130), released to `main` (#131), `/reports` and product image upload checked on production on 2026-11-05
 
 ## Stage 2: stock in/out/balance report per period, with costs (rubric 06.2)
 
-Design not agreed yet.
+Goal: for a chosen period, show per item how much stock there was at the start, what came in, what went out and what is left (quantity and VND), plus the period's purchase and maintenance costs, and let managers download it. Builds on stage 1: same roles, warehouse filter, Vietnam time and pricing rule.
 
-- [ ] Period report per item and warehouse: opening balance, in, out, closing balance (quantity and value)
-- [ ] Purchase and maintenance cost totals for the period
-- [ ] Excel/CSV export
+### Decisions to agree before coding
+
+- [ ] Rows: one per item (warehouses summed) or one per item × warehouse
+- [ ] ASSET items: leave them out, or include them and count asset hand-outs/returns and maintenance trips as in/out so that opening + in − out = closing (stage 1 charts leave those moves out)
+- [ ] Opening/closing value: quantity × latest priced receipt at the start/end of the period (stage 1 rule), or another valuation
+- [ ] In/out split into columns (receipt, issue, transfer, adjustment) or two totals
+- [ ] Export format: CSV (no new dependency, opens in Excel) or a real .xlsx file (new library); PDF/print view in scope or not
+- [ ] Where: a tab on `/reports` or its own page
+
+### Work
+
+- [ ] API `GET /dashboard/stock-report`: per row opening, in, out, closing (quantity and VND) from the ledger for `dateFrom`..`dateTo` and an optional warehouse; totals; unpriced items flagged; same roles as `/dashboard/timeseries`
+- [ ] Integration test: opening + in − out = closing against `inventory_balances` for a period ending today, transfers with and without a warehouse filter, price at the period boundaries
+- [ ] Cost summary for the period: purchases (receipt lines) and maintenance (labor, material, other), reusing the stage 1 cost rules
+- [ ] Web: report table with item search, totals row and unpriced note; date range and warehouse filter shared with the charts
+- [ ] Export of the table (format per decision above), with the period, warehouse and farm in the file
+- [ ] Logic tests for any table/export formatting in a `*.logic.ts` module
+- [ ] Check in the browser on local, then PR into `dev` and release
 
 ## Stage 3: farm information (rubric 04.1)
 
