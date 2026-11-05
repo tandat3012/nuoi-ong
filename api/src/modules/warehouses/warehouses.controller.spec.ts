@@ -28,7 +28,12 @@ describe('WarehousesController', () => {
       offset: 20,
       search: 'kho',
       status: 'ACTIVE',
+      destination: false,
     });
+    await controller.listWarehouses(auth, farmId, '1', '20', '', '', 'true');
+    expect(service.listWarehouses).toHaveBeenLastCalledWith(
+      expect.objectContaining({ destination: true }),
+    );
   });
   it('rejects invalid IDs and query parameters before accessing the service', async () => {
     expect(() => controller.listWarehouses(auth)).toThrow(BadRequestException);
@@ -37,6 +42,9 @@ describe('WarehousesController', () => {
     );
     expect(() =>
       controller.listWarehouses(auth, farmId, '1', '20', '', 'INVALID'),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      controller.listWarehouses(auth, farmId, '1', '20', '', '', 'yes'),
     ).toThrow(BadRequestException);
     await expect(
       controller.getWarehouse(auth, 'invalid', farmId),

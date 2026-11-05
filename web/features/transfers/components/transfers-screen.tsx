@@ -107,7 +107,12 @@ function FarmTransfersScreen() {
     setRevision((value) => value + 1);
   };
   const [transfers, setTransfers] = useState<Transfer[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  // Sources are the caller's warehouses; destinations (and labels) every warehouse of the farm.
+  const [warehouseLists, setWarehouseLists] = useState<{
+    sources: Warehouse[];
+    destinations: Warehouse[];
+  }>({ sources: [], destinations: [] });
+  const { sources: warehouses, destinations } = warehouseLists;
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<
     | "ALL"
@@ -147,15 +152,18 @@ function FarmTransfersScreen() {
       setError(null);
     });
     let cancelled = false;
-    void Promise.all([
+    const warehouseList = (destination: boolean) =>
       request<{ data: Warehouse[] }>("/warehouses", {
         params: {
           farmId: selectedFarmId,
           page: 1,
           pageSize: 100,
           status: "ACTIVE",
+          destination: destination || undefined,
         },
-      }),
+      });
+    void Promise.all([
+      warehouseList(false),
       request<PaginatedResponse<{ item: Item }>>("/items", {
         params: {
           farmId: selectedFarmId,
@@ -164,10 +172,14 @@ function FarmTransfersScreen() {
           status: "ACTIVE",
         },
       }),
+      warehouseList(true),
     ])
-      .then(([warehouseResponse, itemResponse]) => {
+      .then(([warehouseResponse, itemResponse, destinationResponse]) => {
         if (cancelled) return;
-        setWarehouses(warehouseResponse.data);
+        setWarehouseLists({
+          sources: warehouseResponse.data,
+          destinations: destinationResponse.data,
+        });
         setItems(
           itemResponse.data
             .map(({ item }) => item)
@@ -359,7 +371,7 @@ function FarmTransfersScreen() {
                 }
               >
                 <option value="">Kho đích</option>
-                {warehouses.map((warehouse) => (
+                {destinations.map((warehouse) => (
                   <option key={warehouse.id} value={warehouse.id}>
                     {warehouse.code} - {warehouse.name}
                   </option>
@@ -519,8 +531,8 @@ function FarmTransfersScreen() {
                       </p>
                     )}
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {warehouseName(warehouses, transfer.fromWarehouseId)} →{" "}
-                      {warehouseName(warehouses, transfer.toWarehouseId)} ·{" "}
+                      {warehouseName(destinations, transfer.fromWarehouseId)} →{" "}
+                      {warehouseName(destinations, transfer.toWarehouseId)} ·{" "}
                       {transfer.transferDate}
                     </p>
                     {transfer.status === "REJECTED" &&

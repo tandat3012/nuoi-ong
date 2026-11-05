@@ -29,6 +29,7 @@ import {
   CreateStockCountDto,
   UpdateStockCountDto,
 } from './dto/stock-count.dto';
+import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
@@ -68,11 +69,11 @@ export class StockCountsService {
   ) {}
 
   async list(f: Filters) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      f.farmId,
-      f.clerkUserId,
-    );
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(f.farmId, f.clerkUserId);
     const conditions: SQL[] = [eq(stockCounts.farmId, f.farmId)];
+    const scoped = scopeCondition(stockCounts.warehouseId, scope);
+    if (scoped) conditions.push(scoped);
     if (readMemberId)
       conditions.push(eq(stockCounts.createdByMemberId, readMemberId));
     if (f.status) conditions.push(eq(stockCounts.status, f.status));
@@ -103,12 +104,13 @@ export class StockCountsService {
   }
 
   async get(id: string, farmId: string, user: string) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      farmId,
-      user,
-    );
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(farmId, user);
     const result = await this.withItems(id, farmId);
-    if (readMemberId && result.count.createdByMemberId !== readMemberId)
+    if (
+      (readMemberId && result.count.createdByMemberId !== readMemberId) ||
+      !inScope(scope, result.count.warehouseId)
+    )
       throw new NotFoundException('Stock count not found');
     return result;
   }
@@ -118,6 +120,7 @@ export class StockCountsService {
       farmId,
       user,
     );
+    assertInScope(writer.scope, input.warehouseId);
     const member = writer.memberId;
     const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
@@ -177,7 +180,7 @@ export class StockCountsService {
     const numbering = numberingOptionChanges(input, writer);
     await this.dbService.db.transaction(async (tx) => {
       const current = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, current.createdByMemberId);
+      assertOwnDocument(writer, current.createdByMemberId, current.warehouseId);
       if (!['DRAFT', 'COUNTING'].includes(current.status))
         throw new ConflictException('Only active counts can be edited');
       let lines: { before?: object[]; after?: object[] } = {};
@@ -243,7 +246,7 @@ export class StockCountsService {
     );
     await this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, row.createdByMemberId);
+      assertOwnDocument(writer, row.createdByMemberId, row.warehouseId);
       if (!['DRAFT', 'COUNTING'].includes(row.status))
         throw new ConflictException('Only active counts can be cancelled');
       await tx
@@ -272,7 +275,7 @@ export class StockCountsService {
     );
     await this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, row.createdByMemberId);
+      assertOwnDocument(writer, row.createdByMemberId, row.warehouseId);
       if (!['DRAFT', 'COUNTING'].includes(row.status))
         throw new ConflictException('Only active counts can be submitted');
       const [line] = await tx
@@ -304,6 +307,7 @@ export class StockCountsService {
         tx,
         this.notification(row, 'PENDING_APPROVAL'),
         writer.memberId,
+        row.warehouseId,
       );
     });
     return this.withItems(id, farmId);
@@ -315,16 +319,18 @@ export class StockCountsService {
     user: string,
     rejectionReason: string,
   ) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-      WAREHOUSE_MANAGE_ROLES,
-    );
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
     await this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
+      assertInScope(scope, row.warehouseId);
       if (row.status !== 'PENDING_APPROVAL')
         throw new ConflictException(
           'Only PENDING_APPROVAL counts can be rejected',
@@ -356,14 +362,16 @@ export class StockCountsService {
   }
 
   async confirm(id: string, farmId: string, user: string) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-      WAREHOUSE_MANAGE_ROLES,
-    );
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
     const confirmation = this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
+      assertInScope(scope, row.warehouseId);
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'COUNTING', 'PENDING_APPROVAL'].includes(row.status))
         throw new ConflictException('Only active counts can be confirmed');

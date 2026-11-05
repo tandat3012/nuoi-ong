@@ -176,14 +176,23 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
                 throw new ForbiddenException();
               return Promise.resolve(member);
             },
-            // Approver view: every document of the farm.
-            documentReadMemberId(farmId: string) {
+            // Approver view without a warehouse limit: every document of the farm.
+            documentReadScope(farmId: string) {
               if (farmId !== farm) throw new ForbiddenException();
-              return Promise.resolve(null);
+              return Promise.resolve({ memberId: null, scope: null });
+            },
+            assertScopedAccess(farmId: string, _user: string, write: boolean) {
+              if (farmId !== farm || (write && !canWrite))
+                throw new ForbiddenException();
+              return Promise.resolve({ memberId: member, scope: null });
             },
             assertDocumentWriter(farmId: string) {
               if (farmId !== farm || !canWrite) throw new ForbiddenException();
-              return Promise.resolve({ memberId: member, canApprove: true });
+              return Promise.resolve({
+                memberId: member,
+                canApprove: true,
+                scope: null,
+              });
             },
           },
         },

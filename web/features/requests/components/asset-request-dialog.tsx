@@ -71,7 +71,7 @@ export function AssetRequestDialog({ farmId, asset, type, onClose, onReload, onE
           <Textarea name="description" required minLength={3} maxLength={4000} rows={4} />
         </label>
       </> : <>
-        <AssetLookup farmId={farmId} kind="warehouse" activeOnly selected={warehouse} onSelect={(value) => {
+        <AssetLookup farmId={farmId} kind="warehouse" activeOnly destination selected={warehouse} onSelect={(value) => {
           setWarehouse(value); setLocation(null);
         }} />
         <AssetLookup key={warehouse?.id ?? "none"} farmId={farmId} kind="location" activeOnly

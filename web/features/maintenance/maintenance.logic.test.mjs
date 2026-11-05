@@ -51,6 +51,11 @@ test("maintenance controls reflect each role and stage", () => {
     "return-receipt/approve",
     "return-receipt/reject",
   ]);
+  // Returning to a warehouse the manager is not assigned to: that warehouse reviews it.
+  const elsewhere = { ...pending, returnWarehouseInScope: false };
+  assert.deepEqual(maintenanceActions(elsewhere, ["WAREHOUSE_MANAGER"]), []);
+  assert.match(maintenanceNextStep(elsewhere, ["WAREHOUSE_MANAGER"]), /kho khác/);
+  assert.match(maintenanceNextStep(pending, ["WAREHOUSE_MANAGER"]), /duyệt nhập lại kho/);
 });
 test("legacy history and approved receipts have no unusable return actions", () => {
   for (const status of ["COMPLETED", "FAILED"]) {

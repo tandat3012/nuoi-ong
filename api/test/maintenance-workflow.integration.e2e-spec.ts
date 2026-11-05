@@ -98,6 +98,13 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     await db
       .insert(schema.warehouses)
       .values({ id: warehouse, farmId: farm, code: warehouse, name: 'test' });
+    // The warehouse manager and employee work in this warehouse.
+    await db.insert(schema.farmMemberWarehouses).values(
+      [actors.WAREHOUSE_MANAGER, actors.EMPLOYEE].map((actor) => ({
+        farmMemberId: actor.member,
+        warehouseId: warehouse,
+      })),
+    );
     await db.insert(schema.locations).values({
       id: location,
       farmId: farm,
@@ -149,6 +156,10 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     );
   });
   afterAll(async () => {
+    await pool.query(
+      'DELETE FROM farm_member_warehouses WHERE warehouse_id=$1',
+      [warehouse],
+    );
     for (const table of [
       'notifications',
       'inventory_transactions',
@@ -282,6 +293,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       .where(eq(schema.assets.id, asset));
     const choices = await assetsService.listAssets({
       farmId: farm,
+      clerkUserId: manager,
       warehouseId: warehouse,
       itemId: item,
       search: serialNumber,
@@ -485,18 +497,21 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       locationId: location,
     });
     expect(
-      (await assetsService.getAsset(asset, farm)).maintenanceRetryEligible,
+      (await assetsService.getAsset(asset, farm, manager))
+        .maintenanceRetryEligible,
     ).toBe(false);
     await service.reviewReturn(failed.id, farm, manager, true);
     expect(
-      (await assetsService.getAsset(asset, farm)).maintenanceRetryEligible,
+      (await assetsService.getAsset(asset, farm, manager))
+        .maintenanceRetryEligible,
     ).toBe(true);
     const retry = await schedule();
     expect(
-      (await assetsService.getAsset(asset, farm)).maintenanceRetryEligible,
+      (await assetsService.getAsset(asset, farm, manager))
+        .maintenanceRetryEligible,
     ).toBe(false);
     await service.cancel(retry.id, farm, manager);
-    expect(await assetsService.getAsset(asset, farm)).toMatchObject({
+    expect(await assetsService.getAsset(asset, farm, manager)).toMatchObject({
       latestMaintenanceStatus: 'CANCELLED',
       maintenanceRetryEligible: true,
     });
@@ -531,7 +546,8 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     });
     await service.reviewReturn(passed.id, farm, manager, true);
     expect(
-      (await assetsService.getAsset(asset, farm)).maintenanceRetryEligible,
+      (await assetsService.getAsset(asset, farm, manager))
+        .maintenanceRetryEligible,
     ).toBe(false);
     await lifecycle.reportIncident(asset, farm, manager, {
       incidentType: 'LOSS',

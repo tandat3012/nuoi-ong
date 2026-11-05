@@ -36,6 +36,7 @@ import {
 } from '../../db/schema';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
+import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
@@ -70,12 +71,15 @@ export class StockIssuesService {
   ) {}
 
   async list(filters: Filters) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      filters.farmId,
-      filters.clerkUserId,
-    );
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(
+        filters.farmId,
+        filters.clerkUserId,
+      );
 
     const conditions: SQL[] = [eq(stockIssues.farmId, filters.farmId)];
+    const scoped = scopeCondition(stockIssues.warehouseId, scope);
+    if (scoped) conditions.push(scoped);
     if (readMemberId)
       conditions.push(eq(stockIssues.createdByMemberId, readMemberId));
 
@@ -124,12 +128,13 @@ export class StockIssuesService {
   }
 
   async get(id: string, farmId: string, clerkUserId: string) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      farmId,
-      clerkUserId,
-    );
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(farmId, clerkUserId);
     const result = await this.withItems(id, farmId);
-    if (readMemberId && result.issue.createdByMemberId !== readMemberId)
+    if (
+      (readMemberId && result.issue.createdByMemberId !== readMemberId) ||
+      !inScope(scope, result.issue.warehouseId)
+    )
       throw new NotFoundException('Stock issue not found');
     return result;
   }
@@ -143,6 +148,7 @@ export class StockIssuesService {
       farmId,
       clerkUserId,
     );
+    assertInScope(writer.scope, input.warehouseId);
     const { memberId } = writer;
     const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
@@ -216,7 +222,12 @@ export class StockIssuesService {
     await this.databaseService.db
       .transaction(async (tx) => {
         const current = await this.getOnly(id, farmId, tx, true);
-        assertOwnDocument(writer, current.createdByMemberId);
+        assertOwnDocument(
+          writer,
+          current.createdByMemberId,
+          current.warehouseId,
+        );
+        if (input.warehouseId) assertInScope(writer.scope, input.warehouseId);
         if (current.status !== 'DRAFT')
           throw new ConflictException('Only DRAFT issues can be edited');
         const issueType = input.issueType ?? current.issueType;
@@ -309,7 +320,7 @@ export class StockIssuesService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
-      assertOwnDocument(writer, issue.createdByMemberId);
+      assertOwnDocument(writer, issue.createdByMemberId, issue.warehouseId);
       if (issue.orderId)
         throw new ConflictException('Cancel the linked order instead');
       if (issue.status !== 'DRAFT')
@@ -344,7 +355,7 @@ export class StockIssuesService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
-      assertOwnDocument(writer, issue.createdByMemberId);
+      assertOwnDocument(writer, issue.createdByMemberId, issue.warehouseId);
       if (issue.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT issues can be submitted');
       const [line] = await tx
@@ -376,6 +387,7 @@ export class StockIssuesService {
         tx,
         this.notification(issue, 'PENDING_APPROVAL'),
         writer.memberId,
+        issue.warehouseId,
       );
     });
     return this.withItems(id, farmId);
@@ -387,7 +399,7 @@ export class StockIssuesService {
     clerkUserId: string,
     rejectionReason: string,
   ) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -397,6 +409,7 @@ export class StockIssuesService {
     if (!reason) throw new BadRequestException('Rejection reason is required');
     await this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
+      assertInScope(scope, issue.warehouseId);
       if (issue.orderId)
         throw new ConflictException('Cancel the linked order instead');
       if (issue.status !== 'PENDING_APPROVAL')
@@ -430,7 +443,7 @@ export class StockIssuesService {
   }
 
   async confirm(id: string, farmId: string, clerkUserId: string) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -438,6 +451,7 @@ export class StockIssuesService {
     );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
       const issue = await this.getOnly(id, farmId, tx, true);
+      assertInScope(scope, issue.warehouseId);
       // A repeated confirmation returns the confirmed issue unchanged.
       if (issue.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(issue.status))

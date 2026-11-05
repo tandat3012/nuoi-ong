@@ -142,6 +142,7 @@ export function AssetActionDialog({
             farmId={farmId}
             kind="warehouse"
             activeOnly
+            destination={action === "transfer"}
             selected={warehouse}
             onSelect={(value) => {
               setWarehouse(value);

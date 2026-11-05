@@ -155,8 +155,9 @@ export function PersonnelDetailView({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Nơi làm việc không giới hạn dữ liệu theo từng kho. Quyền truy cập
-              vẫn theo trại.
+              Quản lý kho và nhân viên chỉ xem và làm việc với kho được gán ở
+              đây; chưa gán kho nào thì không thấy kho nào. Chủ trại và quản trị
+              viên thấy mọi kho.
             </p>
             {canEdit && (
               <div className="flex flex-wrap gap-2">

@@ -41,6 +41,12 @@ describe('Stock document approval rules', () => {
       member: randomUUID(),
       role: 'WAREHOUSE_MANAGER',
     },
+    // A warehouse manager assigned to no warehouse of this farm.
+    outsider: {
+      id: randomUUID(),
+      member: randomUUID(),
+      role: 'WAREHOUSE_MANAGER',
+    },
     creator: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     peer: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     guest: { id: randomUUID(), member: randomUUID(), role: 'GUEST' },
@@ -271,6 +277,17 @@ describe('Stock document approval rules', () => {
         { id: warehouse, farmId: farm, code: 'SOURCE', name: tag },
         { id: target, farmId: farm, code: 'TARGET', name: tag },
       ]);
+      // Everyone works in both warehouses except the outsider.
+      await tx.insert(schema.farmMemberWarehouses).values(
+        Object.entries(actors)
+          .filter(([name]) => name !== 'outsider')
+          .flatMap(([, actor]) =>
+            [warehouse, target].map((warehouseId) => ({
+              farmMemberId: actor.member,
+              warehouseId,
+            })),
+          ),
+      );
     });
     fixturesCreated = true;
   });
@@ -307,6 +324,10 @@ describe('Stock document approval rules', () => {
           farm,
         ]);
         await pool.query('DELETE FROM items WHERE id=$1', [item]);
+        await pool.query(
+          'DELETE FROM farm_member_warehouses WHERE farm_member_id=ANY($1::uuid[])',
+          [memberIds],
+        );
         await pool.query('DELETE FROM warehouses WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM categories WHERE id=$1', [category]);
         await pool.query('DELETE FROM units WHERE id=$1', [unit]);
@@ -348,6 +369,14 @@ describe('Stock document approval rules', () => {
       expect((await document.list('manager')).page.totalItems).toBe(2);
       await expect(document.get(others, 'owner')).resolves.toBeDefined();
       await expect(document.get(others, 'manager')).resolves.toBeDefined();
+      // Not assigned to the warehouse: sees nothing, approves nothing.
+      expect((await document.list('outsider')).page.totalItems).toBe(0);
+      await expect(document.get(others, 'outsider')).rejects.toThrow(
+        'not found',
+      );
+      await expect(document.confirm(others, 'outsider')).rejects.toThrow(
+        'assigned warehouses',
+      );
     });
 
     it('lets an approver confirm a draft directly', async () => {

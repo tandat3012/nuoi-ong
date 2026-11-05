@@ -105,8 +105,10 @@ function fixture(kind, roles = ["ADMIN"], headerPatch = {}) {
     id: "doc", countCode: "COUNT", transferCode: "TRANSFER", status: "DRAFT",
     createdByMemberId: "creator", warehouseId: "warehouse", note: null, ...headerPatch,
   };
+  // State slots in declaration order; transfers keep source and destination warehouses together.
+  const warehouseSlot = counts ? [] : { sources: [], destinations: [] };
   const screen = render(Screen, {}, [
-    [header], [], [], "ALL", 1, 0, 1, 1, "farm", false, false, null, null, "doc",
+    [header], warehouseSlot, [], "ALL", 1, 0, 1, 1, "farm", false, false, null, null, "doc",
   ]);
   const initial = screen.tree();
   const panel = render(load("./stock-document-lines.tsx").StockDocumentLines,

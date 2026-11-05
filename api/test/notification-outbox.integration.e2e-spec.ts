@@ -334,6 +334,15 @@ describe('Document push outbox and bounded device catch-up', () => {
         { id: target, farmId: farm, code: 'TARGET', name: tag },
         { id: otherWarehouse, farmId: otherFarm, code: 'OTHER', name: tag },
       ]);
+      // Employees work in both warehouses of the farm.
+      await tx.insert(schema.farmMemberWarehouses).values(
+        [actors.creator, actors.peer].flatMap((actor) =>
+          [warehouse, target].map((warehouseId) => ({
+            farmMemberId: actor.member,
+            warehouseId,
+          })),
+        ),
+      );
     });
     fixturesCreated = true;
   });
@@ -424,6 +433,10 @@ describe('Document push outbox and bounded device catch-up', () => {
           farm,
         ]);
         await pool.query('DELETE FROM items WHERE id=$1', [item]);
+        await pool.query(
+          'DELETE FROM farm_member_warehouses WHERE warehouse_id IN (SELECT id FROM warehouses WHERE farm_id=ANY($1::uuid[]))',
+          [[farm, otherFarm]],
+        );
         await pool.query(
           'DELETE FROM warehouses WHERE farm_id=ANY($1::uuid[])',
           [[farm, otherFarm]],

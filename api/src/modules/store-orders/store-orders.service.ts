@@ -813,6 +813,7 @@ export class StoreOrdersService implements StockTransferHook {
           status: 'PENDING_APPROVAL',
         },
         memberId,
+        transfer.fromWarehouseId,
       );
     }
   }
