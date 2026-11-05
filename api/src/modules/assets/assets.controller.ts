@@ -321,15 +321,12 @@ export class AssetsController {
     description: 'Thông tin bàn giao đang hoạt động hoặc null.',
   })
   async getHolder(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
   ) {
-    return {
-      data: await this.historyService.holder(
-        requireUuid(idValue, 'id'),
-        requireUuid(farmIdValue, 'farmId'),
-      ),
-    };
+    const { id, farmId } = await this.visibleAsset(auth, idValue, farmIdValue);
+    return { data: await this.historyService.holder(id, farmId) };
   }
 
   @Get(':id/history')
@@ -340,18 +337,22 @@ export class AssetsController {
   @ApiEnumQuery('kind', assetHistoryKinds, 'Loại lịch sử; mặc định movements.')
   @ApiOkResponse({ description: 'Lịch sử tài sản đã chuẩn hóa theo trang.' })
   async getHistory(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
     @Query('kind') kindValue?: string,
     @Query('page') pageValue?: string,
     @Query('pageSize') pageSizeValue?: string,
   ) {
+    const kind =
+      parseOptionalEnum(kindValue, assetHistoryKinds, 'kind') ?? 'movements';
+    const pagination = parsePagination(pageValue, pageSizeValue);
+    const { id, farmId } = await this.visibleAsset(auth, idValue, farmIdValue);
     return this.historyService.history({
-      assetId: requireUuid(idValue, 'id'),
-      farmId: requireUuid(farmIdValue, 'farmId'),
-      kind:
-        parseOptionalEnum(kindValue, assetHistoryKinds, 'kind') ?? 'movements',
-      ...parsePagination(pageValue, pageSizeValue),
+      assetId: id,
+      farmId,
+      kind,
+      ...pagination,
     });
   }
 
@@ -364,15 +365,24 @@ export class AssetsController {
       'Mã tài sản và QR SVG; QR chứa URL `{WEB_APP_URL}/scan/{assetCode}`.',
   })
   async getLabel(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
   ) {
-    return {
-      data: await this.historyService.label(
-        requireUuid(idValue, 'id'),
-        requireUuid(farmIdValue, 'farmId'),
-      ),
-    };
+    const { id, farmId } = await this.visibleAsset(auth, idValue, farmIdValue);
+    return { data: await this.historyService.label(id, farmId) };
+  }
+
+  /** 404 unless the asset belongs to one of the caller's warehouses. */
+  private async visibleAsset(
+    auth: { clerkUserId: string },
+    idValue: string,
+    farmIdValue?: string,
+  ) {
+    const id = requireUuid(idValue, 'id');
+    const farmId = requireUuid(farmIdValue, 'farmId');
+    await this.assetsService.getAsset(id, farmId, auth.clerkUserId);
+    return { id, farmId };
   }
 
   @Patch(':id')

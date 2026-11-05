@@ -13,6 +13,7 @@ import {
   getTableColumns,
   gte,
   isNull,
+  or,
   sql,
   SQL,
 } from 'drizzle-orm';
@@ -44,6 +45,7 @@ import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import {
   assertInScope,
+  scopeCondition,
   type WarehouseScope,
 } from '../warehouses/warehouse-scope';
 import { assetInScope, assetWarehouseId } from '../assets/asset-warehouse';
@@ -105,7 +107,7 @@ export class MaintenanceService {
       filters.clerkUserId,
     );
     const conditions: SQL[] = [eq(maintenanceRecords.farmId, filters.farmId)];
-    const scoped = assetInScope(maintenanceRecords.assetId, scope);
+    const scoped = this.recordInScope(scope);
     if (scoped) conditions.push(scoped);
     if (filters.recordId)
       conditions.push(eq(maintenanceRecords.id, filters.recordId));
@@ -200,7 +202,7 @@ export class MaintenanceService {
         and(
           eq(maintenanceRecords.id, id),
           eq(maintenanceRecords.farmId, farmId),
-          assetInScope(maintenanceRecords.assetId, scope),
+          this.recordInScope(scope),
         ),
       )
       .limit(1);
@@ -744,7 +746,9 @@ export class MaintenanceService {
         'Rejection reason must have at least 3 characters',
       );
     return this.databaseService.db.transaction(async (tx) => {
-      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      // The warehouse receiving the asset back reviews the return, wherever it left from.
+      const record = await this.getRecord(tx, id, farmId, true);
+      assertInScope(actor.scope, record.returnWarehouseId);
       if (record.returnStatus !== 'PENDING_APPROVAL')
         throw new ConflictException(
           'Only pending maintenance receipts can be reviewed',
@@ -934,6 +938,15 @@ export class MaintenanceService {
       return updated;
     });
   }
+  /** A record is visible to its asset's warehouse and to the warehouse it returns to. */
+  private recordInScope(scope: WarehouseScope) {
+    if (scope === null) return undefined;
+    return or(
+      assetInScope(maintenanceRecords.assetId, scope),
+      scopeCondition(maintenanceRecords.returnWarehouseId, scope),
+    );
+  }
+
   /** 403 when the asset belongs to a warehouse outside `scope`. */
   async assertAssetInScope(
     tx: Pick<Transaction, 'select'>,

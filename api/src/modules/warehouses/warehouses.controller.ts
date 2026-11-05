@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -23,6 +24,7 @@ import { recordStatus } from '../../db/schema';
 import {
   ApiBearerAuth,
   ApiBadRequestResponse,
+  ApiQuery,
   ApiBody,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -75,6 +77,13 @@ export class WarehousesController {
   @ApiPageQueries()
   @ApiSearchQuery()
   @ApiEnumQuery('status', recordStatus.enumValues, 'Trạng thái kho.')
+  @ApiQuery({
+    name: 'destination',
+    required: false,
+    enum: ['true', 'false'],
+    description:
+      'true = mọi kho của trang trại để chọn làm kho đích khi chuyển; mặc định chỉ các kho người gọi được phân (quản lý kho, nhân viên).',
+  })
   @ApiOkResponse({
     description: 'Danh sách kho và metadata phân trang.',
     schema: {
@@ -104,13 +113,17 @@ export class WarehousesController {
     @Query('pageSize') pageSizeValue?: string,
     @Query('search') searchValue?: string,
     @Query('status') statusValue?: string,
+    @Query('destination') destinationValue?: string,
   ) {
+    if (destinationValue && !['true', 'false'].includes(destinationValue))
+      throw new BadRequestException('destination must be true or false');
     return this.warehousesService.listWarehouses({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmIdValue, 'farmId'),
       ...parsePagination(pageValue, pageSizeValue),
       search: normalizeSearch(searchValue),
       status: parseOptionalEnum(statusValue, recordStatus.enumValues, 'status'),
+      destination: destinationValue === 'true',
     });
   }
 

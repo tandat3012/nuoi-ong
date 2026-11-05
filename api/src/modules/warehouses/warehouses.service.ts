@@ -43,6 +43,8 @@ export interface WarehouseListFilters extends PaginationParams {
   clerkUserId: string;
   search?: string;
   status?: WarehouseStatus;
+  /** Transfer destinations: every warehouse of the farm, also for members limited to theirs. */
+  destination?: boolean;
 }
 
 export interface DocumentWriter {
@@ -74,10 +76,12 @@ export class WarehousesService {
   constructor(private readonly databaseService: DatabaseService) {}
 
   async listWarehouses(filters: WarehouseListFilters) {
-    const scope = await this.warehouseScope(
+    const memberScope = await this.warehouseScope(
       filters.farmId,
       filters.clerkUserId,
     );
+    // Stock and assets may be sent to any warehouse of the farm; only the source is limited.
+    const scope = filters.destination ? null : memberScope;
 
     const conditions = [eq(warehouses.farmId, filters.farmId)];
     const inScope = scopeCondition(warehouses.id, scope);

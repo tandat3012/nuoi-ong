@@ -13,10 +13,15 @@ describe('AssetsController', () => {
     getAssetByCode: jest.fn(),
     getAssetByQr: jest.fn(),
   };
+  const historyService = {
+    holder: jest.fn(),
+    history: jest.fn(),
+    label: jest.fn(),
+  };
   const controller = new AssetsController(
     assetsService as unknown as AssetsService,
     {} as AssetLifecycleService,
-    {} as AssetHistoryService,
+    historyService as unknown as AssetHistoryService,
   );
 
   const auth = { clerkUserId: 'user' };
@@ -84,5 +89,27 @@ describe('AssetsController', () => {
       ),
     ).toThrow(BadRequestException);
     expect(assetsService.listAssets).not.toHaveBeenCalled();
+  });
+
+  it('checks the asset is visible before history, holder and label', async () => {
+    const assetId = 'c796d96d-7260-4763-a9fe-8fe08a444165';
+    assetsService.getAsset.mockRejectedValue(new Error('Asset not found'));
+    await expect(controller.getHolder(auth, assetId, farmId)).rejects.toThrow(
+      'Asset not found',
+    );
+    await expect(controller.getHistory(auth, assetId, farmId)).rejects.toThrow(
+      'Asset not found',
+    );
+    await expect(controller.getLabel(auth, assetId, farmId)).rejects.toThrow(
+      'Asset not found',
+    );
+    expect(assetsService.getAsset).toHaveBeenCalledWith(
+      assetId,
+      farmId,
+      'user',
+    );
+    expect(historyService.holder).not.toHaveBeenCalled();
+    expect(historyService.history).not.toHaveBeenCalled();
+    expect(historyService.label).not.toHaveBeenCalled();
   });
 });

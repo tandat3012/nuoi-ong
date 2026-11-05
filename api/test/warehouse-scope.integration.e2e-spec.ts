@@ -6,10 +6,89 @@ import { Pool } from 'pg';
 import * as schema from '../src/db/schema';
 import { DatabaseService } from '../src/db/database.service';
 import { DashboardService } from '../src/modules/dashboard/dashboard.service';
+import { AssetsService } from '../src/modules/assets/assets.service';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
+import { MaintenanceService } from '../src/modules/maintenance/maintenance.service';
 import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 import { seedOrders, type OrderTestDb } from './store-orders.fixture';
+
+async function setup(tx: OrderTestDb) {
+  const { ids } = await seedOrders(tx);
+  await tx
+    .insert(schema.roles)
+    .values({
+      code: 'WAREHOUSE_MANAGER',
+      name: 'Warehouse manager',
+      scope: 'FARM',
+    })
+    .onConflictDoNothing();
+  const [managerRole] = await tx
+    .select({ id: schema.roles.id })
+    .from(schema.roles)
+    .where(eq(schema.roles.code, 'WAREHOUSE_MANAGER'));
+  // `manager` works in the sales warehouse, `otherManager` in the other one; `idle` has none.
+  const people = {
+    manager: randomUUID(),
+    otherManager: randomUUID(),
+    idle: randomUUID(),
+  };
+  const members = {
+    manager: randomUUID(),
+    otherManager: randomUUID(),
+    idle: randomUUID(),
+  };
+  for (const name of ['manager', 'otherManager', 'idle'] as const) {
+    await tx.insert(schema.users).values({
+      id: people[name],
+      authProviderUserId: people[name],
+      email: `${people[name]}@scope.test`,
+      fullName: name,
+    });
+    await tx.insert(schema.farmMembers).values({
+      id: members[name],
+      farmId: ids.farm,
+      userId: people[name],
+    });
+    await tx
+      .insert(schema.farmMemberRoles)
+      .values({ farmMemberId: members[name], roleId: managerRole.id });
+  }
+  await tx.insert(schema.farmMemberWarehouses).values([
+    { farmMemberId: members.manager, warehouseId: ids.warehouse },
+    { farmMemberId: members.otherManager, warehouseId: ids.otherWarehouse },
+  ]);
+
+  // Stock in both warehouses, with ledger rows for the report.
+  await tx.insert(schema.inventoryBalances).values({
+    farmId: ids.farm,
+    warehouseId: ids.otherWarehouse,
+    itemId: ids.item,
+    quantityOnHand: '4',
+  });
+  for (const [warehouseId, quantityChange] of [
+    [ids.warehouse, '10'],
+    [ids.otherWarehouse, '4'],
+  ])
+    await tx.insert(schema.inventoryTransactions).values({
+      farmId: ids.farm,
+      warehouseId,
+      itemId: ids.item,
+      transactionType: 'ADJUSTMENT_IN',
+      quantityChange,
+      sourceType: 'INVENTORY_ADJUSTMENT',
+      sourceId: randomUUID(),
+      createdAt: '2026-10-02T03:00:00Z',
+    });
+
+  const database = { db: tx } as unknown as DatabaseService;
+  const warehouses = new WarehousesService(database);
+  const inventory = new InventoryService(database, warehouses);
+  const receipts = new StockReceiptsService(database, warehouses);
+  const dashboard = new DashboardService(database);
+  const page = { page: 1, pageSize: 20, offset: 0 };
+  return { ids, people, warehouses, inventory, receipts, dashboard, page };
+}
 
 /** Warehouse managers and employees only see and act in the warehouses they are assigned to. */
 describe('Warehouse scope (migrated PostgreSQL)', () => {
@@ -31,70 +110,8 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
 
   it('limits warehouses, stock, reports and new documents to assigned warehouses', () =>
     inRollback(async (tx) => {
-      const { ids } = await seedOrders(tx);
-      await tx
-        .insert(schema.roles)
-        .values({
-          code: 'WAREHOUSE_MANAGER',
-          name: 'Warehouse manager',
-          scope: 'FARM',
-        })
-        .onConflictDoNothing();
-      const [managerRole] = await tx
-        .select({ id: schema.roles.id })
-        .from(schema.roles)
-        .where(eq(schema.roles.code, 'WAREHOUSE_MANAGER'));
-      // `manager` works in the sales warehouse only; `idle` has no warehouse yet.
-      const people = { manager: randomUUID(), idle: randomUUID() };
-      const members = { manager: randomUUID(), idle: randomUUID() };
-      for (const name of ['manager', 'idle'] as const) {
-        await tx.insert(schema.users).values({
-          id: people[name],
-          authProviderUserId: people[name],
-          email: `${people[name]}@scope.test`,
-          fullName: name,
-        });
-        await tx.insert(schema.farmMembers).values({
-          id: members[name],
-          farmId: ids.farm,
-          userId: people[name],
-        });
-        await tx
-          .insert(schema.farmMemberRoles)
-          .values({ farmMemberId: members[name], roleId: managerRole.id });
-      }
-      await tx
-        .insert(schema.farmMemberWarehouses)
-        .values({ farmMemberId: members.manager, warehouseId: ids.warehouse });
-
-      // Stock in both warehouses, with ledger rows for the report.
-      await tx.insert(schema.inventoryBalances).values({
-        farmId: ids.farm,
-        warehouseId: ids.otherWarehouse,
-        itemId: ids.item,
-        quantityOnHand: '4',
-      });
-      for (const [warehouseId, quantityChange] of [
-        [ids.warehouse, '10'],
-        [ids.otherWarehouse, '4'],
-      ])
-        await tx.insert(schema.inventoryTransactions).values({
-          farmId: ids.farm,
-          warehouseId,
-          itemId: ids.item,
-          transactionType: 'ADJUSTMENT_IN',
-          quantityChange,
-          sourceType: 'INVENTORY_ADJUSTMENT',
-          sourceId: randomUUID(),
-          createdAt: '2026-10-02T03:00:00Z',
-        });
-
-      const database = { db: tx } as unknown as DatabaseService;
-      const warehouses = new WarehousesService(database);
-      const inventory = new InventoryService(database, warehouses);
-      const receipts = new StockReceiptsService(database, warehouses);
-      const dashboard = new DashboardService(database);
-      const page = { page: 1, pageSize: 20, offset: 0 };
+      const { ids, people, warehouses, inventory, receipts, dashboard, page } =
+        await setup(tx);
 
       const listed = await warehouses.listWarehouses({
         farmId: ids.farm,
@@ -153,5 +170,110 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
         ...page,
       });
       expect(idleWarehouses.page.totalItems).toBe(0);
+    }));
+
+  it('keeps the scope across warehouse boundaries: destinations, returns, maintenance', () =>
+    inRollback(async (tx) => {
+      const { ids, people, warehouses, dashboard, page } = await setup(tx);
+      const database = { db: tx } as unknown as DatabaseService;
+      const assetsService = new AssetsService(database, warehouses);
+      const maintenance = new MaintenanceService(database, warehouses);
+
+      // Transfer destinations: every warehouse; the working list stays scoped.
+      const destinations = await warehouses.listWarehouses({
+        farmId: ids.farm,
+        clerkUserId: people.manager,
+        destination: true,
+        ...page,
+      });
+      expect(destinations.page.totalItems).toBe(2);
+
+      // An asset handed out from the other warehouse.
+      const otherShelf = randomUUID();
+      await tx.insert(schema.locations).values({
+        id: otherShelf,
+        farmId: ids.farm,
+        warehouseId: ids.otherWarehouse,
+        code: 'OTHER-SHELF',
+        name: 'Other shelf',
+        type: 'WAREHOUSE',
+      });
+      const assetItem = randomUUID();
+      await tx.insert(schema.items).values({
+        id: assetItem,
+        farmId: ids.farm,
+        categoryId: ids.category,
+        unitId: ids.unit,
+        code: assetItem,
+        name: 'Smoker',
+        itemType: 'EQUIPMENT',
+        trackingMode: 'ASSET',
+      });
+      const asset = randomUUID();
+      await tx.insert(schema.assets).values({
+        id: asset,
+        farmId: ids.farm,
+        itemId: assetItem,
+        assetCode: `TS-${asset.slice(0, 8)}`,
+        status: 'ASSIGNED',
+        currentLocationId: otherShelf,
+      });
+      // Returning it into my warehouse does not make another warehouse's asset mine.
+      await expect(
+        assetsService.returnAsset(asset, ids.farm, people.manager, {
+          warehouseId: ids.warehouse,
+          locationId: ids.location,
+        }),
+      ).rejects.toThrow('assigned warehouses');
+
+      // Repaired, leaving from the other warehouse and coming back to mine.
+      const [record] = await tx
+        .insert(schema.maintenanceRecords)
+        .values({
+          farmId: ids.farm,
+          assetId: asset,
+          maintenanceType: 'CORRECTIVE',
+          status: 'COMPLETED',
+          startedAt: '2026-10-10T01:00:00Z',
+          receivedAt: '2026-10-11T01:00:00Z',
+          completedAt: '2026-10-12T01:00:00Z',
+          laborCost: '500',
+          returnCreatedByMemberId: ids.member,
+          returnStatus: 'PENDING_APPROVAL',
+          returnWarehouseId: ids.warehouse,
+          returnLocationId: ids.location,
+        })
+        .returning();
+      const visible = async (clerkUserId: string) =>
+        (
+          await maintenance.list({ farmId: ids.farm, clerkUserId, ...page })
+        ).data.map((row) => row.id);
+      expect(await visible(people.manager)).toEqual([record.id]);
+      expect(await visible(people.otherManager)).toEqual([record.id]);
+      expect(await visible(people.idle)).toEqual([]);
+      // The receiving warehouse reviews the return, not the one it left from.
+      await expect(
+        maintenance.reviewReturn(
+          record.id,
+          ids.farm,
+          people.otherManager,
+          false,
+          'Not ours',
+        ),
+      ).rejects.toThrow('assigned warehouses');
+
+      // Picking one of my warehouses never shows the other warehouse's maintenance costs.
+      const labor = async (scope: string[] | null) =>
+        (
+          await dashboard.timeseries(
+            ids.farm,
+            '2026-10-01',
+            '2026-10-31',
+            ids.warehouse,
+            scope,
+          )
+        ).periods.reduce((sum, p) => sum + Number(p.maintenanceLaborCost), 0);
+      expect(await labor([ids.warehouse])).toBe(0);
+      expect(await labor(null)).toBe(500);
     }));
 });

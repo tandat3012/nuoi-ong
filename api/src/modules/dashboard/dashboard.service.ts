@@ -222,9 +222,9 @@ export class DashboardService {
       warehouseId
         ? sql`AND ${sql.raw(column)} = ${warehouseId}`
         : scopeFilter(column, scope);
-    // A limited caller sees maintenance of their warehouses' assets only.
+    // A limited caller sees maintenance of their warehouses' assets only, whatever warehouse is selected.
     const maintenanceInScope =
-      scope === null || warehouseId
+      scope === null
         ? sql``
         : sql`AND ${assetInScope(sql.raw('m.asset_id'), scope)}`;
 

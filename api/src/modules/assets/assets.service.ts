@@ -147,6 +147,14 @@ export class AssetsService {
         .for('update')
         .limit(1);
       if (!asset) throw new NotFoundException('Asset not found');
+      if (scope) {
+        // The receiving warehouse alone is not enough: the asset must be one of ours too.
+        const [owner] = await tx
+          .select({ warehouseId: assetWarehouseId })
+          .from(assets)
+          .where(eq(assets.id, id));
+        assertInScope(scope, owner?.warehouseId);
+      }
       if (asset.itemId !== preliminaryAsset.itemId)
         throw new ConflictException('Asset item changed during return');
       if (!['IN_USE', 'ASSIGNED'].includes(asset.status))
