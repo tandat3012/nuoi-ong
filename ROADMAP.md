@@ -12,25 +12,24 @@ Plan from the 2026-11-05 review against the thesis outline (`docs/Đề cương 
 
 ## Stage 2: stock in/out/balance report per period, with costs (rubric 06.2)
 
-Goal: for a chosen period, show per item how much stock there was at the start, what came in, what went out and what is left (quantity and VND), plus the period's purchase and maintenance costs, and let managers download it. Builds on stage 1: same roles, warehouse filter, Vietnam time and pricing rule.
+Goal: for a chosen period, show per item how much stock there was at the start, what came in, what went out and what is left (quantity and VND), plus the period's purchase and maintenance costs, and let managers download it. Builds on stage 1: same roles, warehouse filter and Vietnam time.
 
-### Decisions to agree before coding
+### Decisions (agreed 2026-11-05)
 
-- [ ] Rows: one per item (warehouses summed) or one per item × warehouse
-- [ ] ASSET items: leave them out, or include them and count asset hand-outs/returns and maintenance trips as in/out so that opening + in − out = closing (stage 1 charts leave those moves out)
-- [ ] Opening/closing value: quantity × latest priced receipt at the start/end of the period (stage 1 rule), or another valuation
-- [ ] In/out split into columns (receipt, issue, transfer, adjustment) or two totals
-- [ ] Export format: CSV (no new dependency, opens in Excel) or a real .xlsx file (new library); PDF/print view in scope or not
-- [ ] Where: a tab on `/reports` or its own page
+- [x] Rows: one per item × warehouse, grouped by warehouse with a value subtotal per warehouse and a farm total; lots summed into the item row; rows with no stock and no movement in the period are hidden
+- [x] Value: moving weighted average per warehouse. Receipts at their own price; unpriced receipts and upward adjustments at the warehouse's current average, else the item's latest receipt price in the farm, else "no price" (0 VND, flagged); transfers carry the sending warehouse's average; asset returns at the current average. Stage 1 charts switch to the same values
+- [x] Screen columns: opening | in (receipts, upward adjustments) | out (issues, downward adjustments incl. lost/retired assets) | transfers ± | asset hand-outs/returns ± (hand-out, return, sent to and back from maintenance) | closing, each with quantity and VND; totals add VND only
+- [x] CSV export of what is on screen: one quantity + VND column pair per ledger kind (receipt, transfer in, adjustment up, issue, transfer out, adjustment down, hand-out, return, to maintenance, back from maintenance); `;` separator, `2,5` decimals, UTF-8 with BOM, farm/warehouse/period at the top
+- [x] Where: a "Nhập – xuất – tồn" tab on `/reports` under the shared filters and totals; search by name/code and filter by item type; same roles and period presets as stage 1
 
 ### Work
 
-- [ ] API `GET /dashboard/stock-report`: per row opening, in, out, closing (quantity and VND) from the ledger for `dateFrom`..`dateTo` and an optional warehouse; totals; unpriced items flagged; same roles as `/dashboard/timeseries`
-- [ ] Integration test: opening + in − out = closing against `inventory_balances` for a period ending today, transfers with and without a warehouse filter, price at the period boundaries
-- [ ] Cost summary for the period: purchases (receipt lines) and maintenance (labor, material, other), reusing the stage 1 cost rules
-- [ ] Web: report table with item search, totals row and unpriced note; date range and warehouse filter shared with the charts
-- [ ] Export of the table (format per decision above), with the period, warehouse and farm in the file
-- [ ] Logic tests for any table/export formatting in a `*.logic.ts` module
+- [x] Valuation: moving weighted average per warehouse over the farm's ledger, with unit tests
+- [x] API `GET /dashboard/stock-report`: rows per item × warehouse with opening, closing and each ledger kind (quantity and VND) for `dateFrom`..`dateTo` and an optional warehouse; unpriced rows flagged; same roles as `/dashboard/timeseries`
+- [x] `/dashboard/timeseries` stock values from the same valuation
+- [x] Integration tests: opening + movements = closing, average price across a receipt, issue and transfer, warehouse filter, 400/404; report closing quantity matched `inventory_balances` on local `FARM-DEMO` (0 of 81 differ)
+- [x] Web: tabs on `/reports`, grouped table with search, item type filter, subtotals, farm total and unpriced note; costs from the shared totals
+- [x] CSV export per the decision above, with logic tests for the table and file formatting
 - [ ] Check in the browser on local, then PR into `dev` and release
 
 ## Stage 3: farm information (rubric 04.1)

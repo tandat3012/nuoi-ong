@@ -7,6 +7,7 @@ import { BeeLoader } from "@/shared/components/ui/bee-loader";
 import { Button } from "@/shared/components/ui/button";
 import { DateRangeFilter } from "@/shared/components/ui/date-range-filter";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
+import { cn } from "@/shared/lib/utils";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Select } from "@/shared/components/ui/select";
 import { getStockTimeseries } from "../api/reports.api";
@@ -15,6 +16,7 @@ import {
   REPORT_PRESETS,
   costSeries,
   formatCompactVnd,
+  formatDay,
   formatVnd,
   periodLabel,
   presetRange,
@@ -28,6 +30,13 @@ import {
 } from "../reports.logic";
 import type { StockTimeseries } from "../types/reports";
 import { ReportBarChart } from "./report-bar-chart";
+import { StockReportTab } from "./stock-report-tab";
+
+const TABS = [
+  { key: "charts", label: "Biểu đồ" },
+  { key: "stock", label: "Nhập – xuất – tồn" },
+] as const;
+type Tab = (typeof TABS)[number]["key"];
 
 const COLORS = {
   inbound: "#d97706",
@@ -44,15 +53,15 @@ export function ReportsScreen() {
     return <ErrorAlert message="Chỉ quản trị viên, chủ trại hoặc quản lý kho mới xem được thống kê." />;
   return (
     <div className="space-y-6">
-      <PageHeader title="Thống kê" description={`Nhập – xuất kho và chi phí theo thời gian · ${membership.farm.name}`} />
-      <StockReports key={membership.farm.id} farmId={membership.farm.id} />
+      <PageHeader title="Thống kê" description={`Nhập – xuất – tồn kho và chi phí theo thời gian · ${membership.farm.name}`} />
+      <StockReports key={membership.farm.id} farmId={membership.farm.id} farmName={membership.farm.name} />
     </div>
   );
 }
 
 type Range = { dateFrom: string; dateTo: string };
 
-function StockReports({ farmId }: { farmId: string }) {
+function StockReports({ farmId, farmName }: { farmId: string; farmName: string }) {
   const request = useAuthenticatedRequest();
   const [preset, setPreset] = useState<ReportPreset | null>("3m");
   const [custom, setCustom] = useState<Range | null>(null);
@@ -60,6 +69,7 @@ function StockReports({ farmId }: { farmId: string }) {
   const [warehouseId, setWarehouseId] = useState("");
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [mode, setMode] = useState<StockMode>("value");
+  const [tab, setTab] = useState<Tab>("charts");
   const [attempt, setAttempt] = useState(0);
   const range = useMemo(
     () => custom ?? presetRange(preset ?? "3m", vietnamToday()),
@@ -152,15 +162,47 @@ function StockReports({ farmId }: { farmId: string }) {
 
       {!current && <BeeLoader label="Đang tải thống kê…" />}
       {current?.error && <ErrorAlert message={current.error} onRetry={() => setAttempt((value) => value + 1)} />}
-      {data && totals && stock && cost && (
-        <>
-          <section aria-label="Tổng trong kỳ" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Giá trị nhập" value={formatVnd(totals.inboundValue)} note={`${totals.inboundDocuments} phiếu`} />
-            <Metric label="Giá trị xuất" value={formatVnd(totals.outboundValue)} note={`${totals.outboundDocuments} phiếu`} />
-            <Metric label="Chi phí mua hàng" value={formatVnd(totals.purchaseCost)} />
-            <Metric label="Chi phí bảo trì" value={formatVnd(totals.maintenanceCost)} note={`Tổng chi phí ${formatVnd(totals.totalCost)}`} />
-          </section>
+      {totals && (
+        <section aria-label="Tổng trong kỳ" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric label="Giá trị nhập" value={formatVnd(totals.inboundValue)} note={`${totals.inboundDocuments} phiếu`} />
+          <Metric label="Giá trị xuất" value={formatVnd(totals.outboundValue)} note={`${totals.outboundDocuments} phiếu`} />
+          <Metric label="Chi phí mua hàng" value={formatVnd(totals.purchaseCost)} />
+          <Metric label="Chi phí bảo trì" value={formatVnd(totals.maintenanceCost)} note={`Tổng chi phí ${formatVnd(totals.totalCost)}`} />
+        </section>
+      )}
 
+      <div role="tablist" aria-label="Nội dung thống kê" className="flex gap-1 border-b">
+        {TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`report-tab-${key}`}
+            aria-selected={tab === key}
+            aria-controls={`report-panel-${key}`}
+            onClick={() => setTab(key)}
+            className={cn(
+              "-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors",
+              tab === key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "stock" && (
+        <div role="tabpanel" id="report-panel-stock" aria-labelledby="report-tab-stock">
+          <StockReportTab
+            farmId={farmId}
+            farmName={farmName}
+            warehouseName={warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ?? "Tất cả kho"}
+            query={query}
+          />
+        </div>
+      )}
+      {tab === "charts" && data && totals && stock && cost && (
+        <div role="tabpanel" id="report-panel-charts" aria-labelledby="report-tab-charts" className="space-y-6">
           <section className="space-y-3 rounded-xl border bg-card p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-semibold">Nhập – xuất kho</h2>
@@ -186,8 +228,8 @@ function StockReports({ farmId }: { farmId: string }) {
             <p className="text-xs text-muted-foreground">
               Nhập gồm phiếu nhập và điều chỉnh tăng; xuất gồm phiếu xuất và điều chỉnh giảm.{" "}
               {warehouseId ? "Đang xem một kho nên tính cả điều chuyển đến/đi." : "Toàn trang trại nên không tính điều chuyển giữa các kho."}{" "}
-              Không tính cấp phát, hoàn trả thiết bị. Giá trị theo giá nhập gần nhất tại thời điểm phát sinh.
-              {data.unpricedMovements > 0 && ` ${data.unpricedMovements} biến động chưa có giá nhập nên không tính vào giá trị.`}
+              Không tính cấp phát, hoàn trả thiết bị. Giá trị theo giá bình quân gia quyền di động của từng kho.
+              {data.unpricedMovements > 0 && ` ${data.unpricedMovements} biến động chưa có giá nhập nên tính 0 đ.`}
             </p>
           </section>
 
@@ -210,15 +252,10 @@ function StockReports({ farmId }: { farmId: string }) {
               Mua hàng tính theo ngày duyệt phiếu nhập{warehouseId ? " của kho đã chọn" : ""}. Bảo trì tính theo ngày hoàn thành, luôn cho toàn trang trại.
             </p>
           </section>
-        </>
+        </div>
       )}
     </div>
   );
-}
-
-function formatDay(date: string) {
-  const [year, month, day] = date.split("-");
-  return `${day}/${month}/${year}`;
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
