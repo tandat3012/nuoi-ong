@@ -272,6 +272,11 @@ async function seed(db: Db, farmCode: string | undefined, weeks: number) {
           eq(schema.inventoryBalances.warehouseId, warehouseId),
           eq(schema.inventoryBalances.itemId, itemId),
           sql`${schema.inventoryBalances.quantityOnHand} >= 1`,
+          // Issues refuse expired lots.
+          sql`NOT EXISTS (
+            SELECT 1 FROM inventory_lots l
+            WHERE l.id = ${schema.inventoryBalances.lotId} AND l.expiry_date < current_date
+          )`,
         ),
       )
       .orderBy(sql`${schema.inventoryBalances.quantityOnHand} DESC`)
