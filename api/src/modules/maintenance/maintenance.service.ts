@@ -45,6 +45,7 @@ import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import {
   assertInScope,
+  inScope,
   scopeCondition,
   type WarehouseScope,
 } from '../warehouses/warehouse-scope';
@@ -163,6 +164,7 @@ export class MaintenanceService {
         ...record,
         alert: maintenanceAlert(record),
         returnCode: `BT-${record.id}`,
+        returnWarehouseInScope: inScope(scope, record.returnWarehouseId),
       })),
       page: {
         number: filters.page,
@@ -211,6 +213,8 @@ export class MaintenanceService {
       ...record,
       alert: maintenanceAlert(record),
       returnCode: `BT-${record.id}`,
+      // Only the receiving warehouse reviews the return; the UI hides the actions otherwise.
+      returnWarehouseInScope: inScope(scope, record.returnWarehouseId),
     };
   }
 

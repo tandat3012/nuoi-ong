@@ -23,6 +23,7 @@ type Record = {
   expectedReturnAt?: string | null;
   returnStatus: string | null;
   receivedAt?: string | null;
+  returnWarehouseInScope?: boolean;
 };
 
 type Lookup = { id: string; name: string; warehouseId?: string | null };

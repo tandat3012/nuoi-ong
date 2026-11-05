@@ -72,6 +72,11 @@ const recordSchema = {
       nullable: true,
     },
     returnWarehouseId: { type: 'string', format: 'uuid', nullable: true },
+    returnWarehouseInScope: {
+      type: 'boolean',
+      description:
+        'Kho nhận lại thuộc các kho người gọi được phân (chỉ kho nhận duyệt nhập lại).',
+    },
     returnLocationId: { type: 'string', format: 'uuid', nullable: true },
     returnRejectionReason: { type: 'string', nullable: true },
     startedAt: { type: 'string', format: 'date-time', nullable: true },

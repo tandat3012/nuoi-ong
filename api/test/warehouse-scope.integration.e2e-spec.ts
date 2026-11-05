@@ -251,6 +251,11 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
       expect(await visible(people.manager)).toEqual([record.id]);
       expect(await visible(people.otherManager)).toEqual([record.id]);
       expect(await visible(people.idle)).toEqual([]);
+      const flag = async (clerkUserId: string) =>
+        (await maintenance.get(record.id, ids.farm, clerkUserId))
+          .returnWarehouseInScope;
+      expect(await flag(people.manager)).toBe(true);
+      expect(await flag(people.otherManager)).toBe(false);
       // The receiving warehouse reviews the return, not the one it left from.
       await expect(
         maintenance.reviewReturn(
