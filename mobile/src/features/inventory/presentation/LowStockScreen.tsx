@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
@@ -96,7 +96,7 @@ export default function LowStockScreen() {
       ) : alerts.map((item) => (
         <Pressable key={item.id} onPress={() => openItem(item)} accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${item.name} tại ${warehouse?.name}`} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [pressed && styles.pressed]}>
           <Card style={styles.itemCard}>
-            <View style={styles.itemIcon}><Icon name={item.trackingMode === 'ASSET' ? 'inventory-2' : item.trackingMode === 'LOT' ? 'hive' : 'grain'} size={21} color={colors.primary} /></View>
+            <View style={styles.itemIcon}>{item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name={item.trackingMode === 'ASSET' ? 'inventory-2' : item.trackingMode === 'LOT' ? 'hive' : 'grain'} size={21} color={colors.primary} />}</View>
             <View style={styles.itemCopy}>
               <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
               <Text style={styles.itemCode}>{item.code}</Text>
@@ -133,6 +133,7 @@ const styles = StyleSheet.create({
   emptyText: { ...typography.bodyMd, color: colors.onSurfaceVariant, textAlign: 'center' },
   itemCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, padding: spacing.spaceSm, borderRadius: radius.md, borderLeftWidth: 3, borderLeftColor: colors.errorContainer },
   itemIcon: { width: 42, height: 42, borderRadius: radius.default, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryFixed },
+  itemImage: { width: 42, height: 42, borderRadius: radius.default },
   itemCopy: { flex: 1, minWidth: 0 },
   itemName: { ...typography.labelLg, color: colors.onSurface },
   itemCode: { ...typography.bodySm, color: colors.onSurfaceVariant, marginTop: 1 },

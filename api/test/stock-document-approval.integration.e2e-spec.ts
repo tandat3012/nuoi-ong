@@ -36,6 +36,11 @@ describe('Stock document approval rules', () => {
   const actors = {
     owner: { id: randomUUID(), member: randomUUID(), role: 'FARM_OWNER' },
     admin: { id: randomUUID(), member: randomUUID(), role: 'ADMIN' },
+    manager: {
+      id: randomUUID(),
+      member: randomUUID(),
+      role: 'WAREHOUSE_MANAGER',
+    },
     creator: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     peer: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     guest: { id: randomUUID(), member: randomUUID(), role: 'GUEST' },
@@ -66,6 +71,16 @@ describe('Stock document approval rules', () => {
             items: [line],
           })
         ).receipt.id,
+      list: (actor: Actor) =>
+        receipts.listReceipts({
+          farmId: farm,
+          clerkUserId: clerk(actor),
+          page: 1,
+          pageSize: 20,
+          offset: 0,
+        }),
+      get: (id: string, actor: Actor) =>
+        receipts.getReceipt(id, farm, clerk(actor)),
       update: (id: string, actor: Actor) =>
         receipts.updateReceipt(id, farm, clerk(actor), { note: tag }),
       edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
@@ -92,6 +107,15 @@ describe('Stock document approval rules', () => {
             items: [line],
           })
         ).issue.id,
+      list: (actor: Actor) =>
+        issues.list({
+          farmId: farm,
+          clerkUserId: clerk(actor),
+          page: 1,
+          pageSize: 20,
+          offset: 0,
+        }),
+      get: (id: string, actor: Actor) => issues.get(id, farm, clerk(actor)),
       update: (id: string, actor: Actor) =>
         issues.update(id, farm, clerk(actor), { note: tag }),
       edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
@@ -119,6 +143,15 @@ describe('Stock document approval rules', () => {
             items: [line],
           })
         ).transfer.id,
+      list: (actor: Actor) =>
+        transfers.list({
+          farmId: farm,
+          clerkUserId: clerk(actor),
+          page: 1,
+          pageSize: 20,
+          offset: 0,
+        }),
+      get: (id: string, actor: Actor) => transfers.get(id, farm, clerk(actor)),
       update: (id: string, actor: Actor) =>
         transfers.update(id, farm, clerk(actor), { note: tag }),
       edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
@@ -145,6 +178,15 @@ describe('Stock document approval rules', () => {
             items: [{ itemId: item, actualQuantity: '22' }],
           })
         ).count.id,
+      list: (actor: Actor) =>
+        counts.list({
+          farmId: farm,
+          clerkUserId: clerk(actor),
+          page: 1,
+          pageSize: 20,
+          offset: 0,
+        }),
+      get: (id: string, actor: Actor) => counts.get(id, farm, clerk(actor)),
       update: (id: string, actor: Actor) =>
         counts.update(id, farm, clerk(actor), { note: tag }),
       edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
@@ -288,6 +330,26 @@ describe('Stock document approval rules', () => {
   });
 
   describe.each(cases)('$type', (document) => {
+    it('shows employees only their own documents; approvers see all', async () => {
+      const own = await document.create('creator');
+      const others = await document.create('peer');
+      const creatorView = await document.list('creator');
+      expect(creatorView.data.map((row: { id: string }) => row.id)).toEqual([
+        own,
+      ]);
+      expect(creatorView.page.totalItems).toBe(1);
+      await expect(document.get(own, 'creator')).resolves.toBeDefined();
+      await expect(document.get(others, 'creator')).rejects.toThrow(
+        'not found',
+      );
+      expect((await document.list('owner')).page.totalItems).toBe(2);
+      expect((await document.list('admin')).page.totalItems).toBe(2);
+      // Warehouse managers approve other members' documents, so they must see them.
+      expect((await document.list('manager')).page.totalItems).toBe(2);
+      await expect(document.get(others, 'owner')).resolves.toBeDefined();
+      await expect(document.get(others, 'manager')).resolves.toBeDefined();
+    });
+
     it('lets an approver confirm a draft directly', async () => {
       const id = await document.create('owner');
       await document.confirm(id, 'owner');
@@ -367,11 +429,12 @@ describe('Stock document approval rules', () => {
       await document.submit(submitted, 'creator');
       await document.confirm(submitted, 'owner');
       const rows = await notified(submitted);
-      expect(rows).toHaveLength(3);
+      expect(rows).toHaveLength(4);
       expect(rows).toEqual(
         expect.arrayContaining([
           [actors.owner.id, 'APPROVAL'],
           [actors.admin.id, 'APPROVAL'],
+          [actors.manager.id, 'APPROVAL'],
           [actors.creator.id, 'CONFIRMED'],
         ]),
       );
@@ -437,9 +500,17 @@ describe('Stock document approval rules', () => {
   });
 
   describe('audit history access', () => {
-    it('shows approvers the whole farm and employees only their own documents', async () => {
+    it('shows approvers the whole farm and employees only actions they performed', async () => {
       const own = await cases[0].create('creator');
       const others = await cases[1].create('peer');
+      await db.insert(schema.auditLogs).values({
+        farmId: farm,
+        userId: actors.owner.id,
+        action: 'UPDATE',
+        entityType: 'STOCK_RECEIPT',
+        entityId: own,
+        newData: { createdByMemberId: actors.creator.member },
+      });
       await db.insert(schema.auditLogs).values({
         farmId: farm,
         userId: actors.owner.id,
@@ -455,8 +526,9 @@ describe('Stock document approval rules', () => {
         clerkUserId: clerk('owner'),
       });
       expect(ownerView.data.map((row) => row.entityId).sort()).toEqual(
-        [own, others, actors.peer.member].sort(),
+        [own, own, others, actors.peer.member].sort(),
       );
+      expect(ownerView.scope).toBe('FARM');
       expect(ownerView.data[0]).toHaveProperty('actor');
       // Ids in the page come back as readable codes and names.
       expect(ownerView.references).toMatchObject({
@@ -472,6 +544,7 @@ describe('Stock document approval rules', () => {
         clerkUserId: clerk('creator'),
       });
       expect(creatorView.data.map((row) => row.entityId)).toEqual([own]);
+      expect(creatorView.scope).toBe('PERFORMED_BY_ME');
       expect(creatorView.data[0].actor).toMatchObject({
         email: `${clerk('creator')}@example.local`,
       });

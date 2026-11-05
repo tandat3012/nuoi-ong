@@ -70,13 +70,14 @@ export class StockIssuesService {
   ) {}
 
   async list(filters: Filters) {
-    await this.warehousesService.assertFarmAccess(
+    const readMemberId = await this.warehousesService.documentReadMemberId(
       filters.farmId,
       filters.clerkUserId,
-      false,
     );
 
     const conditions: SQL[] = [eq(stockIssues.farmId, filters.farmId)];
+    if (readMemberId)
+      conditions.push(eq(stockIssues.createdByMemberId, readMemberId));
 
     if (filters.status) conditions.push(eq(stockIssues.status, filters.status));
     if (filters.dateFrom)
@@ -123,8 +124,14 @@ export class StockIssuesService {
   }
 
   async get(id: string, farmId: string, clerkUserId: string) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, false);
-    return this.withItems(id, farmId);
+    const readMemberId = await this.warehousesService.documentReadMemberId(
+      farmId,
+      clerkUserId,
+    );
+    const result = await this.withItems(id, farmId);
+    if (readMemberId && result.issue.createdByMemberId !== readMemberId)
+      throw new NotFoundException('Stock issue not found');
+    return result;
   }
 
   async create(

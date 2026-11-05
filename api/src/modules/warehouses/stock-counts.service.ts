@@ -68,12 +68,13 @@ export class StockCountsService {
   ) {}
 
   async list(f: Filters) {
-    await this.warehousesService.assertFarmAccess(
+    const readMemberId = await this.warehousesService.documentReadMemberId(
       f.farmId,
       f.clerkUserId,
-      false,
     );
     const conditions: SQL[] = [eq(stockCounts.farmId, f.farmId)];
+    if (readMemberId)
+      conditions.push(eq(stockCounts.createdByMemberId, readMemberId));
     if (f.status) conditions.push(eq(stockCounts.status, f.status));
     const where = and(...conditions);
     const [data, totals] = await Promise.all([
@@ -102,8 +103,14 @@ export class StockCountsService {
   }
 
   async get(id: string, farmId: string, user: string) {
-    await this.warehousesService.assertFarmAccess(farmId, user, false);
-    return this.withItems(id, farmId);
+    const readMemberId = await this.warehousesService.documentReadMemberId(
+      farmId,
+      user,
+    );
+    const result = await this.withItems(id, farmId);
+    if (readMemberId && result.count.createdByMemberId !== readMemberId)
+      throw new NotFoundException('Stock count not found');
+    return result;
   }
 
   async create(farmId: string, user: string, input: CreateStockCountDto) {

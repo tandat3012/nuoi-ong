@@ -73,15 +73,15 @@ export function changeInventoryLedgerType(
 
 /**
  * Displays an API decimal string ("35.125", "95.000") the Vietnamese way:
- * trailing zeros dropped, "," as decimal mark, "." between thousands
- * ("35,125", "95", "1.234,5"). String-based, so no precision is lost.
+ * trailing zeros dropped and "," as decimal mark ("35,125", "95", "1234,5").
+ * Quantities have no thousands separator so "2.000" cannot be mistaken for
+ * a decimal quantity. String-based, so no precision is lost.
  * For display only: inputs and API payloads keep the "." decimal form.
  */
 export function formatInventoryQuantity(value: string) {
   const [whole, fraction = ""] = value.split(".");
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   const trimmed = fraction.replace(/0+$/, "");
-  return trimmed ? `${grouped},${trimmed}` : grouped;
+  return trimmed ? `${whole},${trimmed}` : whole;
 }
 
 export function formatInventoryMovement(value: string) {

@@ -62,12 +62,13 @@ export class StockReceiptsService {
   ) {}
 
   async listReceipts(filters: StockReceiptListFilters) {
-    await this.warehousesService.assertFarmAccess(
+    const readMemberId = await this.warehousesService.documentReadMemberId(
       filters.farmId,
       filters.clerkUserId,
-      false,
     );
     const conditions = [eq(stockReceipts.farmId, filters.farmId)];
+    if (readMemberId)
+      conditions.push(eq(stockReceipts.createdByMemberId, readMemberId));
     if (filters.status)
       conditions.push(eq(stockReceipts.status, filters.status));
     if (filters.warehouseId)
@@ -122,8 +123,14 @@ export class StockReceiptsService {
   }
 
   async getReceipt(id: string, farmId: string, clerkUserId: string) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, false);
-    return this.getReceiptWithItems(id, farmId);
+    const readMemberId = await this.warehousesService.documentReadMemberId(
+      farmId,
+      clerkUserId,
+    );
+    const result = await this.getReceiptWithItems(id, farmId);
+    if (readMemberId && result.receipt.createdByMemberId !== readMemberId)
+      throw new NotFoundException('Stock receipt not found');
+    return result;
   }
 
   async createReceipt(

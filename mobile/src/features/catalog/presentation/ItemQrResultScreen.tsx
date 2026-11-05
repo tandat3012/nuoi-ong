@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell, Card, Icon, PageHeader, Pill, PrimaryButton } from '@/src/shared/ui/MobileShell';
 import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
@@ -9,7 +9,7 @@ import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
 import { balanceMatchesTrackingMode, filterAvailableAssetsForScope, filterPositiveBalancesForScope, listAvailableAssets, listBalances, listItems } from '@/src/features/inventory/api';
 
-type ItemQrResponse = { data: { itemId: string; itemCode: string; itemName: string; qrUrl: string; format: string } };
+type ItemQrResponse = { data: { itemId: string; itemCode: string; itemName: string; itemImageUrl: string | null; qrUrl: string; format: string } };
 
 export default function ItemQrResultScreen() {
   const router = useRouter();
@@ -96,7 +96,7 @@ export default function ItemQrResultScreen() {
     <PageHeader title={farmName} subtitle="● Kết quả QR vật tư • Dữ liệu từ API" onBack={startNewScan} action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={startNewScan} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}><Icon name="qr-code-scanner" color={colors.primary} /></Pressable></View>} />
     {loading ? <Card style={styles.messageCard}><Icon name="sync" color={colors.primary} /><Text style={styles.message}>Đang xác thực mã vật tư...</Text></Card> : error ? <Card style={styles.errorCard}><Icon name="error-outline" color={colors.error} /><View style={styles.copy}><Text style={styles.errorTitle}>QR vật tư không hợp lệ</Text><Text style={styles.errorText}>{error}</Text></View><Pressable onPress={startNewScan} style={({ pressed }) => [styles.errorAction, pressed && styles.pressed]}><Text style={styles.errorActionText}>Quét lại</Text></Pressable></Card> : result ? <>
       <Card style={styles.successCard}><View style={styles.successIcon}><Icon name="check-circle" size={28} color={colors.statusSuccessStrong} /></View><View style={styles.copy}><Text style={styles.eyebrow}>KẾT QUẢ QUÉT QR</Text><Text style={styles.title}>Mã vật tư hợp lệ</Text><Text style={styles.subtitle}>Đây là mã của danh mục vật tư, không gắn riêng với kho hoặc lô.</Text></View><Pill tone="success"><Text style={styles.successLabel}>API OK</Text></Pill></Card>
-      <Card style={styles.detailCard}><View style={styles.iconBox}><Icon name="inventory-2" size={32} color={colors.primary} /></View><Text style={styles.itemName}>{result.itemName}</Text><View style={styles.codeBox}><Text style={styles.codeLabel}>Mã vật tư</Text><Text style={styles.codeValue}>{result.itemCode}</Text></View><Info label="Loại mã" value="ITEM MASTER" /><Info label="QR URL" value={result.qrUrl} /></Card>
+      <Card style={styles.detailCard}><View style={styles.iconBox}>{result.itemImageUrl ? <Image source={{ uri: result.itemImageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name="inventory-2" size={32} color={colors.primary} />}</View><Text style={styles.itemName}>{result.itemName}</Text><View style={styles.codeBox}><Text style={styles.codeLabel}>Mã vật tư</Text><Text style={styles.codeValue}>{result.itemCode}</Text></View><Info label="Loại mã" value="ITEM MASTER" /><Info label="QR URL" value={result.qrUrl} /></Card>
       <View style={styles.actions}>
         <PrimaryButton label="Mở tồn kho vật tư" icon="inventory-2" onPress={() => router.push(`/inventory-detail?itemId=${encodeURIComponent(result.itemId)}${warehouseId ? `&warehouseId=${encodeURIComponent(warehouseId)}` : ''}` as never)} />
         <View style={styles.actionRow}>
@@ -140,6 +140,7 @@ const styles = StyleSheet.create({
   successLabel: { ...typography.labelSm, color: colors.statusSuccessStrong },
   detailCard: { gap: spacing.spaceSm },
   iconBox: { width: 74, height: 74, borderRadius: radius.lg, backgroundColor: colors.honeyChip, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
+  itemImage: { width: 74, height: 74, borderRadius: radius.lg },
   itemName: { ...typography.headlineMd, color: colors.deepAmber, textAlign: 'center' },
   codeBox: { minHeight: 40, paddingHorizontal: spacing.spaceMd, borderRadius: radius.default, backgroundColor: colors.surfaceContainerLow, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.spaceSm },
   codeLabel: { ...typography.bodySm, color: colors.onSurfaceVariant },

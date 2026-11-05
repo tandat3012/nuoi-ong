@@ -1,6 +1,6 @@
 # Mobile: Inventory Lot Identity
 
-Status: API and web are implemented on `feature/inventory-lot-identity`. This PR delivers mobile handoff documentation only. Mobile implementation and verification are assigned to the mobile owner, who coordinates the items under "Decisions for the mobile owner" with the API owner.
+Status: API and web are implemented. Mobile source now uses the new lot contract on `feature/warehouse`; TypeScript, Jest and Android export pass. End-to-end verification with a migrated API and an installed APK remains pending.
 
 Source of truth: the API (`api/src/modules/warehouses/stock-receipts.*`, `api/src/modules/inventory/inventory.*`) and migration `api/drizzle/0026_inventory-lot-identity.sql`. If this guide and the API disagree, follow the API.
 
@@ -20,7 +20,7 @@ Lot identity is still the UUID `lotId`. Never use either number as a key.
 
 `POST /stock-receipts` and `PATCH /stock-receipts/:id` no longer accept `items[].lotNumber`. The API runs with `forbidNonWhitelisted`, so a line that sends it gets **400** `property lotNumber should not exist`.
 
-**The current app hits this as soon as the API ships.** `ReceiptDetailScreen.tsx:281` and `:759` send `lotNumber` for new-lot lines. Existing-lot lines still work, because they send `lotNumber: undefined` and JSON drops it.
+**Older APKs hit this as soon as the API ships.** They send `lotNumber` for new-lot lines. The updated mobile source sends `supplierLotNumber` for new lots and omits it for existing lots; installed APKs must be rebuilt to receive this change.
 
 The new request contract for a LOT line:
 
@@ -33,11 +33,11 @@ The new request contract for a LOT line:
 
 When saving an existing draft, send `lineId` (the saved line's `id`) on each row that came from the draft. The server replaces all lines on save and uses `lineId` to keep each line's `legacyLotNumber`; a row without a matching `lineId` loses its legacy number. Do not reuse a `lineId` for a different row.
 
-Also remove the client-side rule that requires a lot number (`ReceiptDetailScreen.tsx:732`, the `missingLot` check). A new-lot line without a number is valid at save, submit and confirm.
+The updated mobile source no longer requires a supplier number. A new-lot line without a number is valid at save, submit and confirm.
 
 ## Responses: what to read
 
-Old fields are kept as **deprecated aliases** so the current binary keeps rendering:
+Old fields are kept as **deprecated aliases** so older binaries keep rendering:
 
 | Response | New fields | Deprecated alias |
 | --- | --- | --- |
@@ -72,12 +72,14 @@ Copy used on web, for consistency: **Tạo lô mới** / **Nhập thêm vào lô
 
 ## Decisions for the mobile owner
 
-1. **Release order.** Coordinate with the API owner before deployment. If the API ships first, the current binary fails new-lot receipts with a clear 400 (existing-lot top-ups keep working). Agree whether to ship the mobile update together with the API, accept the gap, or add a supported-version gate. The repo has no version gate today; this documentation handoff does not decide the release order or accept a gap.
-2. **Duplicate hint on mobile.** Inline list as on web, a bottom sheet, or skipped for now (it is advisory, so skipping is safe).
-3. **Legacy numbers.** Where to show `legacyLotNumber` (lot detail only, or receipt lines too). Always label it as a historical reference.
-4. **Alias removal.** When mobile stops reading `lotNumber`/`lotNumberFromLot`, tell the API owner so the aliases can be removed.
+1. **Release order.** Coordinate the rebuilt APK with the API owner. An older installed APK fails new-lot receipts with a clear 400 after the API update; existing-lot top-ups keep working. The repo has no supported-version gate today.
+2. **Duplicate hint on mobile.** Implemented inline using exact `supplierLotNumber` lookup; it never blocks submission or selects a lot automatically.
+3. **Legacy numbers.** Displayed as "Số lô cũ (tham khảo)" in lot detail and receipt lines, without treating them as verified supplier numbers.
+4. **Alias removal.** Mobile source no longer reads the response aliases `lotNumber`/`lotNumberFromLot`. Coordinate API alias removal separately so older installed APKs are accounted for.
 
 ## Verify
+
+Automated checks completed on this branch: `pnpm typecheck`, 80 Jest tests and Android export. The cases below still require an installed app and the migrated API.
 
 - A LOT receipt with no supplier number saves, submits and confirms; after confirmation the line shows `LOT-…`.
 - Two lines in one receipt with the same supplier number confirm as two lots with different codes.

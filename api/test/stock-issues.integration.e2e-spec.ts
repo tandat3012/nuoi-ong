@@ -218,6 +218,11 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
           provide: WarehousesService,
           useValue: {
             assertFarmAccess: access,
+            // Approver view: every document of the farm, after the same access check.
+            documentReadMemberId: async (farmId: string, user: string) => {
+              await access(farmId, user, false);
+              return null;
+            },
             // Document writes reuse the same mock so write-denial cases still apply.
             assertDocumentWriter: async (farmId: string, user: string) => ({
               memberId: (await access(farmId, user, true)) as string,

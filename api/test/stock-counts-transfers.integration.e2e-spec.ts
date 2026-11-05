@@ -176,6 +176,11 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
                 throw new ForbiddenException();
               return Promise.resolve(member);
             },
+            // Approver view: every document of the farm.
+            documentReadMemberId(farmId: string) {
+              if (farmId !== farm) throw new ForbiddenException();
+              return Promise.resolve(null);
+            },
             assertDocumentWriter(farmId: string) {
               if (farmId !== farm || !canWrite) throw new ForbiddenException();
               return Promise.resolve({ memberId: member, canApprove: true });

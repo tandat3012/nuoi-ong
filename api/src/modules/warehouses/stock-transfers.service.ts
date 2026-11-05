@@ -67,12 +67,13 @@ export class StockTransfersService {
     private readonly hooks: StockTransferHooks = new StockTransferHooks(),
   ) {}
   async list(f: Filters) {
-    await this.warehousesService.assertFarmAccess(
+    const readMemberId = await this.warehousesService.documentReadMemberId(
       f.farmId,
       f.clerkUserId,
-      false,
     );
     const c: SQL[] = [eq(stockTransfers.farmId, f.farmId)];
+    if (readMemberId)
+      c.push(eq(stockTransfers.createdByMemberId, readMemberId));
     if (f.status) c.push(eq(stockTransfers.status, f.status));
     const w = and(...c);
     const [data, t] = await Promise.all([
@@ -100,8 +101,14 @@ export class StockTransfersService {
     };
   }
   async get(id: string, farmId: string, user: string) {
-    await this.warehousesService.assertFarmAccess(farmId, user, false);
-    return this.withItems(id, farmId);
+    const readMemberId = await this.warehousesService.documentReadMemberId(
+      farmId,
+      user,
+    );
+    const result = await this.withItems(id, farmId);
+    if (readMemberId && result.transfer.createdByMemberId !== readMemberId)
+      throw new NotFoundException('Stock transfer not found');
+    return result;
   }
   async create(farmId: string, user: string, input: CreateStockTransferDto) {
     const writer = await this.warehousesService.assertDocumentWriter(

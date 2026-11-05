@@ -25,7 +25,7 @@ test("changing warehouse or item clears a stale asset selection and resets pagin
   assert.equal(changed.page, 1);
 });
 
-test("quantities drop trailing zeros and use Vietnamese separators without losing precision", () => {
+test("quantities drop trailing zeros without ambiguous thousands separators", () => {
   for (const [quantity, expected] of [
     ["95.000", "95"],
     ["35.125", "35,125"],
@@ -34,9 +34,9 @@ test("quantities drop trailing zeros and use Vietnamese separators without losin
     ["0.005", "0,005"],
     ["0.000", "0"],
     ["100", "100"],
-    ["1234.500", "1.234,5"],
-    ["-1234.500", "-1.234,5"],
-    ["999999999999999.990", "999.999.999.999.999,99"],
+    ["1234.500", "1234,5"],
+    ["-1234.500", "-1234,5"],
+    ["999999999999999.990", "999999999999999,99"],
   ]) {
     assert.equal(formatInventoryQuantity(quantity), expected, quantity);
   }
@@ -75,5 +75,5 @@ test("sumInventoryByItem adds lots per item without float drift", () => {
   assert.equal(totals.get("a"), "0,3");
   assert.equal(totals.get("b"), "12");
   assert.equal(totals.get("c"), "-0,5");
-  assert.equal(totals.get("d"), "999.999.999.999.999,999");
+  assert.equal(totals.get("d"), "999999999999999,999");
 });
