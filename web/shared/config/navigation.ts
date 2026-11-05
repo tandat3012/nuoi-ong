@@ -21,6 +21,7 @@ import {
   History,
   PackageCheck,
   Truck,
+  ChartColumnBig,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -34,7 +35,7 @@ export type NavigationItem = {
   storeOnly?: boolean;
 };
 
-type NavigationRequirement = 'manageFarm' | 'manageStore' | 'deliver' | 'farmArea' | 'history';
+type NavigationRequirement = 'manageFarm' | 'manageWarehouse' | 'manageStore' | 'deliver' | 'farmArea' | 'history';
 
 export type NavigationSection = {
   title: string;
@@ -45,7 +46,10 @@ export type NavigationSection = {
 export const primaryNavigationSections: readonly NavigationSection[] = [
   {
     title: 'Tổng quan',
-    items: [{ href: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard }],
+    items: [
+      { href: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+      { href: '/reports', label: 'Thống kê', icon: ChartColumnBig, requires: 'manageWarehouse', description: 'Biểu đồ nhập – xuất kho và chi phí theo thời gian.' },
+    ],
   },
   {
     title: 'Vận hành kho',
@@ -96,6 +100,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
 
 export type NavigationAccess = {
   canManageFarm: boolean;
+  canManageWarehouse: boolean;
   canManageStore: boolean;
   canDeliver: boolean;
   canAccessFarmArea: boolean;
@@ -105,6 +110,7 @@ export type NavigationAccess = {
 
 const requirementAccess = {
   manageFarm: 'canManageFarm',
+  manageWarehouse: 'canManageWarehouse',
   manageStore: 'canManageStore',
   deliver: 'canDeliver',
   farmArea: 'canAccessFarmArea',
