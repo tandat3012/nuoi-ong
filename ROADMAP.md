@@ -1,32 +1,25 @@
 # Roadmap
 
-Feature plan from the project review on 2026-10-27. An item is checked only after it is finished and verified.
+Plan from the 2026-11-05 review against the thesis outline (`docs/Đề cương chi tiết CNTT-KLCN289.pdf`, section 6 "Cài đặt chức năng"), due 2026-11-08. An item is checked only after it is finished and verified.
 
-## P0: finish and ship what exists
+## Stage 1: dashboard over time (rubric 06.3)
 
-- [x] Commit the store orders and store products work (migration `0019`, `store-admin`, `store-orders`, checkout, order pages): branch `feature/store-orders`, code only
-- [x] Fix the store-orders idempotency integration test that assumes an empty `store_orders` table (local, not committed)
-- [x] Restore or replace the deleted auth, farm-access and warehouses unit tests (local, not committed)
-- [x] Lot and asset selection in stock count and transfer forms: lots selectable; ASSET items excluded from counts by decision and handled in asset records (PR #70)
-- [x] Create/edit screens for suppliers, units, categories and storage locations: shared categories/units ADMIN only (PR #71)
-- [x] Dashboard KPIs: stock value, items below minimum, expiring lots, assets in repair, pending approvals, today's orders: stock value = on hand × latest receipt price (PR #72)
+- [x] API `GET /dashboard/timeseries`: stock in/out (VND and document count) and purchase + maintenance costs per day, week or month, Vietnam time, warehouse filter; farm admins and warehouse managers only; integration test on PostgreSQL
+- [x] `/reports` page (Thống kê): Chart.js bar charts, 7/30 day and 3/12 month presets, custom range, warehouse filter, VND ⇄ document toggle; web tests, tsc and eslint pass
+- [x] Demo history seed (`api/scripts/seed-demo-history.ts`): about 13 weeks of documents and maintenance through the real services; seeded production `TRAI-ONG-CHINH` and local `FARM-DEMO` on 2026-11-05
+- [x] Check `/reports` in the browser
+- [ ] PR into `dev`, release to `main`, check `/reports` on production
 
-## P1: run the business properly
+## Stage 2: stock in/out/balance report per period, with costs (rubric 06.2)
 
-- [ ] Notifications (in-app, plus email/Zalo): low stock, expiring lots, maintenance due, new orders, approval requests, customer order status
-- [ ] Purchasing: purchase requests → purchase orders → goods receipt against the order, with supplier price history
-- [ ] Scheduled maintenance: recurring schedules per asset and overdue warnings
-- [ ] Customer account: profile, saved addresses, reorder, order tracking timeline
-- [ ] Payments: VietQR on the bank-transfer screen (order code as transfer note), later automatic payment matching via webhook (e.g. SePay/Casso)
-- [ ] Shipping: fee rules by region instead of manual entry; tracking number field
-- [ ] Reports: goods in/out/stock balance per period, stock valuation, Excel/PDF export, printable vouchers
-- [ ] Audit log of who did what across all documents
+Design not agreed yet.
 
-## P2: nice to have
+- [ ] Period report per item and warehouse: opening balance, in, out, closing balance (quantity and value)
+- [ ] Purchase and maintenance cost totals for the period
+- [ ] Excel/CSV export
 
-- [ ] Promo codes, product reviews, wishlist, related products
-- [ ] Returns and refunds, with stock going back into the warehouse
-- [ ] Stock levels shown on the storefront
-- [ ] Equipment depreciation; batch-printed QR labels
-- [ ] Offline-friendly scanning for staff in the field
-- [ ] Hive/colony records and honey-harvest batches, tracing a sold jar back to its harvest (if thesis scope allows)
+## Stage 3: farm information (rubric 04.1)
+
+Design not agreed yet.
+
+- [ ] API and screen for farm admins to view and edit the farm's name, address and contact details
