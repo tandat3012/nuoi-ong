@@ -48,20 +48,26 @@ const COLORS = {
 };
 
 export function ReportsScreen() {
-  const { membership, canManageWarehouse } = useFarmMembership();
+  const { membership, canManageWarehouse, canManageFarm } = useFarmMembership();
   if (!membership || !canManageWarehouse)
     return <ErrorAlert message="Chỉ quản trị viên, chủ trại hoặc quản lý kho mới xem được thống kê." />;
   return (
     <div className="space-y-6">
       <PageHeader title="Thống kê" description={`Nhập – xuất – tồn kho và chi phí theo thời gian · ${membership.farm.name}`} />
-      <StockReports key={membership.farm.id} farmId={membership.farm.id} farmName={membership.farm.name} />
+      <StockReports
+        key={membership.farm.id}
+        farmId={membership.farm.id}
+        farmName={membership.farm.name}
+        allLabel={canManageFarm ? "Tất cả kho" : "Tất cả kho được phân"}
+      />
     </div>
   );
 }
 
 type Range = { dateFrom: string; dateTo: string };
 
-function StockReports({ farmId, farmName }: { farmId: string; farmName: string }) {
+/** `allLabel`: warehouse managers only see the warehouses they are assigned to. */
+function StockReports({ farmId, farmName, allLabel }: { farmId: string; farmName: string; allLabel: string }) {
   const request = useAuthenticatedRequest();
   const [preset, setPreset] = useState<ReportPreset | null>("3m");
   const [custom, setCustom] = useState<Range | null>(null);
@@ -128,7 +134,7 @@ function StockReports({ farmId, farmName }: { farmId: string; farmName: string }
           <label className="ml-auto flex items-center gap-2 text-sm font-medium">
             Kho
             <Select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} className="w-56">
-              <option value="">Tất cả kho</option>
+              <option value="">{allLabel}</option>
               {warehouses.map((warehouse) => (
                 <option key={warehouse.id} value={warehouse.id}>
                   {warehouse.name}
@@ -196,7 +202,7 @@ function StockReports({ farmId, farmName }: { farmId: string; farmName: string }
           <StockReportTab
             farmId={farmId}
             farmName={farmName}
-            warehouseName={warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ?? "Tất cả kho"}
+            warehouseName={warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ?? allLabel}
             query={query}
           />
         </div>

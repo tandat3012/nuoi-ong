@@ -11,6 +11,7 @@ import { DatabaseService } from '../../db/database.service';
 import {
   assets,
   farmMemberRoles,
+  farmMemberWarehouses,
   farmMembers,
   farms,
   inventoryBalances,
@@ -24,8 +25,14 @@ import {
   FARM_ADMIN_ROLES,
   STOCK_WRITE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
+  WAREHOUSE_SCOPED_ROLES,
   hasAnyRole,
 } from '../auth/farm-access/farm-role-groups';
+import {
+  assertInScope,
+  scopeCondition,
+  type WarehouseScope,
+} from './warehouse-scope';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 
@@ -41,18 +48,25 @@ export interface WarehouseListFilters extends PaginationParams {
 export interface DocumentWriter {
   memberId: string;
   canApprove: boolean;
+  /** Warehouses the writer works in; null = all. */
+  scope: WarehouseScope;
   /** Only an active FARM_OWNER may set document numbering options. */
   isOwner: boolean;
 }
 
-/** Employees may only change or submit stock documents they created. */
+/**
+ * Employees may only change or submit stock documents they created, and
+ * everyone limited to assigned warehouses only documents of those warehouses.
+ */
 export function assertOwnDocument(
   writer: DocumentWriter,
   createdByMemberId: string | null,
+  ...warehouseIds: (string | null | undefined)[]
 ) {
   if (!writer.canApprove && createdByMemberId !== writer.memberId) {
     throw new ForbiddenException('Only your own documents can be changed');
   }
+  assertInScope(writer.scope, ...warehouseIds);
 }
 
 @Injectable()
@@ -60,9 +74,14 @@ export class WarehousesService {
   constructor(private readonly databaseService: DatabaseService) {}
 
   async listWarehouses(filters: WarehouseListFilters) {
-    await this.assertFarmAccess(filters.farmId, filters.clerkUserId, false);
+    const scope = await this.warehouseScope(
+      filters.farmId,
+      filters.clerkUserId,
+    );
 
     const conditions = [eq(warehouses.farmId, filters.farmId)];
+    const inScope = scopeCondition(warehouses.id, scope);
+    if (inScope) conditions.push(inScope);
     if (filters.status) conditions.push(eq(warehouses.status, filters.status));
     if (filters.search) {
       const pattern = `%${this.escapeLike(filters.search)}%`;
@@ -98,8 +117,10 @@ export class WarehousesService {
   }
 
   async getWarehouse(id: string, farmId: string, clerkUserId: string) {
-    await this.assertFarmAccess(farmId, clerkUserId, false);
+    const scope = await this.warehouseScope(farmId, clerkUserId);
     const warehouse = await this.findWarehouse(id, farmId);
+    if (scope && !scope.includes(id))
+      throw new NotFoundException('Warehouse not found');
     return warehouse;
   }
 
@@ -138,7 +159,7 @@ export class WarehousesService {
     clerkUserId: string,
     input: UpdateWarehouseDto,
   ) {
-    await this.assertFarmAccess(
+    const { scope } = await this.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -149,6 +170,7 @@ export class WarehousesService {
     }
 
     await this.findWarehouse(id, farmId);
+    assertInScope(scope, id);
     if (input.status === 'INACTIVE') {
       await this.assertCanDeactivate(id, farmId);
     }
@@ -174,13 +196,14 @@ export class WarehousesService {
   }
 
   async deleteWarehouse(id: string, farmId: string, clerkUserId: string) {
-    await this.assertFarmAccess(
+    const { scope } = await this.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
       WAREHOUSE_MANAGE_ROLES,
     );
     await this.findWarehouse(id, farmId);
+    assertInScope(scope, id);
     await this.assertCanDeactivate(id, farmId);
 
     const [warehouse] = await this.databaseService.db
@@ -208,16 +231,77 @@ export class WarehousesService {
     return memberId;
   }
 
-  /** Approvers (admins, farm owners, warehouse managers) read every stock document; others only their own. */
-  async documentReadMemberId(
+  /**
+   * Who may read which stock documents: approvers read every document of their
+   * warehouses (`memberId` null), others only their own; `scope` limits warehouses.
+   */
+  async documentReadScope(
     farmId: string,
     clerkUserId: string,
-  ): Promise<string | null> {
+  ): Promise<{ memberId: string | null; scope: WarehouseScope }> {
     const { memberId, roleCodes } = await this.getActiveMembership(
       farmId,
       clerkUserId,
     );
-    return hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ? null : memberId;
+    return {
+      memberId: hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ? null : memberId,
+      scope: await this.scopeFor(memberId, roleCodes),
+    };
+  }
+
+  /** Warehouses the caller works in; null = every warehouse of the farm. */
+  async warehouseScope(
+    farmId: string,
+    clerkUserId: string,
+  ): Promise<WarehouseScope> {
+    const { memberId, roleCodes } = await this.getActiveMembership(
+      farmId,
+      clerkUserId,
+    );
+    return this.scopeFor(memberId, roleCodes);
+  }
+
+  /** assertFarmAccess plus the caller's warehouse scope. */
+  async assertScopedAccess(
+    farmId: string,
+    clerkUserId: string,
+    write: boolean,
+    writeRoles = FARM_ADMIN_ROLES,
+  ) {
+    const { memberId, roleCodes } = await this.getActiveMembership(
+      farmId,
+      clerkUserId,
+    );
+    if (write && !hasAnyRole(roleCodes, writeRoles)) {
+      throw new ForbiddenException('Warehouse write permission is required');
+    }
+    return { memberId, scope: await this.scopeFor(memberId, roleCodes) };
+  }
+
+  /** 403 unless one of the warehouses is assigned to the caller (or the caller is not limited). */
+  async assertWarehouseInScope(
+    farmId: string,
+    clerkUserId: string,
+    ...warehouseIds: (string | null | undefined)[]
+  ) {
+    assertInScope(
+      await this.warehouseScope(farmId, clerkUserId),
+      ...warehouseIds,
+    );
+  }
+
+  /** ADMIN/FARM_OWNER and roles outside warehouse work are not limited; managers and employees get their assigned warehouses. */
+  private async scopeFor(
+    memberId: string,
+    roleCodes: string[],
+  ): Promise<WarehouseScope> {
+    if (hasAnyRole(roleCodes, FARM_ADMIN_ROLES)) return null;
+    if (!hasAnyRole(roleCodes, WAREHOUSE_SCOPED_ROLES)) return null;
+    const rows = await this.databaseService.db
+      .select({ id: farmMemberWarehouses.warehouseId })
+      .from(farmMemberWarehouses)
+      .where(eq(farmMemberWarehouses.farmMemberId, memberId));
+    return rows.map((row) => row.id);
   }
 
   /** Stock documents: approvers act on any document, employees create and submit their own drafts. */
@@ -233,7 +317,12 @@ export class WarehousesService {
     if (!hasAnyRole(roleCodes, STOCK_WRITE_ROLES)) {
       throw new ForbiddenException('Stock document permission is required');
     }
-    return { memberId, canApprove, isOwner: roleCodes.includes('FARM_OWNER') };
+    return {
+      memberId,
+      canApprove,
+      scope: await this.scopeFor(memberId, roleCodes),
+      isOwner: roleCodes.includes('FARM_OWNER'),
+    };
   }
 
   /** Active member id plus every role code it holds; throws 403 when not an active member. */

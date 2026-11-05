@@ -27,6 +27,8 @@ import {
   WAREHOUSE_MANAGE_ROLES,
 } from '../auth/farm-access/farm-role-groups';
 import type { AuthRequest } from '../auth/clerk/types/auth-request.type';
+import { assertInScope } from '../warehouses/warehouse-scope';
+import { WarehousesService } from '../warehouses/warehouses.service';
 import { DashboardService, TIMESERIES_MAX_DAYS } from './dashboard.service';
 import { MOVE_KINDS } from './stock-valuation';
 
@@ -52,7 +54,24 @@ const count = { type: 'integer', example: 0, nullable: true };
 @ApiTags('Tổng quan')
 @ApiBearerAuth('clerk-jwt')
 export class DashboardController {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly dashboardService: DashboardService,
+    private readonly warehousesService: WarehousesService,
+  ) {}
+
+  /** The caller's warehouses; a selected warehouse outside them is 403. */
+  private async scope(
+    farmId: string,
+    clerkUserId: string,
+    warehouseId?: string,
+  ) {
+    const scope = await this.warehousesService.warehouseScope(
+      farmId,
+      clerkUserId,
+    );
+    if (warehouseId) assertInScope(scope, warehouseId);
+    return scope;
+  }
 
   @Get('summary')
   @UseGuards(FarmAccessGuard)
@@ -92,10 +111,12 @@ export class DashboardController {
     @Req() request: AuthRequest,
     @Query('farmId') farmIdValue?: string,
   ) {
+    const farmId = requireUuid(farmIdValue, 'farmId');
     return {
       data: await this.dashboardService.summary(
-        requireUuid(farmIdValue, 'farmId'),
+        farmId,
         request.farmRoleCodes ?? [],
+        await this.scope(farmId, request.auth.clerkUserId),
       ),
     };
   }
@@ -152,18 +173,24 @@ export class DashboardController {
   })
   @ApiNotFoundResponse({ description: 'Kho không thuộc trang trại.' })
   async timeseries(
+    @Req() request: AuthRequest,
     @Query('farmId') farmIdValue?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
     @Query('warehouseId') warehouseId?: string,
   ) {
     const range = requiredRange(dateFrom, dateTo);
+    const farmId = requireUuid(farmIdValue, 'farmId');
+    const warehouse = warehouseId
+      ? requireUuid(warehouseId, 'warehouseId')
+      : undefined;
     return {
       data: await this.dashboardService.timeseries(
-        requireUuid(farmIdValue, 'farmId'),
+        farmId,
         range.dateFrom,
         range.dateTo,
-        warehouseId ? requireUuid(warehouseId, 'warehouseId') : undefined,
+        warehouse,
+        await this.scope(farmId, request.auth.clerkUserId, warehouse),
       ),
     };
   }
@@ -233,18 +260,24 @@ export class DashboardController {
   })
   @ApiNotFoundResponse({ description: 'Kho không thuộc trang trại.' })
   async stockReport(
+    @Req() request: AuthRequest,
     @Query('farmId') farmIdValue?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
     @Query('warehouseId') warehouseId?: string,
   ) {
     const range = requiredRange(dateFrom, dateTo);
+    const farmId = requireUuid(farmIdValue, 'farmId');
+    const warehouse = warehouseId
+      ? requireUuid(warehouseId, 'warehouseId')
+      : undefined;
     return {
       data: await this.dashboardService.stockReport(
-        requireUuid(farmIdValue, 'farmId'),
+        farmId,
         range.dateFrom,
         range.dateTo,
-        warehouseId ? requireUuid(warehouseId, 'warehouseId') : undefined,
+        warehouse,
+        await this.scope(farmId, request.auth.clerkUserId, warehouse),
       ),
     };
   }

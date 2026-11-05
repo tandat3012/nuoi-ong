@@ -43,6 +43,11 @@ import {
 import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import {
+  assertInScope,
+  type WarehouseScope,
+} from '../warehouses/warehouse-scope';
+import { assetInScope, assetWarehouseId } from '../assets/asset-warehouse';
+import {
   MAINTENANCE_WORK_ROLES,
   MAINTENANCE_SCHEDULE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
@@ -56,7 +61,7 @@ import {
 
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
-type Actor = { memberId: string; userId: string };
+type Actor = { memberId: string; userId: string; scope: WarehouseScope };
 
 type Filters = PaginationParams & {
   farmId: string;
@@ -95,12 +100,13 @@ export class MaintenanceService {
   ) {}
 
   async list(filters: Filters) {
-    await this.warehousesService.assertFarmAccess(
+    const scope = await this.warehousesService.warehouseScope(
       filters.farmId,
       filters.clerkUserId,
-      false,
     );
     const conditions: SQL[] = [eq(maintenanceRecords.farmId, filters.farmId)];
+    const scoped = assetInScope(maintenanceRecords.assetId, scope);
+    if (scoped) conditions.push(scoped);
     if (filters.recordId)
       conditions.push(eq(maintenanceRecords.id, filters.recordId));
     if (filters.assetId)
@@ -166,7 +172,10 @@ export class MaintenanceService {
   }
 
   async get(id: string, farmId: string, clerkUserId: string) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, false);
+    const scope = await this.warehousesService.warehouseScope(
+      farmId,
+      clerkUserId,
+    );
     const [record] = await this.databaseService.db
       .select({
         ...getTableColumns(maintenanceRecords),
@@ -191,6 +200,7 @@ export class MaintenanceService {
         and(
           eq(maintenanceRecords.id, id),
           eq(maintenanceRecords.farmId, farmId),
+          assetInScope(maintenanceRecords.assetId, scope),
         ),
       )
       .limit(1);
@@ -208,9 +218,10 @@ export class MaintenanceService {
     input: CreateMaintenanceRecordDto,
   ) {
     const actor = await this.actor(farmId, clerkUserId);
-    return this.databaseService.db.transaction((tx) =>
-      this.schedule(tx, farmId, actor.userId, input),
-    );
+    return this.databaseService.db.transaction(async (tx) => {
+      await this.assertAssetInScope(tx, input.assetId, actor.scope);
+      return this.schedule(tx, farmId, actor.userId, input);
+    });
   }
 
   /** Schedules a record inside the caller's transaction; also used to approve maintenance requests. */
@@ -309,9 +320,9 @@ export class MaintenanceService {
     clerkUserId: string,
     input: UpdateMaintenanceRecordDto,
   ) {
-    await this.actor(farmId, clerkUserId);
+    const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
-      const current = await this.getRecord(tx, id, farmId, true);
+      const current = await this.getRecord(tx, id, farmId, true, actor.scope);
       if (current.status !== 'SCHEDULED')
         throw new ConflictException(
           'Completed or cancelled records cannot be edited',
@@ -359,7 +370,7 @@ export class MaintenanceService {
   async start(id: string, farmId: string, clerkUserId: string) {
     const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
-      const record = await this.getRecord(tx, id, farmId, true);
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
       if (record.status !== 'SCHEDULED')
         throw new ConflictException('Only SCHEDULED records can start');
       const [preview] = await tx
@@ -559,7 +570,7 @@ export class MaintenanceService {
   ) {
     const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
-      const record = await this.getRecord(tx, id, farmId, true);
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
       if (record.status !== 'IN_PROGRESS')
         throw new ConflictException(
           'Only external maintenance can be received',
@@ -605,7 +616,7 @@ export class MaintenanceService {
     if (input.outcome === 'PASSED' && !input.intervalMonths)
       throw new BadRequestException('Next maintenance interval is required');
     return this.databaseService.db.transaction(async (tx) => {
-      const record = await this.getRecord(tx, id, farmId, true);
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
       if (record.status !== 'RECEIVED' || !record.receivedAt)
         throw new ConflictException('Receive the asset before inspection');
       const [asset] = await tx
@@ -671,7 +682,7 @@ export class MaintenanceService {
   ) {
     const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
-      const record = await this.getRecord(tx, id, farmId, true);
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
       if (
         !['COMPLETED', 'FAILED'].includes(record.status) ||
         !record.receivedAt ||
@@ -705,6 +716,7 @@ export class MaintenanceService {
         tx,
         this.returnNotification(updated, 'PENDING_APPROVAL'),
         actor.memberId,
+        updated.returnWarehouseId,
       );
       await this.audit(
         tx,
@@ -732,7 +744,7 @@ export class MaintenanceService {
         'Rejection reason must have at least 3 characters',
       );
     return this.databaseService.db.transaction(async (tx) => {
-      const record = await this.getRecord(tx, id, farmId, true);
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
       if (record.returnStatus !== 'PENDING_APPROVAL')
         throw new ConflictException(
           'Only pending maintenance receipts can be reviewed',
@@ -884,7 +896,7 @@ export class MaintenanceService {
   async cancel(id: string, farmId: string, clerkUserId: string) {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
-      const record = await this.getRecord(tx, id, farmId, true);
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
       if (record.status !== 'SCHEDULED')
         throw new ConflictException('Only active records can be cancelled');
       const [asset] = await tx
@@ -922,11 +934,27 @@ export class MaintenanceService {
       return updated;
     });
   }
+  /** 403 when the asset belongs to a warehouse outside `scope`. */
+  async assertAssetInScope(
+    tx: Pick<Transaction, 'select'>,
+    assetId: string,
+    scope: WarehouseScope,
+  ) {
+    if (scope === null) return;
+    const [row] = await tx
+      .select({ warehouseId: assetWarehouseId })
+      .from(assets)
+      .where(eq(assets.id, assetId));
+    assertInScope(scope, row?.warehouseId);
+  }
+
+  /** Loads the record; with a `scope`, 403 when its asset belongs to another warehouse. */
   private async getRecord(
     tx: Transaction,
     id: string,
     farmId: string,
     forUpdate = false,
+    scope: WarehouseScope = null,
   ) {
     const query = tx
       .select()
@@ -940,6 +968,7 @@ export class MaintenanceService {
       .limit(1);
     const [record] = forUpdate ? await query.for('update') : await query;
     if (!record) throw new NotFoundException('Maintenance record not found');
+    await this.assertAssetInScope(tx, record.assetId, scope);
     return record;
   }
 
@@ -948,7 +977,7 @@ export class MaintenanceService {
     clerkUserId: string,
     allowedRoles = MAINTENANCE_SCHEDULE_ROLES,
   ): Promise<Actor> {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -970,7 +999,7 @@ export class MaintenanceService {
       .limit(1);
     if (!actor)
       throw new ConflictException('Active farm membership is required');
-    return { memberId, userId: actor.userId };
+    return { memberId, userId: actor.userId, scope };
   }
 
   private async validateReferences(

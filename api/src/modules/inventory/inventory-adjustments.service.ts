@@ -28,6 +28,11 @@ import {
 } from './dto/create-adjustment.dto';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import {
+  assertInScope,
+  scopeCondition,
+  type WarehouseScope,
+} from '../warehouses/warehouse-scope';
+import {
   STOCK_WRITE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
 } from '../auth/farm-access/farm-role-groups';
@@ -99,6 +104,10 @@ export class InventoryAdjustmentsService {
       );
     }
     this.validateIds(input);
+    assertInScope(
+      await this.warehousesService.warehouseScope(farmId, clerkUserId),
+      input.warehouseId,
+    );
     const { quantityChange, isPositive, note } =
       this.normalizeAdjustment(input);
 
@@ -151,7 +160,7 @@ export class InventoryAdjustmentsService {
   async approve(farmId: string, clerkUserId: string, id: string) {
     requireUuid(farmId, 'farmId');
     requireUuid(id, 'id');
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -159,6 +168,7 @@ export class InventoryAdjustmentsService {
     );
     try {
       return await this.databaseService.db.transaction(async (tx) => {
+        await this.assertAdjustmentInScope(tx, farmId, id, scope);
         // The status predicate makes approve-once atomic under concurrent clicks.
         const [adjustment] = await tx
           .update(inventoryAdjustments)
@@ -192,13 +202,14 @@ export class InventoryAdjustmentsService {
   ) {
     requireUuid(farmId, 'farmId');
     requireUuid(id, 'id');
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
       WAREHOUSE_MANAGE_ROLES,
     );
     return this.databaseService.db.transaction(async (tx) => {
+      await this.assertAdjustmentInScope(tx, farmId, id, scope);
       const [adjustment] = await tx
         .update(inventoryAdjustments)
         .set({
@@ -214,8 +225,28 @@ export class InventoryAdjustmentsService {
     });
   }
 
+  /** 403 when the adjustment belongs to a warehouse outside the caller's scope. */
+  private async assertAdjustmentInScope(
+    tx: Pick<DatabaseService['db'], 'select'>,
+    farmId: string,
+    id: string,
+    scope: WarehouseScope,
+  ) {
+    if (scope === null) return;
+    const [row] = await tx
+      .select({ warehouseId: inventoryAdjustments.warehouseId })
+      .from(inventoryAdjustments)
+      .where(
+        and(
+          eq(inventoryAdjustments.id, id),
+          eq(inventoryAdjustments.farmId, farmId),
+        ),
+      );
+    if (row) assertInScope(scope, row.warehouseId);
+  }
+
   async list(filters: AdjustmentListFilters) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       filters.farmId,
       filters.clerkUserId,
       false,
@@ -225,6 +256,8 @@ export class InventoryAdjustmentsService {
     const reviewerMember = alias(farmMembers, 'reviewer_member');
     const reviewerUser = alias(users, 'reviewer_user');
     const predicates: SQL[] = [eq(inventoryAdjustments.farmId, filters.farmId)];
+    const scoped = scopeCondition(inventoryAdjustments.warehouseId, scope);
+    if (scoped) predicates.push(scoped);
     if (filters.status) {
       predicates.push(eq(inventoryAdjustments.status, filters.status));
     }

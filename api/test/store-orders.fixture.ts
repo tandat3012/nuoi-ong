@@ -89,6 +89,10 @@ export async function seedOrders(db: OrderTestDb) {
     { farmMemberId: ids.member, roleId: employeeRole.id },
     { farmMemberId: ids.adminMember, roleId: adminRole.id },
   ]);
+  // Staff works in the sales warehouse.
+  await db
+    .insert(schema.farmMemberWarehouses)
+    .values({ farmMemberId: ids.member, warehouseId: ids.warehouse });
   await db
     .insert(schema.categories)
     .values({ id: ids.category, code: ids.category, name: 'Internal' });
@@ -257,6 +261,9 @@ export async function cleanupOrders(
   await db
     .delete(schema.locations)
     .where(eq(schema.locations.id, ids.location));
+  await db
+    .delete(schema.farmMemberWarehouses)
+    .where(eq(schema.farmMemberWarehouses.farmMemberId, ids.member));
   await db
     .delete(schema.warehouses)
     .where(eq(schema.warehouses.farmId, ids.farm));

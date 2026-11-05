@@ -19,27 +19,35 @@ describe('AssetsController', () => {
     {} as AssetHistoryService,
   );
 
+  const auth = { clerkUserId: 'user' };
   beforeEach(() => jest.clearAllMocks());
 
   it('scopes QR lookup to the requested farm', async () => {
     const asset = { asset: { assetCode: 'SMOKER-001' } };
     assetsService.getAssetByQr.mockResolvedValueOnce(asset);
 
-    await expect(controller.getAssetByQr(qrToken, farmId)).resolves.toEqual({
+    await expect(
+      controller.getAssetByQr(auth, qrToken, farmId),
+    ).resolves.toEqual({
       data: asset,
     });
-    expect(assetsService.getAssetByQr).toHaveBeenCalledWith(qrToken, farmId);
+    expect(assetsService.getAssetByQr).toHaveBeenCalledWith(
+      qrToken,
+      farmId,
+      'user',
+    );
   });
 
   it('lists assets with validated filters', async () => {
     assetsService.listAssets.mockResolvedValueOnce({ data: [], page: {} });
 
     await expect(
-      controller.listAssets(farmId, '2', '10', 'smoker', 'AVAILABLE'),
+      controller.listAssets(auth, farmId, '2', '10', 'smoker', 'AVAILABLE'),
     ).resolves.toEqual({ data: [], page: {} });
     expect(assetsService.listAssets).toHaveBeenCalledWith(
       expect.objectContaining({
         farmId,
+        clerkUserId: 'user',
         page: 2,
         pageSize: 10,
         offset: 10,
@@ -54,15 +62,26 @@ describe('AssetsController', () => {
     const asset = { asset: { id: assetId } };
     assetsService.getAsset.mockResolvedValueOnce(asset);
 
-    await expect(controller.getAsset(assetId, farmId)).resolves.toEqual({
+    await expect(controller.getAsset(auth, assetId, farmId)).resolves.toEqual({
       data: asset,
     });
-    expect(assetsService.getAsset).toHaveBeenCalledWith(assetId, farmId);
+    expect(assetsService.getAsset).toHaveBeenCalledWith(
+      assetId,
+      farmId,
+      'user',
+    );
   });
 
   it('rejects an unsupported asset status', () => {
     expect(() =>
-      controller.listAssets(farmId, undefined, undefined, undefined, 'BROKEN'),
+      controller.listAssets(
+        auth,
+        farmId,
+        undefined,
+        undefined,
+        undefined,
+        'BROKEN',
+      ),
     ).toThrow(BadRequestException);
     expect(assetsService.listAssets).not.toHaveBeenCalled();
   });

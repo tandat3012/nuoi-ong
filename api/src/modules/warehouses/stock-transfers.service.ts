@@ -34,6 +34,7 @@ import {
   CreateStockTransferDto,
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
+import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import { StockTransferHooks } from './stock-transfer-hooks';
@@ -67,11 +68,16 @@ export class StockTransfersService {
     private readonly hooks: StockTransferHooks = new StockTransferHooks(),
   ) {}
   async list(f: Filters) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      f.farmId,
-      f.clerkUserId,
-    );
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(f.farmId, f.clerkUserId);
     const c: SQL[] = [eq(stockTransfers.farmId, f.farmId)];
+    if (scope)
+      c.push(
+        or(
+          scopeCondition(stockTransfers.fromWarehouseId, scope),
+          scopeCondition(stockTransfers.toWarehouseId, scope),
+        )!,
+      );
     if (readMemberId)
       c.push(eq(stockTransfers.createdByMemberId, readMemberId));
     if (f.status) c.push(eq(stockTransfers.status, f.status));
@@ -101,12 +107,16 @@ export class StockTransfersService {
     };
   }
   async get(id: string, farmId: string, user: string) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      farmId,
-      user,
-    );
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(farmId, user);
     const result = await this.withItems(id, farmId);
-    if (readMemberId && result.transfer.createdByMemberId !== readMemberId)
+    if (
+      (readMemberId && result.transfer.createdByMemberId !== readMemberId) ||
+      !(
+        inScope(scope, result.transfer.fromWarehouseId) ||
+        inScope(scope, result.transfer.toWarehouseId)
+      )
+    )
       throw new NotFoundException('Stock transfer not found');
     return result;
   }
@@ -115,6 +125,7 @@ export class StockTransfersService {
       farmId,
       user,
     );
+    assertInScope(writer.scope, input.fromWarehouseId, input.toWarehouseId);
     const member = writer.memberId;
     const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
@@ -177,11 +188,17 @@ export class StockTransfersService {
     const numbering = numberingOptionChanges(input, writer);
     await this.databaseService.db.transaction(async (tx) => {
       const cur = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, cur.createdByMemberId);
+      assertOwnDocument(
+        writer,
+        cur.createdByMemberId,
+        cur.fromWarehouseId,
+        cur.toWarehouseId,
+      );
       if (cur.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT transfers can be edited');
       const from = input.fromWarehouseId ?? cur.fromWarehouseId;
       const to = input.toWarehouseId ?? cur.toWarehouseId;
+      assertInScope(writer.scope, from, to);
       if (from === to)
         throw new BadRequestException(
           'Source and destination warehouses must differ',
@@ -244,7 +261,12 @@ export class StockTransfersService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, row.createdByMemberId);
+      assertOwnDocument(
+        writer,
+        row.createdByMemberId,
+        row.fromWarehouseId,
+        row.toWarehouseId,
+      );
       if (row.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT transfers can be cancelled');
       await tx
@@ -276,7 +298,12 @@ export class StockTransfersService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, row.createdByMemberId);
+      assertOwnDocument(
+        writer,
+        row.createdByMemberId,
+        row.fromWarehouseId,
+        row.toWarehouseId,
+      );
       if (row.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT transfers can be submitted');
       const [line] = await tx
@@ -310,6 +337,7 @@ export class StockTransfersService {
         tx,
         this.notification(row, 'PENDING_APPROVAL'),
         writer.memberId,
+        row.fromWarehouseId,
       );
     });
     return this.withItems(id, farmId);
@@ -320,17 +348,19 @@ export class StockTransfersService {
     user: string,
     rejectionReason: string,
   ) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-      WAREHOUSE_MANAGE_ROLES,
-    );
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
     await this.databaseService.db.transaction(async (tx) => {
       await this.hooks.run('lock', tx, id);
       const row = await this.only(id, farmId, tx, true);
+      assertInScope(scope, row.fromWarehouseId);
       if (row.status !== 'PENDING_APPROVAL')
         throw new ConflictException(
           'Only PENDING_APPROVAL transfers can be rejected',
@@ -362,15 +392,17 @@ export class StockTransfersService {
     return this.withItems(id, farmId);
   }
   async confirm(id: string, farmId: string, user: string) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-      WAREHOUSE_MANAGE_ROLES,
-    );
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
       await this.hooks.run('lock', tx, id);
       const row = await this.only(id, farmId, tx, true);
+      assertInScope(scope, row.fromWarehouseId);
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(row.status))
         throw new ConflictException(

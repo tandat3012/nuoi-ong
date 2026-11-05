@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useAuthContext } from '@/features/auth/context/auth-context';
+import { useFarmMembership } from '@/features/auth';
 import { useWarehouses } from '../hooks/use-warehouses';
 import { WarehouseDetail } from './warehouse-detail';
 import { WarehouseFilterToolbar } from './warehouse-filter-toolbar';
@@ -52,6 +53,7 @@ export function WarehousesPage() {
 
 function FarmWarehousesPage() {
   const warehouse = useWarehouses();
+  const { canManageFarm } = useFarmMembership();
   const {
     farmName,
     canWrite,
@@ -229,6 +231,7 @@ function FarmWarehousesPage() {
               warehouses={warehouses}
               filters={filters}
               canWrite={canWrite}
+              limitedToAssigned={!canManageFarm}
               isLoading={isLoading}
               errorMessage={errorMessage}
               onStartCreate={onStartCreate}

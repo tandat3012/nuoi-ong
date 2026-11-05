@@ -10,6 +10,8 @@ import {
   STORE_MANAGE_ROLES,
   hasAnyRole,
 } from '../auth/farm-access/farm-role-groups';
+import { assetInScope } from '../assets/asset-warehouse';
+import type { WarehouseScope } from '../warehouses/warehouse-scope';
 import {
   MOVE_KINDS,
   type LedgerMove,
@@ -93,13 +95,28 @@ const rangeEnd = (dateTo: string) =>
   sql`((${dateTo}::date + 1)::timestamp AT TIME ZONE ${TZ})`;
 const round3 = (value: number) => String(Math.round(value * 1000) / 1000);
 
+/** `AND column IN (...)` for a limited caller; empty for no limit. */
+const scopeFilter = (column: string, scope: WarehouseScope) =>
+  scope === null
+    ? sql``
+    : scope.length
+      ? sql`AND ${sql.raw(column)} IN ${scope}`
+      : sql`AND FALSE`;
+
+/** One selected warehouse, else the caller's warehouses, else every warehouse. */
+const inWarehouses =
+  (warehouseId: string | undefined, scope: WarehouseScope) => (id: string) =>
+    warehouseId ? id === warehouseId : scope === null || scope.includes(id);
+
 @Injectable()
 export class DashboardService {
   constructor(private readonly databaseService: DatabaseService) {}
 
+  /** `scope` limits stock figures to the caller's warehouses (null = whole farm). */
   async summary(
     farmId: string,
     roleCodes: string[],
+    scope: WarehouseScope = null,
   ): Promise<DashboardSummary> {
     const today = sql`(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`;
     const result = await this.databaseService.db.execute<
@@ -108,7 +125,7 @@ export class DashboardService {
       WITH stock AS (
         SELECT item_id, SUM(quantity_on_hand) AS quantity
         FROM inventory_balances
-        WHERE farm_id = ${farmId}
+        WHERE farm_id = ${farmId} ${scopeFilter('warehouse_id', scope)}
         GROUP BY item_id
       ), latest_receipt AS (
         -- Unit price 0 is the column default, so it means "not priced".
@@ -132,6 +149,7 @@ export class DashboardService {
         SELECT DISTINCT l.id, l.expiry_date
         FROM inventory_lots l
         JOIN inventory_balances b ON b.lot_id = l.id AND b.quantity_on_hand > 0
+          ${scopeFilter('b.warehouse_id', scope)}
         WHERE l.farm_id = ${farmId} AND l.expiry_date IS NOT NULL
       )
       SELECT
@@ -151,9 +169,11 @@ export class DashboardService {
         (SELECT count(*)::int FROM lot_stock
           WHERE expiry_date < ${today}) AS "expiredLots",
         (SELECT count(*)::int FROM assets
-          WHERE farm_id = ${farmId} AND status = 'MAINTENANCE') AS "assetsInMaintenance",
+          WHERE farm_id = ${farmId} AND status = 'MAINTENANCE'
+            ${scope === null ? sql`` : sql`AND ${assetInScope(sql.raw('assets.id'), scope)}`}) AS "assetsInMaintenance",
         (SELECT count(*)::int FROM inventory_adjustments
-          WHERE farm_id = ${farmId} AND status = 'PENDING_APPROVAL') AS "pendingAdjustments",
+          WHERE farm_id = ${farmId} AND status = 'PENDING_APPROVAL'
+            ${scopeFilter('warehouse_id', scope)}) AS "pendingAdjustments",
         (SELECT count(*)::int FROM store_orders
           WHERE farm_id = ${farmId}
             AND created_at >= (${today}::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS "ordersToday",
@@ -188,6 +208,7 @@ export class DashboardService {
     dateFrom: string,
     dateTo: string,
     warehouseId?: string,
+    scope: WarehouseScope = null,
   ) {
     const granularity = granularityFor(dateFrom, dateTo);
     await this.assertWarehouse(farmId, warehouseId);
@@ -198,7 +219,14 @@ export class DashboardService {
     const bucket = (column: string) =>
       sql`date_trunc(${unit}, ${sql.raw(column)} AT TIME ZONE ${TZ})::date`;
     const inWarehouse = (column: string) =>
-      warehouseId ? sql`AND ${sql.raw(column)} = ${warehouseId}` : sql``;
+      warehouseId
+        ? sql`AND ${sql.raw(column)} = ${warehouseId}`
+        : scopeFilter(column, scope);
+    // A limited caller sees maintenance of their warehouses' assets only.
+    const maintenanceInScope =
+      scope === null || warehouseId
+        ? sql``
+        : sql`AND ${assetInScope(sql.raw('m.asset_id'), scope)}`;
 
     const [ledger, result] = await Promise.all([
       this.ledger(farmId, dateFrom, dateTo, granularity),
@@ -236,6 +264,7 @@ export class DashboardService {
           FROM maintenance_records m
           WHERE m.farm_id = ${farmId}
             AND m.completed_at >= ${start} AND m.completed_at < ${end}
+            ${maintenanceInScope}
           GROUP BY 1
         )
         SELECT to_char(p.period, 'YYYY-MM-DD') AS "period",
@@ -250,12 +279,24 @@ export class DashboardService {
       `),
     ]);
 
+    const counted = inWarehouses(warehouseId, scope);
+    // Transfers count when they cross the edge of the warehouses shown, so never for the whole farm.
+    const transferEnds = new Map<string, string[]>();
+    for (const move of ledger)
+      if (move.transferKey)
+        transferEnds.set(move.transferKey, [
+          ...(transferEnds.get(move.transferKey) ?? []),
+          move.warehouseId,
+        ]);
+    const crossesEdge = (move: Ledger[number]) =>
+      (transferEnds.get(move.transferKey!) ?? []).some((id) => !counted(id));
     const directions: Partial<Record<MoveKind, 'in' | 'out'>> = {
       receipt: 'in',
       adjustmentIn: 'in',
       issue: 'out',
       adjustmentOut: 'out',
-      ...(warehouseId && { transferIn: 'in', transferOut: 'out' }),
+      transferIn: 'in',
+      transferOut: 'out',
     };
     const stock = new Map<
       string,
@@ -265,8 +306,8 @@ export class DashboardService {
     const valued = valueMoves(ledger);
     ledger.forEach((move, index) => {
       const direction = directions[move.kind];
-      if (!move.period || !direction) return;
-      if (warehouseId && move.warehouseId !== warehouseId) return;
+      if (!move.period || !direction || !counted(move.warehouseId)) return;
+      if (move.transferKey && !crossesEdge(move)) return;
       let period = stock.get(move.period);
       if (!period) {
         period = {
@@ -307,6 +348,7 @@ export class DashboardService {
     dateFrom: string,
     dateTo: string,
     warehouseId?: string,
+    scope: WarehouseScope = null,
   ): Promise<{ rows: StockReportRow[] }> {
     granularityFor(dateFrom, dateTo);
     await this.assertWarehouse(farmId, warehouseId);
@@ -346,8 +388,9 @@ export class DashboardService {
       }
     >();
     const valued = valueMoves(ledger);
+    const shown = inWarehouses(warehouseId, scope);
     ledger.forEach((move, index) => {
-      if (warehouseId && move.warehouseId !== warehouseId) return;
+      if (!shown(move.warehouseId)) return;
       const key = `${move.warehouseId}:${move.itemId}`;
       let row = totals.get(key);
       if (!row) {

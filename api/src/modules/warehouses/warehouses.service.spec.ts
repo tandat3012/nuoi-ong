@@ -86,7 +86,7 @@ describe('WarehousesService', () => {
     ).resolves.toBe('member');
     await expect(
       service.assertDocumentWriter('farm', 'identity'),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       memberId: 'member',
       canApprove: true,
       isOwner: false,

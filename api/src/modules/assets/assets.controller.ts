@@ -208,6 +208,7 @@ export class AssetsController {
     description: 'Người dùng không có quyền truy cập trang trại.',
   })
   listAssets(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmIdValue?: string,
     @Query('page') pageValue?: string,
     @Query('pageSize') pageSizeValue?: string,
@@ -219,6 +220,7 @@ export class AssetsController {
   ) {
     return this.assetsService.listAssets({
       farmId: requireUuid(farmIdValue, 'farmId'),
+      clerkUserId: auth.clerkUserId,
       ...parsePagination(pageValue, pageSizeValue),
       search: normalizeSearch(searchValue),
       status: parseOptionalEnum(statusValue, assetStatus.enumValues, 'status'),
@@ -260,6 +262,7 @@ export class AssetsController {
     description: 'Người dùng không có quyền truy cập trang trại.',
   })
   async getAssetByCode(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('assetCode') assetCode: string,
     @Query('farmId') farmIdValue?: string,
   ) {
@@ -271,6 +274,7 @@ export class AssetsController {
       data: await this.assetsService.getAssetByCode(
         assetCode,
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
       ),
     };
   }
@@ -296,6 +300,7 @@ export class AssetsController {
     description: 'Người dùng không có quyền truy cập trang trại.',
   })
   async getAssetByQr(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('qrToken') qrTokenValue: string,
     @Query('farmId') farmIdValue?: string,
   ) {
@@ -303,6 +308,7 @@ export class AssetsController {
       data: await this.assetsService.getAssetByQr(
         requireUuid(qrTokenValue, 'qrToken'),
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
       ),
     };
   }
@@ -602,6 +608,7 @@ export class AssetsController {
     description: 'Người dùng không có quyền truy cập trang trại.',
   })
   async getAsset(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
   ) {
@@ -609,6 +616,7 @@ export class AssetsController {
       data: await this.assetsService.getAsset(
         requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
       ),
     };
   }
