@@ -28,6 +28,22 @@ import {
 } from '../auth/farm-access/farm-role-groups';
 import type { AuthRequest } from '../auth/clerk/types/auth-request.type';
 import { DashboardService, TIMESERIES_MAX_DAYS } from './dashboard.service';
+import { MOVE_KINDS } from './stock-valuation';
+
+function requiredRange(dateFrom?: string, dateTo?: string) {
+  const range = parseDateRange(dateFrom, dateTo);
+  if (!range.dateFrom || !range.dateTo)
+    throw new BadRequestException('dateFrom and dateTo are required');
+  return { dateFrom: range.dateFrom, dateTo: range.dateTo };
+}
+
+const amount = {
+  type: 'object',
+  properties: {
+    quantity: { type: 'string', example: '2.5' },
+    value: { type: 'string', example: '56250' },
+  },
+};
 
 // Null when the caller's roles do not cover that area (farm operations or store).
 const count = { type: 'integer', example: 0, nullable: true };
@@ -97,7 +113,7 @@ export class DashboardController {
     description: 'Một kho; bỏ trống = toàn trang trại.',
   })
   @ApiOkResponse({
-    description: `Gom theo ngày (≤31 ngày), tuần (≤92 ngày, bắt đầu thứ Hai) hoặc tháng; tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Nhập = phiếu nhập + điều chỉnh tăng; xuất = phiếu xuất + điều chỉnh giảm; chuyển kho chỉ tính khi chọn một kho; cấp phát/hoàn trả tài sản không tính. Giá trị (VND) theo giá nhập gần nhất tại thời điểm biến động. Chi phí bảo trì tính toàn trang trại theo ngày hoàn thành.`,
+    description: `Gom theo ngày (≤31 ngày), tuần (≤92 ngày, bắt đầu thứ Hai) hoặc tháng; tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Nhập = phiếu nhập + điều chỉnh tăng; xuất = phiếu xuất + điều chỉnh giảm; chuyển kho chỉ tính khi chọn một kho; cấp phát/hoàn trả tài sản không tính. Giá trị (VND) theo giá bình quân gia quyền di động của từng kho. Chi phí bảo trì tính toàn trang trại theo ngày hoàn thành.`,
     schema: {
       type: 'object',
       properties: {
@@ -141,11 +157,90 @@ export class DashboardController {
     @Query('dateTo') dateTo?: string,
     @Query('warehouseId') warehouseId?: string,
   ) {
-    const range = parseDateRange(dateFrom, dateTo);
-    if (!range.dateFrom || !range.dateTo)
-      throw new BadRequestException('dateFrom and dateTo are required');
+    const range = requiredRange(dateFrom, dateTo);
     return {
       data: await this.dashboardService.timeseries(
+        requireUuid(farmIdValue, 'farmId'),
+        range.dateFrom,
+        range.dateTo,
+        warehouseId ? requireUuid(warehouseId, 'warehouseId') : undefined,
+      ),
+    };
+  }
+
+  @Get('stock-report')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
+  @ApiOperation({ summary: 'Báo cáo nhập – xuất – tồn theo kỳ' })
+  @ApiFarmIdQuery()
+  @ApiQuery({ name: 'dateFrom', required: true, example: '2026-08-01' })
+  @ApiQuery({ name: 'dateTo', required: true, example: '2026-10-31' })
+  @ApiQuery({
+    name: 'warehouseId',
+    required: false,
+    description: 'Một kho; bỏ trống = mọi kho của trang trại.',
+  })
+  @ApiOkResponse({
+    description: `Mỗi dòng là một vật tư trong một kho (gộp các lô): tồn đầu kỳ, từng loại biến động trong kỳ và tồn cuối kỳ, số lượng và VND. Tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Giá trị theo giá bình quân gia quyền di động của từng kho; unpriced = có hàng chưa có giá (tính 0 đ). Bỏ các dòng không có tồn và không phát sinh.`,
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'object',
+          properties: {
+            rows: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  warehouseId: { type: 'string', format: 'uuid' },
+                  warehouseCode: { type: 'string' },
+                  warehouseName: { type: 'string' },
+                  itemId: { type: 'string', format: 'uuid' },
+                  itemCode: { type: 'string' },
+                  itemName: { type: 'string' },
+                  itemType: {
+                    type: 'string',
+                    enum: ['EQUIPMENT', 'TOOL', 'MATERIAL'],
+                  },
+                  trackingMode: {
+                    type: 'string',
+                    enum: ['QUANTITY', 'LOT', 'ASSET'],
+                  },
+                  unit: { type: 'string', example: 'kg' },
+                  opening: amount,
+                  closing: amount,
+                  moves: {
+                    type: 'object',
+                    properties: Object.fromEntries(
+                      MOVE_KINDS.map((kind) => [kind, amount]),
+                    ),
+                  },
+                  unpriced: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'farmId/warehouseId/ngày không hợp lệ hoặc quá 366 ngày.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho.',
+  })
+  @ApiNotFoundResponse({ description: 'Kho không thuộc trang trại.' })
+  async stockReport(
+    @Query('farmId') farmIdValue?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('warehouseId') warehouseId?: string,
+  ) {
+    const range = requiredRange(dateFrom, dateTo);
+    return {
+      data: await this.dashboardService.stockReport(
         requireUuid(farmIdValue, 'farmId'),
         range.dateFrom,
         range.dateTo,

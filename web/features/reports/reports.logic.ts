@@ -39,6 +39,12 @@ export function rangeError(dateFrom: string, dateTo: string) {
   return null;
 }
 
+/** YYYY-MM-DD as DD/MM/YYYY. */
+export function formatDay(date: string) {
+  const [year, month, day] = date.split("-");
+  return `${day}/${month}/${year}`;
+}
+
 export function periodLabel(period: string, granularity: Granularity) {
   const [year, month, day] = period.split("-");
   if (granularity === "month") return `${month}/${year}`;
