@@ -27,6 +27,8 @@ import {
   items,
   stockIssueItems,
   stockIssues,
+  stockTransferItems,
+  stockTransfers,
   storeCategories,
   storeProductImages,
   storeProducts,
@@ -202,14 +204,22 @@ export class StoreAdminService {
       WHERE ${inventoryBalances.itemId} = ${items.id}
         AND ${inventoryBalances.warehouseId} = ${warehouseId}
     )`;
-    const held = sql<string>`(
+    // Unapproved issues and outgoing transfers, as order confirmation counts them.
+    const held = sql<string>`((
       SELECT COALESCE(SUM(${stockIssueItems.quantity}), 0)
       FROM ${stockIssueItems}
       JOIN ${stockIssues} ON ${stockIssues.id} = ${stockIssueItems.stockIssueId}
       WHERE ${stockIssueItems.itemId} = ${items.id}
         AND ${stockIssues.warehouseId} = ${warehouseId}
         AND ${stockIssues.status} IN ('DRAFT', 'PENDING_APPROVAL')
-    )`;
+    ) + (
+      SELECT COALESCE(SUM(${stockTransferItems.quantity}), 0)
+      FROM ${stockTransferItems}
+      JOIN ${stockTransfers} ON ${stockTransfers.id} = ${stockTransferItems.stockTransferId}
+      WHERE ${stockTransferItems.itemId} = ${items.id}
+        AND ${stockTransfers.fromWarehouseId} = ${warehouseId}
+        AND ${stockTransfers.status} IN ('DRAFT', 'PENDING_APPROVAL')
+    ))`;
     const rows = await this.databaseService.db
       .select({
         productId: storeProducts.id,

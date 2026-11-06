@@ -475,7 +475,7 @@ function actionConfirmation(
   detail: OrderDetail,
 ) {
   if (action === "confirm")
-    return `Xác nhận đơn ${detail.order.code}? Nếu kho bán thiếu hàng, hệ thống tạo phiếu chuyển từ kho nguồn và đơn chuyển sang "Đang chuẩn bị hàng".`;
+    return `Xác nhận đơn ${detail.order.code}? Hệ thống giữ hàng ở kho bán; nếu kho bán thiếu, đơn không được xác nhận.`;
   if (action === "ship")
     return `Nhận giao đơn ${detail.order.code}? Bạn sẽ được ghi nhận là người giao.`;
   if (action === "complete")

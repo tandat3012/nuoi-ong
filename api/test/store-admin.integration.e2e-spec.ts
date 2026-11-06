@@ -289,6 +289,25 @@ describe('Store admin (migrated PostgreSQL)', () => {
         onHand: '10.000',
         available: '7.000',
       });
+      // A transfer out of the sales warehouse holds stock like an order does.
+      const [transfer] = await tx
+        .insert(schema.stockTransfers)
+        .values({
+          farmId: ids.farm,
+          fromWarehouseId: ids.warehouse,
+          toWarehouseId: internal,
+          createdByMemberId: memberId,
+        })
+        .returning();
+      await tx.insert(schema.stockTransferItems).values({
+        stockTransferId: transfer.id,
+        itemId: ids.item,
+        quantity: '2',
+      });
+      expect((await admin.salesStock(ids.farm)).rows[0]).toMatchObject({
+        held: '5.000',
+        available: '5.000',
+      });
       await admin.updateProductStatus(ids.farm, product.id, 'PUBLISHED');
       expect((await admin.salesStock(ids.farm)).rows[0].saleable).toBe(true);
       // Customers cannot see a variant whose unit is inactive.

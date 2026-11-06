@@ -240,9 +240,18 @@ test("tells staff to transfer stock into the sales warehouse when confirming fal
   const short = {
     status: 409,
     message: "Không đủ hàng cho Mật ong — Chai.",
-    details: { code: "INSUFFICIENT_STOCK" },
+    details: { code: "INSUFFICIENT_STOCK", message: "Không đủ hàng cho Mật ong — Chai." },
   };
   assert.match(confirmErrorMessage(short), /^Không đủ hàng cho Mật ong — Chai\. .*chuyển kho sang kho bán/);
+  // A body without a message never shows axios' English fallback.
+  assert.match(
+    confirmErrorMessage({
+      status: 409,
+      message: "Request failed with status code 409",
+      details: { code: "INSUFFICIENT_STOCK" },
+    }),
+    /^Kho bán không đủ hàng\. /,
+  );
   // Other failures keep the shared order messages.
   assert.equal(
     confirmErrorMessage({ status: 409, details: { code: "ORDER_CANCEL_NOT_ALLOWED" } }),

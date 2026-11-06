@@ -489,8 +489,13 @@ export class StoreOrdersService implements StockTransferHook {
         throw new ConflictException(
           'Only PENDING or PREPARING orders can be confirmed',
         );
-      // A legacy PREPARING order still waits for its top-up transfers.
-      if ((await this.pendingReplenishments(tx, id)).length > 0) return;
+      // A legacy order (before T06) still waits for its top-up transfers.
+      if ((await this.pendingReplenishments(tx, id)).length > 0)
+        throw new ConflictException({
+          code: 'REPLENISHMENT_PENDING',
+          message:
+            'Đơn đang chờ kho duyệt phiếu chuyển bổ sung đã tạo trước đây.',
+        });
       await this.fulfil(tx, order, memberId, true);
     });
     return this.staffGet(farmId, id);
@@ -660,7 +665,6 @@ export class StoreOrdersService implements StockTransferHook {
         tx,
         order,
         line,
-        order.warehouseId,
         quantityMillis(line.stockQuantity),
       );
       if (picked.remaining > 0n) {
@@ -1058,17 +1062,17 @@ export class StoreOrdersService implements StockTransferHook {
   }
 
   /**
-   * Up to `required` (in thousandths) of `line` that `warehouseId` can still
-   * give, net of unapproved issues and outgoing transfers already holding it.
-   * Assets are only ever taken from the order's sales warehouse.
+   * Up to `required` (in thousandths) of `line` that the order's sales
+   * warehouse can still give, net of unapproved issues and outgoing transfers
+   * already holding it.
    */
   private async pick(
     tx: Transaction,
     order: Order,
     line: OrderItem,
-    warehouseId: string,
     required: bigint,
   ) {
+    const { warehouseId } = order;
     type Pick = Omit<typeof stockIssueItems.$inferInsert, 'stockIssueId'>;
     const [item] = await tx
       .select({ trackingMode: items.trackingMode })
@@ -1103,8 +1107,6 @@ export class StoreOrdersService implements StockTransferHook {
         AND ${sameLot(stockTransferItems.lotId, lotId)}
     ), 0))`;
     if (item.trackingMode === 'ASSET') {
-      if (warehouseId !== order.warehouseId)
-        return { lines: [], remaining: required };
       if (required % 1000n !== 0n || required / 1000n > 1000n)
         throw new ConflictException('Invalid asset order quantity');
       const [balance] = await tx

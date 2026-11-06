@@ -17,6 +17,8 @@ import {
   maintenanceRecords,
   stockIssueItems,
   stockIssues,
+  stockTransferItems,
+  stockTransfers,
   storeCategories,
   storeProductImages,
   storeProducts,
@@ -497,16 +499,35 @@ export class CommerceService {
   }
 
   /**
-   * Stock of the `items` row in scope held by the farm's sales warehouse
-   * alone; other warehouses never count (D03).
+   * Stock of the `items` row in scope that the farm's sales warehouse alone
+   * can still give, net of what unapproved issues (confirmed orders) and
+   * outgoing transfers hold, as StoreOrdersService.pick() counts it (D03).
    */
   private itemStock({ warehouseId, farmId }: StoreWarehouse, required: SQL) {
     const today = new Date().toISOString().slice(0, 10);
+    // Held from balance row `b` (same item and lot).
+    const held = sql`(COALESCE((
+      SELECT SUM(ii.quantity)
+      FROM ${stockIssueItems} ii
+      JOIN ${stockIssues} si ON si.id = ii.stock_issue_id
+      WHERE si.warehouse_id = ${warehouseId}
+        AND si.status IN ('DRAFT', 'PENDING_APPROVAL')
+        AND ii.item_id = b.item_id
+        AND ii.lot_id IS NOT DISTINCT FROM b.lot_id
+    ), 0) + COALESCE((
+      SELECT SUM(ti.quantity)
+      FROM ${stockTransferItems} ti
+      JOIN ${stockTransfers} st ON st.id = ti.stock_transfer_id
+      WHERE st.from_warehouse_id = ${warehouseId}
+        AND st.status IN ('DRAFT', 'PENDING_APPROVAL')
+        AND ti.item_id = b.item_id
+        AND ti.lot_id IS NOT DISTINCT FROM b.lot_id
+    ), 0))`;
 
     return sql<boolean>`
     CASE ${items.trackingMode}
       WHEN 'QUANTITY' THEN (
-        SELECT COALESCE(SUM(b.quantity_on_hand), 0)
+        SELECT COALESCE(SUM(b.quantity_on_hand - ${held}), 0)
                >= ${required}
         FROM ${inventoryBalances} b
         WHERE b.item_id = ${items.id}
@@ -516,7 +537,7 @@ export class CommerceService {
       )
 
       WHEN 'LOT' THEN (
-        SELECT COALESCE(SUM(b.quantity_on_hand), 0)
+        SELECT COALESCE(SUM(GREATEST(b.quantity_on_hand - ${held}, 0)), 0)
                >= ${required}
         FROM ${inventoryBalances} b
         JOIN ${inventoryLots} l
@@ -540,7 +561,7 @@ export class CommerceService {
             AND b.farm_id = ${farmId}
             AND b.warehouse_id = ${warehouseId}
             AND b.lot_id IS NULL
-            AND b.quantity_on_hand >= ${required}
+            AND b.quantity_on_hand - ${held} >= ${required}
         )
         AND (
           SELECT COUNT(*) FROM ${assets}

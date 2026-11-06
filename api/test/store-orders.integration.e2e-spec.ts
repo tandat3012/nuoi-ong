@@ -530,6 +530,30 @@ describe('Store orders (migrated PostgreSQL)', () => {
       ).toEqual([]);
     }));
 
+  it('promises only sales stock not held by confirmed orders or outgoing transfers', () =>
+    inRollback(async (ctx) => {
+      const { ids, service, commerce, transfers, input } = ctx;
+      const label = async (quantity: number) =>
+        (await commerce.getProduct(ids.product, 'SOUTH', quantity)).variants[0]
+          .availability;
+      // 64 × 0.125 = 8 of the 10 held by a confirmed order; 2 are left.
+      const { order } = await service.create(ids.customer, input(64));
+      await service.confirm(ids.farm, ids.staff, order.id);
+      expect(await label(16)).toBe('AVAILABLE');
+      expect(await label(24)).toBe('INSUFFICIENT_IN_REGION');
+      await expect(
+        service.create(ids.customer, input(24)),
+      ).rejects.toMatchObject({ response: { code: 'INSUFFICIENT_STOCK' } });
+      // A draft transfer of 1 out of the sales warehouse holds stock too.
+      await transfers.create(ids.farm, ids.admin, {
+        fromWarehouseId: ids.warehouse,
+        toWarehouseId: ids.otherWarehouse,
+        items: [{ itemId: ids.item, quantity: '1' }],
+      });
+      expect(await label(16)).toBe('INSUFFICIENT_IN_REGION');
+      expect(await label(8)).toBe('AVAILABLE');
+    }));
+
   /**
    * A PREPARING order from before T06: the sales warehouse holds 8 of the 10
    * it needs and submitted top-up transfers bring the rest from sources.
@@ -579,8 +603,14 @@ describe('Store orders (migrated PostgreSQL)', () => {
     inRollback(async (ctx, tx) => {
       const { ids, service, transfers } = ctx;
       const { order, transferIds } = await legacyPreparing(ctx, tx, ['2']);
-      // Confirming while the transfer is pending changes nothing.
-      const waiting = await service.confirm(ids.farm, ids.staff, order.id);
+      // Confirming while the transfer is pending is refused and changes nothing.
+      await expect(
+        service.confirm(ids.farm, ids.staff, order.id),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'REPLENISHMENT_PENDING' },
+      });
+      const waiting = await service.staffGet(ids.farm, order.id);
       expect(waiting.order.status).toBe('PREPARING');
       expect(waiting.replenishments).toHaveLength(1);
       await expect(
