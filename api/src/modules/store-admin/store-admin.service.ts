@@ -22,6 +22,7 @@ import { PaginationParams } from '../../common/query-params';
 import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 import { DatabaseService } from '../../db/database.service';
 import {
+  auditLogs,
   inventoryBalances,
   items,
   stockIssueItems,
@@ -103,27 +104,61 @@ export class StoreAdminService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  /** Replaces the store-wide delivery fees; placed orders keep the fee they were created with. */
-  async updateShippingFees(input: UpdateStoreShippingFeesDto) {
-    const updatedAt = new Date().toISOString();
-    const rows = await this.databaseService.db
-      .insert(storeShippingFees)
-      .values(
-        storeRegion.enumValues.map((region) => ({
-          region,
-          fee: input[region],
-          updatedAt,
-        })),
-      )
-      .onConflictDoUpdate({
-        target: storeShippingFees.region,
-        set: { fee: sql`excluded.fee`, updatedAt },
-      })
-      .returning({
-        region: storeShippingFees.region,
-        fee: storeShippingFees.fee,
+  /**
+   * Replaces the store-wide delivery fees; placed orders keep the fee they were
+   * created with. The change is audited on the farm the admin acted from.
+   */
+  async updateShippingFees(
+    farmId: string,
+    clerkUserId: string,
+    input: UpdateStoreShippingFeesDto,
+  ) {
+    return this.databaseService.db.transaction(async (tx) => {
+      const fees = (rows: { region: string; fee: string }[]) =>
+        Object.fromEntries(rows.map(({ region, fee }) => [region, fee]));
+      // Row locks miss regions without a row yet; a table lock serialises saves
+      // (checkout's plain reads still go through) so the audit's old fees are right.
+      await tx.execute(
+        sql`LOCK TABLE ${storeShippingFees} IN SHARE ROW EXCLUSIVE MODE`,
+      );
+      const before = fees(
+        await tx
+          .select({
+            region: storeShippingFees.region,
+            fee: storeShippingFees.fee,
+          })
+          .from(storeShippingFees),
+      );
+      const updatedAt = new Date().toISOString();
+      const after = fees(
+        await tx
+          .insert(storeShippingFees)
+          .values(
+            storeRegion.enumValues.map((region) => ({
+              region,
+              fee: input[region],
+              updatedAt,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: storeShippingFees.region,
+            set: { fee: sql`excluded.fee`, updatedAt },
+          })
+          .returning({
+            region: storeShippingFees.region,
+            fee: storeShippingFees.fee,
+          }),
+      );
+      await tx.insert(auditLogs).values({
+        farmId,
+        userId: sql`(SELECT id FROM users WHERE auth_provider_user_id = ${clerkUserId})`,
+        action: 'SHIPPING_FEES_UPDATED',
+        entityType: 'STORE_SHIPPING_FEES',
+        oldData: before,
+        newData: after,
       });
-    return Object.fromEntries(rows.map(({ region, fee }) => [region, fee]));
+      return after;
+    });
   }
 
   /** Online sales settings of one farm; null fields until the owner sets them up. */

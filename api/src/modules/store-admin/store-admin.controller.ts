@@ -40,6 +40,7 @@ import {
   ApiUuidQuery,
 } from '../../common/swagger-docs';
 import { storeProductStatus } from '../../db/schema';
+import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import {
@@ -73,7 +74,7 @@ import {
   UpdateStoreShippingFeesDto,
 } from './dto/store-settings.dto';
 
-// The catalog is shared by every farm, so only system admins edit it.
+// The catalog and delivery fees are shared by every farm, so only ADMIN edits them.
 const CATALOG_ROLE = 'ADMIN';
 
 @Controller('store-admin')
@@ -84,7 +85,7 @@ const CATALOG_ROLE = 'ADMIN';
 @ApiFarmIdQuery()
 @ApiForbiddenResponse({
   description:
-    'Xem catalog: quản trị viên, chủ trại, quản lý cửa hàng. Sửa catalog chung: chỉ ADMIN. Cấu hình bán của trại: ADMIN hoặc chủ trại.',
+    'Xem catalog: quản trị viên, chủ trại, quản lý cửa hàng. Sửa catalog và phí giao hàng chung: chỉ ADMIN. Cấu hình bán của trại: ADMIN hoặc chủ trại.',
 })
 export class StoreAdminController {
   constructor(private readonly storeAdminService: StoreAdminService) {}
@@ -328,15 +329,23 @@ export class StoreAdminController {
   }
 
   @Put('shipping-fees')
-  @FarmRoles(...FARM_ADMIN_ROLES)
+  @FarmRoles(CATALOG_ROLE)
   @ApiOperation({
     summary: 'Sửa phí giao hàng theo miền (dùng chung mọi trại)',
     description:
-      'ADMIN hoặc chủ trại (FARM_OWNER). Áp dụng cho đơn đặt sau khi lưu; đơn đã đặt giữ phí cũ. Đọc phí hiện tại qua GET /store/shipping-fees.',
+      'Chỉ ADMIN. Áp dụng cho đơn đặt sau khi lưu; đơn đã đặt giữ phí cũ. Mỗi lần lưu ghi một dòng lịch sử (SHIPPING_FEES_UPDATED) vào trại đang thao tác. Đọc phí hiện tại qua GET /store/shipping-fees.',
   })
-  async updateShippingFees(@Body() input: UpdateStoreShippingFeesDto) {
+  async updateShippingFees(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Body() input: UpdateStoreShippingFeesDto,
+  ) {
     return {
-      data: await this.storeAdminService.updateShippingFees(input),
+      data: await this.storeAdminService.updateShippingFees(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input,
+      ),
     };
   }
 
