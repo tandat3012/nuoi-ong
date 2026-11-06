@@ -76,7 +76,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
     }));
 
   it('adds the fee of the delivery region and rejects a fee the customer did not see', () =>
-    inRollback(async ({ ids, service, input, database }) => {
+    inRollback(async ({ ids, service, input, database }, tx) => {
       const admin = new StoreAdminService(
         database,
         {} as unknown as CloudinaryService,
@@ -98,12 +98,31 @@ describe('Store orders (migrated PostgreSQL)', () => {
         total: '585000',
       });
       expect(
-        await admin.updateShippingFees({
+        await admin.updateShippingFees(ids.farm, ids.admin, {
           NORTH: '0',
           CENTRAL: '15000',
           SOUTH: '45000',
         }),
       ).toEqual({ NORTH: '0', CENTRAL: '15000', SOUTH: '45000' });
+      // AC29: every fee change is audited with who changed what.
+      expect(
+        await tx
+          .select({
+            farmId: schema.auditLogs.farmId,
+            userId: schema.auditLogs.userId,
+            oldData: schema.auditLogs.oldData,
+            newData: schema.auditLogs.newData,
+          })
+          .from(schema.auditLogs)
+          .where(eq(schema.auditLogs.action, 'SHIPPING_FEES_UPDATED')),
+      ).toEqual([
+        {
+          farmId: ids.farm,
+          userId: ids.admin,
+          oldData: { NORTH: '40000', CENTRAL: '20000', SOUTH: '30000' },
+          newData: { NORTH: '0', CENTRAL: '15000', SOUTH: '45000' },
+        },
+      ]);
       const next = await service.create(ids.customer, input());
       expect(next.order).toMatchObject({
         shippingFee: '45000',

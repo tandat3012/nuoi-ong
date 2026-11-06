@@ -10,6 +10,7 @@ export const HISTORY_ENTITY_LABELS: Record<string, string> = {
   ASSET: "Tài sản",
   PERSONNEL: "Nhân sự",
   STORE_ORDER: "Đơn hàng",
+  STORE_SHIPPING_FEES: "Phí giao hàng",
 };
 
 export const HISTORY_ACTION_LABELS: Record<string, string> = {
@@ -37,6 +38,7 @@ export const HISTORY_ACTION_LABELS: Record<string, string> = {
   DELIVERY_CLAIM: "Nhận giao đơn",
   DELIVERY_RETURN: "Trả đơn giao",
   DELIVERY_COMPLETE: "Giao xong đơn",
+  SHIPPING_FEES_UPDATED: "Sửa phí giao hàng",
   PERSONNEL_ADDED: "Thêm nhân sự",
   PERSONNEL_PROFILE_CHANGED: "Cập nhật hồ sơ công việc",
   PERSONNEL_ROLES_CHANGED: "Thay đổi quyền",
@@ -45,6 +47,9 @@ export const HISTORY_ACTION_LABELS: Record<string, string> = {
 };
 
 export const HISTORY_FIELD_LABELS: Record<string, string> = {
+  NORTH: "Phí miền Bắc",
+  CENTRAL: "Phí miền Trung",
+  SOUTH: "Phí miền Nam",
   status: "Trạng thái",
   note: "Ghi chú",
   rejectionReason: "Lý do từ chối",
