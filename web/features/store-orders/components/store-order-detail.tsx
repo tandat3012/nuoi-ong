@@ -254,6 +254,16 @@ export function StoreOrderDetail({
                     ? `Đã thanh toán ${new Date(detail.order.paidAt).toLocaleString("vi-VN")}`
                     : "Chưa ghi nhận thanh toán"}
                 </p>
+                {detail.order.status === "COMPLETED" && (
+                  <p>
+                    <Link
+                      className="text-primary underline"
+                      href={`/store-warranties?orderId=${detail.order.id}`}
+                    >
+                      Tiếp nhận bảo hành / sửa chữa
+                    </Link>
+                  </p>
+                )}
                 {detail.order.paymentMethod === "COD" &&
                   detail.order.status === "COMPLETED" && (
                     <p>

@@ -11,6 +11,7 @@ export const HISTORY_ENTITY_LABELS: Record<string, string> = {
   PERSONNEL: "Nhân sự",
   STORE_ORDER: "Đơn hàng",
   STORE_SHIPPING_FEES: "Phí giao hàng",
+  STORE_WARRANTY: "Yêu cầu bảo hành",
 };
 
 export const HISTORY_ACTION_LABELS: Record<string, string> = {
@@ -47,6 +48,16 @@ export const HISTORY_ACTION_LABELS: Record<string, string> = {
   RETURN_RECEIVED: "Kho nhận hàng trả",
   RETURN_REJECTED: "Kho từ chối hàng trả",
   SHIPPING_FEES_UPDATED: "Sửa phí giao hàng",
+  WARRANTY_CREATE: "Tiếp nhận bảo hành",
+  WARRANTY_SEND: "Gửi đối tác sửa",
+  WARRANTY_QUOTE: "Ghi báo giá sửa",
+  WARRANTY_DECIDE: "Ghi quyết định của khách",
+  WARRANTY_START_REPAIR: "Bắt đầu sửa",
+  WARRANTY_BACK: "Đối tác trả về",
+  WARRANTY_RETURN: "Trả sản phẩm cho khách",
+  WARRANTY_EXCHANGE: "Tạo phiếu xuất đổi hàng",
+  WARRANTY_CLOSE: "Đóng yêu cầu đổi hàng",
+  WARRANTY_CANCEL: "Hủy yêu cầu bảo hành",
   PERSONNEL_ADDED: "Thêm nhân sự",
   PERSONNEL_PROFILE_CHANGED: "Cập nhật hồ sơ công việc",
   PERSONNEL_ROLES_CHANGED: "Thay đổi quyền",

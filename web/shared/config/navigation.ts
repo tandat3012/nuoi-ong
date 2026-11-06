@@ -22,6 +22,7 @@ import {
   PackageCheck,
   Truck,
   ChartColumnBig,
+  ShieldCheck,
 } from 'lucide-react';
 
 export type NavigationItem = {
@@ -85,6 +86,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
       { href: '/store-stock', label: 'Tồn bán hàng', icon: PackageCheck, requires: 'manageStore', storeOnly: true, description: 'Tồn vật lý, đang giữ và khả dụng tại kho bán.' },
       { href: '/store-orders', label: 'Đơn hàng', icon: ShoppingCart, requires: 'manageStore', storeOnly: true, description: 'Xác nhận đơn, theo dõi giao hàng và thanh toán.' },
       { href: '/deliveries', label: 'Giao hàng', icon: Truck, requires: 'deliver', storeOnly: true, description: 'Nhận đơn đã xác nhận, giao cho khách và báo giao xong.' },
+      { href: '/store-warranties', label: 'Bảo hành', icon: ShieldCheck, requires: 'manageStore', storeOnly: true, description: 'Tiếp nhận bảo hành, sửa có phí và đổi hàng cho thiết bị khách đã mua.' },
       { href: '/store-payments', label: 'Thanh toán', icon: Landmark, requires: 'manageStore', storeOnly: true, description: 'Giao dịch chuyển khoản VietQR và đối soát đơn.' },
       { href: '/store-reports', label: 'Báo cáo bán hàng', icon: ChartNoAxesCombined, requires: 'manageStore', storeOnly: true, description: 'Doanh thu, sản phẩm và khách hàng.' },
     ],

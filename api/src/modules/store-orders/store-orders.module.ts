@@ -5,10 +5,16 @@ import { WarehousesModule } from '../warehouses/warehouses.module';
 import { CustomerOrdersController } from './customer-orders.controller';
 import { StoreOrdersController } from './store-orders.controller';
 import { StoreOrdersService } from './store-orders.service';
+import { StoreWarrantiesController } from './store-warranties.controller';
+import { StoreWarrantiesService } from './store-warranties.service';
 
 @Module({
   imports: [AuthModule, CommerceModule, WarehousesModule],
-  controllers: [CustomerOrdersController, StoreOrdersController],
-  providers: [StoreOrdersService],
+  controllers: [
+    CustomerOrdersController,
+    StoreOrdersController,
+    StoreWarrantiesController,
+  ],
+  providers: [StoreOrdersService, StoreWarrantiesService],
 })
 export class StoreOrdersModule {}
