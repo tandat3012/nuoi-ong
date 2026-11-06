@@ -612,7 +612,12 @@ export class StoreOrdersService implements StockTransferHook {
     return row?.order;
   }
 
-  private pendingReplenishments(tx: Transaction, orderId: string) {
+  /** Top-ups not yet received; `cancellable` keeps only those not dispatched. */
+  private pendingReplenishments(
+    tx: Transaction,
+    orderId: string,
+    cancellable = false,
+  ) {
     return tx
       .select({ transfer: stockTransfers })
       .from(storeOrderReplenishments)
@@ -623,7 +628,12 @@ export class StoreOrdersService implements StockTransferHook {
       .where(
         and(
           eq(storeOrderReplenishments.orderId, orderId),
-          inArray(stockTransfers.status, ['DRAFT', 'PENDING_APPROVAL']),
+          inArray(
+            stockTransfers.status,
+            cancellable
+              ? ['DRAFT', 'PENDING_APPROVAL']
+              : ['DRAFT', 'PENDING_APPROVAL', 'IN_TRANSIT'],
+          ),
         ),
       )
       .orderBy(asc(stockTransfers.id))
@@ -636,7 +646,12 @@ export class StoreOrdersService implements StockTransferHook {
     memberId: string | undefined,
   ) {
     const now = new Date().toISOString();
-    for (const { transfer } of await this.pendingReplenishments(tx, orderId)) {
+    // Goods already on the way still arrive in the sales warehouse.
+    for (const { transfer } of await this.pendingReplenishments(
+      tx,
+      orderId,
+      true,
+    )) {
       await tx
         .update(stockTransfers)
         .set({ status: 'CANCELLED', cancelledAt: now, updatedAt: now })

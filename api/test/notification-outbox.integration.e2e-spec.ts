@@ -136,7 +136,11 @@ describe('Document push outbox and bounded device catch-up', () => {
         ).transfer.id,
       submit: (id: string, actor: Actor = 'creator') =>
         transfers.submit(id, farm, clerk(actor)),
-      confirm: (id: string) => transfers.confirm(id, farm, clerk('owner')),
+      // Dispatch, then the destination receives: the creator hears on arrival.
+      confirm: async (id: string) => {
+        await transfers.confirm(id, farm, clerk('owner'));
+        return transfers.receive(id, farm, clerk('owner'));
+      },
       reject: (id: string) =>
         transfers.reject(id, farm, clerk('owner'), 'Kiểm tra lại số lượng'),
     },
@@ -552,6 +556,28 @@ describe('Document push outbox and bounded device catch-up', () => {
       ).toHaveLength(1);
     },
   );
+
+  it('STOCK_TRANSFER: dispatch pushes "in transit" to the destination managers, not the dispatcher', async () => {
+    await register('owner');
+    await register('admin');
+    const transfer = cases.find((c) => c.type === 'STOCK_TRANSFER')!;
+    const id = await transfer.create();
+    await transfer.submit(id);
+    await transfers.confirm(id, farm, clerk('owner'));
+    const transit = await db
+      .select()
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.entityId, id),
+          eq(schema.notifications.type, 'STOCK_TRANSFER_IN_TRANSIT'),
+        ),
+      );
+    expect(transit.map((row) => row.userId)).toEqual([actors.admin.id]);
+    expect(
+      (await jobs()).filter((row) => row.notification_id === transit[0].id),
+    ).toHaveLength(1);
+  });
 
   it.each(cases)(
     '$type: rejection includes the reason and leaves inventory unchanged',

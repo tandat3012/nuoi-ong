@@ -34,6 +34,8 @@ import {
 import { shouldReloadAfterFailure } from "@/features/stock-documents/stock-document.logic";
 import { useNotificationRefresh } from "@/features/notifications";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
+import { canReceiveTransfer } from "../transfer-receive.logic";
+import { TransferReceivePanel } from "./transfer-receive-panel";
 
 type Warehouse = { id: string; code: string; name: string };
 type Item = {
@@ -50,7 +52,13 @@ type Transfer = {
   fromWarehouseId: string;
   toWarehouseId: string;
   transferDate: string;
-  status: "DRAFT" | "PENDING_APPROVAL" | "CONFIRMED" | "REJECTED" | "CANCELLED";
+  status:
+    | "DRAFT"
+    | "PENDING_APPROVAL"
+    | "IN_TRANSIT"
+    | "CONFIRMED"
+    | "REJECTED"
+    | "CANCELLED";
   note: string | null;
   createdByMemberId: string | null;
   rejectionReason?: string | null;
@@ -63,7 +71,8 @@ type TransferResponse = {
 const STATUS_LABELS: Record<Transfer["status"], string> = {
   DRAFT: "Nháp",
   PENDING_APPROVAL: "Chờ duyệt",
-  CONFIRMED: "Đã xác nhận",
+  IN_TRANSIT: "Đang chuyển",
+  CONFIRMED: "Đã nhận hàng",
   REJECTED: "Đã từ chối",
   CANCELLED: "Đã hủy",
 };
@@ -118,6 +127,7 @@ function FarmTransfersScreen() {
     | "ALL"
     | "DRAFT"
     | "PENDING_APPROVAL"
+    | "IN_TRANSIT"
     | "CONFIRMED"
     | "REJECTED"
     | "CANCELLED"
@@ -240,6 +250,7 @@ function FarmTransfersScreen() {
 
   // Keep after the other state hooks: stock-document-interaction.test.mjs seeds state by call order.
   const [numbering, setNumbering] = useState(numberingDraft);
+  const [receiving, setReceiving] = useState<Transfer | null>(null);
   async function createTransfer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const numberingOptions = isOwner ? numberingOptionsPayload(numbering) : {};
@@ -319,7 +330,7 @@ function FarmTransfersScreen() {
     <div className="space-y-6">
       <PageHeader
         title="Điều chuyển kho"
-        description="Tạo phiếu DRAFT, xác nhận để giảm kho nguồn và tăng kho đích."
+        description="Kho nguồn xác nhận xuất (trừ tồn nguồn, hàng sang Đang chuyển); kho đích nhập số thực nhận mới được cộng tồn."
       />
       {canWrite && (
         <section className="rounded-xl border bg-card p-5">
@@ -460,6 +471,20 @@ function FarmTransfersScreen() {
           {actionError}
         </p>
       )}
+      {receiving && (
+        <TransferReceivePanel
+          key={receiving.id}
+          farmId={selectedFarmId}
+          id={receiving.id}
+          code={documentCodeLabel(receiving.transferCode, receiving.id)}
+          lock={lock}
+          onReceived={() => {
+            setReceiving(null);
+            reloadList();
+          }}
+          onClose={() => setReceiving(null)}
+        />
+      )}
       {openId && (
         <StockDocumentLines
           key={openId}
@@ -562,7 +587,15 @@ function FarmTransfersScreen() {
                           void changeTransfer(transfer.id, "confirm")
                         }
                       >
-                        Xác nhận
+                        Xác nhận xuất
+                      </Button>
+                    )}
+                    {canReceiveTransfer(viewer.roles, transfer) && (
+                      <Button
+                        disabled={lock.locked}
+                        onClick={() => setReceiving(transfer)}
+                      >
+                        Nhận hàng
                       </Button>
                     )}
                     {actions.cancel && (

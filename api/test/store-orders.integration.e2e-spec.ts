@@ -618,7 +618,13 @@ describe('Store orders (migrated PostgreSQL)', () => {
         service.customerCancel(ids.customer, order.id, 'changed mind'),
       ).rejects.toThrow('current state');
 
+      // Dispatched is not arrived: the order still waits.
       await transfers.confirm(transferIds[0], ids.farm, ids.admin);
+      expect(await orderStatus(tx, order.id)).toBe('PREPARING');
+      await expect(
+        service.confirm(ids.farm, ids.staff, order.id),
+      ).rejects.toMatchObject({ response: { code: 'REPLENISHMENT_PENDING' } });
+      await transfers.receive(transferIds[0], ids.farm, ids.admin);
       const confirmed = await service.staffGet(ids.farm, order.id);
       expect(confirmed.order.status).toBe('CONFIRMED');
       const [issue] = await tx
@@ -634,6 +640,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
       const { order, transferIds } = await legacyPreparing(ctx, tx, ['1', '1']);
       const [first, second] = transferIds;
       await transfers.confirm(first, ids.farm, ids.admin);
+      await transfers.receive(first, ids.farm, ids.admin);
       expect(await orderStatus(tx, order.id)).toBe('PREPARING');
       await transfers.reject(second, ids.farm, ids.admin, 'Hết xe');
       expect(await orderStatus(tx, order.id)).toBe('PENDING');
@@ -667,12 +674,31 @@ describe('Store orders (migrated PostgreSQL)', () => {
       ).rejects.toThrow('Only DRAFT or PENDING_APPROVAL');
     }));
 
+  it('cancelling a legacy order leaves a dispatched top-up on its way to the sales warehouse', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, transfers } = ctx;
+      const { order, transferIds } = await legacyPreparing(ctx, tx, ['2']);
+      await transfers.confirm(transferIds[0], ids.farm, ids.admin);
+      const cancelled = await service.staffCancel(
+        ids.farm,
+        ids.staff,
+        order.id,
+        'Khách đổi ý',
+      );
+      expect(cancelled.order.status).toBe('CANCELLED');
+      // The goods already left the source: they must still be received.
+      expect(cancelled.replenishments[0].status).toBe('IN_TRANSIT');
+      await transfers.receive(transferIds[0], ids.farm, ids.admin);
+      expect(await orderStatus(tx, order.id)).toBe('CANCELLED');
+    }));
+
   it('keeps a legacy order PREPARING when stock is gone by the time the transfer arrives', () =>
     inRollback(async (ctx, tx) => {
       const { ids, service, transfers } = ctx;
       const { order, transferIds } = await legacyPreparing(ctx, tx, ['2']);
       await setSalesStock(tx, ctx, '0');
       await transfers.confirm(transferIds[0], ids.farm, ids.admin);
+      await transfers.receive(transferIds[0], ids.farm, ids.admin);
       expect(await orderStatus(tx, order.id)).toBe('PREPARING');
       // Only 2 arrived: staff get a 409, not a new transfer.
       await expect(

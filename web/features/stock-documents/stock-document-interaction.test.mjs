@@ -6,6 +6,7 @@ import ts from "typescript";
 import * as rules from "./stock-document.logic.ts";
 import * as linesRules from "./stock-document-lines.logic.ts";
 import * as inventoryRules from "../inventory/inventory.logic.ts";
+import * as receiveRules from "../transfers/transfer-receive.logic.ts";
 
 // Run the real event handlers with delayed requests, without a browser or another test dependency.
 function fixture(kind, roles = ["ADMIN"], headerPatch = {}) {
@@ -55,6 +56,7 @@ function fixture(kind, roles = ["ADMIN"], headerPatch = {}) {
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "Fragment" };
       if (name.endsWith("stock-document-lines.logic")) return linesRules;
       if (name.endsWith("stock-document.logic")) return rules;
+      if (name.endsWith("transfer-receive.logic")) return receiveRules;
       if (name === "@/features/stock-documents") return {
         ...rules, useStockDocumentLock: () => lock,
         // The selected document lives in the URL; a state slot stands in for it here.
@@ -126,6 +128,8 @@ function nodes(node) {
   if (!node || typeof node !== "object") return [];
   return [node, ...nodes(node.props?.children)];
 }
+// Transfers are confirmed by the source as a dispatch.
+const confirmLabel = (kind) => (kind === "transfers" ? "Xác nhận xuất" : "Xác nhận");
 const button = (tree, label) => nodes(tree).find((node) => node.type === "Button" && node.props.children === label);
 
 for (const kind of ["counts", "transfers"]) {
@@ -134,13 +138,13 @@ for (const kind of ["counts", "transfers"]) {
     const edit = button(f.panel.tree(), "Sửa nháp");
     edit.props.onClick();
     nodes(f.panel.tree()).find((node) => node.type === "Input").props.onChange({ target: { value: "8" } });
-    button(f.initial, "Xác nhận").props.onClick();
+    button(f.initial, confirmLabel(kind)).props.onClick();
     button(f.initial, "Hủy").props.onClick();
     await button(f.review.tree(), "Gửi duyệt").props.onClick();
     assert.equal(f.calls.length, 0);
-    assert.equal(button(f.screen.tree(), "Xác nhận").props.disabled, true);
+    assert.equal(button(f.screen.tree(), confirmLabel(kind)).props.disabled, true);
     button(f.panel.tree(), "Lưu thay đổi").props.onClick();
-    button(f.initial, "Xác nhận").props.onClick();
+    button(f.initial, confirmLabel(kind)).props.onClick();
     await button(f.review.tree(), "Gửi duyệt").props.onClick();
     button(f.panel.tree(), "Bỏ sửa").props.onClick();
     button(f.panel.tree(), "Đóng").props.onClick();
@@ -172,9 +176,9 @@ for (const kind of ["counts", "transfers"]) {
   test(`${kind}: pending confirmation blocks editing and duplicate requests, then unlocks after failure`, async () => {
     const f = fixture(kind);
     const edit = button(f.panel.tree(), "Sửa nháp");
-    button(f.initial, "Xác nhận").props.onClick();
+    button(f.initial, confirmLabel(kind)).props.onClick();
     edit.props.onClick();
-    button(f.initial, "Xác nhận").props.onClick();
+    button(f.initial, confirmLabel(kind)).props.onClick();
     await button(f.review.tree(), "Gửi duyệt").props.onClick();
     assert.equal(f.calls.length, 1);
     assert.equal(f.panel.state[1], null);
@@ -211,7 +215,7 @@ for (const kind of ["counts", "transfers"]) {
       // The confirmation dialog answers asynchronously; its modal covers the page meanwhile.
       await setImmediate();
       button(f.panel.tree(), "Sửa nháp").props.onClick();
-      button(f.initial, "Xác nhận").props.onClick();
+      button(f.initial, confirmLabel(kind)).props.onClick();
       assert.equal(f.lock.locked, true);
       assert.equal(f.calls.length, 1);
       assert.match(f.calls[0].path, /\/submit$/);

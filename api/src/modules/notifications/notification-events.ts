@@ -22,7 +22,7 @@ type DocumentNotification = {
   entityId: string;
   documentCode: string | null;
   documentKind: string;
-  status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED';
+  status: 'PENDING_APPROVAL' | 'IN_TRANSIT' | 'CONFIRMED' | 'REJECTED';
   rejectionReason?: string;
   /** Overrides the default stock-document title ("Phiếu …"). */
   title?: string;
@@ -44,6 +44,11 @@ async function insertForUsers(
       type: `${notification.entityType}_PENDING_APPROVAL`,
       title: 'Phiếu cần duyệt',
       body: `${notification.documentKind} ${code} đang chờ duyệt.`,
+    },
+    IN_TRANSIT: {
+      type: `${notification.entityType}_IN_TRANSIT`,
+      title: 'Hàng đang chuyển đến kho',
+      body: `${notification.documentKind} ${code} đã xuất, chờ kho nhận xác nhận số thực nhận.`,
     },
     CONFIRMED: {
       type: `${notification.entityType}_CONFIRMED`,

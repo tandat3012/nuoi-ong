@@ -81,3 +81,36 @@ export class UpdateStockTransferDto extends DocumentNumberingOptionsDto {
   @Type(() => StockTransferItemDto)
   items?: StockTransferItemDto[];
 }
+// Zero allowed: the whole line may be lost on the way.
+const RECEIVED = /^(?:0|[1-9]\d{0,14})(?:\.\d{1,3})?$/;
+export class ReceivedTransferLineDto {
+  @ApiProperty({ format: 'uuid', description: 'ID dòng phiếu chuyển.' })
+  @IsUUID()
+  id!: string;
+  @ApiProperty({
+    example: '4.000',
+    pattern: RECEIVED.source,
+    description: 'Số thực nhận, từ 0 đến số đã xuất.',
+  })
+  @Matches(RECEIVED)
+  receivedQuantity!: string;
+  @ApiPropertyOptional({
+    description: 'Bắt buộc khi nhận thiếu (thất lạc, hỏng…).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  discrepancyReason?: string;
+}
+export class ReceiveStockTransferDto {
+  @ApiPropertyOptional({
+    type: [ReceivedTransferLineDto],
+    description:
+      'Chỉ các dòng nhận khác số đã xuất; dòng không gửi coi là nhận đủ.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReceivedTransferLineDto)
+  items?: ReceivedTransferLineDto[];
+}

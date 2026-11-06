@@ -113,8 +113,11 @@ describe('Warehouse business flow across documents and ledger', () => {
             items: [{ ...line, quantity: '20.000' }],
           });
           await assertStock('70.000', '0.000');
+          // Dispatch and receive, each retried once: stock moves once.
           await transfers.confirm(transfer.transfer.id, ids.farm, ids.admin);
           await transfers.confirm(transfer.transfer.id, ids.farm, ids.admin);
+          await transfers.receive(transfer.transfer.id, ids.farm, ids.admin);
+          await transfers.receive(transfer.transfer.id, ids.farm, ids.admin);
           await assertStock('50.000', '20.000');
 
           const count = await counts.create(ids.farm, ids.admin, {

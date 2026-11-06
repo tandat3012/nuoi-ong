@@ -248,6 +248,8 @@ test("lets staff re-confirm a PREPARING order only once its transfers are settle
     canConfirmOrder(detail("PREPARING", ["CONFIRMED", "PENDING_APPROVAL"])),
     false,
   );
+  // Dispatched but not yet received by the sales warehouse.
+  assert.equal(canConfirmOrder(detail("PREPARING", ["IN_TRANSIT"])), false);
   assert.equal(canConfirmOrder(detail("PREPARING", ["CONFIRMED"])), true);
   assert.equal(canConfirmOrder(detail("CONFIRMED", [])), false);
   assert.equal(canStaffCancel({ status: "PREPARING", paymentStatus: "UNPAID" }), true);
