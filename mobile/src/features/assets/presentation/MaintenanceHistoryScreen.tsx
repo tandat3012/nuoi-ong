@@ -80,7 +80,7 @@ export default function MaintenanceHistoryScreen() {
   }, {});
 
   return <AppShell active="scan">
-    <PageHeader title="Lịch sử bảo dưỡng" subtitle={`${params.assetCode ?? 'Tài sản'} • ${params.itemName ?? 'Theo dõi từ API'}`} onBack={() => router.back()} action={<NotificationBell />} />
+    <PageHeader title="Lịch sử bảo dưỡng" subtitle={`${params.assetCode ?? 'Tài sản'} • ${params.itemName ?? 'Lịch sử bảo dưỡng'}`} onBack={() => router.back()} action={<NotificationBell />} />
     <Card style={styles.assetCard}>
       <View style={styles.assetIcon}><Icon name="build" color={colors.primary} /></View>
       <View style={styles.assetCopy}>
@@ -89,7 +89,7 @@ export default function MaintenanceHistoryScreen() {
         <Text style={styles.assetCode}>{params.assetCode ?? params.assetId ?? 'Chưa có mã tài sản'}</Text>
       </View>
     </Card>
-    <View style={styles.heading}><View style={styles.headingCopy}><Text style={styles.title}>Toàn bộ hồ sơ</Text><Text style={styles.subtitle}>{loading ? 'Đang tải từ cơ sở dữ liệu…' : `${records.length} hồ sơ bảo dưỡng`}</Text></View><Pill tone="amber"><Text style={styles.countText}>{records.length}</Text></Pill></View>
+    <View style={styles.heading}><View style={styles.headingCopy}><Text style={styles.title}>Toàn bộ hồ sơ</Text><Text style={styles.subtitle}>{loading ? 'Đang tải hồ sơ…' : `${records.length} hồ sơ bảo dưỡng`}</Text></View><Pill tone="amber"><Text style={styles.countText}>{records.length}</Text></Pill></View>
     {!loading && !error && records.length > 0 ? <View style={styles.summaryRow}>
       <Summary label="Đã lên lịch" value={counts.SCHEDULED ?? 0} tone="amber" />
       <Summary label="Đang làm" value={counts.IN_PROGRESS ?? 0} tone="success" />
@@ -97,7 +97,7 @@ export default function MaintenanceHistoryScreen() {
     </View> : null}
     {loading ? <Card style={styles.stateCard}><Icon name="sync" color={colors.primary} /><Text style={styles.stateText}>Đang tải tất cả hồ sơ bảo dưỡng của tài sản…</Text></Card> : null}
     {error ? <Card style={styles.errorCard}><Icon name="error-outline" color={colors.error} /><Text style={styles.errorText}>{error}</Text><Pressable onPress={() => router.back()}><Text style={styles.backText}>Quay lại tài sản</Text></Pressable></Card> : null}
-    {!loading && !error && records.length === 0 ? <Card style={styles.stateCard}><Icon name="event-note" color={colors.outline} /><Text style={styles.stateText}>Tài sản này chưa có hồ sơ bảo dưỡng trong DB.</Text></Card> : null}
+    {!loading && !error && records.length === 0 ? <Card style={styles.stateCard}><Icon name="event-note" color={colors.outline} /><Text style={styles.stateText}>Tài sản này chưa có hồ sơ bảo dưỡng.</Text></Card> : null}
     {records.map((record, index) => <Card key={record.id} style={styles.recordCard}>
       <View style={styles.recordTop}>
         <View style={styles.recordIcon}><Icon name={record.status === 'COMPLETED' ? 'check-circle' : record.status === 'CANCELLED' ? 'cancel' : 'build'} color={record.status === 'COMPLETED' ? colors.statusSuccessStrong : colors.primary} /></View>

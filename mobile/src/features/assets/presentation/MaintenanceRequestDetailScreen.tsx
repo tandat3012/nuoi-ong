@@ -100,7 +100,7 @@ export default function MaintenanceRequestDetailScreen() {
           <Text style={styles.label}>Lịch bảo trì</Text><Text style={styles.value}>{formatDateTime(request.maintenanceScheduledAt)}</Text>
         </> : null}
       </Card>
-    </> : <Card><Text style={styles.muted}>Không tìm thấy yêu cầu này trong farm đang chọn.</Text></Card>}
+    </> : <Card><Text style={styles.muted}>Không tìm thấy yêu cầu này trong trang trại đang chọn.</Text></Card>}
   </AppShell>;
 }
 

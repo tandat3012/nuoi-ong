@@ -233,7 +233,7 @@ export type StockDocumentStatus =
 
 /** Drafts have no permanent code until confirmation; name them by a short id. */
 export function documentCodeLabel(code: string | null | undefined, id: string) {
-  return code ?? `Nháp #${id.slice(0, 8)}`;
+  return code ?? `#${id.slice(0, 8)}`;
 }
 
 export type StockReceipt = {

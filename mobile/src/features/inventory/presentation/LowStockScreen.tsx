@@ -85,7 +85,7 @@ export default function LowStockScreen() {
         <View style={styles.overviewIcon}><Icon name="warning-amber" size={22} color={colors.error} /></View>
         <View style={styles.overviewCopy}>
           <Text style={styles.overviewTitle}>{loading ? 'Đang kiểm tra tồn kho' : `${alerts.length} vật tư dưới định mức`}</Text>
-          <Text style={styles.overviewSubtitle}>{warehouse ? `${warehouse.code} · ${warehouse.name}` : 'Kho thuộc farm đang chọn'}</Text>
+          <Text style={styles.overviewSubtitle}>{warehouse ? `${warehouse.code} · ${warehouse.name}` : 'Kho thuộc trang trại đang chọn'}</Text>
         </View>
       </Card>
       <SectionTitle title="Danh sách cảnh báo" count={`${alerts.length} vật tư`} />

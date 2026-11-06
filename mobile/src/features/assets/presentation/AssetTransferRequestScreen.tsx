@@ -180,7 +180,20 @@ export default function AssetTransferRequestScreen() {
         </ScrollView>
       </View></View>
     </Modal>
-    <OperationResultDialog visible={Boolean(createdId)} title="Đã gửi yêu cầu chuyển" message="Yêu cầu đang chờ quản lý duyệt. Bạn có thể theo dõi kết quả và nhận thông báo trên mobile." actionLabel="Xem yêu cầu" onAction={() => { if (createdId) router.replace(`/assets/transfer-requests/${encodeURIComponent(createdId)}` as never); }} />
+    <OperationResultDialog
+      visible={Boolean(createdId)}
+      title="Đã gửi yêu cầu chuyển tài sản"
+      details={[
+        { label: 'Mã yêu cầu', value: createdId ? `#${createdId.slice(0, 8)}` : '—' },
+        { label: 'Mã tài sản', value: assetCode || '—' },
+        { label: 'Kho đích', value: warehouses.find((w) => w.id === warehouseId)?.name ?? '—' },
+        { label: 'Vị trí đích', value: locations.find((l) => l.id === locationId)?.name ?? '—' },
+      ]}
+      actionLabel="Xem yêu cầu"
+      onAction={() => {
+        if (createdId) router.replace(`/assets/transfer-requests/${encodeURIComponent(createdId)}` as never);
+      }}
+    />
   </>;
 }
 

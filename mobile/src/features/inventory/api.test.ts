@@ -188,7 +188,7 @@ describe('inventory ledger filters', () => {
 
 describe('document code label', () => {
   it('names an uncoded draft by its short id and keeps a permanent code', () => {
-    expect(documentCodeLabel(null, '1a2b3c4d-0000-4000-8000-000000000000')).toBe('Nháp #1a2b3c4d');
+    expect(documentCodeLabel(null, '1a2b3c4d-0000-4000-8000-000000000000')).toBe('#1a2b3c4d');
     expect(documentCodeLabel('PN-2026-000001', '1a2b3c4d')).toBe('PN-2026-000001');
   });
 });

@@ -8,7 +8,7 @@ import NotificationBell from '@/src/features/notifications/presentation/Notifica
 import { OperationResultDialog } from '@/src/shared/ui/OperationResultDialog';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
-import { filterPositiveBalancesForScope, listBalances, listItems, listWarehouses, type Item, type Paginated, type Warehouse } from '@/src/features/inventory/api';
+import { filterPositiveBalancesForScope, listBalances, listItems, listWarehouses, unwrap, type Item, type Paginated, type Warehouse } from '@/src/features/inventory/api';
 import { formatQuantity } from '@/src/shared/format-quantity';
 import { validateQuantityInput } from '@/src/shared/quantity-input';
 
@@ -53,7 +53,11 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     note: '',
   });
   const [picker, setPicker] = useState<keyof typeof pickerOptions | null>(null);
-  const [successResult, setSuccessResult] = useState<{ title: string; message: string } | null>(null);
+  const [successResult, setSuccessResult] = useState<{
+    title: string;
+    details?: Array<{ label: string; value: string }>;
+    items?: Array<{ name: string; quantity: string }>;
+  } | null>(null);
 
   useEffect(() => {
     if (!currentFarmId) return;
@@ -205,6 +209,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
       const selectedWarehouse = form.sourceWarehouse.split(' • ')[0];
       const selectedDestination = form.destinationWarehouse.split(' • ')[0];
       const selectedAsset = form.asset.split(' • ')[0];
+      let createdTransferId: string | null = null;
       if (mode === 'transfer') {
         const selected = transferOptions.find((option) => option.id === form.item);
         if (!selected) throw new Error('Vật phẩm không còn trong danh sách tồn của kho nguồn.');
@@ -215,17 +220,46 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
           .reduce((sum, { balance }) => sum + Number(balance.quantityOnHand), 0);
         const quantityError = validateQuantityInput(quantity, { max: available });
         if (quantityError) throw new Error(`${selected.label}: “${quantity || 'trống'}”. ${quantityError}`);
-        await apiRequest('/stock-transfers', { method: 'POST', token, params: { farmId: currentFarmId }, body: { fromWarehouseId: selectedWarehouse, toWarehouseId: selectedDestination, note: form.note.trim() || undefined, items: [{ itemId: selected.itemId, quantity: quantity.trim().replace(',', '.'), lotId: selected.lotId }] } });
+        const response = await apiRequest<{ data: { transfer: { id: string } } | { id: string } }>('/stock-transfers', {
+          method: 'POST',
+          token,
+          params: { farmId: currentFarmId },
+          body: {
+            fromWarehouseId: selectedWarehouse,
+            toWarehouseId: selectedDestination,
+            note: form.note.trim() || undefined,
+            items: [{ itemId: selected.itemId, quantity: quantity.trim().replace(',', '.'), lotId: selected.lotId }],
+          },
+        });
+        const transferObj = unwrap(response);
+        createdTransferId = (transferObj as { transfer?: { id?: string } })?.transfer?.id ?? (transferObj as { id?: string })?.id ?? null;
       } else {
         await apiRequest('/maintenance-requests', { method: 'POST', token, params: { farmId: currentFarmId }, body: { assetId: selectedAsset, maintenanceType: 'CORRECTIVE', description: form.title } });
       }
-      const savedMessage = mode === 'maintenance'
-        ? 'Yêu cầu sự cố đã gửi người có quyền duyệt. Bạn sẽ nhận thông báo khi có kết quả.'
-        : `${copy.title} đã được ghi vào cơ sở dữ liệu.`;
-      setSuccessResult({
-        title: mode === 'maintenance' ? 'Đã gửi yêu cầu bảo trì' : `${copy.title} thành công`,
-        message: savedMessage,
-      });
+
+      if (mode === 'transfer') {
+        const sourceName = warehouses.find((w) => w.id === selectedWarehouse)?.name ?? form.sourceWarehouse;
+        const destName = warehouses.find((w) => w.id === selectedDestination)?.name ?? form.destinationWarehouse;
+        const selected = transferOptions.find((option) => option.id === form.item);
+        setSuccessResult({
+          title: 'Đã lưu phiếu điều chuyển',
+          details: [
+            { label: 'Mã phiếu', value: createdTransferId ? `#${createdTransferId.slice(0, 8)}` : '—' },
+            { label: 'Kho nguồn', value: sourceName },
+            { label: 'Kho đích', value: destName },
+          ],
+          items: selected ? [{ name: selected.label, quantity: `${form.quantity} đơn vị` }] : undefined,
+        });
+      } else {
+        const selectedAssetObj = assets.find((a) => a.id === selectedAsset);
+        setSuccessResult({
+          title: 'Đã gửi yêu cầu bảo trì',
+          details: [
+            { label: 'Vật phẩm', value: selectedAssetObj?.label ?? 'Thiết bị' },
+            { label: 'Mô tả sự cố', value: form.title },
+          ],
+        });
+      }
     } catch (cause: unknown) {
       Alert.alert('Không thể lưu', cause instanceof Error ? cause.message : 'API trả về lỗi.');
     }
@@ -251,7 +285,8 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
   <OperationResultDialog
     visible={Boolean(successResult)}
     title={successResult?.title ?? ''}
-    message={successResult?.message ?? ''}
+    details={successResult?.details}
+    items={successResult?.items}
     actionLabel="Hoàn tất"
     onAction={() => {
       setSuccessResult(null);

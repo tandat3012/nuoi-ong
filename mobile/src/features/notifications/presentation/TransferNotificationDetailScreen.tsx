@@ -133,7 +133,22 @@ export default function TransferNotificationDetailScreen() {
         {canSubmit ? <PrimaryButton label={submitting ? 'Đang gửi...' : 'Gửi duyệt'} icon="send" loading={submitting} onPress={() => void submit()} /> : null}
       </> : <Card><Text style={styles.message}>Không tìm thấy phiếu điều chuyển trong trang trại này.</Text></Card>}
     </AppShell>
-    <OperationResultDialog visible={submitted} title="Phiếu điều chuyển đã gửi duyệt" message="Quản lý sẽ xem và xác nhận trên web. Tồn kho chỉ đổi khi phiếu được xác nhận." actionLabel="Xem phiếu" onAction={() => setSubmitted(false)} />
+    <OperationResultDialog
+      visible={submitted}
+      title="Phiếu điều chuyển đã gửi duyệt"
+      details={[
+        { label: 'Mã phiếu', value: documentCodeLabel(transfer?.transferCode, transfer?.id ?? '') },
+        { label: 'Kho nguồn', value: source },
+        { label: 'Kho đích', value: destination },
+        { label: 'Ngày điều chuyển', value: transfer?.transferDate ? formatDate(transfer.transferDate) : '—' },
+      ]}
+      items={detail?.items.map((line) => ({
+        name: line.itemName || 'Vật tư',
+        quantity: `${formatQuantity(line.quantity)} ${line.unitSymbol || line.unitName || ''}`,
+      }))}
+      actionLabel="Xem phiếu"
+      onAction={() => setSubmitted(false)}
+    />
   </>;
 }
 
