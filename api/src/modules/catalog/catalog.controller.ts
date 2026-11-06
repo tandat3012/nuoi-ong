@@ -20,10 +20,12 @@ import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import {
   CreateCategoryDto,
+  CreateEquipmentItemDto,
   CreateLocationDto,
   CreateSupplierDto,
   CreateUnitDto,
   UpdateCategoryDto,
+  UpdateEquipmentItemDto,
   UpdateLocationDto,
   UpdateSupplierDto,
   UpdateUnitDto,
@@ -76,6 +78,19 @@ const catalogItemSchema = {
     updatedAt: { type: 'string', format: 'date-time' },
   },
 };
+
+/** `?itemType=EQUIPMENT,TOOL` or a repeated parameter; blank means no filter. */
+function parseItemTypes(value?: string | string[]) {
+  const values = [value ?? []]
+    .flat()
+    .flatMap((part) => part.split(','))
+    .filter(Boolean);
+  return values.length
+    ? values.map((part) =>
+        parseOptionalEnum(part, itemType.enumValues, 'itemType')!,
+      )
+    : undefined;
+}
 
 @Controller()
 // Applies to guarded farm routes; store-only managers have no catalog access.
@@ -159,7 +174,11 @@ export class CatalogController {
   @ApiFarmIdQuery()
   @ApiPageQueries()
   @ApiSearchQuery()
-  @ApiEnumQuery('itemType', itemType.enumValues, 'Loại mặt hàng.')
+  @ApiEnumQuery(
+    'itemType',
+    itemType.enumValues,
+    'Loại mặt hàng; nhiều loại cách nhau bởi dấu phẩy (EQUIPMENT,TOOL).',
+  )
   @ApiEnumQuery(
     'trackingMode',
     trackingMode.enumValues,
@@ -209,7 +228,7 @@ export class CatalogController {
     @Query('page') pageValue?: string,
     @Query('pageSize') pageSizeValue?: string,
     @Query('search') searchValue?: string,
-    @Query('itemType') itemTypeValue?: string,
+    @Query('itemType') itemTypeValue?: string | string[],
     @Query('trackingMode') trackingModeValue?: string,
     @Query('status') statusValue?: string,
   ) {
@@ -217,11 +236,7 @@ export class CatalogController {
       farmId: requireUuid(farmIdValue, 'farmId'),
       ...parsePagination(pageValue, pageSizeValue),
       search: normalizeSearch(searchValue),
-      itemType: parseOptionalEnum(
-        itemTypeValue,
-        itemType.enumValues,
-        'itemType',
-      ),
+      itemTypes: parseItemTypes(itemTypeValue),
       trackingMode: parseOptionalEnum(
         trackingModeValue,
         trackingMode.enumValues,
@@ -678,6 +693,70 @@ export class CatalogController {
   ) {
     return {
       data: await this.catalogService.updateSupplier(
+        requireUuid(idValue, 'id'),
+        requireUuid(farmIdValue, 'farmId'),
+        input,
+      ),
+    };
+  }
+
+  @Post('items')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
+  @ApiOperation({
+    summary: 'Tạo mẫu thiết bị/dụng cụ',
+    description:
+      'Chỉ tạo mẫu EQUIPMENT/TOOL (ASSET hoặc QUANTITY), không cộng tồn. Vật tư dùng `/materials`.',
+  })
+  @ApiFarmIdQuery()
+  @ApiCreatedResponse({ description: 'Mẫu vừa tạo, bọc trong data.' })
+  @ApiBadRequestResponse({
+    description: 'Dữ liệu không hợp lệ hoặc nhóm hàng/đơn vị đã ngưng.',
+  })
+  @ApiConflictResponse({ description: 'Mã mặt hàng đã tồn tại.' })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho.',
+  })
+  async createItem(
+    @Query('farmId') farmIdValue: string | undefined,
+    @Body() input: CreateEquipmentItemDto,
+  ) {
+    return {
+      data: await this.catalogService.createItem(
+        requireUuid(farmIdValue, 'farmId'),
+        input,
+      ),
+    };
+  }
+
+  @Patch('items/:id')
+  @UseGuards(FarmAccessGuard)
+  @FarmRoles(...WAREHOUSE_MANAGE_ROLES)
+  @ApiOperation({
+    summary: 'Sửa hoặc ngưng mẫu thiết bị/dụng cụ',
+    description:
+      'Không đổi được cách theo dõi khi đã có tồn hoặc tài sản; vật tư (MATERIAL) trả 404.',
+  })
+  @ApiUuidParam('id', 'ID mặt hàng.')
+  @ApiFarmIdQuery()
+  @ApiOkResponse({ description: 'Mẫu sau khi sửa, bọc trong data.' })
+  @ApiBadRequestResponse({ description: 'Dữ liệu không hợp lệ.' })
+  @ApiNotFoundResponse({
+    description: 'Không tìm thấy thiết bị/dụng cụ trong trang trại.',
+  })
+  @ApiConflictResponse({
+    description: 'Mã đã tồn tại hoặc đổi cách theo dõi khi đã có tồn.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho.',
+  })
+  async updateItem(
+    @Param('id') idValue: string,
+    @Query('farmId') farmIdValue: string | undefined,
+    @Body() input: UpdateEquipmentItemDto,
+  ) {
+    return {
+      data: await this.catalogService.updateItem(
         requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
         input,

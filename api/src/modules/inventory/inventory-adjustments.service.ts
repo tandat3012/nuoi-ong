@@ -438,7 +438,9 @@ export class InventoryAdjustmentsService {
       })
       .from(items)
       .where(and(eq(items.id, target.itemId), eq(items.farmId, farmId)))
-      .limit(1);
+      .limit(1)
+      // Holds the tracking mode until the adjustment row exists (PATCH /items locks FOR UPDATE).
+      .for('share');
     if (!item) throw new NotFoundException('Item not found');
     if (item.trackingMode === 'ASSET') {
       throw new ConflictException('ASSET items cannot be adjusted');

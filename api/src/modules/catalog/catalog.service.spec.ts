@@ -63,7 +63,7 @@ describe('CatalogService', () => {
         pageSize: 1,
         offset: 1,
         search: 'smoker',
-        itemType: 'TOOL',
+        itemTypes: ['TOOL'],
         trackingMode: 'ASSET',
         status: 'ACTIVE',
       }),

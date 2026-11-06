@@ -15,7 +15,7 @@ import { Pagination } from '@/shared/components/ui/pagination';
 import { Select } from '@/shared/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table';
 import { getCatalogRecords, saveCatalogRecord } from '../api/catalog.api';
-import { canWriteCatalog, catalogError, catalogFieldValue, catalogPayload } from '../catalog.logic';
+import { canWriteCatalog, catalogError, catalogFieldValue, catalogPayload, withCurrentOption } from '../catalog.logic';
 import type { CatalogField, CatalogRecord, CatalogResource, CatalogResourceKey } from '../types/catalog';
 import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
@@ -28,6 +28,9 @@ const LOCATION_TYPES = [
   ['MAINTENANCE', 'Bảo trì'],
   ['OTHER', 'Khác'],
 ].map(([value, label]) => ({ value, label }));
+
+const ITEM_TYPES = [{ value: 'EQUIPMENT', label: 'Thiết bị' }, { value: 'TOOL', label: 'Dụng cụ' }];
+const TRACKING_MODES = [{ value: 'ASSET', label: 'Từng cá thể (serial/QR)' }, { value: 'QUANTITY', label: 'Theo số lượng' }];
 
 const code = (maxLength: number): CatalogField => ({ name: 'code', label: 'Mã', required: true, maxLength });
 const name = (maxLength: number): CatalogField => ({ name: 'name', label: 'Tên', required: true, maxLength });
@@ -42,6 +45,21 @@ const RESOURCES: readonly CatalogResource[] = [
     key: 'locations', label: 'Vị trí', path: '/locations', shared: false,
     fields: [code(50), name(255), { name: 'type', label: 'Loại vị trí', required: true, type: 'select', options: LOCATION_TYPES }, { name: 'warehouseId', label: 'Thuộc kho', type: 'select' }, { name: 'description', label: 'Mô tả', maxLength: 4000 }],
     columns: [{ name: 'code', label: 'Mã' }, { name: 'name', label: 'Tên' }, { name: 'type', label: 'Loại' }, { name: 'warehouseId', label: 'Kho' }],
+  },
+  {
+    // Equipment/tool templates only; materials live on /materials. A template adds no stock.
+    key: 'items', label: 'Thiết bị/dụng cụ', path: '/items', shared: false, query: { itemType: 'EQUIPMENT,TOOL' },
+    fields: [
+      code(50), name(255),
+      { name: 'itemType', label: 'Loại', required: true, type: 'select', options: ITEM_TYPES },
+      { name: 'trackingMode', label: 'Cách theo dõi (không đổi được khi đã có tồn)', required: true, type: 'select', options: TRACKING_MODES },
+      { name: 'categoryId', label: 'Nhóm hàng', required: true, type: 'select' },
+      { name: 'unitId', label: 'Đơn vị tính', required: true, type: 'select' },
+      { name: 'minStockLevel', label: 'Tồn tối thiểu', required: true, defaultValue: '0', maxLength: 19 },
+      { name: 'maintenanceIntervalDays', label: 'Chu kỳ bảo trì (ngày)', type: 'number' },
+      { name: 'description', label: 'Mô tả', maxLength: 4000 },
+    ],
+    columns: [{ name: 'code', label: 'Mã' }, { name: 'name', label: 'Tên' }, { name: 'itemType', label: 'Loại' }, { name: 'trackingMode', label: 'Theo dõi' }, { name: 'categoryName', label: 'Nhóm hàng' }, { name: 'unitName', label: 'Đơn vị' }],
   },
   {
     key: 'categories', label: 'Nhóm hàng', path: '/categories', shared: true,
@@ -65,7 +83,7 @@ export function CatalogScreen() {
   const resource = RESOURCES.find(({ key }) => key === tab)!;
   return (
     <div className="space-y-6">
-      <PageHeader title="Danh mục" description="Nhà cung cấp và vị trí theo trang trại; nhóm hàng và đơn vị tính dùng chung, chỉ quản trị viên được sửa." />
+      <PageHeader title="Danh mục" description="Nhà cung cấp, vị trí và mẫu thiết bị/dụng cụ theo trang trại; nhóm hàng và đơn vị tính dùng chung, chỉ quản trị viên được sửa." />
       <div role="tablist" aria-label="Loại danh mục" className="flex flex-wrap gap-2">
         {RESOURCES.map(({ key, label }) => (
           <Button key={key} role="tab" aria-selected={tab === key} variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{label}</Button>
@@ -82,7 +100,10 @@ function CatalogTable({ farmId, resource, canWrite }: { farmId: string; resource
   const [search, setSearch] = useState('');
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{ rows: CatalogRecord[]; page: PageInfo; error?: string } | null>(null);
-  const [warehouses, setWarehouses] = useState<{ value: string; label: string }[]>([]);
+  // null until warehouses/categories/units load, so a form never mounts without its options.
+  const [runtimeOptions, setRuntimeOptions] = useState<Record<string, { value: string; label: string }[]> | null>(
+    () => (resource.key === 'locations' || resource.key === 'items' ? null : {}),
+  );
   const [editing, setEditing] = useState<CatalogRecord | 'new' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -97,19 +118,27 @@ function CatalogTable({ farmId, resource, canWrite }: { farmId: string; resource
   }, [request, resource, farmId, page, search, revision]);
 
   useEffect(() => {
-    if (resource.key !== 'locations') return;
     let cancelled = false;
-    void getWarehouses(request, { farmId, page: 1, pageSize: 100, status: 'ACTIVE' })
-      .then((response) => { if (!cancelled) setWarehouses(response.data.map((warehouse) => ({ value: warehouse.id, label: `${warehouse.code} - ${warehouse.name}` }))); })
-      .catch(() => { if (!cancelled) setWarehouses([]); });
+    const toOptions = (rows: { id: string; code: string; name: string; status?: string }[]) =>
+      rows.filter((row) => (row.status ?? 'ACTIVE') === 'ACTIVE').map((row) => ({ value: row.id, label: `${row.code} - ${row.name}` }));
+    const load = resource.key === 'locations'
+      ? getWarehouses(request, { farmId, page: 1, pageSize: 100, status: 'ACTIVE' }).then((response) => ({ warehouseId: toOptions(response.data) }))
+      : resource.key === 'items'
+        ? Promise.all([request<{ data: CatalogRecord[] }>('/categories'), request<{ data: CatalogRecord[] }>('/units')])
+          .then(([categories, units]) => ({ categoryId: toOptions(categories.data), unitId: toOptions(units.data) }))
+        : null;
+    void load?.then((options) => { if (!cancelled) setRuntimeOptions(options); }).catch(() => { if (!cancelled) setRuntimeOptions({}); });
     return () => { cancelled = true; };
   }, [request, resource.key, farmId]);
 
-  const optionsFor = (field: CatalogField) => (field.name === 'warehouseId' ? warehouses : field.options ?? []);
+  const optionsFor = (field: CatalogField) => runtimeOptions?.[field.name] ?? field.options ?? [];
+  // Keep a record's inactive category/unit/warehouse selectable so other edits still save.
+  const formOptions = (field: CatalogField, current: CatalogRecord | null) =>
+    current ? withCurrentOption(optionsFor(field), catalogFieldValue(current, field.name), catalogFieldValue(current, field.name.replace(/Id$/, 'Name'))) : optionsFor(field);
   const display = (record: CatalogRecord, column: string) => {
     const value = catalogFieldValue(record, column);
-    if (column === 'type') return LOCATION_TYPES.find((option) => option.value === value)?.label ?? value;
-    if (column === 'warehouseId') return warehouses.find((option) => option.value === value)?.label ?? (value ? '—' : 'Không gắn kho');
+    const field = resource.fields.find(({ name }) => name === column);
+    if (field?.type === 'select') return optionsFor(field).find((option) => option.value === value)?.label ?? (value ? '—' : 'Không gắn kho');
     return value || '—';
   };
 
@@ -126,7 +155,7 @@ function CatalogTable({ farmId, resource, canWrite }: { farmId: string; resource
     <section className="space-y-4 rounded-xl border bg-card p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <Input aria-label={`Tìm ${resource.label.toLowerCase()}`} placeholder="Tìm theo mã hoặc tên" value={search} onChange={(event) => { setPage(1); setSearch(event.target.value); }} className="md:max-w-xs" />
-        {canWrite ? <Button onClick={() => setEditing('new')}>Thêm {resource.label.toLowerCase()}</Button> : <p className="text-sm text-muted-foreground">{resource.shared ? 'Chỉ quản trị viên (ADMIN) được sửa danh mục dùng chung.' : 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho được sửa.'}</p>}
+        {canWrite ? <Button disabled={!runtimeOptions} onClick={() => setEditing('new')}>Thêm {resource.label.toLowerCase()}</Button> : <p className="text-sm text-muted-foreground">{resource.shared ? 'Chỉ quản trị viên (ADMIN) được sửa danh mục dùng chung.' : 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho được sửa.'}</p>}
       </div>
       {actionError && <ErrorAlert message={actionError} />}
       {!result ? <BeeLoader label="Đang tải…" size="sm" /> : result.error ? <ErrorAlert message={result.error} /> : result.rows.length === 0 ? <p className="text-sm text-muted-foreground">Chưa có dữ liệu.</p> : (
@@ -137,7 +166,7 @@ function CatalogTable({ farmId, resource, canWrite }: { farmId: string; resource
               <TableRow key={row.id}>
                 {resource.columns.map((column) => <TableCell key={column.name}>{display(row, column.name)}</TableCell>)}
                 <TableCell><Badge variant={row.status === 'ACTIVE' ? 'success' : 'secondary'}>{row.status === 'ACTIVE' ? 'Đang dùng' : 'Ngưng'}</Badge></TableCell>
-                {canWrite && <TableCell className="space-x-2 text-right"><Button size="sm" variant="outline" onClick={() => setEditing(row)}>Sửa</Button><Button size="sm" variant="ghost" onClick={() => void toggleStatus(row)}>{row.status === 'ACTIVE' ? 'Ngưng' : 'Dùng lại'}</Button></TableCell>}
+                {canWrite && <TableCell className="space-x-2 text-right"><Button size="sm" variant="outline" disabled={!runtimeOptions} onClick={() => setEditing(row)}>Sửa</Button><Button size="sm" variant="ghost" onClick={() => void toggleStatus(row)}>{row.status === 'ACTIVE' ? 'Ngưng' : 'Dùng lại'}</Button></TableCell>}
               </TableRow>
             ))}
           </TableBody>
@@ -159,12 +188,12 @@ function CatalogTable({ farmId, resource, canWrite }: { farmId: string; resource
             <label key={field.name} className="block space-y-1 text-sm">
               <span className="font-medium">{field.label}{field.required && ' *'}</span>
               {field.type === 'select' ? (
-                <Select name={field.name} required={field.required} defaultValue={catalogFieldValue(record, field.name)}>
+                <Select name={field.name} required={field.required} defaultValue={record ? catalogFieldValue(record, field.name) : field.defaultValue}>
                   <option value="">{field.required ? 'Chọn…' : 'Không chọn'}</option>
-                  {optionsFor(field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  {formOptions(field, record).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </Select>
               ) : (
-                <Input name={field.name} type={field.type ?? 'text'} required={field.required} maxLength={field.maxLength} defaultValue={catalogFieldValue(record, field.name)} />
+                <Input name={field.name} type={field.type ?? 'text'} required={field.required} maxLength={field.maxLength} min={field.type === 'number' ? 1 : undefined} defaultValue={record ? catalogFieldValue(record, field.name) : field.defaultValue} />
               )}
             </label>
           ))}
