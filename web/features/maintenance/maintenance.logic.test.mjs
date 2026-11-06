@@ -21,13 +21,20 @@ test("formatted maintenance costs retain the exact API value", () => {
 });
 const scheduled = { status: "SCHEDULED", returnStatus: null };
 test("maintenance controls reflect each role and stage", () => {
+  // AC10: the coordinator prepares; only the warehouse confirms the issue, once prepared.
   assert.deepEqual(maintenanceActions(scheduled, ["MAINTENANCE_STAFF"]), [
-    "start",
+    "prepare",
     "cancel",
   ]);
   assert.deepEqual(maintenanceActions(scheduled, ["WAREHOUSE_MANAGER"]), [
     "cancel",
   ]);
+  assert.match(maintenanceNextStep(scheduled, ["WAREHOUSE_MANAGER"]), /chọn đơn vị/);
+  const ready = { ...scheduled, supplierId: "s1", expectedReturnAt: "2026-11-10T00:00:00Z" };
+  assert.deepEqual(maintenanceActions(ready, ["MAINTENANCE_STAFF"]), ["prepare", "cancel"]);
+  assert.deepEqual(maintenanceActions(ready, ["WAREHOUSE_MANAGER"]), ["start", "cancel"]);
+  assert.match(maintenanceNextStep(ready, ["WAREHOUSE_MANAGER"]), /xác nhận xuất đi sửa/);
+  assert.match(maintenanceNextStep(ready, ["MAINTENANCE_STAFF"]), /Chờ quản lý kho/);
   assert.deepEqual(maintenanceActions(scheduled, ["EMPLOYEE"]), []);
   assert.deepEqual(
     maintenanceActions({ ...scheduled, status: "IN_PROGRESS" }, [
