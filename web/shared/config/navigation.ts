@@ -75,7 +75,7 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
     items: [
       { href: '/materials', label: 'Vật tư', icon: Boxes, requires: 'farmArea', description: 'Danh mục vật tư, đơn vị và mức tồn tối thiểu.' },
       { href: '/warehouses', label: 'Kho', icon: Warehouse, requires: 'farmArea', description: 'Danh sách kho và vị trí lưu trữ.' },
-      { href: '/catalog', label: 'Danh mục chung', icon: Tags, requires: 'farmArea', description: 'Nhà cung cấp, vị trí, nhóm hàng và đơn vị tính.' },
+      { href: '/catalog', label: 'Danh mục chung', icon: Tags, requires: 'farmArea', description: 'Nhà cung cấp, vị trí, mẫu thiết bị/dụng cụ, nhóm hàng và đơn vị tính.' },
     ],
   },
   {

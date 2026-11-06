@@ -40,10 +40,37 @@ describe('CatalogController', () => {
       pageSize: 10,
       offset: 10,
       search: 'máy quay',
-      itemType: 'EQUIPMENT',
+      itemTypes: ['EQUIPMENT'],
       trackingMode: 'ASSET',
       status: 'ACTIVE',
     });
+  });
+
+  it('accepts comma-separated or repeated itemType filters', async () => {
+    catalogService.listItems.mockResolvedValue({ data: [] });
+    const types = (value?: string | string[]) =>
+      controller
+        .listItems(farmId, undefined, undefined, undefined, value)
+        .then(
+          () =>
+            (
+              (catalogService.listItems.mock.calls as unknown[][]).at(
+                -1,
+              )![0] as { itemTypes?: string[] }
+            ).itemTypes,
+        );
+    await expect(types('EQUIPMENT,TOOL')).resolves.toEqual([
+      'EQUIPMENT',
+      'TOOL',
+    ]);
+    await expect(types(['EQUIPMENT', 'TOOL'])).resolves.toEqual([
+      'EQUIPMENT',
+      'TOOL',
+    ]);
+    await expect(types('')).resolves.toBeUndefined();
+    await expect(types('EQUIPMENT,BAD')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('requires a valid farm ID for item lists', async () => {
