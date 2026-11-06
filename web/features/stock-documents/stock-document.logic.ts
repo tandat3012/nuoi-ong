@@ -10,7 +10,9 @@ export type StockDocumentStatus =
   | "PENDING_APPROVAL"
   | "CONFIRMED"
   | "REJECTED"
-  | "CANCELLED";
+  | "CANCELLED"
+  // Transfers only: dispatched by the source, not yet received.
+  | "IN_TRANSIT";
 
 export type StockDocumentKind =
   "stock-receipts" | "stock-issues" | "stock-transfers" | "stock-counts";
@@ -87,6 +89,7 @@ const CONFLICTS: [RegExp, string][] = [
   ],
   [/can be rejected/, "Phiếu không còn chờ duyệt nên không từ chối được."],
   [/can be confirmed/, "Phiếu không còn chờ xác nhận."],
+  [/can be received/, "Phiếu không còn ở trạng thái đang chuyển."],
   [/can be cancelled/, "Phiếu không còn ở trạng thái nháp nên không hủy được."],
   [
     /STOCK_COUNT_STALE/,

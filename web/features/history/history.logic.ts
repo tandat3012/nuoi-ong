@@ -20,6 +20,8 @@ export const HISTORY_ACTION_LABELS: Record<string, string> = {
   SUBMIT: "Gửi duyệt",
   CONFIRM: "Xác nhận",
   REJECT: "Từ chối",
+  DISPATCH: "Xuất hàng đi",
+  RECEIVE: "Nhận hàng",
   ASSET_CREATED: "Tạo tài sản",
   ASSET_METADATA_UPDATED: "Cập nhật thông tin tài sản",
   ASSET_ASSIGNED: "Cấp phát tài sản",

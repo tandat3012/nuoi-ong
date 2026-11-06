@@ -42,6 +42,8 @@ export const documentStatus = pgEnum('document_status', [
   'CONFIRMED',
   'REJECTED',
   'CANCELLED',
+  // Stock transfers only: dispatched from the source, not yet received.
+  'IN_TRANSIT',
 ]);
 export const incidentSeverity = pgEnum('incident_severity', [
   'LOW',
@@ -1300,6 +1302,13 @@ export const stockTransfers = pgTable(
     status: documentStatus().default('DRAFT').notNull(),
     note: text(),
     createdByMemberId: uuid('created_by_member_id').notNull(),
+    // Source dispatch (two-step transfers); null on transfers confirmed in one step.
+    dispatchedByMemberId: uuid('dispatched_by_member_id'),
+    dispatchedAt: timestamp('dispatched_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    // Destination receipt; on one-step legacy transfers, the single confirmation.
     confirmedByMemberId: uuid('confirmed_by_member_id'),
     rejectionReason: text('rejection_reason'),
     rejectedByMemberId: uuid('rejected_by_member_id'),
@@ -1337,6 +1346,11 @@ export const stockTransfers = pgTable(
       columns: [table.confirmedByMemberId],
       foreignColumns: [farmMembers.id],
       name: 'stock_transfers_confirmed_by_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.dispatchedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_transfers_dispatched_by_member_id_fkey',
     }),
     foreignKey({
       columns: [table.createdByMemberId],
@@ -1387,6 +1401,11 @@ export const stockTransfers = pgTable(
       'ck_transfer_different_warehouses',
       sql`from_warehouse_id <> to_warehouse_id`,
     ),
+    // ::text: the IN_TRANSIT value is added in the same migration.
+    check(
+      'ck_transfer_dispatch_fields',
+      sql`(status::text <> 'IN_TRANSIT') OR ((transfer_code IS NOT NULL) AND (dispatched_by_member_id IS NOT NULL) AND (dispatched_at IS NOT NULL))`,
+    ),
   ],
 );
 
@@ -1399,6 +1418,9 @@ export const stockTransferItems = pgTable(
     lotId: uuid('lot_id'),
     assetId: uuid('asset_id'),
     quantity: numeric({ precision: 18, scale: 3 }).notNull(),
+    // Counted by the destination; null until received (and on legacy lines, received in full).
+    receivedQuantity: numeric('received_quantity', { precision: 18, scale: 3 }),
+    discrepancyReason: text('discrepancy_reason'),
     note: text(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -1430,6 +1452,11 @@ export const stockTransferItems = pgTable(
       sql`(asset_id IS NULL) OR (quantity = (1)::numeric)`,
     ),
     check('ck_transfer_item_quantity_positive', sql`quantity > (0)::numeric`),
+    // Never more than shipped; a shortfall must say why (lost, damaged…).
+    check(
+      'ck_transfer_item_received',
+      sql`(received_quantity IS NULL) OR ((received_quantity >= (0)::numeric) AND (received_quantity <= quantity) AND ((received_quantity = quantity) OR (btrim(coalesce(discrepancy_reason, '')) <> '')))`,
+    ),
   ],
 );
 

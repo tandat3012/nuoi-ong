@@ -45,10 +45,10 @@ export function canStaffCancelDetail(detail: OrderDetail) {
   );
 }
 
-/** Top-up transfers still waiting for warehouse approval. */
+/** Top-up transfers not yet received by the sales warehouse. */
 export function pendingReplenishments(detail: OrderDetail) {
   return detail.replenishments.filter((row) =>
-    ["DRAFT", "PENDING_APPROVAL"].includes(row.status),
+    ["DRAFT", "PENDING_APPROVAL", "IN_TRANSIT"].includes(row.status),
   );
 }
 

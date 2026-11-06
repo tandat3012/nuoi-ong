@@ -68,6 +68,17 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
   };
   const confirm = (kind: string, id: string) =>
     http().post(`/api/v1/stock-${kind}/${id}/confirm`).query({ farmId: farm });
+  const receive = (id: string, items?: object[]) =>
+    http()
+      .post(`/api/v1/stock-transfers/${id}/receive`)
+      .query({ farmId: farm })
+      .send(items ? { items } : {});
+  /** Source dispatch, then destination counts everything in. */
+  const move = async (id: string) => {
+    const sent = await confirm('transfers', id);
+    if (sent.status !== 201) return sent;
+    return receive(id);
+  };
   const balances = async () =>
     (
       await pool.query<{ warehouse_id: string; quantity_on_hand: string }>(
@@ -500,6 +511,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       .expect(201);
     const body = response.body as { data: { transfer: { id: string } } };
     await confirm('transfers', body.data.transfer.id).expect(201);
+    await receive(body.data.transfer.id).expect(201);
     expect(await lotBalances()).toEqual(
       expect.arrayContaining([
         { warehouse_id: source, quantity_on_hand: '3.000' },
@@ -568,8 +580,11 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
 
   it('transfers exact quantities and creates one balanced ledger pair on repeated confirmation', async () => {
     const id = await create('transfers', '3.125');
+    // TRF-06/07: retried dispatch and receive move stock once.
     await confirm('transfers', id).expect(201);
     await confirm('transfers', id).expect(201);
+    await receive(id).expect(201);
+    await receive(id).expect(201);
     expect(await balances()).toEqual(
       expect.arrayContaining([
         { warehouse_id: source, quantity_on_hand: '6.875' },
@@ -577,6 +592,57 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       ]),
     );
     expect(await ledger()).toEqual(['-3.125', '3.125']);
+  });
+
+  it('dispatch debits only the source; the destination gets what it counts (TRF-02..05)', async () => {
+    const id = await create('transfers', '5');
+    // Not dispatched yet: nothing can be received.
+    await receive(id).expect(409);
+    await confirm('transfers', id).expect(201);
+    const transit = await http()
+      .get(`/api/v1/stock-transfers/${id}`)
+      .query({ farmId: farm })
+      .expect(200);
+    const sent = transit.body as {
+      data: {
+        transfer: { status: string; dispatchedAt: string | null };
+        items: { id: string }[];
+      };
+    };
+    expect(sent.data.transfer.status).toBe('IN_TRANSIT');
+    expect(sent.data.transfer.dispatchedAt).not.toBeNull();
+    expect(await balances()).toEqual([
+      { warehouse_id: source, quantity_on_hand: '5.000' },
+    ]);
+    const line = sent.data.items[0].id;
+    await receive(id, [{ id: line, receivedQuantity: '6' }]).expect(400);
+    await receive(id, [{ id: line, receivedQuantity: '4' }]).expect(400);
+    await receive(id, [{ id: randomUUID(), receivedQuantity: '5' }]).expect(
+      400,
+    );
+    const done = await receive(id, [
+      { id: line, receivedQuantity: '4', discrepancyReason: '1 chai vỡ' },
+    ]).expect(201);
+    expect(
+      (done.body as { data: { transfer: object; items: object[] } }).data,
+    ).toMatchObject({
+      transfer: { status: 'CONFIRMED' },
+      items: [
+        {
+          quantity: '5.000',
+          receivedQuantity: '4.000',
+          discrepancyReason: '1 chai vỡ',
+        },
+      ],
+    });
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '5.000' },
+        { warehouse_id: destination, quantity_on_hand: '4.000' },
+      ]),
+    );
+    // The missing unit left the source and never arrived: no ledger row for it.
+    expect(await ledger()).toEqual(['-5.000', '4.000']);
   });
 
   const createTransfer = async (from: string, to: string, quantity: string) => {
@@ -599,7 +665,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       [1, 2, 3, 4].map(() => createTransfer(source, destination, '1')),
     );
     const statuses = await Promise.all(
-      ids.map(async (id) => (await confirm('transfers', id)).status),
+      ids.map(async (id) => (await move(id)).status),
     );
     expect(statuses).toEqual([201, 201, 201, 201]);
     expect(await balances()).toEqual(
@@ -625,7 +691,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       ),
     );
     const statuses = await Promise.all(
-      ids.map(async (id) => (await confirm('transfers', id)).status),
+      ids.map(async (id) => (await move(id)).status),
     );
     expect(statuses).toEqual(Array(8).fill(201));
     expect(await balances()).toEqual(
@@ -820,6 +886,8 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         confirm(kind, id).expect(201),
         confirm(kind, id).expect(201),
       ]);
+      if (kind === 'transfers')
+        await Promise.all([receive(id).expect(201), receive(id).expect(201)]);
       expect(await ledger()).toEqual(
         kind === 'counts' ? ['-8.000'] : ['-2.000', '2.000'],
       );
