@@ -57,6 +57,8 @@ const RESOURCES: readonly CatalogResource[] = [
       { name: 'unitId', label: 'Đơn vị tính', required: true, type: 'select' },
       { name: 'minStockLevel', label: 'Tồn tối thiểu', required: true, defaultValue: '0', maxLength: 19 },
       { name: 'maintenanceIntervalDays', label: 'Chu kỳ bảo trì (ngày)', type: 'number' },
+      // Customer warranty from delivery; snapshotted onto each order line when sold.
+      { name: 'warrantyMonths', label: 'Bảo hành cho khách (tháng, để trống = không bảo hành)', type: 'number' },
       { name: 'description', label: 'Mô tả', maxLength: 4000 },
     ],
     columns: [{ name: 'code', label: 'Mã' }, { name: 'name', label: 'Tên' }, { name: 'itemType', label: 'Loại' }, { name: 'trackingMode', label: 'Theo dõi' }, { name: 'categoryName', label: 'Nhóm hàng' }, { name: 'unitName', label: 'Đơn vị' }],

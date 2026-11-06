@@ -8,6 +8,7 @@ import {
   CreateStoreOrderDto,
 } from './dto/store-order.dto';
 import { StoreOrdersService } from './store-orders.service';
+import { StoreWarrantiesService } from './store-warranties.service';
 
 @Controller('store/orders')
 @ApiTags('Đơn hàng của tôi')
@@ -16,6 +17,7 @@ export class CustomerOrdersController {
   constructor(
     private readonly orders: StoreOrdersService,
     private readonly auth: AuthService,
+    private readonly warranties: StoreWarrantiesService,
   ) {}
 
   @Post()
@@ -43,8 +45,13 @@ export class CustomerOrdersController {
     @Param('id') id: string,
   ) {
     const user = await this.auth.getOrCreateUser(auth.clerkUserId);
+    // customerGet fails first for another customer's order.
+    const order = await this.orders.customerGet(user.id, requireUuid(id, 'id'));
     return {
-      data: await this.orders.customerGet(user.id, requireUuid(id, 'id')),
+      data: {
+        ...order,
+        warranties: await this.warranties.forCustomerOrder(id),
+      },
     };
   }
 

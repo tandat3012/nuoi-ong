@@ -500,6 +500,9 @@ export const storeOrderItems = pgTable(
       scale: 3,
     }).notNull(),
     lineTotal: numeric('line_total', { precision: 18, scale: 0 }).notNull(),
+    // Equipment/tool warranty when ordered (0 = none); null for materials and
+    // for lines ordered before T09, where staff decide.
+    warrantyMonths: integer('warranty_months'),
   },
   (table) => [
     unique('uq_store_order_items_variant').on(table.orderId, table.variantId),
@@ -507,6 +510,10 @@ export const storeOrderItems = pgTable(
     check(
       'ck_store_order_items_quantity',
       sql`${table.quantity} BETWEEN 1 AND 10000 AND ${table.stockQuantity} > 0 AND ${table.stockQuantity} < 'NaN'::numeric`,
+    ),
+    check(
+      'ck_store_order_items_warranty',
+      sql`${table.warrantyMonths} IS NULL OR ${table.warrantyMonths} BETWEEN 0 AND 120`,
     ),
     check(
       'ck_store_order_items_money',
@@ -587,6 +594,133 @@ export const paymentTransactions = pgTable(
     check(
       'ck_payment_transactions_farm',
       sql`${table.orderId} IS NULL OR ${table.farmId} IS NOT NULL`,
+    ),
+  ],
+).enableRLS();
+
+export const storeWarrantyKind = pgEnum('store_warranty_kind', [
+  'WARRANTY',
+  'PAID_REPAIR',
+]);
+export const storeWarrantyStatus = pgEnum('store_warranty_status', [
+  'RECEIVED',
+  'AT_PARTNER',
+  'AWAITING_CUSTOMER',
+  'IN_REPAIR',
+  'BACK_FROM_PARTNER',
+  'EXCHANGING',
+  'CLOSED',
+  'CANCELLED',
+]);
+export const storeWarrantyResolution = pgEnum('store_warranty_resolution', [
+  'RETURN',
+  'EXCHANGE',
+]);
+
+/**
+ * After-sales warranty or paid repair of a delivered equipment/tool line (NV06).
+ * Staff record what the outside repair partner and the customer said; the
+ * partner and the customer have no account. History lives in audit_logs.
+ */
+export const storeWarrantyRequests = pgTable(
+  'store_warranty_requests',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    requestNumber: integer('request_number')
+      .generatedAlwaysAsIdentity()
+      .notNull(),
+    farmId: uuid('farm_id')
+      .notNull()
+      .references(() => farms.id, { onDelete: 'restrict' }),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => storeOrders.id, { onDelete: 'restrict' }),
+    orderItemId: uuid('order_item_id')
+      .notNull()
+      .references(() => storeOrderItems.id, { onDelete: 'restrict' }),
+    quantity: integer().notNull(),
+    kind: storeWarrantyKind().notNull(),
+    status: storeWarrantyStatus().default('RECEIVED').notNull(),
+    issueDescription: text('issue_description').notNull(),
+    // How the product reached the staff (proof of physical receipt).
+    intakeNote: text('intake_note'),
+    receivedAt: timestamp('received_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    partnerName: varchar('partner_name', { length: 255 }),
+    sentAt: timestamp('sent_at', { withTimezone: true, mode: 'string' }),
+    quoteAmount: numeric('quote_amount', { precision: 18, scale: 0 }),
+    customerApproved: boolean('customer_approved'),
+    customerDecisionNote: text('customer_decision_note'),
+    customerDecidedAt: timestamp('customer_decided_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    repairStartedAt: timestamp('repair_started_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    backAt: timestamp('back_at', { withTimezone: true, mode: 'string' }),
+    result: text(),
+    actualCost: numeric('actual_cost', { precision: 18, scale: 0 }),
+    resolution: storeWarrantyResolution(),
+    exchangeIssueId: uuid('exchange_issue_id').references(
+      () => stockIssues.id,
+      { onDelete: 'restrict' },
+    ),
+    closedAt: timestamp('closed_at', { withTimezone: true, mode: 'string' }),
+    cancelReason: text('cancel_reason'),
+    createdByMemberId: uuid('created_by_member_id')
+      .notNull()
+      .references(() => farmMembers.id, { onDelete: 'restrict' }),
+    handledByMemberId: uuid('handled_by_member_id')
+      .notNull()
+      .references(() => farmMembers.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique('uq_store_warranty_requests_number').on(table.requestNumber),
+    unique('uq_store_warranty_requests_exchange_issue').on(
+      table.exchangeIssueId,
+    ),
+    index('idx_store_warranty_requests_farm').on(
+      table.farmId,
+      table.createdAt.desc(),
+    ),
+    index('idx_store_warranty_requests_order').on(table.orderId),
+    check(
+      'ck_store_warranty_quantity',
+      sql`${table.quantity} BETWEEN 1 AND 10000`,
+    ),
+    check(
+      'ck_store_warranty_money',
+      sql`(${table.quoteAmount} IS NULL OR ${table.quoteAmount} BETWEEN 0 AND 9007199254740991) AND (${table.actualCost} IS NULL OR ${table.actualCost} BETWEEN 0 AND 9007199254740991)`,
+    ),
+    // AC23: a paid repair starts only after the customer agreed to the quote.
+    check(
+      'ck_store_warranty_paid_consent',
+      sql`${table.repairStartedAt} IS NULL OR ${table.kind} = 'WARRANTY' OR ${table.customerApproved} IS TRUE`,
+    ),
+    check(
+      'ck_store_warranty_partner',
+      sql`${table.sentAt} IS NULL OR btrim(coalesce(${table.partnerName}, '')) <> ''`,
+    ),
+    check(
+      'ck_store_warranty_exchange',
+      sql`(${table.status} = 'EXCHANGING' OR (${table.status} = 'CLOSED' AND ${table.resolution} = 'EXCHANGE')) = (${table.exchangeIssueId} IS NOT NULL)`,
+    ),
+    check(
+      'ck_store_warranty_closed',
+      sql`(${table.status} = 'CLOSED') = (${table.closedAt} IS NOT NULL AND ${table.resolution} IS NOT NULL)`,
+    ),
+    check(
+      'ck_store_warranty_cancelled',
+      sql`(${table.status} = 'CANCELLED') = (btrim(coalesce(${table.cancelReason}, '')) <> '')`,
     ),
   ],
 ).enableRLS();

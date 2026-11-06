@@ -46,6 +46,16 @@ Module `store-admin` (`/api/v1/store-admin/...`), mọi request cần `?farmId=`
 - Ảnh tải qua `POST products/:id/images` (multipart `file`, `alt`), JPEG/PNG/WebP ≤ 10MB, lưu lên Cloudinary thư mục `nuoi-ong/products` dưới dạng WebP, cạnh dài tối đa 2000px, `quality: auto:good` (ảnh cũ không được nén lại). Web hiển thị qua loader `web/shared/lib/cloudinary-image.ts` (`f_auto,q_auto,w_<width>`). DB giữ `url` (`secure_url`) và `public_id`; lưu DB lỗi thì xóa file vừa tải. Xóa ảnh xóa dòng DB trước rồi xóa trên Cloudinary (lỗi chỉ log). `PUT products/:id/images/order` nhận đủ danh sách ID theo thứ tự mới.
 - Kiểm tra: `test/store-admin.e2e-spec.ts` (HTTP/multipart) và `test/store-admin.integration.e2e-spec.ts` (DB thật, Cloudinary mock).
 
+## Bảo hành sau bán (NV06, T09)
+
+`/api/v1/store-warranties?farmId=` (`STORE_MANAGE_ROLES`), service `StoreWarrantiesService`, bảng `store_warranty_requests`, lịch sử ở `audit_logs` (`entityType = STORE_WARRANTY`, action `WARRANTY_*`).
+
+- Chỉ dòng **thiết bị/dụng cụ** của đơn `COMPLETED` cùng farm (AC22); vật tư → 400 `WARRANTY_NOT_APPLICABLE`. Tổng số lượng các yêu cầu đang mở trên một dòng không vượt số đã mua.
+- Hạn: `items.warranty_months` (form "Thiết bị/dụng cụ") được chụp vào `store_order_items.warranty_months` khi đặt hàng (0 = không bảo hành, null = vật tư hoặc đơn trước T09 — nhân viên quyết định). Hạn = `completed_at` + số tháng; hết hạn chỉ tạo được `PAID_REPAIR`.
+- Luồng `POST :id/actions { action }`: `send` (đối tác) → `quote` (báo giá, chuyển thành sửa có phí) → `decide` (khách đồng ý/từ chối) → `start-repair` → `back` (kết quả, chi phí) → `return` (đóng) hoặc `exchange`. Sửa có phí chưa có khách đồng ý thì `start-repair` 409 `CUSTOMER_CONSENT_REQUIRED`, CHECK trong DB cũng chặn (AC23).
+- `exchange` tạo phiếu xuất nháp `OTHER` ở kho bán của đơn (chọn lô FEFO, trừ lượng đang giữ); kho xác nhận phiếu mới giảm tồn, một lần. `close` chỉ khi phiếu đã `CONFIRMED`; phiếu bị từ chối/hủy thì `exchange` lại được. Hàng lỗi khách trả không nhập kho (AC24).
+- Khách xem trạng thái (chỉ đọc) trong `GET /store/orders/:id` → `warranties`, không có người xử lý hay phiếu kho. Chưa có: serial, trang khách tự gửi yêu cầu, thông báo.
+
 ## Query và phân trang
 
 | Query                   | Hợp đồng                                                                                                                       |

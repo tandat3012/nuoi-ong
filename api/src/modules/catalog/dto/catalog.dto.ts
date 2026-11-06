@@ -130,6 +130,18 @@ export class CreateEquipmentItemDto {
   @Min(1)
   @Max(3650)
   maintenanceIntervalDays?: number | null;
+  @ApiPropertyOptional({
+    type: 'integer',
+    example: 12,
+    nullable: true,
+    description:
+      'Bảo hành cho khách tính từ ngày giao thành công; chụp vào dòng đơn khi đặt hàng.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(120)
+  warrantyMonths?: number | null;
 }
 
 export class UpdateEquipmentItemDto extends PartialType(

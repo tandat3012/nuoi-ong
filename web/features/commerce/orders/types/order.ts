@@ -83,6 +83,8 @@ export interface OrderItem {
   quantity: number;
   stockQuantity: string;
   lineTotal: string;
+  /** Equipment/tool warranty when sold (0 = none); null for materials and pre-warranty orders. */
+  warrantyMonths?: number | null;
 }
 
 /** Fields only staff endpoints return. */
@@ -216,6 +218,23 @@ export interface CustomerOrderDetail {
   items: CustomerOrderItem[];
   customer: OrderCustomer;
   payment: OrderTransferInstructions | null;
+  /** After-sales requests staff recorded for this order (read only). */
+  warranties?: CustomerWarranty[];
+}
+
+export interface CustomerWarranty {
+  id: string;
+  code: string;
+  productName: string;
+  variantName: string;
+  quantity: number;
+  kind: "WARRANTY" | "PAID_REPAIR";
+  status: string;
+  result: string | null;
+  quoteAmount: string | null;
+  resolution: "RETURN" | "EXCHANGE" | null;
+  receivedAt: string;
+  closedAt: string | null;
 }
 
 export type StoreRegion = "NORTH" | "CENTRAL" | "SOUTH";

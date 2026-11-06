@@ -466,6 +466,8 @@ export const items = pgTable(
       .default('0')
       .notNull(),
     maintenanceIntervalDays: integer('maintenance_interval_days'),
+    // Customer warranty from delivery, equipment/tool templates only (NV06).
+    warrantyMonths: integer('warranty_months'),
     barcode: varchar({ length: 255 }),
     imageUrl: text('image_url'),
     sourceUrl: text('source_url'),
@@ -516,6 +518,10 @@ export const items = pgTable(
     check(
       'ck_item_maintenance_interval_positive',
       sql`(maintenance_interval_days IS NULL) OR (maintenance_interval_days > 0)`,
+    ),
+    check(
+      'ck_item_warranty_months',
+      sql`(warranty_months IS NULL) OR ((warranty_months BETWEEN 1 AND 120) AND (item_type IN ('EQUIPMENT'::item_type, 'TOOL'::item_type)))`,
     ),
     check(
       'ck_item_min_stock_nonnegative',

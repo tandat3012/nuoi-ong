@@ -262,9 +262,30 @@ export class StoreOrdersService implements StockTransferHook {
             requestFingerprint: fingerprint,
           })
           .returning({ id: storeOrders.id });
-        await tx
-          .insert(storeOrderItems)
-          .values(lines.map((line) => ({ ...line, orderId: order.id })));
+        // Warranty as sold, so later policy changes never touch this order (NV06):
+        // equipment/tool lines get their months (0 = none), materials stay null.
+        const warranty = new Map(
+          (
+            await tx
+              .select({
+                id: items.id,
+                itemType: items.itemType,
+                months: items.warrantyMonths,
+              })
+              .from(items)
+              .where(inArray(items.id, itemIds))
+          ).map((row) => [
+            row.id,
+            row.itemType === 'MATERIAL' ? null : (row.months ?? 0),
+          ]),
+        );
+        await tx.insert(storeOrderItems).values(
+          lines.map((line) => ({
+            ...line,
+            orderId: order.id,
+            warrantyMonths: warranty.get(line.itemId) ?? null,
+          })),
+        );
         return order.id;
       });
     } catch (error: unknown) {
@@ -740,6 +761,53 @@ export class StoreOrdersService implements StockTransferHook {
         updatedAt: now,
       })
       .where(eq(storeOrders.id, id));
+  }
+
+  /**
+   * Replacement goods for a warranty exchange (NV06): a DRAFT issue from the
+   * order's sales warehouse, picked FEFO net of held stock. The warehouse
+   * confirming it is the approval; stock drops once, on that confirmation.
+   */
+  async draftExchangeIssue(
+    tx: Transaction,
+    order: Order,
+    line: OrderItem,
+    quantity: number,
+    memberId: string,
+    reason: string,
+  ) {
+    await this.lockStock(tx, order);
+    // Stock units per unit sold, times the units being exchanged.
+    const required =
+      (quantityMillis(line.stockQuantity) * BigInt(quantity)) /
+      BigInt(line.quantity);
+    const picked = await this.pick(tx, order, line, required);
+    if (picked.remaining > 0n) throw this.insufficient(line);
+    const [issue] = await tx
+      .insert(stockIssues)
+      .values({
+        farmId: order.farmId,
+        warehouseId: order.warehouseId,
+        issueType: 'OTHER',
+        createdByMemberId: memberId,
+        reason,
+      })
+      .returning();
+    await tx
+      .insert(stockIssueItems)
+      .values(picked.lines.map((row) => ({ ...row, stockIssueId: issue.id })));
+    await auditStockDocument(
+      tx,
+      memberId,
+      'STOCK_ISSUE',
+      'CREATE',
+      null,
+      issue,
+      {
+        after: picked.lines,
+      },
+    );
+    return issue.id;
   }
 
   /** The caller takes a confirmed order out for delivery and becomes its shipper. */
@@ -1849,7 +1917,7 @@ export class StoreOrdersService implements StockTransferHook {
     if (!history) throw new ForbiddenException('Farm does not sell online');
   }
 
-  private async staffMember(farmId: string, clerkUserId: string) {
+  async staffMember(farmId: string, clerkUserId: string) {
     await this.assertStoreFarm(farmId);
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);

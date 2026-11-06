@@ -274,6 +274,13 @@
       "when": 1793966673918,
       "tag": "0038_two-step-transfers",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793969037430,
+      "tag": "0039_store-warranty",
+      "breakpoints": true
     }
   ]
 }
