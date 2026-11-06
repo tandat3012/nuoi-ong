@@ -513,6 +513,11 @@ export class StockReceiptsService {
             'ASSET receipt lines require assetCode and quantity 1',
           );
         }
+        // A received asset becomes AVAILABLE, and handing out or moving it needs its location.
+        if (item.trackingMode === 'ASSET' && !line.locationId)
+          throw new BadRequestException(
+            'ASSET receipt lines require a location',
+          );
         if (
           item.trackingMode === 'ASSET' &&
           (line.supplierLotNumber || line.manufacturedDate || line.expiryDate)

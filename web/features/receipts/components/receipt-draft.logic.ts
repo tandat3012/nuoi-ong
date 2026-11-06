@@ -61,6 +61,8 @@ export function validateReceiptDraft(input: CreateReceiptInput): string | null {
         return `Dòng ${index + 1}: mã tài sản phải có từ 1 đến 100 ký tự.`;
       if (!ASSET_QUANTITY.test(line.quantity))
         return `Dòng ${index + 1}: tài sản phải có số lượng bằng 1.`;
+      if (!line.locationId)
+        return `Dòng ${index + 1}: chọn vị trí trong kho cho tài sản.`;
       if (seenAssets.has(assetCode))
         return `Dòng ${index + 1}: mã tài sản bị trùng trong phiếu.`;
       seenAssets.add(assetCode);
@@ -160,7 +162,16 @@ const SAVE_ERRORS: [RegExp, string][] = [
     'Lô có sẵn chỉ dùng cho vật tư theo lô và không kèm số lô trên hàng hoặc ngày mới.',
   ],
   [/Expiry date cannot be earlier/, 'Hạn sử dụng phải từ ngày sản xuất trở đi.'],
+  [
+    /ASSET receipt lines require a location/,
+    'Tài sản phải có vị trí trong kho. Sửa phiếu và chọn vị trí cho từng tài sản.',
+  ],
 ];
+
+/** Vietnamese text for an API rejection this module knows, else `null`. */
+export function knownReceiptError(message: string) {
+  return SAVE_ERRORS.find(([pattern]) => pattern.test(message))?.[1] ?? null;
+}
 
 /** Vietnamese message for a failed draft save; `null` status means no response. */
 export function receiptSaveErrorMessage(
@@ -174,7 +185,7 @@ export function receiptSaveErrorMessage(
   if (status === 409) return `Không thể ${action} phiếu nhập: ${message}`;
   if (status === 400 || status === 404)
     return (
-      SAVE_ERRORS.find(([pattern]) => pattern.test(message))?.[1] ??
+      knownReceiptError(message) ??
       `Dữ liệu không hợp lệ hoặc không còn khả dụng: ${message}`
     );
   return `Chưa xác nhận được kết quả ${action}. Hãy tải lại danh sách trước khi gửi lại.`;
