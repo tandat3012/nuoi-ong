@@ -31,7 +31,7 @@ export function pendingReplenishments(detail: OrderDetail) {
   );
 }
 
-/** PENDING, or PREPARING whose transfers arrived but stock ran short again. */
+/** PENDING, or a legacy PREPARING order whose transfers are all settled. */
 export function canConfirmOrder(detail: OrderDetail) {
   return (
     detail.order.status === "PENDING" ||
@@ -264,6 +264,14 @@ export function validationMessage(details: unknown) {
     messages.some((message) => message.startsWith(field)),
   ).map(([, message]) => message);
   return matched.length ? matched.join(" ") : null;
+}
+
+/** Staff confirming an order its sales warehouse no longer covers (D03). */
+export function confirmErrorMessage(error: unknown) {
+  const failure = error as { message?: string; details?: { code?: string } } | null;
+  if (failure?.details?.code !== "INSUFFICIENT_STOCK")
+    return orderErrorMessage(error);
+  return `${failure.message ?? "Kho bán không đủ hàng."} Đơn chưa giữ hàng; hãy chuyển kho sang kho bán rồi xác nhận lại.`;
 }
 
 export function orderErrorMessage(error: unknown) {

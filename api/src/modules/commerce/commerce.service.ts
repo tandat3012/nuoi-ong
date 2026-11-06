@@ -24,7 +24,6 @@ import {
   storeRegion,
   storeSettings,
   storeShippingFees,
-  storeSourceWarehouses,
   storeVariantItems,
   units,
   warehouses,
@@ -498,19 +497,11 @@ export class CommerceService {
   }
 
   /**
-   * Stock of the `items` row in scope that a farm's sales warehouse can sell:
-   * its own plus the farm's active source warehouses, which top it up by
-   * transfer when an order is confirmed. Assets cannot be transferred that
-   * way, so they count only in the sales warehouse.
+   * Stock of the `items` row in scope held by the farm's sales warehouse
+   * alone; other warehouses never count (D03).
    */
   private itemStock({ warehouseId, farmId }: StoreWarehouse, required: SQL) {
     const today = new Date().toISOString().slice(0, 10);
-    const pool = sql`(b.warehouse_id = ${warehouseId} OR b.warehouse_id IN (
-      SELECT ${storeSourceWarehouses.warehouseId}
-      FROM ${storeSourceWarehouses}
-      JOIN ${warehouses} sw ON sw.id = ${storeSourceWarehouses.warehouseId}
-      WHERE ${storeSourceWarehouses.farmId} = ${farmId} AND sw.status = 'ACTIVE'
-    ))`;
 
     return sql<boolean>`
     CASE ${items.trackingMode}
@@ -520,7 +511,7 @@ export class CommerceService {
         FROM ${inventoryBalances} b
         WHERE b.item_id = ${items.id}
           AND b.farm_id = ${farmId}
-          AND ${pool}
+          AND b.warehouse_id = ${warehouseId}
           AND b.lot_id IS NULL
       )
 
@@ -534,7 +525,7 @@ export class CommerceService {
           AND l.farm_id = b.farm_id
         WHERE b.item_id = ${items.id}
           AND b.farm_id = ${farmId}
-          AND ${pool}
+          AND b.warehouse_id = ${warehouseId}
           AND (
             l.expiry_date IS NULL
             OR l.expiry_date >= ${today}::date
