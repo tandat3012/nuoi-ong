@@ -630,12 +630,16 @@ export class AssetLifecycleService {
         false,
         actor.scope,
       );
-      if (preliminary.status !== 'AVAILABLE')
+      // A failed repair received back stays MAINTENANCE (not sellable); it retires
+      // from there instead of passing through AVAILABLE (AC28).
+      if (!['AVAILABLE', 'MAINTENANCE'].includes(preliminary.status))
         throw new ConflictException(
           'Return assigned or in-use assets before retiring them',
         );
       if (!preliminary.currentLocationId)
-        throw new ConflictException('Available asset has no source location');
+        throw new ConflictException(
+          'Asset has no warehouse location to retire from',
+        );
       const locationPreview = await this.locationWithWarehouse(
         tx,
         farmId,
@@ -654,7 +658,7 @@ export class AssetLifecycleService {
       );
       const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
       if (
-        asset.status !== 'AVAILABLE' ||
+        asset.status !== preliminary.status ||
         asset.itemId !== preliminary.itemId ||
         asset.currentLocationId !== preliminary.currentLocationId
       )
@@ -662,6 +666,10 @@ export class AssetLifecycleService {
           'Asset changed during retirement; reload before retrying',
         );
       await this.assertNoActiveMaintenance(tx, farmId, id);
+      const failedRepairId =
+        asset.status === 'MAINTENANCE'
+          ? await this.receivedFailedRepair(tx, farmId, id)
+          : undefined;
       await this.activeLocation(
         tx,
         farmId,
@@ -694,7 +702,11 @@ export class AssetLifecycleService {
         'ASSET_RETIRED',
         id,
         { status: asset.status },
-        { status: 'RETIRED', summary: `Ngừng sử dụng: ${input.note}` },
+        {
+          status: 'RETIRED',
+          ...(failedRepairId && { referenceId: failedRepairId }),
+          summary: `Ngừng sử dụng${failedRepairId ? ' (sửa không đạt)' : ''}: ${input.note}`,
+        },
       );
       return updated;
     });
@@ -1280,6 +1292,32 @@ export class AssetLifecycleService {
       .limit(1);
     if (maintenance)
       throw new ConflictException('Asset has active maintenance');
+  }
+
+  /** The FAILED repair whose return the warehouse confirmed; 409 if there is none. */
+  private async receivedFailedRepair(
+    tx: Transaction,
+    farmId: string,
+    assetId: string,
+  ) {
+    const [repair] = await tx
+      .select({ id: maintenanceRecords.id })
+      .from(maintenanceRecords)
+      .where(
+        and(
+          eq(maintenanceRecords.farmId, farmId),
+          eq(maintenanceRecords.assetId, assetId),
+          eq(maintenanceRecords.status, 'FAILED'),
+          eq(maintenanceRecords.returnStatus, 'CONFIRMED'),
+        ),
+      )
+      .orderBy(desc(maintenanceRecords.returnReviewedAt))
+      .limit(1);
+    if (!repair)
+      throw new ConflictException(
+        'Only a failed repair received back in the warehouse can be retired from maintenance',
+      );
+    return repair.id;
   }
 
   private async assertNoFailedMaintenance(

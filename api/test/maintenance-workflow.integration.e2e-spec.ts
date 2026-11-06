@@ -19,7 +19,7 @@ import { StockIssuesService } from '../src/modules/warehouses/stock-issues.servi
 import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
 import { StockCountsService } from '../src/modules/warehouses/stock-counts.service';
 import { InventoryAdjustmentsService } from '../src/modules/inventory/inventory-adjustments.service';
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { and } from 'drizzle-orm';
 
@@ -783,6 +783,132 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     const next = await schedule();
     await service.start(next.id, farm, worker);
     expect(await balance()).toBe(original - 1);
+  });
+  it('retires a failed repair received back exactly once, never via AVAILABLE (AC12, AC28)', async () => {
+    const original = await balance();
+    const note = { note: 'Hỏng không sửa được' };
+    const failed = await inspect('FAILED');
+    // Out for repair, then waiting for the warehouse: the asset has no location yet.
+    await expect(lifecycle.retire(asset, farm, manager, note)).rejects.toThrow(
+      'no warehouse location',
+    );
+    await service.submitReturn(failed.id, farm, worker, {
+      warehouseId: warehouse,
+      locationId: location,
+    });
+    await expect(lifecycle.retire(asset, farm, manager, note)).rejects.toThrow(
+      'no warehouse location',
+    );
+    await service.reviewReturn(failed.id, farm, manager, true);
+    expect(await assetRow()).toMatchObject({
+      status: 'MAINTENANCE',
+      currentLocationId: location,
+    });
+    expect(await balance()).toBe(original);
+    await expect(
+      lifecycle.retire(asset, farm, worker, note),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // A scheduled retry blocks retirement until it is cancelled.
+    const retry = await schedule();
+    await expect(lifecycle.retire(asset, farm, manager, note)).rejects.toThrow(
+      'active maintenance',
+    );
+    await service.cancel(retry.id, farm, manager);
+
+    const results = await Promise.allSettled([
+      lifecycle.retire(asset, farm, manager, note),
+      lifecycle.retire(asset, farm, manager, note),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    expect(
+      results.find((result) => result.status === 'rejected')?.reason,
+    ).toBeInstanceOf(ConflictException);
+    await expect(lifecycle.retire(asset, farm, manager, note)).rejects.toThrow(
+      'Return assigned',
+    );
+    expect((await assetRow()).status).toBe('RETIRED');
+    expect(await balance()).toBe(original - 1);
+    const moves = await pool.query<{ source_type: string; reason: string }>(
+      `SELECT source_type, reason FROM inventory_transactions
+       WHERE asset_id=$1 AND source_type='ASSET_RETIRE'`,
+      [asset],
+    );
+    expect(moves.rows).toEqual([
+      { source_type: 'ASSET_RETIRE', reason: 'Hỏng không sửa được' },
+    ]);
+    const audits = await pool.query<{ old: string; ref: string }>(
+      `SELECT old_data->>'status' AS old, new_data->>'referenceId' AS ref
+       FROM audit_logs WHERE entity_id=$1 AND action='ASSET_RETIRED'`,
+      [asset],
+    );
+    expect(audits.rows).toEqual([{ old: 'MAINTENANCE', ref: failed.id }]);
+  });
+  it('lets an older received failure authorise retirement only while no retry is open', async () => {
+    const note = { note: 'Hỏng không sửa được' };
+    const receive = async (id: string) => {
+      await service.submitReturn(id, farm, worker, {
+        warehouseId: warehouse,
+        locationId: location,
+      });
+      await service.reviewReturn(id, farm, manager, true);
+    };
+    await receive((await inspect('FAILED')).id);
+    const original = await balance();
+    // Retry passed, return waiting for the warehouse, then rejected: still blocked.
+    const passed = await inspect('PASSED');
+    await service.submitReturn(passed.id, farm, worker, {
+      warehouseId: warehouse,
+      locationId: location,
+    });
+    await expect(
+      lifecycle.retire(asset, farm, manager, note),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await service.reviewReturn(passed.id, farm, manager, false, 'Sai vị trí');
+    await expect(
+      lifecycle.retire(asset, farm, manager, note),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(await balance()).toBe(original - 1);
+    expect((await assetRow()).status).toBe('MAINTENANCE');
+  });
+  it('serializes retirement against scheduling a retry: exactly one wins', async () => {
+    const failed = await inspect('FAILED');
+    await service.submitReturn(failed.id, farm, worker, {
+      warehouseId: warehouse,
+      locationId: location,
+    });
+    await service.reviewReturn(failed.id, farm, manager, true);
+    const original = await balance();
+    const [retired, scheduled] = await Promise.allSettled([
+      lifecycle.retire(asset, farm, manager, { note: 'Ngừng' }),
+      schedule(),
+    ]);
+    expect([retired.status, scheduled.status].sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const row = await assetRow();
+    if (retired.status === 'fulfilled') {
+      expect(row.status).toBe('RETIRED');
+      expect(await balance()).toBe(original - 1);
+    } else {
+      expect(retired.reason).toBeInstanceOf(ConflictException);
+      expect(row.status).toBe('MAINTENANCE');
+      expect(await balance()).toBe(original);
+    }
+  });
+  it('does not retire a maintenance asset without a received failed repair', async () => {
+    await db
+      .update(schema.assets)
+      .set({ status: 'MAINTENANCE' })
+      .where(eq(schema.assets.id, asset));
+    const original = await balance();
+    await expect(
+      lifecycle.retire(asset, farm, manager, { note: 'Thử ngừng' }),
+    ).rejects.toThrow('failed repair received back');
+    expect(await balance()).toBe(original);
   });
   it('rejects invalid destination, allows rejection/resubmission and audits both decisions', async () => {
     const original = await balance(),

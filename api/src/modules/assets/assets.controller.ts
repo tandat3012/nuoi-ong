@@ -490,7 +490,11 @@ export class AssetsController {
   }
 
   @Post(':id/retire')
-  @ApiOperation({ summary: 'Ngừng sử dụng tài sản đang có trong kho' })
+  @ApiOperation({
+    summary: 'Ngừng sử dụng tài sản đang có trong kho',
+    description:
+      'Tài sản AVAILABLE, hoặc tài sản sửa không đạt (FAILED) mà kho đã xác nhận nhận lại; trừ tồn và ghi sổ một lần.',
+  })
   @ApiUuidParam('id', 'ID tài sản.')
   @ApiFarmIdQuery()
   @ApiBody({ type: RetireAssetDto })
@@ -499,7 +503,7 @@ export class AssetsController {
   })
   @ApiConflictResponse({
     description:
-      'Chỉ tài sản AVAILABLE không có bảo trì đang mở mới có thể ngừng.',
+      'Tài sản không AVAILABLE/không phải sửa hỏng đã nhận về, hoặc còn bảo trì đang mở.',
   })
   async retireAsset(
     @CurrentAuth() auth: { clerkUserId: string },
