@@ -4,7 +4,9 @@ export type OrderStatus =
   | "CONFIRMED"
   | "SHIPPING"
   | "COMPLETED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "RETURNING"
+  | "RETURNED";
 export type PaymentMethod = "COD" | "BANK_TRANSFER";
 export type PaymentStatus = "UNPAID" | "PAID";
 
@@ -15,6 +17,8 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   SHIPPING: "Đang giao",
   COMPLETED: "Hoàn tất",
   CANCELLED: "Đã hủy",
+  RETURNING: "Đang trả về kho",
+  RETURNED: "Đã trả về kho",
 };
 
 export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
@@ -53,6 +57,16 @@ export interface Order {
   handledByMemberId: string | null;
   /** Who took the order out for delivery; cleared when the delivery is returned. */
   shipperMemberId: string | null;
+  /** A store manager received the COD cash from the shipper. */
+  codRemittedAt: string | null;
+  codRemittedByMemberId: string | null;
+  /** Manual refund of a paid order that was cancelled or returned. */
+  refundAmount: string | null;
+  refundReference: string | null;
+  refundedAt: string | null;
+  refundedByMemberId: string | null;
+  /** Stock receipt bringing a failed delivery back into the sales warehouse. */
+  returnReceiptId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -79,7 +93,10 @@ type StaffOrderField =
   | "paidByMemberId"
   | "paymentTransactionId"
   | "handledByMemberId"
-  | "shipperMemberId";
+  | "shipperMemberId"
+  | "codRemittedByMemberId"
+  | "refundedByMemberId"
+  | "returnReceiptId";
 export type CustomerOrder = Omit<Order, StaffOrderField>;
 export type CustomerOrderItem = Omit<OrderItem, "itemId">;
 
@@ -89,7 +106,7 @@ export interface OrderCustomer {
   email: string;
 }
 
-export type PaymentProvider = "SEPAY" | "SIMULATOR";
+export type PaymentProvider = "SEPAY" | "SIMULATOR" | "MANUAL";
 export type PaymentResult =
   | "MATCHED"
   | "AMOUNT_MISMATCH"
@@ -110,6 +127,7 @@ export const PAYMENT_RESULT_LABELS: Record<PaymentResult, string> = {
 export const PAYMENT_PROVIDER_LABELS: Record<PaymentProvider, string> = {
   SEPAY: "SePay",
   SIMULATOR: "Giả lập",
+  MANUAL: "Đối soát tay",
 };
 
 /** A bank transfer reported to the store, matched to an order or not. */
@@ -166,12 +184,23 @@ export interface OrderDetail {
 export type DeliveryAction =
   | "DELIVERY_CLAIM"
   | "DELIVERY_RETURN"
-  | "DELIVERY_COMPLETE";
+  | "DELIVERY_COMPLETE"
+  | "PAYMENT_RECONCILE"
+  | "COD_REMIT"
+  | "REFUND"
+  | "RETURN_TO_WAREHOUSE"
+  | "RETURN_RECEIVED"
+  | "RETURN_REJECTED";
 
 export interface OrderDeliveryLogEntry {
   action: DeliveryAction;
   actorName: string | null;
-  data: { reason?: string; collectedCod?: boolean } | null;
+  data: {
+    reason?: string;
+    collectedCod?: boolean;
+    reference?: string;
+    amount?: string;
+  } | null;
   createdAt: string;
 }
 
@@ -213,6 +242,8 @@ export interface StoreOrderFilters {
   to?: string;
   q?: string;
   customerId?: string;
+  /** Delivered COD orders whose cash no manager has received yet. */
+  codPending?: boolean;
 }
 
 export interface StoreOrderCustomerProfile {

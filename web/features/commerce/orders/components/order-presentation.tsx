@@ -19,6 +19,8 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  PackageCheck,
+  Undo2,
 } from "lucide-react";
 
 const statusVariant = {
@@ -28,6 +30,8 @@ const statusVariant = {
   SHIPPING: "info",
   COMPLETED: "success",
   CANCELLED: "destructive",
+  RETURNING: "warning",
+  RETURNED: "secondary",
 } as const;
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
@@ -38,6 +42,8 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
     SHIPPING: Truck,
     COMPLETED: CheckCircle2,
     CANCELLED: XCircle,
+    RETURNING: Undo2,
+    RETURNED: PackageCheck,
   }[status];
 
   return (

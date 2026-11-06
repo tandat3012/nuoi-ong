@@ -23,6 +23,7 @@ import {
   farmMembers,
   items,
   stockIssues,
+  stockReceipts,
   stockTransfers,
   units,
   users,
@@ -101,6 +102,10 @@ export const storeOrderStatus = pgEnum('store_order_status', [
   'SHIPPING',
   'COMPLETED',
   'CANCELLED',
+  // Delivery failed for good: goods on their way back, a return receipt waits.
+  'RETURNING',
+  // The warehouse confirmed the return receipt; stock is back.
+  'RETURNED',
 ]);
 export const storePaymentMethod = pgEnum('store_payment_method', [
   'COD',
@@ -173,6 +178,31 @@ export const storeOrders = pgTable(
       () => farmMembers.id,
       { onDelete: 'restrict' },
     ),
+    // A store manager received the COD cash from the shipper.
+    codRemittedAt: timestamp('cod_remitted_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    codRemittedByMemberId: uuid('cod_remitted_by_member_id').references(
+      () => farmMembers.id,
+      { onDelete: 'restrict' },
+    ),
+    // Manual refund of a paid order that was cancelled or returned.
+    refundAmount: numeric('refund_amount', { precision: 18, scale: 0 }),
+    refundReference: text('refund_reference'),
+    refundedAt: timestamp('refunded_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    refundedByMemberId: uuid('refunded_by_member_id').references(
+      () => farmMembers.id,
+      { onDelete: 'restrict' },
+    ),
+    // Stock receipt bringing a failed delivery back into the sales warehouse.
+    returnReceiptId: uuid('return_receipt_id').references(
+      () => stockReceipts.id,
+      { onDelete: 'restrict' },
+    ),
     // Who took the order out for delivery; kept on COMPLETED, cleared when returned.
     shipperMemberId: uuid('shipper_member_id').references(
       () => farmMembers.id,
@@ -195,6 +225,7 @@ export const storeOrders = pgTable(
     unique('uq_store_orders_payment_transaction').on(
       table.paymentTransactionId,
     ),
+    unique('uq_store_orders_return_receipt').on(table.returnReceiptId),
     index('idx_store_orders_status_created').on(
       table.farmId,
       table.status,
@@ -220,6 +251,14 @@ export const storeOrders = pgTable(
       sql`(${table.paymentStatus} = 'UNPAID' AND ${table.paidAt} IS NULL AND ${table.paidByMemberId} IS NULL AND ${table.paymentTransactionId} IS NULL) OR (${table.paymentStatus} = 'PAID' AND ${table.paidAt} IS NOT NULL AND (${table.paidByMemberId} IS NOT NULL OR ${table.paymentTransactionId} IS NOT NULL))`,
     ),
     check(
+      'ck_store_orders_cod_remit',
+      sql`(${table.codRemittedAt} IS NULL) = (${table.codRemittedByMemberId} IS NULL) AND (${table.codRemittedAt} IS NULL OR (${table.paymentMethod} = 'COD' AND ${table.status} = 'COMPLETED'))`,
+    ),
+    check(
+      'ck_store_orders_refund',
+      sql`(${table.refundedAt} IS NULL AND ${table.refundAmount} IS NULL AND ${table.refundReference} IS NULL AND ${table.refundedByMemberId} IS NULL) OR (${table.refundedAt} IS NOT NULL AND ${table.refundedByMemberId} IS NOT NULL AND ${table.paymentStatus} = 'PAID' AND ${table.status}::text IN ('CANCELLED', 'RETURNED') AND ${table.refundAmount} > 0 AND ${table.refundAmount} <= ${table.total} AND length(trim(${table.refundReference})) > 0)`,
+    ),
+    check(
       'ck_store_orders_shipper',
       sql`${table.status} <> 'SHIPPING' OR ${table.shipperMemberId} IS NOT NULL`,
     ),
@@ -230,7 +269,8 @@ export const storeOrders = pgTable(
     AND (${table.status} NOT IN ('CONFIRMED', 'SHIPPING', 'COMPLETED') OR (${table.stockIssueId} IS NOT NULL AND ${table.confirmedAt} IS NOT NULL))
     AND (${table.status} NOT IN ('SHIPPING', 'COMPLETED') OR ${table.shippedAt} IS NOT NULL)
     AND (${table.status} <> 'COMPLETED' OR (${table.completedAt} IS NOT NULL AND ${table.paymentStatus} = 'PAID'))
-    AND (${table.status} <> 'CANCELLED' OR (${table.cancelledAt} IS NOT NULL AND ${table.cancelReason} IS NOT NULL AND length(trim(${table.cancelReason})) > 0 AND ${table.paymentStatus} = 'UNPAID'))
+    AND (${table.status} <> 'CANCELLED' OR (${table.cancelledAt} IS NOT NULL AND ${table.cancelReason} IS NOT NULL AND length(trim(${table.cancelReason})) > 0 AND (${table.paymentStatus} = 'UNPAID' OR ${table.refundedAt} IS NOT NULL)))
+    AND (${table.status}::text NOT IN ('RETURNING', 'RETURNED') OR (${table.returnReceiptId} IS NOT NULL AND ${table.stockIssueId} IS NOT NULL AND ${table.shippedAt} IS NOT NULL))
   `,
     ),
   ],
@@ -478,6 +518,8 @@ export const storeOrderItems = pgTable(
 export const paymentProvider = pgEnum('payment_provider', [
   'SEPAY',
   'SIMULATOR',
+  // Staff reconciled a bank transfer by hand; provider_tx_id is the bank reference.
+  'MANUAL',
 ]);
 export const paymentTransactionResult = pgEnum('payment_transaction_result', [
   'MATCHED',

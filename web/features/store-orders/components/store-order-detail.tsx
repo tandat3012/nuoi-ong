@@ -10,13 +10,18 @@ import { Textarea } from "@/shared/components/ui/textarea";
 import {
   getStoreOrder,
   runStoreOrderAction,
+  type StoreOrderAction,
 } from "../store-orders.api";
+import { Input } from "@/shared/components/ui/input";
 import {
   canCompleteOrder,
   canConfirmOrder,
   canShipOrder,
   pendingReplenishments,
   canStaffCancelDetail,
+  canMarkPaid,
+  canRemitCod,
+  needsRefund,
   formatOrderMoney,
   confirmErrorMessage,
   orderErrorMessage,
@@ -62,6 +67,10 @@ export function StoreOrderDetail({
   } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [paidReference, setPaidReference] = useState("");
+  const [paidNote, setPaidNote] = useState("");
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReference, setRefundReference] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [returning, setReturning] = useState(false);
   const current =
@@ -94,14 +103,36 @@ export function StoreOrderDetail({
     setActionError(null);
   }
 
-  async function runAction(
-    action: "confirm" | "ship" | "complete" | "mark-paid" | "cancel",
-  ) {
+  async function runAction(action: StoreOrderAction) {
     if (!detail || isSaving || !canWrite) return;
+    const refund = action === "cancel" && needsRefund(detail.order);
     if (action === "cancel" && !cancelReason.trim()) {
       setActionError("Vui lòng nhập lý do hủy.");
       return;
     }
+    if (refund && !refundReference.trim()) {
+      setActionError("Đơn đã thanh toán: nhập mã giao dịch hoàn tiền.");
+      return;
+    }
+    if (action === "mark-paid" && !paidReference.trim()) {
+      setActionError("Vui lòng nhập mã giao dịch ngân hàng đã đối chiếu.");
+      return;
+    }
+    const body =
+      action === "cancel"
+        ? {
+            reason: cancelReason.trim(),
+            ...(refund && {
+              refundAmount: refundAmount.trim() || detail.order.total,
+              refundReference: refundReference.trim(),
+            }),
+          }
+        : action === "mark-paid"
+          ? {
+              reference: paidReference.trim(),
+              ...(paidNote.trim() && { note: paidNote.trim() }),
+            }
+          : undefined;
     if (
       action !== "cancel" &&
       !(await ask({
@@ -118,10 +149,13 @@ export function StoreOrderDetail({
         farmId,
         id,
         action,
-        cancelReason.trim(),
+        body,
       );
       applyDetail(data);
       setCancelReason("");
+      setPaidReference("");
+      setPaidNote("");
+      setRefundReference("");
     } catch (error: unknown) {
       setActionError(
         action === "confirm"
@@ -214,6 +248,21 @@ export function StoreOrderDetail({
                     ? `Đã thanh toán ${new Date(detail.order.paidAt).toLocaleString("vi-VN")}`
                     : "Chưa ghi nhận thanh toán"}
                 </p>
+                {detail.order.paymentMethod === "COD" &&
+                  detail.order.status === "COMPLETED" && (
+                    <p>
+                      {detail.order.codRemittedAt
+                        ? `Cửa hàng đã nhận tiền COD ${new Date(detail.order.codRemittedAt).toLocaleString("vi-VN")}`
+                        : "Người giao chưa nộp tiền COD"}
+                    </p>
+                  )}
+                {detail.order.refundedAt && (
+                  <p>
+                    Đã hoàn {formatOrderMoney(detail.order.refundAmount ?? "0")}{" "}
+                    · {detail.order.refundReference} ·{" "}
+                    {new Date(detail.order.refundedAt).toLocaleString("vi-VN")}
+                  </p>
+                )}
                 {detail.stockIssue ? (
                   <p>
                     Phiếu xuất:{" "}
@@ -348,18 +397,56 @@ export function StoreOrderDetail({
                       Trả về chờ giao
                     </Button>
                   )}
-                  {detail.order.paymentStatus === "UNPAID" &&
-                    detail.order.status !== "CANCELLED" && (
-                      <Button
-                        variant="outline"
-                        disabled={!canWrite || isSaving}
-                        isLoading={isSaving}
-                        onClick={() => void runAction("mark-paid")}
-                      >
-                        Ghi nhận đã thanh toán
-                      </Button>
-                    )}
+                  {canRemitCod(detail.order) && (
+                    <Button
+                      variant="outline"
+                      disabled={!canWrite || isSaving}
+                      isLoading={isSaving}
+                      onClick={() => void runAction("cod-remit")}
+                    >
+                      Đã nhận tiền COD
+                    </Button>
+                  )}
                 </div>
+                {canMarkPaid(detail.order) && (
+                  <div className="space-y-3 border-t pt-4">
+                    <p className="text-sm font-medium">
+                      Đối soát chuyển khoản thủ công
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Chỉ ghi khi đã thấy tiền về trong sao kê ngân hàng. Mỗi mã
+                      giao dịch chỉ dùng được cho một đơn.
+                    </p>
+                    <label className="block space-y-1 text-sm">
+                      <span>Mã giao dịch ngân hàng *</span>
+                      <Input
+                        value={paidReference}
+                        maxLength={100}
+                        onChange={(event) =>
+                          setPaidReference(event.target.value)
+                        }
+                        disabled={isSaving || !canWrite}
+                      />
+                    </label>
+                    <label className="block space-y-1 text-sm">
+                      <span>Ghi chú đối soát</span>
+                      <Input
+                        value={paidNote}
+                        maxLength={1000}
+                        onChange={(event) => setPaidNote(event.target.value)}
+                        disabled={isSaving || !canWrite}
+                      />
+                    </label>
+                    <Button
+                      variant="outline"
+                      disabled={!canWrite || isSaving}
+                      isLoading={isSaving}
+                      onClick={() => void runAction("mark-paid")}
+                    >
+                      Ghi nhận đã nhận chuyển khoản
+                    </Button>
+                  </div>
+                )}
                 {detail.order.status === "PREPARING" &&
                   (pendingReplenishments(detail).length > 0 ? (
                     <p className="text-xs text-muted-foreground">
@@ -412,6 +499,33 @@ export function StoreOrderDetail({
                         disabled={isSaving || !canWrite}
                       />
                     </label>
+                    {needsRefund(detail.order) && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block space-y-1 text-sm">
+                          <span>Số tiền đã hoàn (VND) *</span>
+                          <Input
+                            inputMode="numeric"
+                            value={refundAmount}
+                            placeholder={detail.order.total}
+                            onChange={(event) =>
+                              setRefundAmount(event.target.value.replace(/\D/g, ""))
+                            }
+                            disabled={isSaving || !canWrite}
+                          />
+                        </label>
+                        <label className="block space-y-1 text-sm">
+                          <span>Mã giao dịch hoàn tiền / chứng cứ *</span>
+                          <Input
+                            value={refundReference}
+                            maxLength={1000}
+                            onChange={(event) =>
+                              setRefundReference(event.target.value)
+                            }
+                            disabled={isSaving || !canWrite}
+                          />
+                        </label>
+                      </div>
+                    )}
                     <Button
                       type="button"
                       variant="destructive"
@@ -419,16 +533,12 @@ export function StoreOrderDetail({
                       isLoading={isSaving}
                       onClick={() => void runAction("cancel")}
                     >
-                      Hủy đơn hàng
+                      {needsRefund(detail.order)
+                        ? "Hủy đơn và ghi hoàn tiền"
+                        : "Hủy đơn hàng"}
                     </Button>
                   </div>
                 )}
-                {detail.order.paymentStatus === "PAID" &&
-                  detail.order.status !== "CANCELLED" && (
-                    <p className="text-xs text-muted-foreground">
-                      Đơn đã thanh toán nên không thể hủy trong phiên bản này.
-                    </p>
-                  )}
                 {detail.order.cancelReason && (
                   <p className="text-sm">
                     <span className="font-medium">Lý do hủy:</span>{" "}
@@ -456,6 +566,9 @@ export function StoreOrderDetail({
                           {deliveryActionLabels[entry.action] ?? entry.action}
                           {entry.actorName ? ` · ${entry.actorName}` : ""}
                           {entry.data?.reason ? ` · ${entry.data.reason}` : ""}
+                          {entry.data?.reference
+                            ? ` · ${entry.data.reference}`
+                            : ""}
                         </li>
                       ))}
                     </ol>
@@ -470,15 +583,14 @@ export function StoreOrderDetail({
   );
 }
 
-function actionConfirmation(
-  action: "confirm" | "ship" | "complete" | "mark-paid",
-  detail: OrderDetail,
-) {
+function actionConfirmation(action: StoreOrderAction, detail: OrderDetail) {
   if (action === "confirm")
     return `Xác nhận đơn ${detail.order.code}? Hệ thống giữ hàng ở kho bán; nếu kho bán thiếu, đơn không được xác nhận.`;
   if (action === "ship")
     return `Nhận giao đơn ${detail.order.code}? Bạn sẽ được ghi nhận là người giao.`;
   if (action === "complete")
     return `Đơn ${detail.order.code} đã giao xong? COD sẽ được ghi nhận đã thu tiền.`;
-  return `Ghi nhận đơn ${detail.order.code} đã thanh toán?`;
+  if (action === "cod-remit")
+    return `Xác nhận đã nhận ${formatOrderMoney(detail.order.total)} tiền COD của đơn ${detail.order.code} từ người giao?`;
+  return `Ghi nhận đơn ${detail.order.code} đã nhận chuyển khoản với mã đã nhập?`;
 }
