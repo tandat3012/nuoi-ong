@@ -10,10 +10,20 @@ import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
 import { filterPositiveBalancesForScope, listBalances, listItems, listWarehouses, type Item, type Paginated, type Warehouse } from '@/src/features/inventory/api';
 import { formatQuantity } from '@/src/shared/format-quantity';
+import { validateQuantityInput } from '@/src/shared/quantity-input';
 
 export type InventoryActionMode = 'maintenance' | 'transfer';
 
 type TransferOption = { id: string; itemId: string; label: string; trackingMode: 'QUANTITY' | 'LOT'; quantity: number; lotId?: string };
+type MaintenanceAsset = { asset: { id: string; assetCode: string; status: string }; itemName: string };
+
+async function listMaintenanceAssets(token: string, farmId: string) {
+  const params = { farmId, page: 1, pageSize: 100 };
+  const first = await apiRequest<Paginated<MaintenanceAsset>>('/assets', { token, params, skipCache: true });
+  const pages = await Promise.all(Array.from({ length: Math.max(0, first.page.totalPages - 1) }, (_, index) =>
+    apiRequest<Paginated<MaintenanceAsset>>('/assets', { token, params: { ...params, page: index + 2 }, skipCache: true })));
+  return [first.data, ...pages.map((page) => page.data)].flat();
+}
 
 const screenCopy: Record<InventoryActionMode, { title: string; subtitle: string; eyebrow: string; icon: 'build' | 'swap-horiz'; action: string }> = {
   maintenance: { title: 'Báo sự cố tài sản', subtitle: 'Gửi yêu cầu sửa chữa để quản lý xử lý trên web', eyebrow: 'BẢO TRÌ TÀI SẢN', icon: 'build', action: 'Gửi yêu cầu bảo trì' },
@@ -53,13 +63,13 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
       return Promise.all([
         listWarehouses(token, currentFarmId),
         listItems(token, currentFarmId),
-        apiRequest<Paginated<{ asset: { id: string; assetCode: string; status: string }; itemName: string }>>('/assets', { token, params: { farmId: currentFarmId, page: 1, pageSize: 100 } }),
+        listMaintenanceAssets(token, currentFarmId),
       ]);
-    }).then(([warehouseResponse, itemResponse, assetResponse]) => {
+    }).then(([warehouseResponse, itemResponse, assetRows]) => {
       if (cancelled) return;
       setWarehouses(warehouseResponse.data);
       setItems(itemResponse.data);
-      setAssets(assetResponse.data.filter(({ asset }) => !['LOST', 'RETIRED', 'MAINTENANCE'].includes(asset.status)).map(({ asset, itemName }) => ({ id: asset.id, label: `${asset.id} • ${asset.assetCode} • ${itemName}` })));
+      setAssets(assetRows.filter(({ asset }) => !['LOST', 'RETIRED', 'MAINTENANCE'].includes(asset.status)).map(({ asset, itemName }) => ({ id: asset.id, label: `${itemName} · ${asset.assetCode}` })));
       const requestedSource = params.sourceWarehouseId && warehouseResponse.data.some((warehouse) => warehouse.id === params.sourceWarehouseId)
         ? params.sourceWarehouseId
         : '';
@@ -69,7 +79,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
         ...current,
         sourceWarehouse,
         destinationWarehouse: !current.destinationWarehouse || current.destinationWarehouse === sourceWarehouse ? suggestedDestination : current.destinationWarehouse,
-        asset: current.asset || (params.assetId ?? assetResponse.data.find(({ asset }) => !['LOST', 'RETIRED', 'MAINTENANCE'].includes(asset.status))?.asset.id ?? ''),
+        asset: current.asset || (params.assetId ?? assetRows.find(({ asset }) => !['LOST', 'RETIRED', 'MAINTENANCE'].includes(asset.status))?.asset.id ?? ''),
       }));
       setLoadError(null);
     }).catch((cause: unknown) => { if (!cancelled) setLoadError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu lựa chọn từ DB.'); });
@@ -133,6 +143,10 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     destinationWarehouse: warehouses.map((warehouse) => `${warehouse.id} • ${warehouse.code} • ${warehouse.name}`),
     item: transferOptions.filter((option) => option.trackingMode === (form.tracking === 'THEO LÔ' ? 'LOT' : 'QUANTITY')).map((option) => option.label),
   }), [assets, form.tracking, transferOptions, warehouses]);
+  const selectedTransferOption = transferOptions.find((option) => option.id === form.item);
+  const transferQuantityError = mode === 'transfer'
+    ? validateQuantityInput(form.quantity, { max: selectedTransferOption?.quantity })
+    : null;
 
   function update(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -156,6 +170,9 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
           ? suggestedDestination
           : current.destinationWarehouse,
       }));
+    } else if (picker === 'asset') {
+      const selected = assets.find((asset) => asset.label === value);
+      if (selected) update('asset', selected.id);
     } else if (picker) update(picker, value.split(' • ')[0]);
     setPicker(null);
   }
@@ -167,6 +184,10 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     }
     if (mode === 'transfer' && (transferLoading || !transferOptions.some((option) => option.id === form.item))) {
       Alert.alert('Chưa có vật phẩm khả dụng', transferLoading ? 'Đang tải tồn kho của kho nguồn.' : 'Kho nguồn không có vật phẩm phù hợp với cách theo dõi đã chọn.');
+      return;
+    }
+    if (mode === 'transfer' && transferQuantityError) {
+      Alert.alert('Số lượng điều chuyển không hợp lệ', `${selectedTransferOption?.label ?? 'Vật tư'}: “${form.quantity || 'trống'}”. ${transferQuantityError}`);
       return;
     }
     if (mode === 'maintenance' && !form.title.trim()) {
@@ -188,9 +209,13 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
         const selected = transferOptions.find((option) => option.id === form.item);
         if (!selected) throw new Error('Vật phẩm không còn trong danh sách tồn của kho nguồn.');
         const quantity = form.quantity;
-        const parsedQuantity = Number(quantity);
-        if (!/^\d+(\.\d{1,3})?$/.test(quantity) || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || parsedQuantity > selected.quantity) throw new Error(`Số lượng phải lớn hơn 0, tối đa 3 chữ số thập phân và không vượt quá tồn khả dụng (${formatQuantity(selected.quantity)}).`);
-        await apiRequest('/stock-transfers', { method: 'POST', token, params: { farmId: currentFarmId }, body: { fromWarehouseId: selectedWarehouse, toWarehouseId: selectedDestination, note: form.note.trim() || undefined, items: [{ itemId: selected.itemId, quantity: String(quantity), lotId: selected.lotId }] } });
+        const latest = await listBalances(token, currentFarmId, selectedWarehouse, true, true);
+        const available = filterPositiveBalancesForScope(latest.data, currentFarmId, selectedWarehouse)
+          .filter(({ balance, trackingMode }) => balance.itemId === selected.itemId && trackingMode === selected.trackingMode && (selected.trackingMode !== 'LOT' || balance.lotId === selected.lotId))
+          .reduce((sum, { balance }) => sum + Number(balance.quantityOnHand), 0);
+        const quantityError = validateQuantityInput(quantity, { max: available });
+        if (quantityError) throw new Error(`${selected.label}: “${quantity || 'trống'}”. ${quantityError}`);
+        await apiRequest('/stock-transfers', { method: 'POST', token, params: { farmId: currentFarmId }, body: { fromWarehouseId: selectedWarehouse, toWarehouseId: selectedDestination, note: form.note.trim() || undefined, items: [{ itemId: selected.itemId, quantity: quantity.trim().replace(',', '.'), lotId: selected.lotId }] } });
       } else {
         await apiRequest('/maintenance-requests', { method: 'POST', token, params: { farmId: currentFarmId }, body: { assetId: selectedAsset, maintenanceType: 'CORRECTIVE', description: form.title } });
       }
@@ -212,9 +237,9 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     <View style={styles.intro}><View style={styles.introCopy}><Text style={styles.eyebrow}>{copy.eyebrow}</Text><Text style={styles.title} numberOfLines={2}>{copy.title}</Text><Text style={styles.subtitle} numberOfLines={2}>{copy.subtitle}</Text></View><Pill tone="amber"><Text style={styles.draft}>{mode === 'maintenance' ? 'GỬI DUYỆT' : 'DRAFT'}</Text></Pill></View>
     {loadError ? <Text style={styles.loadError}>{loadError}</Text> : null}
 
-    {mode === 'maintenance' ? <Card style={styles.formCard}><SectionTitle title="Báo sự cố cần bảo trì" count="Bắt buộc" /><PickerField label="Tài sản" value={form.asset} onPress={() => setPicker('asset')} /><Field label="Mô tả sự cố *" value={form.title} placeholder="VD: Máy quay phát tiếng kêu bất thường" onChangeText={(value) => update('title', value)} /><Field label="Thông tin bổ sung" value={form.note} placeholder="Mô tả thêm tình trạng thiết bị" onChangeText={(value) => update('note', value)} multiline /></Card> : null}
+    {mode === 'maintenance' ? <Card style={styles.formCard}><SectionTitle title="Báo sự cố cần bảo trì" count="Bắt buộc" /><PickerField label="Vật phẩm" value={assets.find((asset) => asset.id === form.asset)?.label ?? 'Chọn vật phẩm'} onPress={() => setPicker('asset')} /><Field label="Mô tả sự cố *" value={form.title} placeholder="VD: Máy quay phát tiếng kêu bất thường" onChangeText={(value) => update('title', value)} /><Field label="Thông tin bổ sung" value={form.note} placeholder="Mô tả thêm tình trạng thiết bị" onChangeText={(value) => update('note', value)} multiline /></Card> : null}
 
-    {mode === 'transfer' ? <Card style={styles.formCard}><SectionTitle title="Thông tin điều chuyển" count="Bắt buộc" /><PickerField label="Kho nguồn" value={warehouses.find((warehouse) => warehouse.id === form.sourceWarehouse)?.name ?? 'Chọn kho nguồn'} onPress={() => setPicker('sourceWarehouse')} /><PickerField label="Kho đích" value={warehouses.find((warehouse) => warehouse.id === form.destinationWarehouse)?.name ?? 'Chọn kho đích'} onPress={() => setPicker('destinationWarehouse')} /><PickerField label="Cách theo dõi" value={form.tracking} onPress={() => setPicker('tracking')} /><PickerField label="Vật tư / lô trong kho nguồn" value={transferOptions.find((option) => option.id === form.item)?.label ?? (transferLoading ? 'Đang tải tồn kho...' : 'Chọn vật tư có tồn')} onPress={() => setPicker('item')} /><Field label={`Số lượng chuyển (tối đa ${formatQuantity(transferOptions.find((option) => option.id === form.item)?.quantity ?? 0)})`} value={form.quantity} placeholder="0" onChangeText={(value) => update('quantity', value)} keyboardType="decimal-pad" /><Field label="Lý do điều chuyển" value={form.note} placeholder="Nhập lý do" onChangeText={(value) => update('note', value)} multiline /></Card> : null}
+    {mode === 'transfer' ? <Card style={styles.formCard}><SectionTitle title="Thông tin điều chuyển" count="Bắt buộc" /><PickerField label="Kho nguồn" value={warehouses.find((warehouse) => warehouse.id === form.sourceWarehouse)?.name ?? 'Chọn kho nguồn'} onPress={() => setPicker('sourceWarehouse')} /><PickerField label="Kho đích" value={warehouses.find((warehouse) => warehouse.id === form.destinationWarehouse)?.name ?? 'Chọn kho đích'} onPress={() => setPicker('destinationWarehouse')} /><PickerField label="Cách theo dõi" value={form.tracking} onPress={() => setPicker('tracking')} /><PickerField label="Vật tư / lô trong kho nguồn" value={transferOptions.find((option) => option.id === form.item)?.label ?? (transferLoading ? 'Đang tải tồn kho...' : 'Chọn vật tư có tồn')} onPress={() => setPicker('item')} /><Field label={`Số lượng chuyển (tối đa ${formatQuantity(transferOptions.find((option) => option.id === form.item)?.quantity ?? 0)})`} value={form.quantity} placeholder="0" onChangeText={(value) => update('quantity', value)} keyboardType="decimal-pad" error={transferQuantityError} /><Field label="Lý do điều chuyển" value={form.note} placeholder="Nhập lý do" onChangeText={(value) => update('note', value)} multiline /></Card> : null}
 
     <Card style={styles.notice}><Icon name="info-outline" color={colors.primary} /><View style={styles.noticeCopy}><Text style={styles.noticeTitle}>{mode === 'maintenance' ? 'Quy trình duyệt sự cố' : 'Quy trình duyệt'}</Text><Text style={styles.noticeText}>{mode === 'maintenance' ? 'Yêu cầu sẽ được gửi người có quyền duyệt trong trại. Chỉ sau khi duyệt, hệ thống mới tạo lịch bảo trì; kết quả gửi lại tài khoản của bạn.' : 'Biểu mẫu được lưu ở DRAFT. Tồn kho chỉ thay đổi sau khi người có quyền xác nhận.'}</Text></View></Card>
     <View style={styles.actions}><Pressable onPress={() => router.back()} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}><Text style={styles.cancelText}>Hủy</Text></Pressable><View style={styles.submit}><PrimaryButton label={copy.action} icon="save" onPress={submit} /></View></View>
@@ -236,8 +261,8 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
   </>;
 }
 
-function Field({ label, value, placeholder, onChangeText, multiline = false, keyboardType, autoCapitalize = 'sentences' }: { label: string; value: string; placeholder: string; onChangeText: (value: string) => void; multiline?: boolean; keyboardType?: 'decimal-pad' | 'number-pad'; autoCapitalize?: 'sentences' | 'characters' | 'none' }) {
-  return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.outline} style={[styles.input, multiline && styles.multiline]} multiline={multiline} keyboardType={keyboardType} autoCapitalize={autoCapitalize} /></View>;
+function Field({ label, value, placeholder, onChangeText, multiline = false, keyboardType, autoCapitalize = 'sentences', error }: { label: string; value: string; placeholder: string; onChangeText: (value: string) => void; multiline?: boolean; keyboardType?: 'decimal-pad' | 'number-pad'; autoCapitalize?: 'sentences' | 'characters' | 'none'; error?: string | null }) {
+  return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.outline} style={[styles.input, multiline && styles.multiline, error && styles.inputError]} multiline={multiline} keyboardType={keyboardType} autoCapitalize={autoCapitalize} />{error ? <Text style={styles.fieldError}>{error}</Text> : null}</View>;
 }
 
 function PickerField({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
@@ -258,6 +283,8 @@ const styles = StyleSheet.create({
   field: { gap: spacing.spaceXs },
   fieldLabel: { ...typography.labelMd, color: colors.onSurfaceVariant, flexShrink: 1 },
   input: { minHeight: 46, paddingHorizontal: spacing.spaceMd, borderRadius: radius.default, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant, color: colors.onSurface, ...typography.bodyMd },
+  inputError: { borderColor: colors.error },
+  fieldError: { ...typography.bodySm, color: colors.error },
   multiline: { minHeight: 86, paddingTop: spacing.spaceMd, textAlignVertical: 'top' },
   twoColumns: { flexDirection: 'row', gap: spacing.spaceSm },
   column: { flex: 1, minWidth: 0 },

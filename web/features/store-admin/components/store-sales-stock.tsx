@@ -101,14 +101,13 @@ export function StoreSalesStockScreen() {
                 <TableHead className="text-right">Tồn vật lý</TableHead>
                 <TableHead className="text-right">Đang giữ</TableHead>
                 <TableHead className="text-right">Khả dụng</TableHead>
-                <TableHead className="text-right">Kho nguồn còn</TableHead>
                 <TableHead>Trạng thái bán</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-muted-foreground">
+                  <TableCell colSpan={6} className="text-muted-foreground">
                     {rows.length === 0
                       ? "Trại chưa gắn vật tư nào vào quy cách bán."
                       : "Không có dòng phù hợp."}
@@ -129,7 +128,7 @@ export function StoreSalesStockScreen() {
                         {row.itemCode}
                       </span>
                     </TableCell>
-                    {[row.onHand, row.held, row.available, row.sourceOnHand].map(
+                    {[row.onHand, row.held, row.available].map(
                       (value, index) => (
                         <TableCell key={index} className="text-right">
                           {formatInventoryQuantity(value)} {row.unitSymbol}

@@ -37,6 +37,7 @@ import {
   warehouses,
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { scopeCondition } from '../warehouses/warehouse-scope';
 
 const transactionAssetTable = sql`${assets} AS transaction_asset`;
 const assetReturnSourceTable = sql`${assets} AS asset_return_source`;
@@ -64,10 +65,9 @@ export class InventoryService {
   ) {}
 
   async listBalances(filters: Filters & PaginationParams) {
-    await this.warehousesService.assertFarmAccess(
+    const scope = await this.warehousesService.warehouseScope(
       filters.farmId,
       filters.clerkUserId,
-      false,
     );
     const [selectedAsset] = filters.assetId
       ? await this.databaseService.db
@@ -115,6 +115,8 @@ export class InventoryService {
       eq(warehouses.farmId, filters.farmId),
       gt(inventoryBalances.quantityOnHand, '0'),
     ];
+    const scoped = scopeCondition(inventoryBalances.warehouseId, scope);
+    if (scoped) predicates.push(scoped);
     if (filters.warehouseId)
       predicates.push(eq(inventoryBalances.warehouseId, filters.warehouseId));
     if (filters.itemId)
@@ -247,12 +249,16 @@ export class InventoryService {
   }
 
   async getBalanceQr(id: string, farmId: string, clerkUserId: string) {
-    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, false);
+    const scope = await this.warehousesService.warehouseScope(
+      farmId,
+      clerkUserId,
+    );
     const [row] = await this.databaseService.db
       .select({
         balance: inventoryBalances,
         itemCode: items.code,
         itemName: items.name,
+        itemImageUrl: items.imageUrl,
         itemType: items.itemType,
         trackingMode: items.trackingMode,
         warehouseCode: warehouses.code,
@@ -282,7 +288,11 @@ export class InventoryService {
         ),
       )
       .where(
-        and(eq(inventoryBalances.id, id), eq(inventoryBalances.farmId, farmId)),
+        and(
+          eq(inventoryBalances.id, id),
+          eq(inventoryBalances.farmId, farmId),
+          scopeCondition(inventoryBalances.warehouseId, scope),
+        ),
       )
       .limit(1);
 
@@ -298,6 +308,7 @@ export class InventoryService {
       balance: row.balance,
       itemCode: row.itemCode,
       itemName: row.itemName,
+      itemImageUrl: row.itemImageUrl,
       itemType: row.itemType,
       trackingMode: row.trackingMode,
       warehouseCode: row.warehouseCode,
@@ -310,10 +321,9 @@ export class InventoryService {
   }
 
   async listTransactions(filters: TransactionFilters & PaginationParams) {
-    await this.warehousesService.assertFarmAccess(
+    const scope = await this.warehousesService.warehouseScope(
       filters.farmId,
       filters.clerkUserId,
-      false,
     );
 
     // Circular schema references make these table columns lose their inferred types.
@@ -357,6 +367,8 @@ export class InventoryService {
     const predicates: SQL[] = [
       eq(inventoryTransactions.farmId, filters.farmId),
     ];
+    const scoped = scopeCondition(inventoryTransactions.warehouseId, scope);
+    if (scoped) predicates.push(scoped);
     if (filters.warehouseId) {
       predicates.push(
         eq(inventoryTransactions.warehouseId, filters.warehouseId),
@@ -668,15 +680,16 @@ export class InventoryService {
   }
 
   async lotSuggestions(filters: Filters) {
-    await this.warehousesService.assertFarmAccess(
+    const scope = await this.warehousesService.warehouseScope(
       filters.farmId,
       filters.clerkUserId,
-      false,
     );
     const predicates: SQL[] = [
       eq(inventoryBalances.farmId, filters.farmId),
       isNotNull(inventoryBalances.lotId),
     ];
+    const scoped = scopeCondition(inventoryBalances.warehouseId, scope);
+    if (scoped) predicates.push(scoped);
     if (filters.itemId)
       predicates.push(eq(inventoryBalances.itemId, filters.itemId));
     if (filters.warehouseId)

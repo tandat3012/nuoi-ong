@@ -16,6 +16,7 @@ const INVENTORY_PAGE_SIZE = 8;
 type InventoryCard = {
   id: string;
   itemId: string;
+  imageUrl: string | null;
   lotId: string | null;
   code: string;
   name: string;
@@ -117,7 +118,7 @@ export default function InventoryScreen() {
     ?? 'Chưa chọn trang trại';
   const visibleItems = useMemo<InventoryCard[]>(() => {
     const itemById = new Map(items.map((item) => [item.id, item]));
-    const balanceByItem = new Map<string, { quantity: number; lotIds: Set<string>; lotNumbers: Set<string>; code: string; name: string; itemType: string; trackingMode: string; minStockLevel: number }>();
+    const balanceByItem = new Map<string, { quantity: number; lotIds: Set<string>; lotCodes: Set<string>; code: string; name: string; itemType: string; trackingMode: string; minStockLevel: number }>();
     balances
       .filter((entry) => Boolean(currentFarmId && selectedWarehouse?.farmId === currentFarmId)
         && entry.balance.farmId === currentFarmId
@@ -130,7 +131,7 @@ export default function InventoryScreen() {
         const current = balanceByItem.get(entry.balance.itemId) ?? {
           quantity: 0,
           lotIds: new Set<string>(),
-          lotNumbers: new Set<string>(),
+          lotCodes: new Set<string>(),
           code: entry.itemCode,
           name: entry.itemName,
           itemType: item?.unitSymbol || item?.unitName || entry.item?.unit?.symbol || entry.item?.unit?.name || entry.itemType,
@@ -141,8 +142,8 @@ export default function InventoryScreen() {
         current.quantity += Number.isNaN(quantity) ? 0 : quantity;
         if (entry.trackingMode === 'LOT' && entry.balance.lotId) {
           current.lotIds.add(entry.balance.lotId);
-          const lotNumber = entry.lot?.lotNumber ?? entry.lotNumber;
-          if (lotNumber) current.lotNumbers.add(lotNumber);
+          const lotCode = entry.lot?.lotCode ?? entry.lotCode;
+          if (lotCode) current.lotCodes.add(lotCode);
         }
         balanceByItem.set(entry.balance.itemId, current);
       });
@@ -151,7 +152,7 @@ export default function InventoryScreen() {
       .map(([itemId, balance]) => {
         const quantity = balance.quantity;
         const lotId = balance.lotIds.size === 1 ? [...balance.lotIds][0] : null;
-        const lotNumber = balance.lotIds.size === 1 ? [...balance.lotNumbers][0] : null;
+        const lotCode = balance.lotIds.size === 1 ? [...balance.lotCodes][0] : null;
         const threshold = Number.isFinite(balance.minStockLevel) ? balance.minStockLevel : 0;
         const ratio = threshold > 0 ? quantity / threshold : 1;
         const tone: InventoryCard['tone'] = threshold > 0 && ratio < 1 ? ratio <= 0.5 ? 'danger' : 'amber' : 'success';
@@ -159,6 +160,7 @@ export default function InventoryScreen() {
         return {
           id: itemId,
           itemId,
+          imageUrl: itemById.get(itemId)?.imageUrl ?? null,
           lotId,
           code: balance.code,
           name: balance.name,
@@ -169,7 +171,7 @@ export default function InventoryScreen() {
           quantity: formatQuantity(quantity),
           quantityValue: quantity,
           unit: balance.itemType || 'đơn vị',
-          extra: lotId ? lotNumber || 'Chưa có mã lô' : balance.code,
+          extra: lotId ? lotCode || 'Chưa có mã lô' : balance.code,
           tone,
           progress: threshold > 0 ? Math.min(ratio, 1) : 1,
           progressColor: tone === 'danger' ? colors.error : tone === 'amber' ? colors.honey : colors.statusSuccess,
@@ -208,6 +210,7 @@ export default function InventoryScreen() {
     <LinearGradient colors={[colors.surface, colors.surfaceContainerLow, colors.primaryFixed]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.inventoryHero}><View style={styles.farmRow}><View style={styles.heroCopy}><View style={styles.farmBadge}><Icon name="hive" size={14} color={colors.primary} filled /><Text style={styles.farmText} numberOfLines={1} ellipsizeMode="tail" adjustsFontSizeToFit minimumFontScale={0.72}>{currentFarmName}</Text></View><Text style={styles.heroTitle} numberOfLines={2}>Tồn kho Hiện trường & Lô hàng</Text><Text style={styles.heroSubtitle} numberOfLines={2}>Giám sát hạn dùng & chuẩn bị mùa vụ mật</Text><View style={styles.summary}><Summary value={String(visibleItems.length)} label="Mục tồn kho" /><Summary value={String(visibleItems.filter((item) => item.type === 'THEO LÔ').length)} label="Lô đang lưu" /><Summary value={formatQuantity(visibleItems.reduce((total, item) => total + item.quantityValue, 0))} label="Tổng số lượng" /></View></View><Image source={{ uri: honeyImage }} style={styles.heroImage} /></View></LinearGradient>
     <View style={styles.warehouseRow}><View style={styles.warehouseLabel}><Icon name="store" size={17} color={colors.primary} /><Text style={styles.warehouseTitle} numberOfLines={2}>Kho vật tư & thức ăn</Text></View><Pill tone="success"><Text style={styles.online} numberOfLines={1}>{warehouseError ? 'Lỗi đồng bộ' : 'Online (API)'}</Text></Pill></View>
     <Pressable onPress={() => setWarehousePickerOpen(true)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.select, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Chọn kho tồn kho"><Text style={styles.selectText} numberOfLines={2}>{selectedWarehouse ? `${selectedWarehouse.code} - ${selectedWarehouse.name}` : loading ? 'Đang tải kho...' : 'Chưa có kho trong farm'}</Text><Icon name="expand-more" color={colors.onSurfaceVariant} /></Pressable>
+    <Pressable accessibilityRole="button" onPress={() => router.push(`/inventory-ledger${selectedWarehouse ? `?warehouseId=${encodeURIComponent(selectedWarehouse.id)}` : ''}` as never)} style={styles.ledgerEntry}><View style={styles.ledgerEntryCopy}><Icon name="history" color={colors.primary} /><Text style={styles.ledgerEntryText}>Lịch sử biến động kho</Text></View><Icon name="chevron-right" color={colors.primary} /></Pressable>
     <View style={styles.search}><Icon name="search" color={colors.onSurfaceVariant} /><TextInput value={search} onChangeText={(value) => { setSearch(value); setCurrentPage(1); }} placeholder="Tìm kiếm vật tư, mã thiết bị, số lô..." placeholderTextColor={colors.onSurfaceVariant} style={styles.searchInput} /><Pressable onPress={() => router.push(`/scan${selectedWarehouse?.id ? `?warehouseId=${encodeURIComponent(selectedWarehouse.id)}` : ''}` as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.barcodeButton, pressed && styles.pressed]} accessibilityLabel="Quét mã vạch"><Icon name="barcode-reader" color={colors.primary} /></Pressable></View>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>{[{ label: 'TẤT CẢ', value: 'ALL' as const }, { label: 'THEO LÔ', value: 'LOT' as const }, { label: 'SỐ LƯỢNG', value: 'QUANTITY' as const }, { label: 'TÀI SẢN', value: 'ASSET' as const }].map((tab) => <Pressable key={tab.value} onPress={() => { setFilter(tab.value); setCurrentPage(1); }} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [pressed && styles.pressed]}><Pill tone={filter === tab.value ? 'amber' : 'neutral'}><Text numberOfLines={1} style={filter === tab.value ? styles.filterActive : styles.filterText}>{tab.label}</Text></Pill></Pressable>)}</ScrollView>
     <View style={styles.inventoryStrip}><View style={styles.inventoryStripCopy}><Icon name="inventory-2" size={16} color={colors.honey} /><Text style={styles.inventoryStripText}>Hiển thị: <Text style={styles.inventoryStripStrong}>{visibleItems.length}</Text> danh mục vật tư</Text></View><Pressable onPress={() => setFilter('ALL')} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.sortButton, pressed && styles.pressed]}><Icon name="filter-list" size={16} color={colors.primary} /><Text style={styles.sortText}>Sắp xếp</Text></Pressable></View>
@@ -225,7 +228,7 @@ export default function InventoryScreen() {
       <Text style={styles.forecastNote}>Chỉ là ước tính tham khảo; phiếu nháp/chờ duyệt chưa làm thay đổi tồn kho.</Text>
     </Card> : null}
     <SectionTitle title="Danh mục vật tư" count={`${visibleItems.length} danh mục`} />
-    {loading ? <Text style={styles.emptyText}>Đang tải tồn kho từ cơ sở dữ liệu...</Text> : visibleItems.length === 0 ? <Text style={styles.emptyText}>{warehouseError ?? 'Farm hiện tại chưa có vật tư có tồn kho.'}</Text> : pageItems.map((item) => <Pressable key={item.id} onPress={() => openItemAction(item)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [pressed && styles.pressed]}><Card style={[styles.item, item.tone === 'success' && styles.itemSuccess, item.tone === 'amber' && styles.itemWarning, item.tone === 'danger' && styles.itemDanger]}><HoneycombDecor tone={item.tone === 'danger' ? 'amber' : 'green'} /><View style={styles.itemTop}><View style={styles.itemIcon}><Icon name={item.type === 'TÀI SẢN' ? 'inventory-2' : item.type === 'THEO LÔ' ? 'hive' : 'grain'} size={27} color={colors.primary} /></View><View style={styles.itemCopy}><View style={styles.itemCodeRow}><Pill tone="cream"><Text style={styles.itemType} numberOfLines={1}>{item.type}</Text></Pill><Text style={styles.itemCode} numberOfLines={1}>{item.code}</Text></View><Text style={styles.itemName} numberOfLines={3}>{item.name}</Text><View style={styles.itemMetaRow}><Text style={styles.location} numberOfLines={2}><Icon name="warehouse" size={13} color={colors.onSurfaceVariant} /> {item.location}</Text><View style={styles.itemStatus}><Pill tone={item.tone === 'success' ? 'success' : 'amber'}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={item.tone === 'success' ? styles.success : item.tone === 'danger' ? styles.danger : styles.amber}>{item.tone === 'success' ? 'Đủ định mức' : item.tone === 'danger' ? 'Tồn rất thấp' : 'Dưới định mức'}</Text></Pill></View></View></View></View><View style={styles.itemStats}><View style={styles.statColumn}><Text style={styles.statLabel} numberOfLines={2}>Tồn kho thực tế</Text><Text style={styles.statValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{item.quantity} <Text style={styles.statUnit}>{item.unit}</Text></Text>{item.minimumStock ? <Text style={styles.minimumText}>Định mức: {item.minimumStock} {item.unit}</Text> : null}<View style={styles.itemProgressTrack}><View style={[styles.itemProgressFill, { width: `${Math.round(item.progress * 100)}%`, backgroundColor: item.progressColor }]} /></View></View><View style={styles.statColumn}><Text style={styles.statLabel} numberOfLines={2}>{item.type === 'THEO LÔ' ? 'Mã lô' : 'Mã vật tư'}</Text><Text style={styles.statValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.75}>{item.extra}</Text></View></View><View style={styles.itemBottom}><Text style={styles.itemAction} numberOfLines={2}>Xem chi tiết tồn →</Text></View></Card></Pressable>)}
+    {loading ? <Text style={styles.emptyText}>Đang tải tồn kho từ cơ sở dữ liệu...</Text> : visibleItems.length === 0 ? <Text style={styles.emptyText}>{warehouseError ?? 'Farm hiện tại chưa có vật tư có tồn kho.'}</Text> : pageItems.map((item) => <Pressable key={item.id} onPress={() => openItemAction(item)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [pressed && styles.pressed]}><Card style={[styles.item, item.tone === 'success' && styles.itemSuccess, item.tone === 'amber' && styles.itemWarning, item.tone === 'danger' && styles.itemDanger]}><HoneycombDecor tone={item.tone === 'danger' ? 'amber' : 'green'} /><View style={styles.itemTop}><View style={styles.itemIcon}>{item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name={item.type === 'TÀI SẢN' ? 'inventory-2' : item.type === 'THEO LÔ' ? 'hive' : 'grain'} size={27} color={colors.primary} />}</View><View style={styles.itemCopy}><View style={styles.itemCodeRow}><Pill tone="cream"><Text style={styles.itemType} numberOfLines={1}>{item.type}</Text></Pill><Text style={styles.itemCode} numberOfLines={1}>{item.code}</Text></View><Text style={styles.itemName} numberOfLines={3}>{item.name}</Text><View style={styles.itemMetaRow}><Text style={styles.location} numberOfLines={2}><Icon name="warehouse" size={13} color={colors.onSurfaceVariant} /> {item.location}</Text><View style={styles.itemStatus}><Pill tone={item.tone === 'success' ? 'success' : 'amber'}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={item.tone === 'success' ? styles.success : item.tone === 'danger' ? styles.danger : styles.amber}>{item.tone === 'success' ? 'Đủ định mức' : item.tone === 'danger' ? 'Tồn rất thấp' : 'Dưới định mức'}</Text></Pill></View></View></View></View><View style={styles.itemStats}><View style={styles.statColumn}><Text style={styles.statLabel} numberOfLines={2}>Tồn kho thực tế</Text><Text style={styles.statValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{item.quantity} <Text style={styles.statUnit}>{item.unit}</Text></Text>{item.minimumStock ? <Text style={styles.minimumText}>Định mức: {item.minimumStock} {item.unit}</Text> : null}<View style={styles.itemProgressTrack}><View style={[styles.itemProgressFill, { width: `${Math.round(item.progress * 100)}%`, backgroundColor: item.progressColor }]} /></View></View><View style={styles.statColumn}><Text style={styles.statLabel} numberOfLines={2}>{item.type === 'THEO LÔ' ? 'Mã lô' : 'Mã vật tư'}</Text><Text style={styles.statValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.75}>{item.extra}</Text></View></View><View style={styles.itemBottom}><Text style={styles.itemAction} numberOfLines={2}>Xem chi tiết tồn →</Text></View></Card></Pressable>)}
     {!loading && visibleItems.length > 0 ? <View style={styles.pagination}><Text style={styles.paginationSummary}>Vật phẩm {pageStart + 1}–{pageEnd} / {visibleItems.length}</Text><View style={styles.paginationControls}><Pressable disabled={currentPage <= 1} onPress={() => setCurrentPage((page) => Math.max(1, page - 1))} accessibilityRole="button" accessibilityLabel="Trang trước" style={[styles.pageArrow, currentPage <= 1 && styles.pageDisabled]}><Icon name="chevron-left" size={20} color={currentPage <= 1 ? colors.outline : colors.primary} /></Pressable><ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.pageNumbers}>{Array.from({ length: pageCount }, (_, index) => index + 1).map((page) => <Pressable key={page} onPress={() => setCurrentPage(page)} accessibilityRole="button" accessibilityLabel={`Trang ${page}`} accessibilityState={{ selected: currentPage === page }} style={[styles.pageNumber, currentPage === page && styles.pageNumberActive]}><Text style={[styles.pageNumberText, currentPage === page && styles.pageNumberTextActive]}>{page}</Text></Pressable>)}</ScrollView><Pressable disabled={currentPage >= pageCount} onPress={() => setCurrentPage((page) => Math.min(pageCount, page + 1))} accessibilityRole="button" accessibilityLabel="Trang sau" style={[styles.pageArrow, currentPage >= pageCount && styles.pageDisabled]}><Icon name="chevron-right" size={20} color={currentPage >= pageCount ? colors.outline : colors.primary} /></Pressable></View></View> : null}
     <View style={styles.quickBar}><Pressable onPress={() => openNewDocument('receipt')} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.quickButton, pressed && styles.pressed]}><Icon name="input" color={colors.primary} /><Text style={styles.quickText}>+ Nhập kho</Text></Pressable><Pressable onPress={() => openNewDocument('issue')} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.quickButton, styles.quickPrimary, pressed && styles.pressed]}><Icon name="output" color={colors.onPrimary} /><Text style={styles.quickPrimaryText}>− Xuất kho</Text></Pressable><Pressable style={({ pressed }) => [styles.qrButton, pressed && styles.pressed]} android_ripple={{ color: colors.primary }} onPress={() => router.push(`/scan${selectedWarehouse?.id ? `?warehouseId=${encodeURIComponent(selectedWarehouse.id)}` : ''}` as never)}><Icon name="qr-code-scanner" color={colors.onPrimary} /></Pressable></View>
     <Modal visible={warehousePickerOpen} transparent animationType="slide" onRequestClose={() => setWarehousePickerOpen(false)}>
@@ -242,6 +245,9 @@ export default function InventoryScreen() {
 function Summary({ value, label }: { value: string; label: string }) { return <View style={styles.summaryCell}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={styles.summaryValue}>{value}</Text><Text numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.82} style={styles.summaryLabel}>{label}</Text></View>; }
 
 const styles = StyleSheet.create({
+  ledgerEntry: { minHeight: 52, paddingHorizontal: spacing.spaceMd, borderWidth: 1, borderColor: colors.outlineVariant, borderRadius: radius.default, backgroundColor: colors.parchment, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.spaceMd },
+  ledgerEntryCopy: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, flex: 1 },
+  ledgerEntryText: { ...typography.labelLg, color: colors.deepAmber, flexShrink: 1 },
   headerActions: { flexDirection: 'row', gap: spacing.spaceSm },
   headerButton: { width: 36, height: 36, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
@@ -275,6 +281,7 @@ const styles = StyleSheet.create({
   itemDanger: { borderLeftColor: colors.error },
   itemTop: { zIndex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.spaceMd },
   itemIcon: { width: 72, height: 72, flexShrink: 0, borderRadius: radius.lg, backgroundColor: colors.primaryFixed, borderWidth: 1, borderColor: colors.outlineVariant, alignItems: 'center', justifyContent: 'center' },
+  itemImage: { width: '100%', height: '100%', borderRadius: radius.lg },
   itemCopy: { flex: 1, minWidth: 0, gap: 2 },
   itemMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.spaceXs, marginTop: 2 },
   itemStatus: { minWidth: 0, maxWidth: '100%', flexShrink: 1, alignSelf: 'flex-start' },

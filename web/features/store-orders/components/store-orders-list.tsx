@@ -126,6 +126,17 @@ export function StoreOrdersList({
             ))}
           </Select>
         </label>
+        <label className="flex items-center gap-2 self-end pb-2 text-sm">
+          <input
+            type="checkbox"
+            className="size-4 accent-primary"
+            checked={Boolean(filters.codPending)}
+            onChange={(event) =>
+              change({ codPending: event.target.checked || undefined })
+            }
+          />
+          COD chưa nộp tiền
+        </label>
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1 text-sm">
             <span>Từ ngày</span>

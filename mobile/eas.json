@@ -8,8 +8,30 @@
       "developmentClient": true,
       "distribution": "internal"
     },
+    "development-arm64": {
+      "extends": "development",
+      "autoIncrement": true,
+      "env": {
+        "MOBILE_ANDROID_ARM64_ONLY": "true"
+      },
+      "android": {
+        "gradleCommand": ":app:assembleDebugOptimized"
+      }
+    },
     "preview": {
       "distribution": "internal"
+    },
+    "internal-compact": {
+      "extends": "preview",
+      "environment": "preview",
+      "autoIncrement": true,
+      "env": {
+        "MOBILE_COMPACT_RELEASE": "true",
+        "MOBILE_API_ALLOW_HTTP": "true"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     },
     "production": {
       "autoIncrement": true

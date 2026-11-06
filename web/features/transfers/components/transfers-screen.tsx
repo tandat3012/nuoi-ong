@@ -34,6 +34,8 @@ import {
 import { shouldReloadAfterFailure } from "@/features/stock-documents/stock-document.logic";
 import { useNotificationRefresh } from "@/features/notifications";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
+import { canReceiveTransfer } from "../transfer-receive.logic";
+import { TransferReceivePanel } from "./transfer-receive-panel";
 
 type Warehouse = { id: string; code: string; name: string };
 type Item = {
@@ -50,7 +52,13 @@ type Transfer = {
   fromWarehouseId: string;
   toWarehouseId: string;
   transferDate: string;
-  status: "DRAFT" | "PENDING_APPROVAL" | "CONFIRMED" | "REJECTED" | "CANCELLED";
+  status:
+    | "DRAFT"
+    | "PENDING_APPROVAL"
+    | "IN_TRANSIT"
+    | "CONFIRMED"
+    | "REJECTED"
+    | "CANCELLED";
   note: string | null;
   createdByMemberId: string | null;
   rejectionReason?: string | null;
@@ -63,7 +71,8 @@ type TransferResponse = {
 const STATUS_LABELS: Record<Transfer["status"], string> = {
   DRAFT: "Nháp",
   PENDING_APPROVAL: "Chờ duyệt",
-  CONFIRMED: "Đã xác nhận",
+  IN_TRANSIT: "Đang chuyển",
+  CONFIRMED: "Đã nhận hàng",
   REJECTED: "Đã từ chối",
   CANCELLED: "Đã hủy",
 };
@@ -107,12 +116,18 @@ function FarmTransfersScreen() {
     setRevision((value) => value + 1);
   };
   const [transfers, setTransfers] = useState<Transfer[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  // Sources are the caller's warehouses; destinations (and labels) every warehouse of the farm.
+  const [warehouseLists, setWarehouseLists] = useState<{
+    sources: Warehouse[];
+    destinations: Warehouse[];
+  }>({ sources: [], destinations: [] });
+  const { sources: warehouses, destinations } = warehouseLists;
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<
     | "ALL"
     | "DRAFT"
     | "PENDING_APPROVAL"
+    | "IN_TRANSIT"
     | "CONFIRMED"
     | "REJECTED"
     | "CANCELLED"
@@ -147,15 +162,18 @@ function FarmTransfersScreen() {
       setError(null);
     });
     let cancelled = false;
-    void Promise.all([
+    const warehouseList = (destination: boolean) =>
       request<{ data: Warehouse[] }>("/warehouses", {
         params: {
           farmId: selectedFarmId,
           page: 1,
           pageSize: 100,
           status: "ACTIVE",
+          destination: destination || undefined,
         },
-      }),
+      });
+    void Promise.all([
+      warehouseList(false),
       request<PaginatedResponse<{ item: Item }>>("/items", {
         params: {
           farmId: selectedFarmId,
@@ -164,10 +182,14 @@ function FarmTransfersScreen() {
           status: "ACTIVE",
         },
       }),
+      warehouseList(true),
     ])
-      .then(([warehouseResponse, itemResponse]) => {
+      .then(([warehouseResponse, itemResponse, destinationResponse]) => {
         if (cancelled) return;
-        setWarehouses(warehouseResponse.data);
+        setWarehouseLists({
+          sources: warehouseResponse.data,
+          destinations: destinationResponse.data,
+        });
         setItems(
           itemResponse.data
             .map(({ item }) => item)
@@ -228,6 +250,7 @@ function FarmTransfersScreen() {
 
   // Keep after the other state hooks: stock-document-interaction.test.mjs seeds state by call order.
   const [numbering, setNumbering] = useState(numberingDraft);
+  const [receiving, setReceiving] = useState<Transfer | null>(null);
   async function createTransfer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const numberingOptions = isOwner ? numberingOptionsPayload(numbering) : {};
@@ -307,7 +330,7 @@ function FarmTransfersScreen() {
     <div className="space-y-6">
       <PageHeader
         title="Điều chuyển kho"
-        description="Tạo phiếu DRAFT, xác nhận để giảm kho nguồn và tăng kho đích."
+        description="Kho nguồn xác nhận xuất (trừ tồn nguồn, hàng sang Đang chuyển); kho đích nhập số thực nhận mới được cộng tồn."
       />
       {canWrite && (
         <section className="rounded-xl border bg-card p-5">
@@ -359,7 +382,7 @@ function FarmTransfersScreen() {
                 }
               >
                 <option value="">Kho đích</option>
-                {warehouses.map((warehouse) => (
+                {destinations.map((warehouse) => (
                   <option key={warehouse.id} value={warehouse.id}>
                     {warehouse.code} - {warehouse.name}
                   </option>
@@ -448,6 +471,20 @@ function FarmTransfersScreen() {
           {actionError}
         </p>
       )}
+      {receiving && (
+        <TransferReceivePanel
+          key={receiving.id}
+          farmId={selectedFarmId}
+          id={receiving.id}
+          code={documentCodeLabel(receiving.transferCode, receiving.id)}
+          lock={lock}
+          onReceived={() => {
+            setReceiving(null);
+            reloadList();
+          }}
+          onClose={() => setReceiving(null)}
+        />
+      )}
       {openId && (
         <StockDocumentLines
           key={openId}
@@ -519,8 +556,8 @@ function FarmTransfersScreen() {
                       </p>
                     )}
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {warehouseName(warehouses, transfer.fromWarehouseId)} →{" "}
-                      {warehouseName(warehouses, transfer.toWarehouseId)} ·{" "}
+                      {warehouseName(destinations, transfer.fromWarehouseId)} →{" "}
+                      {warehouseName(destinations, transfer.toWarehouseId)} ·{" "}
                       {transfer.transferDate}
                     </p>
                     {transfer.status === "REJECTED" &&
@@ -550,7 +587,15 @@ function FarmTransfersScreen() {
                           void changeTransfer(transfer.id, "confirm")
                         }
                       >
-                        Xác nhận
+                        Xác nhận xuất
+                      </Button>
+                    )}
+                    {canReceiveTransfer(viewer.roles, transfer) && (
+                      <Button
+                        disabled={lock.locked}
+                        onClick={() => setReceiving(transfer)}
+                      >
+                        Nhận hàng
                       </Button>
                     )}
                     {actions.cancel && (

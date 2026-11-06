@@ -1,0 +1,2 @@
+ALTER TABLE "maintenance_records" ADD COLUMN "issued_by_member_id" uuid;--> statement-breakpoint
+ALTER TABLE "maintenance_records" ADD CONSTRAINT "maintenance_records_issued_by_member_id_farm_members_id_fk" FOREIGN KEY ("issued_by_member_id") REFERENCES "public"."farm_members"("id") ON DELETE no action ON UPDATE no action;

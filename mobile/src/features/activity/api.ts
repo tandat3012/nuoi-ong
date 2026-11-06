@@ -15,7 +15,7 @@ export type AuditLog = {
 
 export type AuditLogPage = {
   data: AuditLog[];
-  scope: 'FARM' | 'CREATED_BY_ME';
+  scope: 'FARM' | 'PERFORMED_BY_ME';
   page: {
     number: number;
     size: number;

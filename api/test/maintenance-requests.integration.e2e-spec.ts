@@ -31,6 +31,8 @@ describe('Maintenance requests', () => {
     item = randomUUID();
   const asset = randomUUID(),
     lostAsset = randomUUID();
+  const warehouse = randomUUID(),
+    shelf = randomUUID();
   const actors = {
     owner: { id: randomUUID(), member: randomUUID(), role: 'FARM_OWNER' },
     creator: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
@@ -121,14 +123,39 @@ describe('Maintenance requests', () => {
         expoPushToken: `ExponentPushToken[${tag}]`,
         platform: 'ANDROID',
       });
+      await tx
+        .insert(schema.warehouses)
+        .values({ id: warehouse, farmId: farm, code: tag, name: tag });
+      await tx.insert(schema.locations).values({
+        id: shelf,
+        farmId: farm,
+        warehouseId: warehouse,
+        code: tag,
+        name: tag,
+        type: 'WAREHOUSE',
+      });
+      // Employees work in the asset's warehouse.
+      await tx.insert(schema.farmMemberWarehouses).values(
+        [actors.creator, actors.peer].map((actor) => ({
+          farmMemberId: actor.member,
+          warehouseId: warehouse,
+        })),
+      );
       await tx.insert(schema.assets).values([
-        { id: asset, farmId: farm, itemId: item, assetCode: `${tag}-A` },
+        {
+          id: asset,
+          farmId: farm,
+          itemId: item,
+          assetCode: `${tag}-A`,
+          currentLocationId: shelf,
+        },
         {
           id: lostAsset,
           farmId: farm,
           itemId: item,
           assetCode: `${tag}-LOST`,
           status: 'LOST',
+          currentLocationId: shelf,
         },
       ]);
     });
@@ -145,6 +172,12 @@ describe('Maintenance requests', () => {
           'DELETE FROM device_push_tokens WHERE user_id=ANY($1::uuid[])',
           [userIds],
         );
+        await pool.query(
+          'DELETE FROM farm_member_warehouses WHERE warehouse_id=$1',
+          [warehouse],
+        );
+        await pool.query('DELETE FROM locations WHERE farm_id=$1', [farm]);
+        await pool.query('DELETE FROM warehouses WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM items WHERE id=$1', [item]);
         await pool.query('DELETE FROM categories WHERE id=$1', [category]);
         await pool.query('DELETE FROM units WHERE id=$1', [unit]);
@@ -287,7 +320,7 @@ describe('Maintenance requests', () => {
     }
   });
 
-  it('rejects with a reason and records the history the requester can read', async () => {
+  it('rejects with a reason and separates each actor’s audit history', async () => {
     const request = await create('creator');
     await expect(
       requests.reject(request.id, farm, clerk('owner'), '  ab '),
@@ -306,7 +339,15 @@ describe('Maintenance requests', () => {
       entityId: request.id,
       ...page,
     });
-    expect(history.data.map((log) => log.action).sort()).toEqual([
+    expect(history.data.map((log) => log.action)).toEqual(['CREATE']);
+    const reviewerHistory = await auditLogs.list({
+      farmId: farm,
+      clerkUserId: clerk('owner'),
+      entityType: 'MAINTENANCE_REQUEST',
+      entityId: request.id,
+      ...page,
+    });
+    expect(reviewerHistory.data.map((log) => log.action).sort()).toEqual([
       'CREATE',
       'REJECT',
     ]);

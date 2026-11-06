@@ -23,6 +23,7 @@ import {
   farmMembers,
   items,
   stockIssues,
+  stockReceipts,
   stockTransfers,
   units,
   users,
@@ -101,6 +102,10 @@ export const storeOrderStatus = pgEnum('store_order_status', [
   'SHIPPING',
   'COMPLETED',
   'CANCELLED',
+  // Delivery failed for good: goods on their way back, a return receipt waits.
+  'RETURNING',
+  // The warehouse confirmed the return receipt; stock is back.
+  'RETURNED',
 ]);
 export const storePaymentMethod = pgEnum('store_payment_method', [
   'COD',
@@ -173,6 +178,31 @@ export const storeOrders = pgTable(
       () => farmMembers.id,
       { onDelete: 'restrict' },
     ),
+    // A store manager received the COD cash from the shipper.
+    codRemittedAt: timestamp('cod_remitted_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    codRemittedByMemberId: uuid('cod_remitted_by_member_id').references(
+      () => farmMembers.id,
+      { onDelete: 'restrict' },
+    ),
+    // Manual refund of a paid order that was cancelled or returned.
+    refundAmount: numeric('refund_amount', { precision: 18, scale: 0 }),
+    refundReference: text('refund_reference'),
+    refundedAt: timestamp('refunded_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    refundedByMemberId: uuid('refunded_by_member_id').references(
+      () => farmMembers.id,
+      { onDelete: 'restrict' },
+    ),
+    // Stock receipt bringing a failed delivery back into the sales warehouse.
+    returnReceiptId: uuid('return_receipt_id').references(
+      () => stockReceipts.id,
+      { onDelete: 'restrict' },
+    ),
     // Who took the order out for delivery; kept on COMPLETED, cleared when returned.
     shipperMemberId: uuid('shipper_member_id').references(
       () => farmMembers.id,
@@ -195,6 +225,7 @@ export const storeOrders = pgTable(
     unique('uq_store_orders_payment_transaction').on(
       table.paymentTransactionId,
     ),
+    unique('uq_store_orders_return_receipt').on(table.returnReceiptId),
     index('idx_store_orders_status_created').on(
       table.farmId,
       table.status,
@@ -220,6 +251,14 @@ export const storeOrders = pgTable(
       sql`(${table.paymentStatus} = 'UNPAID' AND ${table.paidAt} IS NULL AND ${table.paidByMemberId} IS NULL AND ${table.paymentTransactionId} IS NULL) OR (${table.paymentStatus} = 'PAID' AND ${table.paidAt} IS NOT NULL AND (${table.paidByMemberId} IS NOT NULL OR ${table.paymentTransactionId} IS NOT NULL))`,
     ),
     check(
+      'ck_store_orders_cod_remit',
+      sql`(${table.codRemittedAt} IS NULL) = (${table.codRemittedByMemberId} IS NULL) AND (${table.codRemittedAt} IS NULL OR (${table.paymentMethod} = 'COD' AND ${table.status} = 'COMPLETED'))`,
+    ),
+    check(
+      'ck_store_orders_refund',
+      sql`(${table.refundedAt} IS NULL AND ${table.refundAmount} IS NULL AND ${table.refundReference} IS NULL AND ${table.refundedByMemberId} IS NULL) OR (${table.refundedAt} IS NOT NULL AND ${table.refundedByMemberId} IS NOT NULL AND ${table.paymentStatus} = 'PAID' AND ${table.status}::text IN ('CANCELLED', 'RETURNED') AND ${table.refundAmount} > 0 AND ${table.refundAmount} <= ${table.total} AND length(trim(${table.refundReference})) > 0)`,
+    ),
+    check(
       'ck_store_orders_shipper',
       sql`${table.status} <> 'SHIPPING' OR ${table.shipperMemberId} IS NOT NULL`,
     ),
@@ -230,7 +269,8 @@ export const storeOrders = pgTable(
     AND (${table.status} NOT IN ('CONFIRMED', 'SHIPPING', 'COMPLETED') OR (${table.stockIssueId} IS NOT NULL AND ${table.confirmedAt} IS NOT NULL))
     AND (${table.status} NOT IN ('SHIPPING', 'COMPLETED') OR ${table.shippedAt} IS NOT NULL)
     AND (${table.status} <> 'COMPLETED' OR (${table.completedAt} IS NOT NULL AND ${table.paymentStatus} = 'PAID'))
-    AND (${table.status} <> 'CANCELLED' OR (${table.cancelledAt} IS NOT NULL AND ${table.cancelReason} IS NOT NULL AND length(trim(${table.cancelReason})) > 0 AND ${table.paymentStatus} = 'UNPAID'))
+    AND (${table.status} <> 'CANCELLED' OR (${table.cancelledAt} IS NOT NULL AND ${table.cancelReason} IS NOT NULL AND length(trim(${table.cancelReason})) > 0 AND (${table.paymentStatus} = 'UNPAID' OR ${table.refundedAt} IS NOT NULL)))
+    AND (${table.status}::text NOT IN ('RETURNING', 'RETURNED') OR (${table.returnReceiptId} IS NOT NULL AND ${table.stockIssueId} IS NOT NULL AND ${table.shippedAt} IS NOT NULL))
   `,
     ),
   ],
@@ -460,6 +500,9 @@ export const storeOrderItems = pgTable(
       scale: 3,
     }).notNull(),
     lineTotal: numeric('line_total', { precision: 18, scale: 0 }).notNull(),
+    // Equipment/tool warranty when ordered (0 = none); null for materials and
+    // for lines ordered before T09, where staff decide.
+    warrantyMonths: integer('warranty_months'),
   },
   (table) => [
     unique('uq_store_order_items_variant').on(table.orderId, table.variantId),
@@ -467,6 +510,10 @@ export const storeOrderItems = pgTable(
     check(
       'ck_store_order_items_quantity',
       sql`${table.quantity} BETWEEN 1 AND 10000 AND ${table.stockQuantity} > 0 AND ${table.stockQuantity} < 'NaN'::numeric`,
+    ),
+    check(
+      'ck_store_order_items_warranty',
+      sql`${table.warrantyMonths} IS NULL OR ${table.warrantyMonths} BETWEEN 0 AND 120`,
     ),
     check(
       'ck_store_order_items_money',
@@ -478,6 +525,8 @@ export const storeOrderItems = pgTable(
 export const paymentProvider = pgEnum('payment_provider', [
   'SEPAY',
   'SIMULATOR',
+  // Staff reconciled a bank transfer by hand; provider_tx_id is the bank reference.
+  'MANUAL',
 ]);
 export const paymentTransactionResult = pgEnum('payment_transaction_result', [
   'MATCHED',
@@ -545,6 +594,133 @@ export const paymentTransactions = pgTable(
     check(
       'ck_payment_transactions_farm',
       sql`${table.orderId} IS NULL OR ${table.farmId} IS NOT NULL`,
+    ),
+  ],
+).enableRLS();
+
+export const storeWarrantyKind = pgEnum('store_warranty_kind', [
+  'WARRANTY',
+  'PAID_REPAIR',
+]);
+export const storeWarrantyStatus = pgEnum('store_warranty_status', [
+  'RECEIVED',
+  'AT_PARTNER',
+  'AWAITING_CUSTOMER',
+  'IN_REPAIR',
+  'BACK_FROM_PARTNER',
+  'EXCHANGING',
+  'CLOSED',
+  'CANCELLED',
+]);
+export const storeWarrantyResolution = pgEnum('store_warranty_resolution', [
+  'RETURN',
+  'EXCHANGE',
+]);
+
+/**
+ * After-sales warranty or paid repair of a delivered equipment/tool line (NV06).
+ * Staff record what the outside repair partner and the customer said; the
+ * partner and the customer have no account. History lives in audit_logs.
+ */
+export const storeWarrantyRequests = pgTable(
+  'store_warranty_requests',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    requestNumber: integer('request_number')
+      .generatedAlwaysAsIdentity()
+      .notNull(),
+    farmId: uuid('farm_id')
+      .notNull()
+      .references(() => farms.id, { onDelete: 'restrict' }),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => storeOrders.id, { onDelete: 'restrict' }),
+    orderItemId: uuid('order_item_id')
+      .notNull()
+      .references(() => storeOrderItems.id, { onDelete: 'restrict' }),
+    quantity: integer().notNull(),
+    kind: storeWarrantyKind().notNull(),
+    status: storeWarrantyStatus().default('RECEIVED').notNull(),
+    issueDescription: text('issue_description').notNull(),
+    // How the product reached the staff (proof of physical receipt).
+    intakeNote: text('intake_note'),
+    receivedAt: timestamp('received_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    partnerName: varchar('partner_name', { length: 255 }),
+    sentAt: timestamp('sent_at', { withTimezone: true, mode: 'string' }),
+    quoteAmount: numeric('quote_amount', { precision: 18, scale: 0 }),
+    customerApproved: boolean('customer_approved'),
+    customerDecisionNote: text('customer_decision_note'),
+    customerDecidedAt: timestamp('customer_decided_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    repairStartedAt: timestamp('repair_started_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    backAt: timestamp('back_at', { withTimezone: true, mode: 'string' }),
+    result: text(),
+    actualCost: numeric('actual_cost', { precision: 18, scale: 0 }),
+    resolution: storeWarrantyResolution(),
+    exchangeIssueId: uuid('exchange_issue_id').references(
+      () => stockIssues.id,
+      { onDelete: 'restrict' },
+    ),
+    closedAt: timestamp('closed_at', { withTimezone: true, mode: 'string' }),
+    cancelReason: text('cancel_reason'),
+    createdByMemberId: uuid('created_by_member_id')
+      .notNull()
+      .references(() => farmMembers.id, { onDelete: 'restrict' }),
+    handledByMemberId: uuid('handled_by_member_id')
+      .notNull()
+      .references(() => farmMembers.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique('uq_store_warranty_requests_number').on(table.requestNumber),
+    unique('uq_store_warranty_requests_exchange_issue').on(
+      table.exchangeIssueId,
+    ),
+    index('idx_store_warranty_requests_farm').on(
+      table.farmId,
+      table.createdAt.desc(),
+    ),
+    index('idx_store_warranty_requests_order').on(table.orderId),
+    check(
+      'ck_store_warranty_quantity',
+      sql`${table.quantity} BETWEEN 1 AND 10000`,
+    ),
+    check(
+      'ck_store_warranty_money',
+      sql`(${table.quoteAmount} IS NULL OR ${table.quoteAmount} BETWEEN 0 AND 9007199254740991) AND (${table.actualCost} IS NULL OR ${table.actualCost} BETWEEN 0 AND 9007199254740991)`,
+    ),
+    // AC23: a paid repair starts only after the customer agreed to the quote.
+    check(
+      'ck_store_warranty_paid_consent',
+      sql`${table.repairStartedAt} IS NULL OR ${table.kind} = 'WARRANTY' OR ${table.customerApproved} IS TRUE`,
+    ),
+    check(
+      'ck_store_warranty_partner',
+      sql`${table.sentAt} IS NULL OR btrim(coalesce(${table.partnerName}, '')) <> ''`,
+    ),
+    check(
+      'ck_store_warranty_exchange',
+      sql`(${table.status} = 'EXCHANGING' OR (${table.status} = 'CLOSED' AND ${table.resolution} = 'EXCHANGE')) = (${table.exchangeIssueId} IS NOT NULL)`,
+    ),
+    check(
+      'ck_store_warranty_closed',
+      sql`(${table.status} = 'CLOSED') = (${table.closedAt} IS NOT NULL AND ${table.resolution} IS NOT NULL)`,
+    ),
+    check(
+      'ck_store_warranty_cancelled',
+      sql`(${table.status} = 'CANCELLED') = (btrim(coalesce(${table.cancelReason}, '')) <> '')`,
     ),
   ],
 ).enableRLS();

@@ -21,7 +21,9 @@ import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import {
-  CancelStoreOrderDto,
+  MarkStoreOrderPaidDto,
+  RefundStoreOrderDto,
+  StaffCancelStoreOrderDto,
   ReturnStoreOrderDeliveryDto,
 } from './dto/store-order.dto';
 import { orderDateRange } from './store-order.query';
@@ -51,6 +53,7 @@ export class StoreOrdersController {
     @Query('to') to?: string,
     @Query('q') q?: string,
     @Query('customerId') customerId?: string,
+    @Query('codPending') codPending?: string,
   ) {
     if (q !== undefined && typeof q !== 'string')
       throw new BadRequestException('q must be a string');
@@ -67,6 +70,7 @@ export class StoreOrdersController {
       customerId: customerId
         ? requireUuid(customerId, 'customerId')
         : undefined,
+      codPending: codPending === 'true',
     });
   }
 
@@ -199,15 +203,20 @@ export class StoreOrdersController {
     };
   }
 
-  @Post(':id/cancel')
-  async cancel(
+  @Post(':id/return-to-warehouse')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary:
+      'Không giao được: trả hàng về kho bán; kho kiểm nhận phiếu nhập mới tăng tồn',
+  })
+  async returnToWarehouse(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
     @Param('id') id: string,
-    @Body() input: CancelStoreOrderDto,
+    @Body() input: ReturnStoreOrderDeliveryDto,
   ) {
     return {
-      data: await this.orders.staffCancel(
+      data: await this.orders.returnToWarehouse(
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         requireUuid(id, 'id'),
@@ -216,14 +225,78 @@ export class StoreOrdersController {
     };
   }
 
+  @Post(':id/refund')
+  @ApiOperation({ summary: 'Ghi hoàn tiền thủ công cho đơn đã trả về kho' })
+  async refund(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: RefundStoreOrderDto,
+  ) {
+    return {
+      data: await this.orders.refundReturned(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        { amount: input.refundAmount, reference: input.refundReference },
+      ),
+    };
+  }
+
+  @Post(':id/cancel')
+  async cancel(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: StaffCancelStoreOrderDto,
+  ) {
+    const { refundAmount, refundReference } = input;
+    if ((refundAmount === undefined) !== (refundReference === undefined))
+      throw new BadRequestException(
+        'refundAmount and refundReference go together',
+      );
+    return {
+      data: await this.orders.staffCancel(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        input.reason,
+        refundAmount === undefined
+          ? undefined
+          : { amount: refundAmount, reference: refundReference! },
+      ),
+    };
+  }
+
   @Post(':id/mark-paid')
+  @ApiOperation({
+    summary: 'Đối soát tay một chuyển khoản đã nhận (mã giao dịch ngân hàng)',
+  })
   async markPaid(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: MarkStoreOrderPaidDto,
+  ) {
+    return {
+      data: await this.orders.markPaid(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        input,
+      ),
+    };
+  }
+
+  @Post(':id/cod-remit')
+  @ApiOperation({ summary: 'Quản lý xác nhận đã nhận tiền COD từ người giao' })
+  async remitCod(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
     @Param('id') id: string,
   ) {
     return {
-      data: await this.orders.markPaid(
+      data: await this.orders.remitCod(
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         requireUuid(id, 'id'),

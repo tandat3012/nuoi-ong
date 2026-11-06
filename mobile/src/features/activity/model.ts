@@ -36,7 +36,7 @@ const fieldLabels: Record<string, string> = {
   transfer: 'Phiếu điều chuyển', count: 'Phiếu kiểm kê', asset: 'Tài sản', item: 'Vật tư',
   scheduledAt: 'Lịch bảo trì', startedAt: 'Bắt đầu', completedAt: 'Hoàn thành', resultNote: 'Kết quả',
   maintenanceType: 'Loại bảo trì', trackingMode: 'Cách theo dõi', itemType: 'Loại vật tư',
-  lotNumber: 'Mã lô', qrToken: 'Token QR', expiryDate: 'Hạn sử dụng', manufactureDate: 'Ngày sản xuất',
+  lotCode: 'Mã lô nội bộ', supplierLotNumber: 'Số lô trên hàng', legacyLotNumber: 'Số lô cũ (tham khảo)', lotNumber: 'Số lô cũ (tham khảo)', qrToken: 'Token QR', expiryDate: 'Hạn sử dụng', manufactureDate: 'Ngày sản xuất',
   supplierId: 'Nhà cung cấp', unitId: 'Đơn vị', categoryId: 'Danh mục',
 };
 

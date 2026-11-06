@@ -109,7 +109,7 @@ export function StoreProductList({ farmId }: { farmId: string }) {
         }
       />
       {canManageFarm && <StoreSalesSettings farmId={farmId} />}
-      <StoreShippingFeesCard farmId={farmId} canEdit={canManageFarm} />
+      <StoreShippingFeesCard farmId={farmId} canEdit={canEditCatalog} />
 
       <form
         className="flex flex-col gap-3 sm:flex-row"

@@ -43,7 +43,10 @@ function farmMetrics(summary: FarmSummary): Metric[] {
     {
       label: 'Giá trị tồn kho (ước tính)',
       value: formatOrderMoney(summary.stockValue),
-      note: summary.unpricedItems ? `${summary.unpricedItems} mặt hàng chưa có giá nhập, chưa tính` : 'Số lượng tồn × giá nhập gần nhất',
+      // Same definition as the stock report (AC27); scope = the caller's warehouses.
+      note: `Bình quân gia quyền di động, như báo cáo nhập–xuất–tồn; các kho bạn được xem${
+        summary.unpricedItems ? `. ${summary.unpricedItems} mặt hàng có tồn chưa có giá ở ít nhất một kho, phần đó tính 0 đ` : ''
+      }`,
       href: '/inventory',
     },
     { label: 'Dưới mức tồn tối thiểu', value: String(summary.belowMinimum), href: '/materials', alert: summary.belowMinimum > 0 },

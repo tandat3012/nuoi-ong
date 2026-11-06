@@ -33,18 +33,23 @@ export function runStoreOrderAction(
   request: AuthenticatedRequest,
   farmId: string,
   id: string,
-  action: "confirm" | "ship" | "complete" | "mark-paid" | "cancel",
-  reason?: string,
+  action: StoreOrderAction,
+  body?: Record<string, string | undefined>,
 ) {
   return request<{ data: OrderDetail }>(
     `/store-orders/${encodeURIComponent(id)}/${action}`,
-    {
-      method: "POST",
-      params: { farmId },
-      ...(action === "cancel" ? { data: { reason } } : {}),
-    },
+    { method: "POST", params: { farmId }, ...(body ? { data: body } : {}) },
   );
 }
+
+export type StoreOrderAction =
+  | "confirm"
+  | "ship"
+  | "complete"
+  | "mark-paid"
+  | "cancel"
+  | "cod-remit"
+  | "refund";
 
 export function getStoreOrderCustomer(
   request: AuthenticatedRequest,

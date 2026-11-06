@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  knownReceiptError,
   receiptSaveErrorMessage,
   supportsQuantityDraftConfirm as confirmable,
   supportsQuantityDraftEdit as editable,
@@ -299,6 +300,13 @@ test('validates and allows draft edits for ASSET lines', () => {
       items: [{ ...assetInput.items[0], quantity: '2' }],
     }),
   );
+  assert.match(
+    validateReceiptDraft({
+      ...assetInput,
+      items: [{ ...assetInput.items[0], locationId: undefined }],
+    }),
+    /Dòng 1: chọn vị trí trong kho cho tài sản/,
+  );
   assert.ok(
     validateReceiptDraft({
       ...assetInput,
@@ -406,9 +414,22 @@ test('maps lot and validation rejections from the API', () => {
     /chỉ dùng cho vật tư theo lô/,
   );
   assert.match(
+    receiptSaveErrorMessage(
+      400,
+      'A return receipt cannot receive more than the order shipped, or other items or lots',
+      'xác nhận',
+    ),
+    /đơn đã xuất/,
+  );
+  assert.match(
     receiptSaveErrorMessage(400, 'Expiry date cannot be earlier than manufactured date', 'tạo'),
     /Hạn sử dụng phải từ ngày sản xuất/,
   );
+  assert.match(
+    knownReceiptError('ASSET receipt lines require a location'),
+    /chọn vị trí cho từng tài sản/,
+  );
+  assert.equal(knownReceiptError('other'), null);
   assert.match(receiptSaveErrorMessage(400, 'other', 'tạo'), /Dữ liệu không hợp lệ.*other/);
   assert.match(receiptSaveErrorMessage(403, '', 'cập nhật'), /không có quyền cập nhật/);
   assert.match(receiptSaveErrorMessage(409, 'x', 'tạo'), /Không thể tạo/);

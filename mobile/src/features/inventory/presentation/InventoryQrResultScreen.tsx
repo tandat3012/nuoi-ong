@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell, Card, Icon, PageHeader, Pill, PrimaryButton } from '@/src/shared/ui/MobileShell';
 import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
@@ -20,11 +20,14 @@ type InventoryQrResponse = {
     };
     itemCode: string;
     itemName: string;
+    itemImageUrl: string | null;
     itemType: string;
     trackingMode: string;
     warehouseCode: string;
     warehouseName: string;
-    lotNumber: string | null;
+    lotCode: string | null;
+    supplierLotNumber: string | null;
+    legacyLotNumber: string | null;
   };
 };
 
@@ -82,7 +85,7 @@ export default function InventoryQrResultScreen() {
     {loading ? <Card style={styles.messageCard}><Icon name="sync" color={colors.primary} /><Text style={styles.message}>Đang xác thực mã tồn kho...</Text></Card> : error ? <Card style={styles.errorCard}><Icon name="error-outline" color={colors.error} /><View style={styles.copy}><Text style={styles.errorTitle}>QR tồn kho không hợp lệ</Text><Text style={styles.errorText}>{error}</Text></View><Pressable onPress={startNewScan} style={({ pressed }) => [styles.errorAction, pressed && styles.pressed]}><Text style={styles.errorActionText}>Quét lại</Text></Pressable></Card> : result ? <Card style={styles.successCard}><View style={styles.successIcon}><Icon name="check-circle" size={28} color={colors.statusSuccessStrong} /></View><View style={styles.copy}><Text style={styles.eyebrow}>KẾT QUẢ QUÉT QR</Text><Text style={styles.title}>Mã tồn kho hợp lệ</Text><Text style={styles.subtitle}>Dữ liệu đã được đối chiếu theo farm hiện tại.</Text></View><Pill tone="success"><Text style={styles.successLabel}>API OK</Text></Pill><Pressable onPress={startNewScan} style={({ pressed }) => [styles.successRescan, pressed && styles.pressed]}><Icon name="qr-code-scanner" size={15} color={colors.statusSuccessStrong} /><Text style={styles.successRescanText}>Quét lại</Text></Pressable></Card> : null}
     <View style={styles.tabs}><Pressable onPress={startNewScan} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.tab, pressed && styles.pressed]}><Icon name="qr-code-scanner" size={17} color={colors.deepAmber} /><Text style={styles.tabText} numberOfLines={2}>Phase 1: Quét mã</Text></Pressable><View style={styles.activeTab}><Icon name="assignment" size={17} color={colors.onPrimary} /><Text style={styles.activeTabText} numberOfLines={2}>Phase 2: Kết quả</Text><Pill tone="cream"><Text style={styles.percent}>100%</Text></Pill></View></View>
     {result ? <>
-      <Card style={styles.detailCard}><View style={styles.detailHeader}><View style={styles.iconBox}><Icon name={result.trackingMode === 'LOT' ? 'hive' : 'inventory-2'} size={28} color={colors.primary} /></View><View style={styles.copy}><Text style={styles.itemName}>{result.itemName}</Text><Text style={styles.itemCode}>{result.itemCode}</Text></View></View><Info label="Kho lưu trữ" value={`${result.warehouseCode} - ${result.warehouseName}`} /><Info label="Mã lô" value={result.lotNumber ?? 'Không theo lô'} /><Info label="Số lượng tồn" value={`${formatQuantity(result.balance.quantityOnHand)} ${result.itemType}`} strong /><Info label="Theo dõi" value={result.trackingMode} /></Card>
+      <Card style={styles.detailCard}><View style={styles.detailHeader}><View style={styles.iconBox}>{result.itemImageUrl ? <Image source={{ uri: result.itemImageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name={result.trackingMode === 'LOT' ? 'hive' : 'inventory-2'} size={28} color={colors.primary} />}</View><View style={styles.copy}><Text style={styles.itemName}>{result.itemName}</Text><Text style={styles.itemCode}>{result.itemCode}</Text></View></View><Info label="Kho lưu trữ" value={`${result.warehouseCode} - ${result.warehouseName}`} /><Info label="Mã lô nội bộ" value={result.lotCode ?? 'Không theo lô'} />{result.supplierLotNumber ? <Info label="Số lô trên hàng" value={result.supplierLotNumber} /> : null}{result.legacyLotNumber ? <Info label="Số lô cũ (tham khảo)" value={result.legacyLotNumber} /> : null}<Info label="Số lượng tồn" value={`${formatQuantity(result.balance.quantityOnHand)} ${result.itemType}`} strong /><Info label="Theo dõi" value={result.trackingMode} /></Card>
       <View style={styles.actions}>
         <PrimaryButton label="Mở chi tiết tồn kho" icon="inventory-2" onPress={() => router.push(`/inventory-detail?itemId=${encodeURIComponent(result.balance.itemId)}&warehouseId=${encodeURIComponent(result.balance.warehouseId)}${result.balance.lotId ? `&lotId=${encodeURIComponent(result.balance.lotId)}` : ''}` as never)} />
         <View style={styles.actionRow}>
@@ -134,6 +137,7 @@ const styles = StyleSheet.create({
   percent: { ...typography.labelSm, color: colors.deepAmber },
   detailHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceMd, paddingBottom: spacing.spaceSm, borderBottomWidth: 1, borderBottomColor: colors.outlineVariant },
   iconBox: { width: 58, height: 58, borderRadius: radius.default, backgroundColor: colors.honeyChip, alignItems: 'center', justifyContent: 'center' },
+  itemImage: { width: 58, height: 58, borderRadius: radius.default },
   itemName: { ...typography.headlineMd, color: colors.deepAmber },
   itemCode: { ...typography.bodySm, color: colors.onSurfaceVariant },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.spaceMd, paddingVertical: spacing.spaceSm, borderBottomWidth: 1, borderBottomColor: colors.outlineVariant },

@@ -32,8 +32,10 @@ import {
 } from '../../db/schema';
 import {
   CreateStockTransferDto,
+  ReceiveStockTransferDto,
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
+import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import { StockTransferHooks } from './stock-transfer-hooks';
@@ -53,6 +55,12 @@ const balanceKey = (
   itemId: string,
   lotId: string | null,
 ) => `${warehouseId}:${itemId}:${lotId ?? ''}`;
+// Exact compare of numeric(18,3) strings; doubles lose digits past 15.
+const milli = (quantity: string) => {
+  const [whole, fraction = ''] = quantity.split('.');
+  return BigInt(whole + fraction.padEnd(3, '0'));
+};
+type ReceivedLine = NonNullable<ReceiveStockTransferDto['items']>[number];
 type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
@@ -67,12 +75,18 @@ export class StockTransfersService {
     private readonly hooks: StockTransferHooks = new StockTransferHooks(),
   ) {}
   async list(f: Filters) {
-    await this.warehousesService.assertFarmAccess(
-      f.farmId,
-      f.clerkUserId,
-      false,
-    );
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(f.farmId, f.clerkUserId);
     const c: SQL[] = [eq(stockTransfers.farmId, f.farmId)];
+    if (scope)
+      c.push(
+        or(
+          scopeCondition(stockTransfers.fromWarehouseId, scope),
+          scopeCondition(stockTransfers.toWarehouseId, scope),
+        )!,
+      );
+    if (readMemberId)
+      c.push(eq(stockTransfers.createdByMemberId, readMemberId));
     if (f.status) c.push(eq(stockTransfers.status, f.status));
     const w = and(...c);
     const [data, t] = await Promise.all([
@@ -100,14 +114,25 @@ export class StockTransfersService {
     };
   }
   async get(id: string, farmId: string, user: string) {
-    await this.warehousesService.assertFarmAccess(farmId, user, false);
-    return this.withItems(id, farmId);
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(farmId, user);
+    const result = await this.withItems(id, farmId);
+    if (
+      (readMemberId && result.transfer.createdByMemberId !== readMemberId) ||
+      !(
+        inScope(scope, result.transfer.fromWarehouseId) ||
+        inScope(scope, result.transfer.toWarehouseId)
+      )
+    )
+      throw new NotFoundException('Stock transfer not found');
+    return result;
   }
   async create(farmId: string, user: string, input: CreateStockTransferDto) {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       user,
     );
+    assertInScope(writer.scope, input.fromWarehouseId, input.toWarehouseId);
     const member = writer.memberId;
     const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
@@ -170,11 +195,17 @@ export class StockTransfersService {
     const numbering = numberingOptionChanges(input, writer);
     await this.databaseService.db.transaction(async (tx) => {
       const cur = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, cur.createdByMemberId);
+      assertOwnDocument(
+        writer,
+        cur.createdByMemberId,
+        cur.fromWarehouseId,
+        cur.toWarehouseId,
+      );
       if (cur.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT transfers can be edited');
       const from = input.fromWarehouseId ?? cur.fromWarehouseId;
       const to = input.toWarehouseId ?? cur.toWarehouseId;
+      assertInScope(writer.scope, from, to);
       if (from === to)
         throw new BadRequestException(
           'Source and destination warehouses must differ',
@@ -237,7 +268,12 @@ export class StockTransfersService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, row.createdByMemberId);
+      assertOwnDocument(
+        writer,
+        row.createdByMemberId,
+        row.fromWarehouseId,
+        row.toWarehouseId,
+      );
       if (row.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT transfers can be cancelled');
       await tx
@@ -269,7 +305,12 @@ export class StockTransfersService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, row.createdByMemberId);
+      assertOwnDocument(
+        writer,
+        row.createdByMemberId,
+        row.fromWarehouseId,
+        row.toWarehouseId,
+      );
       if (row.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT transfers can be submitted');
       const [line] = await tx
@@ -303,6 +344,7 @@ export class StockTransfersService {
         tx,
         this.notification(row, 'PENDING_APPROVAL'),
         writer.memberId,
+        row.fromWarehouseId,
       );
     });
     return this.withItems(id, farmId);
@@ -313,17 +355,19 @@ export class StockTransfersService {
     user: string,
     rejectionReason: string,
   ) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-      WAREHOUSE_MANAGE_ROLES,
-    );
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
     await this.databaseService.db.transaction(async (tx) => {
       await this.hooks.run('lock', tx, id);
       const row = await this.only(id, farmId, tx, true);
+      assertInScope(scope, row.fromWarehouseId);
       if (row.status !== 'PENDING_APPROVAL')
         throw new ConflictException(
           'Only PENDING_APPROVAL transfers can be rejected',
@@ -354,17 +398,21 @@ export class StockTransfersService {
     });
     return this.withItems(id, farmId);
   }
+  /** Source manager approves and dispatches: debits the source, nothing arrives yet. */
   async confirm(id: string, farmId: string, user: string) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-      WAREHOUSE_MANAGE_ROLES,
-    );
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
       await this.hooks.run('lock', tx, id);
       const row = await this.only(id, farmId, tx, true);
-      if (row.status === 'CONFIRMED') return;
+      assertInScope(scope, row.fromWarehouseId);
+      // A retried click: already dispatched, never debit twice.
+      if (row.status === 'IN_TRANSIT' || row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(row.status))
         throw new ConflictException(
           'Only DRAFT or PENDING_APPROVAL transfers can be confirmed',
@@ -380,14 +428,13 @@ export class StockTransfersService {
           'Transfer must contain at least one item',
         );
       await this.validateLines(tx, farmId, lines, true);
-      const balances = await this.lockBalances(tx, farmId, row, lines);
+      const balances = await this.lockBalances(
+        tx,
+        farmId,
+        row.fromWarehouseId,
+        lines,
+      );
       for (const line of lines) {
-        const source = balances.get(
-          balanceKey(row.fromWarehouseId, line.itemId, line.lotId),
-        )!;
-        const dest = balances.get(
-          balanceKey(row.toWarehouseId, line.itemId, line.lotId),
-        )!;
         const debited = await tx
           .update(inventoryBalances)
           .set({
@@ -396,98 +443,212 @@ export class StockTransfersService {
           })
           .where(
             and(
-              eq(inventoryBalances.id, source),
+              eq(
+                inventoryBalances.id,
+                balances.get(
+                  balanceKey(row.fromWarehouseId, line.itemId, line.lotId),
+                )!,
+              ),
               gte(inventoryBalances.quantityOnHand, line.quantity),
             ),
           )
           .returning({ id: inventoryBalances.id });
         if (!debited.length)
           throw new ConflictException('Insufficient source inventory');
-        await tx
-          .update(inventoryBalances)
-          .set({
-            quantityOnHand: sql`${inventoryBalances.quantityOnHand} + ${line.quantity}`,
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(inventoryBalances.id, dest));
-        await tx.insert(inventoryTransactions).values([
-          {
-            farmId,
-            warehouseId: row.fromWarehouseId,
-            itemId: line.itemId,
-            lotId: line.lotId,
-            assetId: line.assetId,
-            transactionType: 'TRANSFER_OUT',
-            quantityChange: `-${line.quantity}`,
-            sourceType: 'STOCK_TRANSFER',
-            sourceId: id,
-            performedByMemberId: member,
-          },
-          {
-            farmId,
-            warehouseId: row.toWarehouseId,
-            itemId: line.itemId,
-            lotId: line.lotId,
-            assetId: line.assetId,
-            transactionType: 'TRANSFER_IN',
-            quantityChange: line.quantity,
-            sourceType: 'STOCK_TRANSFER',
-            sourceId: id,
-            performedByMemberId: member,
-          },
-        ]);
+        await tx.insert(inventoryTransactions).values({
+          farmId,
+          warehouseId: row.fromWarehouseId,
+          itemId: line.itemId,
+          lotId: line.lotId,
+          assetId: line.assetId,
+          transactionType: 'TRANSFER_OUT',
+          quantityChange: `-${line.quantity}`,
+          sourceType: 'STOCK_TRANSFER',
+          sourceId: id,
+          performedByMemberId: member,
+        });
       }
-      const confirmedAt = new Date();
+      const dispatchedAt = new Date();
       const { code: transferCode, codeSource } = await confirmationCode(
         tx,
         farmId,
         'CK',
         { code: row.transferCode, requestedCode: row.requestedCode },
-        confirmedAt,
+        dispatchedAt,
       );
       await tx
         .update(stockTransfers)
         .set({
-          status: 'CONFIRMED',
+          status: 'IN_TRANSIT',
           transferCode,
           codeSource,
-          confirmedByMemberId: member,
-          confirmedAt: confirmedAt.toISOString(),
-          updatedAt: confirmedAt.toISOString(),
+          dispatchedByMemberId: member,
+          dispatchedAt: dispatchedAt.toISOString(),
+          updatedAt: dispatchedAt.toISOString(),
         })
         .where(eq(stockTransfers.id, id));
-      const confirmed = {
+      const dispatched = {
         ...row,
         transferCode,
         codeSource: codeSource ?? row.codeSource,
-        status: 'CONFIRMED' as const,
+        status: 'IN_TRANSIT' as const,
       };
       await auditStockDocument(
         tx,
         member,
         'STOCK_TRANSFER',
-        'CONFIRM',
+        'DISPATCH',
         row,
-        confirmed,
+        dispatched,
       );
-      if (row.createdByMemberId !== member)
-        await notifyDocumentCreator(
-          tx,
-          this.notification(confirmed, 'CONFIRMED'),
-          row.createdByMemberId,
-        );
-      await this.hooks.run('confirmed', tx, id, member);
+      // The destination's managers count the goods in; the creator hears on arrival.
+      await notifyFarmApprovers(
+        tx,
+        this.notification(dispatched, 'IN_TRANSIT'),
+        member,
+        row.toWarehouseId,
+      );
     });
     await confirmation.catch(rethrowCodeConflict);
     return this.withItems(id, farmId);
   }
-  // Locks every source and destination balance in id order, so transfers in
-  // opposite directions cannot deadlock. Missing rows are created at zero first,
-  // in key order, so concurrent first-time destinations cannot race.
+
+  /**
+   * Destination manager counts the goods in. Lines not listed arrived in full;
+   * a short line needs a reason and only what arrived is credited.
+   */
+  async receive(
+    id: string,
+    farmId: string,
+    user: string,
+    received: ReceiveStockTransferDto['items'] = [],
+  ) {
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
+    await this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
+      const row = await this.only(id, farmId, tx, true);
+      assertInScope(scope, row.toWarehouseId);
+      // A retried click: already received, never credit twice.
+      if (row.status === 'CONFIRMED') return;
+      if (row.status !== 'IN_TRANSIT')
+        throw new ConflictException(
+          'Only IN_TRANSIT transfers can be received',
+        );
+      await this.assertWarehouse(tx, farmId, row.toWarehouseId);
+      const lines = await tx
+        .select()
+        .from(stockTransferItems)
+        .where(eq(stockTransferItems.stockTransferId, id));
+      const counted = new Map<string, ReceivedLine>();
+      for (const entry of received) {
+        if (counted.has(entry.id))
+          throw new BadRequestException('Duplicate transfer line');
+        counted.set(entry.id, entry);
+      }
+      for (const lineId of counted.keys())
+        if (!lines.some((line) => line.id === lineId))
+          throw new BadRequestException('Transfer line not found');
+      const balances = await this.lockBalances(
+        tx,
+        farmId,
+        row.toWarehouseId,
+        lines,
+      );
+      for (const line of lines) {
+        const entry = counted.get(line.id);
+        const quantity = entry?.receivedQuantity ?? line.quantity;
+        const reason = entry?.discrepancyReason?.trim() || null;
+        const short = milli(quantity) < milli(line.quantity);
+        if (milli(quantity) > milli(line.quantity))
+          throw new BadRequestException(
+            'Received quantity cannot exceed the dispatched quantity',
+          );
+        if (short && !reason)
+          throw new BadRequestException(
+            'A short line needs a discrepancy reason',
+          );
+        await tx
+          .update(stockTransferItems)
+          .set({
+            receivedQuantity: quantity,
+            discrepancyReason: short ? reason : null,
+          })
+          .where(eq(stockTransferItems.id, line.id));
+        if (milli(quantity) === 0n) continue;
+        await tx
+          .update(inventoryBalances)
+          .set({
+            quantityOnHand: sql`${inventoryBalances.quantityOnHand} + ${quantity}`,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            eq(
+              inventoryBalances.id,
+              balances.get(
+                balanceKey(row.toWarehouseId, line.itemId, line.lotId),
+              )!,
+            ),
+          );
+        await tx.insert(inventoryTransactions).values({
+          farmId,
+          warehouseId: row.toWarehouseId,
+          itemId: line.itemId,
+          lotId: line.lotId,
+          assetId: line.assetId,
+          transactionType: 'TRANSFER_IN',
+          quantityChange: quantity,
+          sourceType: 'STOCK_TRANSFER',
+          sourceId: id,
+          performedByMemberId: member,
+        });
+      }
+      const now = new Date().toISOString();
+      await tx
+        .update(stockTransfers)
+        .set({
+          status: 'CONFIRMED',
+          confirmedByMemberId: member,
+          confirmedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(stockTransfers.id, id));
+      const confirmed = { ...row, status: 'CONFIRMED' as const };
+      await auditStockDocument(
+        tx,
+        member,
+        'STOCK_TRANSFER',
+        'RECEIVE',
+        row,
+        confirmed,
+        { after: received },
+      );
+      if (row.createdByMemberId !== member)
+        await notifyDocumentCreator(
+          tx,
+          {
+            ...this.notification(confirmed, 'CONFIRMED'),
+            title: 'Kho đích đã nhận hàng',
+          },
+          row.createdByMemberId,
+        );
+      await this.hooks.run('confirmed', tx, id, member);
+    });
+    return this.withItems(id, farmId);
+  }
+
+  // Locks the warehouse's balances of these lines in id order, so concurrent
+  // documents cannot deadlock. Missing rows are created at zero first, in key
+  // order, so concurrent first-time destinations cannot race.
   private async lockBalances(
     tx: Pick<DatabaseService['db'], 'select' | 'insert'>,
     farmId: string,
-    row: typeof stockTransfers.$inferSelect,
+    warehouseId: string,
     lines: { itemId: string; lotId: string | null }[],
   ) {
     const keys = new Map<
@@ -495,12 +656,11 @@ export class StockTransfersService {
       { warehouseId: string; itemId: string; lotId: string | null }
     >();
     for (const line of lines)
-      for (const warehouseId of [row.fromWarehouseId, row.toWarehouseId])
-        keys.set(balanceKey(warehouseId, line.itemId, line.lotId), {
-          warehouseId,
-          itemId: line.itemId,
-          lotId: line.lotId,
-        });
+      keys.set(balanceKey(warehouseId, line.itemId, line.lotId), {
+        warehouseId,
+        itemId: line.itemId,
+        lotId: line.lotId,
+      });
     const sorted = [...keys.keys()].sort().map((key) => keys.get(key)!);
     await tx
       .insert(inventoryBalances)
@@ -547,7 +707,7 @@ export class StockTransfersService {
   }
   private notification(
     row: typeof stockTransfers.$inferSelect,
-    status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED',
+    status: 'PENDING_APPROVAL' | 'IN_TRANSIT' | 'CONFIRMED' | 'REJECTED',
   ) {
     return {
       farmId: row.farmId,

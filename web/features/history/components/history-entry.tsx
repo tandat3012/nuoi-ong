@@ -44,7 +44,10 @@ export function HistoryEntry({ log, references, showEntity }: {
           ? formatInventoryQuantity(value)
           : value,
   });
-  const entityName = references[log.entityId] ?? "Không xác định";
+  // Store-wide rows (shipping fees) have no entity id; name them by type.
+  const entityName = log.entityId
+    ? references[log.entityId] ?? "Không xác định"
+    : label(HISTORY_ENTITY_LABELS, log.entityType);
   const initial = !log.oldData || log.action === "CREATE" || log.action === "ASSET_CREATED";
 
   return (

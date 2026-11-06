@@ -29,6 +29,8 @@ export interface WarehouseFilterParams {
   status?: WarehouseStatus;
   page: number;
   pageSize: number;
+  /** Every warehouse of the farm, to pick a transfer destination; otherwise only the caller's warehouses. */
+  destination?: boolean;
 }
 
 export interface CreateWarehouseInput {

@@ -13,7 +13,7 @@ import { Input } from '@/shared/components/ui/input';
 import { Button } from '@/shared/components/ui/button';
 import { WarehouseLotSelect } from '@/features/inventory';
 import { canCreateStockDocuments, StockDocumentLines, StockDocumentReview, stockDocumentActions, useStockDocumentLock, useStockDocumentQuery, DOCUMENT_CODE_HINT, documentCodeLabel, isFarmOwner, numberingDraft, numberingOptionsError, numberingOptionsPayload, NumberingOptionsFields } from '@/features/stock-documents';
-import { shouldReloadAfterFailure } from '@/features/stock-documents/stock-document.logic';
+import { shouldReloadAfterFailure, stockDocumentErrorMessage } from '@/features/stock-documents/stock-document.logic';
 import { useNotificationRefresh } from '@/features/notifications';
 import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
@@ -29,7 +29,8 @@ const warehouseName = (warehouses: Warehouse[], id: string) => warehouses.find((
 function errorMessage(error: unknown) {
   if (!(error instanceof ApiError)) return 'Có lỗi xảy ra, vui lòng thử lại.';
   const details = error.details as { message?: string | string[] } | undefined;
-  return Array.isArray(details?.message) ? details.message.join(', ') : details?.message ?? error.message;
+  const message = Array.isArray(details?.message) ? details.message.join(', ') : details?.message ?? error.message;
+  return error.status === 409 ? stockDocumentErrorMessage(409, message) : message;
 }
 
 export function CountsScreen() {

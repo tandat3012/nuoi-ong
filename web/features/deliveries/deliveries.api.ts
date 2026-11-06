@@ -28,14 +28,16 @@ export function runDeliveryAction(
   );
 }
 
+/** `return-delivery` queues it for another try; `return-to-warehouse` sends the goods back. */
 export function returnDelivery(
   request: AuthenticatedRequest,
   farmId: string,
   id: string,
   reason: string,
+  to: "return-delivery" | "return-to-warehouse" = "return-delivery",
 ) {
   return request<DeliveryActionResult>(
-    `/store-orders/${encodeURIComponent(id)}/return-delivery`,
+    `/store-orders/${encodeURIComponent(id)}/${to}`,
     { method: "POST", params: { farmId }, data: { reason } },
   );
 }

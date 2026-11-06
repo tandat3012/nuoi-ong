@@ -218,10 +218,29 @@ describe('Stock Issue HTTP and PostgreSQL consistency', () => {
           provide: WarehousesService,
           useValue: {
             assertFarmAccess: access,
+            warehouseScope: async (farmId: string, user: string) => {
+              await access(farmId, user, false);
+              return null;
+            },
+            // Approver view without a warehouse limit, after the same access check.
+            documentReadScope: async (farmId: string, user: string) => {
+              await access(farmId, user, false);
+              return { memberId: null, scope: null };
+            },
+            assertScopedAccess: async (
+              farmId: string,
+              user: string,
+              write: boolean,
+              roles?: string[],
+            ) => ({
+              memberId: (await access(farmId, user, write, roles)) as string,
+              scope: null,
+            }),
             // Document writes reuse the same mock so write-denial cases still apply.
             assertDocumentWriter: async (farmId: string, user: string) => ({
               memberId: (await access(farmId, user, true)) as string,
               canApprove: true,
+              scope: null,
             }),
           },
         },

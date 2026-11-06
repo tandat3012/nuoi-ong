@@ -49,6 +49,9 @@ type Line = EditableLine & {
   systemQuantity?: string;
   actualQuantity?: string;
   difference?: string | null;
+  /** Transfers: counted in by the destination (null before receipt and on legacy lines). */
+  receivedQuantity?: string | null;
+  discrepancyReason?: string | null;
 };
 type Header = StockDocumentState &
   NumberingOptions & {
@@ -175,6 +178,8 @@ export function StockDocumentLines({
   const warehouseId =
     detail?.header.warehouseId ?? detail?.header.fromWarehouseId ?? "";
   const isOwner = isFarmOwner(viewer.roles);
+  const received =
+    !counts && !draft && detail?.lines.some((line) => line.receivedQuantity);
   const addedItem = items.find((item) => item.id === added.itemId);
 
   function stopEditing() {
@@ -336,7 +341,9 @@ export function StockDocumentLines({
                     "Lô",
                     ...(counts
                       ? ["Sổ sách", "Thực tế", "Chênh lệch"]
-                      : ["Số lượng"]),
+                      : received
+                        ? ["Đã xuất", "Thực nhận"]
+                        : ["Số lượng"]),
                     ...(draft ? [""] : []),
                   ].map((label, index) => (
                     <th key={index} scope="col" className="px-3 py-2">
@@ -392,6 +399,19 @@ export function StockDocumentLines({
                       {counts && (
                         <td className="px-3 py-2">
                           {draft ? "—" : line.difference && formatInventoryMovement(line.difference)}
+                        </td>
+                      )}
+                      {received && (
+                        <td className="px-3 py-2">
+                          {formatInventoryQuantity(
+                            line.receivedQuantity ?? line.quantity,
+                          )}{" "}
+                          {unit}
+                          {line.discrepancyReason && (
+                            <span className="block text-xs text-destructive">
+                              Lệch: {line.discrepancyReason}
+                            </span>
+                          )}
                         </td>
                       )}
                       {draft && (

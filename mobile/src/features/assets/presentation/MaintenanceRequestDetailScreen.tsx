@@ -82,7 +82,6 @@ export default function MaintenanceRequestDetailScreen() {
       <Card style={styles.card}>
         <View style={styles.row}><Text style={styles.asset}>{request.itemName}</Text><Pill tone={request.status === 'CONFIRMED' ? 'success' : request.status === 'REJECTED' ? 'danger' : 'amber'}><Text style={styles.status}>{statusLabel(request.status)}</Text></Pill></View>
         <Text style={styles.code}>Mã tài sản: {request.assetCode}</Text>
-        <Text style={styles.muted}>Mã yêu cầu: {request.id.slice(0, 8)}</Text>
         <Text style={styles.label}>Loại yêu cầu</Text><Text style={styles.value}>{request.maintenanceType === 'CORRECTIVE' ? 'Sửa chữa đột xuất' : request.maintenanceType === 'INSPECTION' ? 'Kiểm tra thiết bị' : request.maintenanceType}</Text>
         <Text style={styles.label}>Mô tả sự cố</Text><Text style={styles.value}>{request.description}</Text>
       </Card>
@@ -99,7 +98,6 @@ export default function MaintenanceRequestDetailScreen() {
         {request.maintenanceRecordId ? <>
           <Text style={styles.label}>Tình trạng bảo trì</Text><Text style={styles.value}>{maintenanceStatusLabel(request.maintenanceRecordStatus)}</Text>
           <Text style={styles.label}>Lịch bảo trì</Text><Text style={styles.value}>{formatDateTime(request.maintenanceScheduledAt)}</Text>
-          <Text style={styles.label}>Mã hồ sơ bảo trì</Text><Text style={styles.value}>{request.maintenanceRecordId}</Text>
         </> : null}
       </Card>
     </> : <Card><Text style={styles.muted}>Không tìm thấy yêu cầu này trong farm đang chọn.</Text></Card>}

@@ -1,13 +1,17 @@
-import { PartialType } from '@nestjs/swagger';
+import { ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Length,
+  Matches,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { locationType, recordStatus } from '../../../db/schema';
 
@@ -94,5 +98,54 @@ export class CreateLocationDto {
 }
 
 export class UpdateLocationDto extends PartialType(CreateLocationDto) {
+  @IsOptional() @IsIn(recordStatus.enumValues) status?: RecordStatus;
+}
+
+// Equipment/tool templates; materials have their own module (`/materials`).
+export const equipmentItemTypes = ['EQUIPMENT', 'TOOL'] as const;
+// Matches ck_item_type_tracking_mode for EQUIPMENT/TOOL.
+export const equipmentTrackingModes = ['ASSET', 'QUANTITY'] as const;
+
+export class CreateEquipmentItemDto {
+  @IsUUID() categoryId!: string;
+  @IsUUID() unitId!: string;
+  @Transform(normalizeCode) @IsString() @Length(1, 50) code!: string;
+  @Transform(trimText) @IsString() @Length(1, 255) name!: string;
+  @Transform(trimText)
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  description?: string | null;
+  @IsIn(equipmentItemTypes) itemType!: (typeof equipmentItemTypes)[number];
+  @IsIn(equipmentTrackingModes)
+  trackingMode!: (typeof equipmentTrackingModes)[number];
+  @ApiPropertyOptional({ example: '2.000' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,14})(\.\d{1,3})?$/)
+  minStockLevel?: string;
+  @ApiPropertyOptional({ type: 'integer', example: 90, nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  maintenanceIntervalDays?: number | null;
+  @ApiPropertyOptional({
+    type: 'integer',
+    example: 12,
+    nullable: true,
+    description:
+      'Bảo hành cho khách tính từ ngày giao thành công; chụp vào dòng đơn khi đặt hàng.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(120)
+  warrantyMonths?: number | null;
+}
+
+export class UpdateEquipmentItemDto extends PartialType(
+  CreateEquipmentItemDto,
+) {
   @IsOptional() @IsIn(recordStatus.enumValues) status?: RecordStatus;
 }

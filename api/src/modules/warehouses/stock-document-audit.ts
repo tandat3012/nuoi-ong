@@ -10,7 +10,15 @@ export type StockDocumentType =
   'STOCK_RECEIPT' | 'STOCK_ISSUE' | 'STOCK_TRANSFER' | 'STOCK_COUNT';
 
 export type StockDocumentAction =
-  'CREATE' | 'UPDATE' | 'CANCEL' | 'SUBMIT' | 'CONFIRM' | 'REJECT';
+  | 'CREATE'
+  | 'UPDATE'
+  | 'CANCEL'
+  | 'SUBMIT'
+  | 'CONFIRM'
+  | 'REJECT'
+  // Two-step transfers: source sends, destination counts in.
+  | 'DISPATCH'
+  | 'RECEIVE';
 
 type DocumentRow = {
   id: string;

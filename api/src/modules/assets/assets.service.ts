@@ -22,6 +22,8 @@ import {
 } from '../../db/schema';
 import { ReturnAssetDto } from './dto/return-asset.dto';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { assertInScope, scopeCondition } from '../warehouses/warehouse-scope';
+import { assetWarehouseId } from './asset-warehouse';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 
@@ -39,6 +41,7 @@ const maintenanceRetryEligible = sql<boolean>`(
 
 export interface AssetListFilters extends PaginationParams {
   farmId: string;
+  clerkUserId: string;
   search?: string;
   status?: AssetStatus;
   itemId?: string;
@@ -59,12 +62,13 @@ export class AssetsService {
     clerkUserId: string,
     input: ReturnAssetDto,
   ) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
       WAREHOUSE_MANAGE_ROLES,
     );
+    assertInScope(scope, input.warehouseId);
     const [actor] = await this.databaseService.db
       .select({ userId: users.id })
       .from(farmMembers)
@@ -143,6 +147,14 @@ export class AssetsService {
         .for('update')
         .limit(1);
       if (!asset) throw new NotFoundException('Asset not found');
+      if (scope) {
+        // The receiving warehouse alone is not enough: the asset must be one of ours too.
+        const [owner] = await tx
+          .select({ warehouseId: assetWarehouseId })
+          .from(assets)
+          .where(eq(assets.id, id));
+        assertInScope(scope, owner?.warehouseId);
+      }
       if (asset.itemId !== preliminaryAsset.itemId)
         throw new ConflictException('Asset item changed during return');
       if (!['IN_USE', 'ASSIGNED'].includes(asset.status))
@@ -261,6 +273,11 @@ export class AssetsService {
 
   async listAssets(filters: AssetListFilters) {
     const predicates: SQL[] = [eq(assets.farmId, filters.farmId)];
+    const scope = await this.warehousesService.warehouseScope(
+      filters.farmId,
+      filters.clerkUserId,
+    );
+    if (scope) predicates.push(scopeCondition(assetWarehouseId, scope)!);
 
     if (filters.search) {
       predicates.push(
@@ -298,6 +315,7 @@ export class AssetsService {
           >`(SELECT m.return_status::text FROM maintenance_records m WHERE m.asset_id = ${assets.id} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`,
           itemCode: items.code,
           itemName: items.name,
+          itemImageUrl: items.imageUrl,
           locationCode: locations.code,
           locationName: locations.name,
           locationWarehouseId: locations.warehouseId,
@@ -342,23 +360,41 @@ export class AssetsService {
     };
   }
 
-  async getAsset(id: string, farmId: string) {
-    return this.findOne(and(eq(assets.id, id), eq(assets.farmId, farmId)));
+  async getAsset(id: string, farmId: string, clerkUserId: string) {
+    return this.findOne(
+      farmId,
+      clerkUserId,
+      and(eq(assets.id, id), eq(assets.farmId, farmId)),
+    );
   }
 
-  async getAssetByCode(assetCode: string, farmId: string) {
+  async getAssetByCode(assetCode: string, farmId: string, clerkUserId: string) {
     return this.findOne(
+      farmId,
+      clerkUserId,
       and(eq(assets.assetCode, assetCode), eq(assets.farmId, farmId)),
     );
   }
 
-  async getAssetByQr(qrToken: string, farmId: string) {
+  async getAssetByQr(qrToken: string, farmId: string, clerkUserId: string) {
     return this.findOne(
+      farmId,
+      clerkUserId,
       and(eq(assets.qrToken, qrToken), eq(assets.farmId, farmId)),
     );
   }
 
-  private async findOne(where: SQL | undefined) {
+  /** Assets outside the caller's warehouses read as not found. */
+  private async findOne(
+    farmId: string,
+    clerkUserId: string,
+    condition: SQL | undefined,
+  ) {
+    const scope = await this.warehousesService.warehouseScope(
+      farmId,
+      clerkUserId,
+    );
+    const where = and(condition, scopeCondition(assetWarehouseId, scope));
     const [asset] = await this.databaseService.db
       .select({
         asset: assets,
@@ -371,6 +407,7 @@ export class AssetsService {
         >`(SELECT m.return_status::text FROM maintenance_records m WHERE m.asset_id = ${assets.id} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`,
         itemCode: items.code,
         itemName: items.name,
+        itemImageUrl: items.imageUrl,
         locationCode: locations.code,
         locationName: locations.name,
         locationWarehouseId: locations.warehouseId,

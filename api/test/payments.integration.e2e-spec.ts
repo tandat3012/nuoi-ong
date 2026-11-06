@@ -302,11 +302,12 @@ describe('Payments (migrated PostgreSQL)', () => {
             )
         )[0].value,
       ).toBe(1);
-      // Manual flows still work on an auto-paid order.
-      expect(
-        (await ctx.service.markPaid(ctx.ids.farm, ctx.ids.staff, order.id))
-          .order.paidAt,
-      ).toBe(paid.order.paidAt);
+      // A manual reconcile cannot pay an auto-paid order a second time.
+      await expect(
+        ctx.service.markPaid(ctx.ids.farm, ctx.ids.staff, order.id, {
+          reference: 'FT-LATE',
+        }),
+      ).rejects.toMatchObject({ response: { code: 'ALREADY_PAID' } });
       await expect(
         ctx.service.customerCancel(ctx.ids.customer, order.id, 'Không mua'),
       ).rejects.toThrow('refund');

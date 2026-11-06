@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import type { DatabaseService } from '../../db/database.service';
 import { enqueueDocumentPushes } from './notification-push-outbox';
 import {
@@ -8,7 +8,10 @@ import {
   roles,
   users,
 } from '../../db/schema';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  FARM_ADMIN_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -19,7 +22,7 @@ type DocumentNotification = {
   entityId: string;
   documentCode: string | null;
   documentKind: string;
-  status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED';
+  status: 'PENDING_APPROVAL' | 'IN_TRANSIT' | 'CONFIRMED' | 'REJECTED';
   rejectionReason?: string;
   /** Overrides the default stock-document title ("Phiếu …"). */
   title?: string;
@@ -41,6 +44,11 @@ async function insertForUsers(
       type: `${notification.entityType}_PENDING_APPROVAL`,
       title: 'Phiếu cần duyệt',
       body: `${notification.documentKind} ${code} đang chờ duyệt.`,
+    },
+    IN_TRANSIT: {
+      type: `${notification.entityType}_IN_TRANSIT`,
+      title: 'Hàng đang chuyển đến kho',
+      body: `${notification.documentKind} ${code} đã xuất, chờ kho nhận xác nhận số thực nhận.`,
     },
     CONFIRMED: {
       type: `${notification.entityType}_CONFIRMED`,
@@ -81,10 +89,12 @@ async function insertForUsers(
   );
 }
 
+/** Owners and admins always; warehouse managers only when assigned to `warehouseId` (when given). */
 export async function notifyFarmApprovers(
   tx: Transaction,
   notification: DocumentNotification,
   submittedByMemberId: string,
+  warehouseId?: string | null,
 ) {
   const recipients = await tx
     .select({ userId: farmMembers.userId })
@@ -102,6 +112,14 @@ export async function notifyFarmApprovers(
         eq(users.status, 'ACTIVE'),
         inArray(roles.code, WAREHOUSE_MANAGE_ROLES),
         ne(farmMembers.id, submittedByMemberId),
+        warehouseId
+          ? or(
+              inArray(roles.code, FARM_ADMIN_ROLES),
+              sql`EXISTS (SELECT 1 FROM farm_member_warehouses fmw
+                WHERE fmw.farm_member_id = farm_members.id
+                  AND fmw.warehouse_id = ${warehouseId})`,
+            )
+          : undefined,
       ),
     );
   await insertForUsers(

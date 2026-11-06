@@ -17,3 +17,9 @@ graphify-out/
 
 # Local agent instructions
 CLAUDE.md
+
+# Product photos live on Cloudinary (see assets/product-images/cloudinary-urls.csv)
+assets/product-images/*.jpg
+assets/product-images/*.jpeg
+assets/product-images/*.png
+assets/product-images/*.webp

@@ -21,6 +21,7 @@ export function WarehouseTable({
   warehouses,
   filters,
   canWrite,
+  limitedToAssigned,
   isLoading,
   errorMessage,
   onStartCreate,
@@ -30,6 +31,8 @@ export function WarehouseTable({
   warehouses: Warehouse[];
   filters: WarehouseFilterParams;
   canWrite: boolean;
+  /** Not an owner/admin: the API lists only the warehouses assigned to this member. */
+  limitedToAssigned: boolean;
   isLoading: boolean;
   errorMessage: string | null;
   onStartCreate: () => void;
@@ -77,14 +80,22 @@ export function WarehouseTable({
             <TableCell colSpan={5} className="p-0">
               <EmptyState
                 icon={WarehouseIcon}
-                title={hasFilters ? 'Không tìm thấy kho phù hợp' : 'Chưa có kho nào trong trang trại'}
+                title={
+                  hasFilters
+                    ? 'Không tìm thấy kho phù hợp'
+                    : limitedToAssigned
+                      ? 'Bạn chưa được phân kho nào'
+                      : 'Chưa có kho nào trong trang trại'
+                }
                 description={
                   hasFilters
                     ? 'Thử điều chỉnh từ khóa hoặc bộ lọc.'
-                    : 'Bắt đầu bằng cách thêm kho đầu tiên cho trang trại.'
+                    : limitedToAssigned
+                      ? 'Bạn chỉ xem và làm việc được với kho được phân. Liên hệ chủ trại để được phân kho.'
+                      : 'Bắt đầu bằng cách thêm kho đầu tiên cho trang trại.'
                 }
                 action={
-                  canWrite && !hasFilters ? (
+                  canWrite && !hasFilters && !limitedToAssigned ? (
                     <Button size="sm" onClick={onStartCreate}>
                       + Thêm kho mới
                     </Button>

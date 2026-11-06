@@ -7,8 +7,10 @@ describe('AssetsService', () => {
   const databaseService = {
     db: { select },
   } as unknown as DatabaseService;
+  // No warehouse limit: an owner-level caller.
   const warehousesService = {
     assertFarmAccess: jest.fn(),
+    warehouseScope: jest.fn().mockResolvedValue(null),
   };
   const farmId = '6a8ac800-8daa-4e25-9ef8-57af547f8784';
   const assetId = 'c796d96d-7260-4763-a9fe-8fe08a444165';
@@ -39,6 +41,7 @@ describe('AssetsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    warehousesService.warehouseScope.mockResolvedValue(null);
     service = new AssetsService(databaseService, warehousesService as never);
   });
 
@@ -51,6 +54,7 @@ describe('AssetsService', () => {
     await expect(
       service.listAssets({
         farmId,
+        clerkUserId: 'user',
         page: 1,
         pageSize: 20,
         offset: 0,
@@ -64,9 +68,12 @@ describe('AssetsService', () => {
   });
 
   it.each([
-    ['getAsset', () => service.getAsset(assetId, farmId)],
-    ['getAssetByCode', () => service.getAssetByCode('ASSET-001', farmId)],
-    ['getAssetByQr', () => service.getAssetByQr(assetId, farmId)],
+    ['getAsset', () => service.getAsset(assetId, farmId, 'user')],
+    [
+      'getAssetByCode',
+      () => service.getAssetByCode('ASSET-001', farmId, 'user'),
+    ],
+    ['getAssetByQr', () => service.getAssetByQr(assetId, farmId, 'user')],
   ])('%s returns an asset scoped to the farm', async (_name, operation) => {
     const asset = { asset: { id: assetId, farmId } };
     select.mockReturnValue(queryReturning([asset]));
@@ -77,8 +84,8 @@ describe('AssetsService', () => {
   it('returns not found when an asset is outside the farm or missing', async () => {
     select.mockReturnValue(queryReturning([]));
 
-    await expect(service.getAsset(assetId, farmId)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.getAsset(assetId, farmId, 'user'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
