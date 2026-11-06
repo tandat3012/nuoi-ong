@@ -37,6 +37,7 @@ export function deliveryErrorMessage(error: unknown) {
     return "Chỉ người đang giao đơn này hoặc quản lý cửa hàng được thao tác.";
   if (message.includes("Only CONFIRMED orders"))
     return "Đơn đã có người nhận giao hoặc không còn chờ giao. Hãy tải lại danh sách.";
+  if (message.includes("tài sản định danh")) return message;
   if (message.includes("Only SHIPPING orders"))
     return "Đơn không còn ở trạng thái đang giao. Hãy tải lại danh sách.";
   if (message.includes("stock issue must be approved"))

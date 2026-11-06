@@ -34,7 +34,7 @@ export function runStoreOrderAction(
   farmId: string,
   id: string,
   action: StoreOrderAction,
-  body?: Record<string, string>,
+  body?: Record<string, string | undefined>,
 ) {
   return request<{ data: OrderDetail }>(
     `/store-orders/${encodeURIComponent(id)}/${action}`,
@@ -48,7 +48,8 @@ export type StoreOrderAction =
   | "complete"
   | "mark-paid"
   | "cancel"
-  | "cod-remit";
+  | "cod-remit"
+  | "refund";
 
 export function getStoreOrderCustomer(
   request: AuthenticatedRequest,

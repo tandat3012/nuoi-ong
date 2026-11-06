@@ -1129,6 +1129,168 @@ describe('Store orders (migrated PostgreSQL)', () => {
       ).rejects.toThrow('Only paid orders');
     }));
 
+  const salesBalance = async (tx: OrderTestDb, { ids }: Context) =>
+    (
+      await tx
+        .select({ quantity: schema.inventoryBalances.quantityOnHand })
+        .from(schema.inventoryBalances)
+        .where(
+          and(
+            eq(schema.inventoryBalances.warehouseId, ids.warehouse),
+            eq(schema.inventoryBalances.itemId, ids.item),
+          ),
+        )
+    )[0].quantity;
+
+  /** A COD (or paid bank transfer) order of 3 × 0.125 out for delivery. */
+  async function shipping(
+    ctx: Context,
+    paymentMethod: 'COD' | 'BANK_TRANSFER' = 'COD',
+  ) {
+    const { ids, service, issues, input } = ctx;
+    const { order } = await service.create(ids.customer, {
+      ...input(),
+      paymentMethod,
+    });
+    if (paymentMethod === 'BANK_TRANSFER')
+      await service.markPaid(ids.farm, ids.staff, order.id, {
+        reference: `FT-${order.id}`,
+      });
+    const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
+    await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
+    await service.ship(ids.farm, ids.staff, order.id);
+    return order;
+  }
+
+  it('retries a failed delivery without putting stock back (AC19)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service } = ctx;
+      const order = await shipping(ctx);
+      expect(await salesBalance(tx, ctx)).toBe('9.625');
+      await service.returnDelivery(ids.farm, ids.staff, order.id, 'Vắng nhà');
+      expect(await orderStatus(tx, order.id)).toBe('CONFIRMED');
+      expect(await salesBalance(tx, ctx)).toBe('9.625');
+      await service.ship(ids.farm, ids.staff, order.id);
+      expect(await orderStatus(tx, order.id)).toBe('SHIPPING');
+    }));
+
+  it('raises stock only when the warehouse confirms the counted return, once, then records the refund (AC20)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, receipts } = ctx;
+      const order = await shipping(ctx, 'BANK_TRANSFER');
+      await service.returnToWarehouse(
+        ids.farm,
+        ids.staff,
+        order.id,
+        'Khách từ chối nhận',
+      );
+      const returning = await service.staffGet(ids.farm, order.id);
+      expect(returning.order.status).toBe('RETURNING');
+      const receiptId = returning.order.returnReceiptId!;
+      expect(await salesBalance(tx, ctx)).toBe('9.625');
+      const draft = await receipts.getReceipt(receiptId, ids.farm, ids.admin);
+      expect(draft).toMatchObject({
+        receipt: { status: 'DRAFT', warehouseId: ids.warehouse },
+        items: [
+          expect.objectContaining({ itemId: ids.item, quantity: '0.375' }),
+        ],
+      });
+      // Warehouse approvers are told a return waits to be counted.
+      expect(
+        (
+          await tx
+            .select({ userId: schema.notifications.userId })
+            .from(schema.notifications)
+            .where(eq(schema.notifications.entityId, receiptId))
+        ).map((row) => row.userId),
+      ).toContain(ids.admin);
+
+      // Counted 0.25 in good condition; the rest stays out of stock.
+      await tx
+        .update(schema.stockReceiptItems)
+        .set({ quantity: '0.25' })
+        .where(eq(schema.stockReceiptItems.stockReceiptId, receiptId));
+      await receipts.confirmReceipt(receiptId, ids.farm, ids.admin);
+      await receipts.confirmReceipt(receiptId, ids.farm, ids.admin);
+      expect(await salesBalance(tx, ctx)).toBe('9.875');
+      const returned = await service.staffGet(ids.farm, order.id);
+      expect(returned.order.status).toBe('RETURNED');
+      expect(returned.deliveryLog.map((row) => row.action)).toEqual(
+        expect.arrayContaining(['RETURN_TO_WAREHOUSE', 'RETURN_RECEIVED']),
+      );
+
+      await expect(
+        service.refundReturned(ids.farm, ids.staff, order.id, {
+          amount: '0',
+          reference: 'HT-2',
+        }),
+      ).rejects.toThrow('positive');
+      const refunded = await service.refundReturned(
+        ids.farm,
+        ids.staff,
+        order.id,
+        { amount: '585000', reference: 'HT-2' },
+      );
+      expect(refunded.order).toMatchObject({
+        status: 'RETURNED',
+        refundAmount: '585000',
+      });
+      await expect(
+        service.refundReturned(ids.farm, ids.staff, order.id, {
+          amount: '1',
+          reference: 'HT-3',
+        }),
+      ).rejects.toThrow('already refunded');
+    }));
+
+  it('refuses a return receipt holding more than shipped, and a rejected one gives the goods back to the shipper', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, receipts } = ctx;
+      const order = await shipping(ctx);
+      await service.returnToWarehouse(
+        ids.farm,
+        ids.staff,
+        order.id,
+        'Sai địa chỉ',
+      );
+      const receiptId = (await service.staffGet(ids.farm, order.id)).order
+        .returnReceiptId!;
+      await tx
+        .update(schema.stockReceiptItems)
+        .set({ quantity: '0.5' })
+        .where(eq(schema.stockReceiptItems.stockReceiptId, receiptId));
+      // Goods go back to the sales warehouse only.
+      await tx
+        .update(schema.stockReceipts)
+        .set({ warehouseId: ids.otherWarehouse })
+        .where(eq(schema.stockReceipts.id, receiptId));
+      await expect(
+        receipts.confirmReceipt(receiptId, ids.farm, ids.admin),
+      ).rejects.toThrow("order's sales warehouse");
+      await tx
+        .update(schema.stockReceipts)
+        .set({ warehouseId: ids.warehouse })
+        .where(eq(schema.stockReceipts.id, receiptId));
+      // The service transaction is a savepoint here, so the failure rolls back alone.
+      await expect(
+        receipts.confirmReceipt(receiptId, ids.farm, ids.admin),
+      ).rejects.toThrow('more than the order shipped');
+      expect(await salesBalance(tx, ctx)).toBe('9.625');
+      expect(await orderStatus(tx, order.id)).toBe('RETURNING');
+
+      await receipts.submitReceipt(receiptId, ids.farm, ids.admin);
+      await receipts.rejectReceipt(receiptId, ids.farm, ids.admin, 'Chưa nhận');
+      const back = await service.staffGet(ids.farm, order.id);
+      expect(back.order).toMatchObject({
+        status: 'SHIPPING',
+        returnReceiptId: null,
+      });
+      expect(await salesBalance(tx, ctx)).toBe('9.625');
+      // The shipper can try again, which drafts a new receipt.
+      await service.returnToWarehouse(ids.farm, ids.staff, order.id, 'Lần 2');
+      expect(await orderStatus(tx, order.id)).toBe('RETURNING');
+    }));
+
   it('offers a VietQR of the stored total only while a bank transfer is unpaid', () =>
     inRollback(async ({ ids, service, input }) => {
       const cod = await service.create(ids.customer, input());

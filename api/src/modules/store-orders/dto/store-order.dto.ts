@@ -168,3 +168,18 @@ export class MarkStoreOrderPaidDto {
   @Length(0, 1000)
   note?: string;
 }
+
+export class RefundStoreOrderDto {
+  @ApiProperty({ example: '585000', description: 'Số tiền đã hoàn thủ công.' })
+  @IsVndAmount()
+  refundAmount!: string;
+
+  @ApiProperty({
+    maxLength: 1000,
+    description: 'Mã giao dịch hoàn tiền hoặc chứng cứ khác.',
+  })
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 1000)
+  refundReference!: string;
+}

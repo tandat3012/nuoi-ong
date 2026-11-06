@@ -40,3 +40,7 @@ export class StockTransferHooks {
       );
   }
 }
+
+/** The same events for stock receipts (e.g. goods back from a failed delivery). */
+@Injectable()
+export class StockReceiptHooks extends StockTransferHooks {}

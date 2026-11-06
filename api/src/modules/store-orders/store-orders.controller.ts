@@ -22,6 +22,7 @@ import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import {
   MarkStoreOrderPaidDto,
+  RefundStoreOrderDto,
   StaffCancelStoreOrderDto,
   ReturnStoreOrderDeliveryDto,
 } from './dto/store-order.dto';
@@ -198,6 +199,46 @@ export class StoreOrdersController {
         auth.clerkUserId,
         requireUuid(id, 'id'),
         input.reason,
+      ),
+    };
+  }
+
+  @Post(':id/return-to-warehouse')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary:
+      'Không giao được: trả hàng về kho bán; kho kiểm nhận phiếu nhập mới tăng tồn',
+  })
+  async returnToWarehouse(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: ReturnStoreOrderDeliveryDto,
+  ) {
+    return {
+      data: await this.orders.returnToWarehouse(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        input.reason,
+      ),
+    };
+  }
+
+  @Post(':id/refund')
+  @ApiOperation({ summary: 'Ghi hoàn tiền thủ công cho đơn đã trả về kho' })
+  async refund(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: RefundStoreOrderDto,
+  ) {
+    return {
+      data: await this.orders.refundReturned(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        { amount: input.refundAmount, reference: input.refundReference },
       ),
     };
   }

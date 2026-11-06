@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   and,
@@ -31,6 +32,8 @@ import {
   paymentTransactions,
   stockIssueItems,
   stockIssues,
+  stockReceiptItems,
+  stockReceipts,
   stockTransferItems,
   stockTransfers,
   storeOrderReplenishments,
@@ -50,8 +53,10 @@ import { vietQrPayload } from '../payments/vietqr';
 import { CommerceService } from '../commerce/commerce.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { auditStockDocument } from '../warehouses/stock-document-audit';
+import { notifyFarmApprovers } from '../notifications/notification-events';
 import {
   StockTransferHook,
+  StockReceiptHooks,
   StockTransferHooks,
 } from '../warehouses/stock-transfer-hooks';
 import { CreateStoreOrderDto } from './dto/store-order.dto';
@@ -96,8 +101,16 @@ export class StoreOrdersService implements StockTransferHook {
     private readonly commerce: CommerceService,
     private readonly warehousesService: WarehousesService,
     transferHooks?: StockTransferHooks,
+    @Optional() receiptHooks?: StockReceiptHooks,
   ) {
     transferHooks?.register(this);
+    receiptHooks?.register({
+      lock: (tx, receiptId) => this.returnedOrder(tx, receiptId).then(() => {}),
+      confirmed: (tx, receiptId, memberId) =>
+        this.returnReceived(tx, receiptId, memberId),
+      rejected: (tx, receiptId, memberId) =>
+        this.returnRejected(tx, receiptId, memberId),
+    });
   }
 
   async create(userId: string, input: CreateStoreOrderDto) {
@@ -843,6 +856,222 @@ export class StoreOrdersService implements StockTransferHook {
       });
     });
     return this.deliveryResult(farmId, id, caller);
+  }
+
+  /**
+   * The delivery failed for good (D11): the goods head back to the sales
+   * warehouse. A DRAFT return receipt with what the order shipped waits for
+   * the warehouse to count it; stock only rises when that receipt is
+   * confirmed. Retrying the delivery instead is `returnDelivery`.
+   */
+  async returnToWarehouse(
+    farmId: string,
+    clerkUserId: string,
+    id: string,
+    reason: string,
+  ) {
+    const caller = await this.deliveryMember(farmId, clerkUserId);
+    await this.databaseService.db.transaction(async (tx) => {
+      const order = await this.lockOrder(
+        tx,
+        id,
+        eq(storeOrders.farmId, farmId),
+      );
+      if (order.status !== 'SHIPPING' || !order.stockIssueId)
+        throw new ConflictException('Only SHIPPING orders can be returned');
+      this.assertShipper(order, caller);
+      const shipped = await tx
+        .select({
+          itemId: stockIssueItems.itemId,
+          lotId: stockIssueItems.lotId,
+          assetId: stockIssueItems.assetId,
+          quantity: sql<string>`SUM(${stockIssueItems.quantity})::text`,
+        })
+        .from(stockIssueItems)
+        .where(eq(stockIssueItems.stockIssueId, order.stockIssueId))
+        .groupBy(
+          stockIssueItems.itemId,
+          stockIssueItems.lotId,
+          stockIssueItems.assetId,
+        );
+      // shortcut: sold assets are retired on issue; returning them needs an asset flow, add when serialized goods are sold.
+      if (shipped.some((line) => line.assetId))
+        throw new ConflictException({
+          code: 'ASSET_RETURN_UNSUPPORTED',
+          message:
+            'Đơn có tài sản định danh; chưa hỗ trợ trả về kho, hãy xử lý thủ công.',
+        });
+      const [receipt] = await tx
+        .insert(stockReceipts)
+        .values({
+          farmId,
+          warehouseId: order.warehouseId,
+          createdByMemberId: caller.memberId,
+          note: `Hàng trả về đơn ${orderCode(order.orderNumber)}: ${reason}`,
+        })
+        .returning();
+      const lines = shipped.map((line) => ({
+        stockReceiptId: receipt.id,
+        itemId: line.itemId,
+        lotId: line.lotId,
+        quantity: line.quantity,
+      }));
+      await tx.insert(stockReceiptItems).values(lines);
+      await auditStockDocument(
+        tx,
+        caller.memberId,
+        'STOCK_RECEIPT',
+        'CREATE',
+        null,
+        receipt,
+        { after: lines },
+      );
+      const now = new Date().toISOString();
+      await tx
+        .update(storeOrders)
+        .set({
+          status: 'RETURNING',
+          returnReceiptId: receipt.id,
+          handledByMemberId: caller.memberId,
+          updatedAt: now,
+        })
+        .where(eq(storeOrders.id, id));
+      await this.auditOrder(tx, order, caller.memberId, 'RETURN_TO_WAREHOUSE', {
+        reason,
+        receiptId: receipt.id,
+      });
+      await notifyFarmApprovers(
+        tx,
+        {
+          farmId,
+          entityType: 'STOCK_RECEIPT',
+          entityId: receipt.id,
+          documentCode: null,
+          documentKind: 'Phiếu nhập hàng trả về',
+          status: 'PENDING_APPROVAL',
+        },
+        caller.memberId,
+        order.warehouseId,
+      );
+    });
+    return this.deliveryResult(farmId, id, caller);
+  }
+
+  /** Order a return receipt was created for, locked FOR UPDATE. */
+  private async returnedOrder(tx: Transaction, receiptId: string) {
+    const [order] = await tx
+      .select()
+      .from(storeOrders)
+      .where(eq(storeOrders.returnReceiptId, receiptId))
+      .for('update');
+    return order;
+  }
+
+  /**
+   * The warehouse counted the goods back: what it received may be less than
+   * shipped (damaged or missing goods stay out of stock), never more.
+   */
+  private async returnReceived(
+    tx: Transaction,
+    receiptId: string,
+    memberId: string,
+  ) {
+    const order = await this.returnedOrder(tx, receiptId);
+    if (order?.status !== 'RETURNING') return;
+    const [receipt] = await tx
+      .select({ warehouseId: stockReceipts.warehouseId })
+      .from(stockReceipts)
+      .where(eq(stockReceipts.id, receiptId));
+    if (receipt.warehouseId !== order.warehouseId)
+      throw new BadRequestException(
+        "A return receipt must go into the order's sales warehouse",
+      );
+    const shipped = new Map<string, bigint>();
+    const key = (itemId: string, lotId: string | null) => `${itemId}:${lotId}`;
+    for (const line of await tx
+      .select()
+      .from(stockIssueItems)
+      .where(eq(stockIssueItems.stockIssueId, order.stockIssueId!))) {
+      const k = key(line.itemId, line.lotId);
+      shipped.set(k, (shipped.get(k) ?? 0n) + quantityMillis(line.quantity));
+    }
+    const received = await tx
+      .select()
+      .from(stockReceiptItems)
+      .where(eq(stockReceiptItems.stockReceiptId, receiptId));
+    for (const line of received) {
+      const k = key(line.itemId, line.lotId);
+      const left = (shipped.get(k) ?? 0n) - quantityMillis(line.quantity);
+      if (left < 0n)
+        throw new BadRequestException(
+          'A return receipt cannot receive more than the order shipped, or other items or lots',
+        );
+      shipped.set(k, left);
+    }
+    const now = new Date().toISOString();
+    await tx
+      .update(storeOrders)
+      .set({ status: 'RETURNED', handledByMemberId: memberId, updatedAt: now })
+      .where(eq(storeOrders.id, order.id));
+    await this.auditOrder(tx, order, memberId, 'RETURN_RECEIVED', {
+      receiptId,
+      received: received.map(({ itemId, lotId, quantity }) => ({
+        itemId,
+        lotId,
+        quantity,
+      })),
+    });
+  }
+
+  /** The return receipt was rejected or cancelled: the shipper still holds the goods. */
+  private async returnRejected(
+    tx: Transaction,
+    receiptId: string,
+    memberId: string,
+  ) {
+    const order = await this.returnedOrder(tx, receiptId);
+    if (order?.status !== 'RETURNING') return;
+    await tx
+      .update(storeOrders)
+      .set({
+        status: 'SHIPPING',
+        returnReceiptId: null,
+        handledByMemberId: memberId,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(storeOrders.id, order.id));
+    await this.auditOrder(tx, order, memberId, 'RETURN_REJECTED', {
+      receiptId,
+    });
+  }
+
+  /** Refund a paid order the warehouse took back (D11); nothing is sent to the bank. */
+  async refundReturned(
+    farmId: string,
+    clerkUserId: string,
+    id: string,
+    refund: Refund,
+  ) {
+    const memberId = await this.staffMember(farmId, clerkUserId);
+    await this.databaseService.db.transaction(async (tx) => {
+      const order = await this.lockOrder(
+        tx,
+        id,
+        eq(storeOrders.farmId, farmId),
+      );
+      if (order.status !== 'RETURNED')
+        throw new ConflictException('Only returned orders are refunded here');
+      await tx
+        .update(storeOrders)
+        .set({
+          ...this.refund(order, refund, memberId),
+          handledByMemberId: memberId,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(storeOrders.id, id));
+      await this.auditOrder(tx, order, memberId, 'REFUND', { ...refund });
+    });
+    return this.staffGet(farmId, id);
   }
 
   /** Orders ready to take (`available`) or out with the caller (`mine`), with what to hand over. */
@@ -1644,7 +1873,10 @@ export class StoreOrdersService implements StockTransferHook {
       | 'DELIVERY_COMPLETE'
       | 'PAYMENT_RECONCILE'
       | 'COD_REMIT'
-      | 'REFUND',
+      | 'REFUND'
+      | 'RETURN_TO_WAREHOUSE'
+      | 'RETURN_RECEIVED'
+      | 'RETURN_REJECTED',
     data: Record<string, unknown>,
   ) {
     await tx.insert(auditLogs).values({

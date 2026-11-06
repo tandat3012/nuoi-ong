@@ -158,6 +158,10 @@ const SAVE_ERRORS: [RegExp, string][] = [
     'Lô đã chọn không còn tồn tại cho vật tư này. Hãy chọn lại lô.',
   ],
   [
+    /return receipt cannot receive more/,
+    'Phiếu hàng trả về chỉ nhận tối đa đúng mặt hàng, lô và số lượng đơn đã xuất.',
+  ],
+  [
     /lotId only selects/,
     'Lô có sẵn chỉ dùng cho vật tư theo lô và không kèm số lô trên hàng hoặc ngày mới.',
   ],
