@@ -77,6 +77,10 @@ test("API rejections become specific messages and decide whether to reload", () 
   );
   assert.match(stockDocumentErrorMessage(403, "Forbidden"), /không có quyền/);
   assert.match(
+    stockDocumentErrorMessage(409, "STOCK_COUNT_STALE"),
+    /Tồn kho đã thay đổi/,
+  );
+  assert.match(
     stockDocumentErrorMessage(409, "Only DRAFT receipts can be submitted"),
     /không gửi duyệt được/,
   );
