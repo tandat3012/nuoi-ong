@@ -81,7 +81,7 @@ export class DashboardController {
   @ApiFarmIdQuery()
   @ApiOkResponse({
     description:
-      'Giá trị tồn = số lượng tồn × giá nhập gần nhất (VND); số lô hết hạn trong 30 ngày tới; đơn hôm nay tính theo giờ Việt Nam.',
+      'Giá trị tồn (VND) = giá trị cuối kỳ hôm nay theo bình quân gia quyền di động của từng kho, cùng cách tính với báo cáo nhập–xuất–tồn; unpricedItems = mặt hàng còn tồn ở một kho nhưng giá trị tại kho đó là 0 đ (chưa có giá). Chỉ tính các kho người gọi được xem; số lô hết hạn trong 30 ngày tới; đơn hôm nay tính theo giờ Việt Nam.',
     schema: {
       type: 'object',
       properties: {

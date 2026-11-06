@@ -11,6 +11,7 @@ import {
   hasAnyRole,
 } from '../auth/farm-access/farm-role-groups';
 import { assetInScope } from '../assets/asset-warehouse';
+import { vietnamDate } from '../maintenance/maintenance-dates';
 import type { WarehouseScope } from '../warehouses/warehouse-scope';
 import {
   MOVE_KINDS,
@@ -21,9 +22,12 @@ import {
 } from './stock-valuation';
 
 type Summary = {
-  /** Whole VND: on-hand quantity × the item's latest confirmed receipt price (quantity-weighted across that receipt's lines). */
+  /**
+   * Whole VND: closing value of the caller's warehouses today, valued at the
+   * moving weighted average per warehouse exactly like stockReport (AC27).
+   */
   stockValue: string;
-  /** Items in stock with no priced confirmed receipt, left out of stockValue. */
+  /** Items with stock in some warehouse whose value there is 0 VND (no price known). */
   unpricedItems: number;
   belowMinimum: number;
   expiringLots: number;
@@ -127,24 +131,6 @@ export class DashboardService {
         FROM inventory_balances
         WHERE farm_id = ${farmId} ${scopeFilter('warehouse_id', scope)}
         GROUP BY item_id
-      ), latest_receipt AS (
-        -- Unit price 0 is the column default, so it means "not priced".
-        SELECT DISTINCT ON (ri.item_id) ri.item_id, r.id AS receipt_id
-        FROM stock_receipt_items ri
-        JOIN stock_receipts r ON r.id = ri.stock_receipt_id
-        WHERE r.farm_id = ${farmId}
-          AND r.status = 'CONFIRMED'
-          AND ri.unit_price > 0
-        ORDER BY ri.item_id, r.confirmed_at DESC, r.id DESC
-      ), latest_price AS (
-        -- Several priced lines of one item on that receipt: quantity-weighted average.
-        SELECT ri.item_id,
-          SUM(ri.quantity * ri.unit_price) / SUM(ri.quantity) AS unit_price
-        FROM stock_receipt_items ri
-        JOIN latest_receipt lr
-          ON lr.receipt_id = ri.stock_receipt_id AND lr.item_id = ri.item_id
-        WHERE ri.unit_price > 0
-        GROUP BY ri.item_id
       ), lot_stock AS (
         SELECT DISTINCT l.id, l.expiry_date
         FROM inventory_lots l
@@ -153,11 +139,6 @@ export class DashboardService {
         WHERE l.farm_id = ${farmId} AND l.expiry_date IS NOT NULL
       )
       SELECT
-        (SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_price)), 0)::text
-          FROM stock s JOIN latest_price p USING (item_id)) AS "stockValue",
-        (SELECT count(*)::int FROM stock s
-          LEFT JOIN latest_price p USING (item_id)
-          WHERE s.quantity > 0 AND p.item_id IS NULL) AS "unpricedItems",
         (SELECT count(*)::int FROM items i
           LEFT JOIN stock s ON s.item_id = i.id
           WHERE i.farm_id = ${farmId} AND i.status = 'ACTIVE'
@@ -180,9 +161,14 @@ export class DashboardService {
         (SELECT count(*)::int FROM store_orders
           WHERE farm_id = ${farmId} AND status = 'PENDING') AS "ordersPending"
     `);
-    const row = { ...result.rows[0] } as DashboardSummary;
     const canSeeFarm = hasAnyRole(roleCodes, STOCK_WRITE_ROLES);
     const canSeeStore = hasAnyRole(roleCodes, STORE_MANAGE_ROLES);
+    const row = {
+      ...(canSeeFarm
+        ? await this.stockValue(farmId, scope)
+        : { stockValue: null, unpricedItems: null }),
+      ...result.rows[0],
+    } as DashboardSummary;
     for (const key of Object.keys(row) as (keyof DashboardSummary)[]) {
       const isStoreField = (STORE_FIELDS as readonly string[]).includes(key);
       if (isStoreField ? !canSeeStore : !canSeeFarm) row[key] = null;
@@ -435,8 +421,10 @@ export class DashboardService {
       if (!row) continue;
       const opening = amount(row.opening);
       const closing = amount(row.closing);
-      if (!row.moved && opening.quantity === '0' && closing.quantity === '0')
-        continue;
+      // A row is shown while it holds quantity or value, so closing values add up to the dashboard card.
+      const empty = (stock: Amount) =>
+        stock.quantity === '0' && stock.value === '0';
+      if (!row.moved && empty(opening) && empty(closing)) continue;
       const noValue = (stock: Amount) =>
         stock.quantity !== '0' && stock.value === '0';
       rows.push({
@@ -455,6 +443,41 @@ export class DashboardService {
         a.itemCode.localeCompare(b.itemCode),
     );
     return { rows };
+  }
+
+  /** Today's closing value of the caller's warehouses, the same numbers as stockReport's closing. */
+  private async stockValue(farmId: string, scope: WarehouseScope) {
+    if (scope?.length === 0) return { stockValue: '0', unpricedItems: 0 };
+    const today = vietnamDate(new Date());
+    const ledger = await this.ledger(farmId, today, today, 'day');
+    const valued = valueMoves(ledger);
+    const shown = inWarehouses(undefined, scope);
+    const stocks = new Map<
+      string,
+      { itemId: string; quantity: number; value: number }
+    >();
+    let total = 0;
+    ledger.forEach((move, index) => {
+      if (!shown(move.warehouseId)) return;
+      const key = `${move.warehouseId}:${move.itemId}`;
+      const stock = stocks.get(key) ?? {
+        itemId: move.itemId,
+        quantity: 0,
+        value: 0,
+      };
+      stock.quantity += move.quantity;
+      stock.value += valued[index].value;
+      stocks.set(key, stock);
+      total += valued[index].value;
+    });
+    const unpriced = new Set(
+      [...stocks.values()]
+        .filter(
+          (stock) => Math.round(stock.quantity * 1000) > 0 && stock.value === 0,
+        )
+        .map((stock) => stock.itemId),
+    );
+    return { stockValue: String(total), unpricedItems: unpriced.size };
   }
 
   private async assertWarehouse(farmId: string, warehouseId?: string) {
@@ -489,6 +512,16 @@ export class DashboardService {
       transferKey: string | null;
       period: string | null;
     }>(sql`
+      -- Several priced lines of the item on one receipt: quantity-weighted price.
+      -- Aggregated once and joined: stock_receipt_items has no index for a per-row lookup.
+      WITH receipt_price AS (
+        SELECT ri.stock_receipt_id, ri.item_id,
+          SUM(ri.quantity * ri.unit_price) / SUM(ri.quantity) AS unit_price
+        FROM stock_receipt_items ri
+        JOIN stock_receipts r ON r.id = ri.stock_receipt_id
+        WHERE r.farm_id = ${farmId} AND ri.unit_price > 0
+        GROUP BY ri.stock_receipt_id, ri.item_id
+      )
       SELECT t.warehouse_id AS "warehouseId", t.item_id AS "itemId",
         t.transaction_type AS "transactionType", t.source_type AS "sourceType",
         t.source_type || ':' || t.source_id AS "document",
@@ -502,15 +535,8 @@ export class DashboardService {
           to_char(date_trunc(${unit}, t.created_at AT TIME ZONE ${TZ}), 'YYYY-MM-DD')
         END AS "period"
       FROM inventory_transactions t
-      -- Several priced lines of the item on one receipt: quantity-weighted price.
-      LEFT JOIN LATERAL (
-        SELECT SUM(ri.quantity * ri.unit_price) / SUM(ri.quantity) AS unit_price
-        FROM stock_receipt_items ri
-        WHERE t.source_type = 'STOCK_RECEIPT'
-          AND ri.stock_receipt_id = t.source_id
-          AND ri.item_id = t.item_id
-          AND ri.unit_price > 0
-      ) rp ON TRUE
+      LEFT JOIN receipt_price rp ON t.source_type = 'STOCK_RECEIPT'
+        AND rp.stock_receipt_id = t.source_id AND rp.item_id = t.item_id
       LEFT JOIN assets a ON t.source_type = 'ASSET_CREATE' AND a.id = t.asset_id
       WHERE t.farm_id = ${farmId} AND t.created_at < ${rangeEnd(dateTo)}
       -- Both rows of a transfer share created_at: the outgoing one first.
