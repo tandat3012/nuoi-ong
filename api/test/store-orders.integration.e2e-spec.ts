@@ -422,6 +422,21 @@ describe('Store orders (migrated PostgreSQL)', () => {
         paymentStatus: 'PAID',
         paidByMemberId: ids.member,
       });
+      // AC16: shipping and completing never deduct again.
+      expect(
+        (
+          await tx
+            .select()
+            .from(schema.inventoryBalances)
+            .where(eq(schema.inventoryBalances.itemId, ids.item))
+        )[0].quantityOnHand,
+      ).toBe('9.625');
+      expect(
+        await tx
+          .select({ change: schema.inventoryTransactions.quantityChange })
+          .from(schema.inventoryTransactions)
+          .where(eq(schema.inventoryTransactions.itemId, ids.item)),
+      ).toEqual([{ change: '-0.375' }]);
     }));
 
   it('uses saved stock quantity and warehouse when variant step or store settings change', () =>
@@ -1372,6 +1387,89 @@ describe('Store orders on concurrent PostgreSQL connections', () => {
     }
     const [first, second] = await Promise.all([original, retry]);
     expect(second.order.id).toBe(first.order.id);
+  });
+
+  it('lets only one of two orders competing for the last stock reserve it (AC15, AC16)', async () => {
+    // 50 × 0.125 = 6.25 each; the sales warehouse holds 10, so only one fits.
+    const first = await ctx.service.create(ctx.ids.customer, ctx.input(50));
+    const second = await ctx.service.create(ctx.ids.customer, ctx.input(50));
+    // PENDING orders hold nothing: both were accepted against the same 10.
+    expect([first.order.status, second.order.status]).toEqual([
+      'PENDING',
+      'PENDING',
+    ]);
+    // Hold the first confirmation open after it reserved, so the second must
+    // wait on the balance lock instead of reading the uncommitted draft as free.
+    let release!: () => void;
+    let reserved!: (pid: number) => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const ready = new Promise<number>((resolve) => (reserved = resolve));
+    const holding = db.transaction(async (tx) => {
+      const service = new StoreOrdersService(
+        { db: tx } as unknown as DatabaseService,
+        ctx.commerce,
+        new WarehousesService(ctx.database),
+      );
+      await service.confirm(ctx.ids.farm, ctx.ids.staff, first.order.id);
+      const { rows } = await tx.execute<{ pid: number }>(
+        sql`SELECT pg_backend_pid() AS pid`,
+      );
+      reserved(rows[0].pid);
+      await gate;
+    });
+    // A failed first confirmation must fail the test, not leave `ready` pending.
+    const holder = await Promise.race([
+      ready,
+      holding.then(() => Promise.reject(new Error('holder ended early'))),
+    ]);
+    // Settled results so a failed probe still drains both connections before cleanup.
+    const competing = ctx.service
+      .confirm(ctx.ids.farm, ctx.ids.staff, second.order.id)
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    let waiting = false;
+    try {
+      // Only a backend blocked by our holder counts; stay below lock_timeout (4 s).
+      const deadline = Date.now() + 3000;
+      while (!waiting && Date.now() < deadline) {
+        const result = await pool.query<{ waiting: boolean }>(
+          `SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+             WHERE $1 = ANY(pg_blocking_pids(pid))) AS waiting`,
+          [holder],
+        );
+        waiting = result.rows[0].waiting;
+      }
+    } finally {
+      release();
+      await holding;
+    }
+    const rejection = await competing;
+    expect(waiting).toBe(true);
+    expect(rejection).toMatchObject({ status: 409 });
+    const statuses = await Promise.all(
+      [first, second].map(
+        async ({ order }) =>
+          (await ctx.service.staffGet(ctx.ids.farm, order.id)).order.status,
+      ),
+    );
+    expect(statuses.sort()).toEqual(['CONFIRMED', 'PENDING']);
+    // One draft reserves 6.25; nothing is deducted until the issue is confirmed.
+    const drafts = await db
+      .select({ quantity: schema.stockIssueItems.quantity })
+      .from(schema.stockIssueItems)
+      .innerJoin(
+        schema.stockIssues,
+        eq(schema.stockIssues.id, schema.stockIssueItems.stockIssueId),
+      )
+      .where(eq(schema.stockIssues.farmId, ctx.ids.farm));
+    expect(drafts).toEqual([{ quantity: '6.250' }]);
+    const [balance] = await db
+      .select({ quantityOnHand: schema.inventoryBalances.quantityOnHand })
+      .from(schema.inventoryBalances)
+      .where(eq(schema.inventoryBalances.itemId, ctx.ids.item));
+    expect(balance.quantityOnHand).toBe('10.000');
   });
 
   it('creates only one draft for simultaneous confirmations', async () => {
