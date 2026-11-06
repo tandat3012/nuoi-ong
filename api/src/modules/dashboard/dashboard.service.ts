@@ -421,8 +421,10 @@ export class DashboardService {
       if (!row) continue;
       const opening = amount(row.opening);
       const closing = amount(row.closing);
-      if (!row.moved && opening.quantity === '0' && closing.quantity === '0')
-        continue;
+      // A row is shown while it holds quantity or value, so closing values add up to the dashboard card.
+      const empty = (stock: Amount) =>
+        stock.quantity === '0' && stock.value === '0';
+      if (!row.moved && empty(opening) && empty(closing)) continue;
       const noValue = (stock: Amount) =>
         stock.quantity !== '0' && stock.value === '0';
       rows.push({
@@ -445,6 +447,7 @@ export class DashboardService {
 
   /** Today's closing value of the caller's warehouses, the same numbers as stockReport's closing. */
   private async stockValue(farmId: string, scope: WarehouseScope) {
+    if (scope?.length === 0) return { stockValue: '0', unpricedItems: 0 };
     const today = vietnamDate(new Date());
     const ledger = await this.ledger(farmId, today, today, 'day');
     const valued = valueMoves(ledger);
@@ -509,6 +512,16 @@ export class DashboardService {
       transferKey: string | null;
       period: string | null;
     }>(sql`
+      -- Several priced lines of the item on one receipt: quantity-weighted price.
+      -- Aggregated once and joined: stock_receipt_items has no index for a per-row lookup.
+      WITH receipt_price AS (
+        SELECT ri.stock_receipt_id, ri.item_id,
+          SUM(ri.quantity * ri.unit_price) / SUM(ri.quantity) AS unit_price
+        FROM stock_receipt_items ri
+        JOIN stock_receipts r ON r.id = ri.stock_receipt_id
+        WHERE r.farm_id = ${farmId} AND ri.unit_price > 0
+        GROUP BY ri.stock_receipt_id, ri.item_id
+      )
       SELECT t.warehouse_id AS "warehouseId", t.item_id AS "itemId",
         t.transaction_type AS "transactionType", t.source_type AS "sourceType",
         t.source_type || ':' || t.source_id AS "document",
@@ -522,15 +535,8 @@ export class DashboardService {
           to_char(date_trunc(${unit}, t.created_at AT TIME ZONE ${TZ}), 'YYYY-MM-DD')
         END AS "period"
       FROM inventory_transactions t
-      -- Several priced lines of the item on one receipt: quantity-weighted price.
-      LEFT JOIN LATERAL (
-        SELECT SUM(ri.quantity * ri.unit_price) / SUM(ri.quantity) AS unit_price
-        FROM stock_receipt_items ri
-        WHERE t.source_type = 'STOCK_RECEIPT'
-          AND ri.stock_receipt_id = t.source_id
-          AND ri.item_id = t.item_id
-          AND ri.unit_price > 0
-      ) rp ON TRUE
+      LEFT JOIN receipt_price rp ON t.source_type = 'STOCK_RECEIPT'
+        AND rp.stock_receipt_id = t.source_id AND rp.item_id = t.item_id
       LEFT JOIN assets a ON t.source_type = 'ASSET_CREATE' AND a.id = t.asset_id
       WHERE t.farm_id = ${farmId} AND t.created_at < ${rangeEnd(dateTo)}
       -- Both rows of a transfer share created_at: the outgoing one first.

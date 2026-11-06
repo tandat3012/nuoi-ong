@@ -5,6 +5,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from '../src/db/schema';
 import { DashboardService } from '../src/modules/dashboard/dashboard.service';
+import { vietnamDate } from '../src/modules/maintenance/maintenance-dates';
 import {
   MOVE_KINDS,
   type MoveKind,
@@ -333,24 +334,6 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
         }
       }
 
-      // AC27: the dashboard card is the report's closing value, for the farm and per warehouse.
-      const closing = (rows: typeof report.rows) =>
-        String(rows.reduce((sum, row) => sum + Number(row.closing.value), 0));
-      expect(await dashboard.summary(ids.farm, ['FARM_OWNER'])).toMatchObject({
-        stockValue: closing(report.rows),
-        unpricedItems: 0,
-      });
-      expect(
-        await dashboard.summary(
-          ids.farm,
-          ['WAREHOUSE_MANAGER'],
-          [ids.warehouse],
-        ),
-      ).toMatchObject({ stockValue: '4800' });
-      expect(
-        await dashboard.summary(ids.farm, ['WAREHOUSE_MANAGER'], []),
-      ).toMatchObject({ stockValue: '0', unpricedItems: 0 });
-
       const salesOnly = await dashboard.stockReport(
         ids.farm,
         '2026-10-05',
@@ -390,5 +373,131 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
           randomUUID(),
         ),
       ).rejects.toMatchObject({ status: 404 });
+    }));
+
+  it('shows the report closing value on the dashboard card (AC27)', () =>
+    inRollback(async (tx) => {
+      const { ids, dashboard } = await scenario(tx);
+      const newItem = async () => {
+        const id = randomUUID();
+        await tx.insert(schema.items).values({
+          id,
+          farmId: ids.farm,
+          categoryId: ids.category,
+          unitId: ids.unit,
+          code: id,
+          name: id,
+          itemType: 'MATERIAL',
+          trackingMode: 'QUANTITY',
+        });
+        return id;
+      };
+      const ledger = (
+        itemId: string,
+        warehouseId: string,
+        at: string,
+        transactionType: 'RECEIPT' | 'ISSUE' | 'ADJUSTMENT_IN',
+        quantityChange: string,
+        sourceType: string,
+        sourceId: string = randomUUID(),
+      ) =>
+        tx.insert(schema.inventoryTransactions).values({
+          farmId: ids.farm,
+          warehouseId,
+          itemId,
+          transactionType,
+          quantityChange,
+          sourceType,
+          sourceId,
+          createdAt: at,
+        });
+      const receipt = async (
+        itemId: string,
+        at: string,
+        quantity: string,
+        price: string,
+      ) => {
+        const id = randomUUID();
+        await tx.insert(schema.stockReceipts).values({
+          id,
+          farmId: ids.farm,
+          warehouseId: ids.warehouse,
+          receiptCode: id.slice(0, 20),
+          createdByMemberId: ids.member,
+        });
+        await tx
+          .insert(schema.stockReceiptItems)
+          .values({ stockReceiptId: id, itemId, quantity, unitPrice: price });
+        await ledger(
+          itemId,
+          ids.warehouse,
+          at,
+          'RECEIPT',
+          quantity,
+          'STOCK_RECEIPT',
+          id,
+        );
+      };
+      // Priced in the sales warehouse, but its earlier stock in OTHER has no price.
+      const mixed = await newItem();
+      await ledger(
+        mixed,
+        ids.otherWarehouse,
+        '2026-10-01T00:00:00Z',
+        'ADJUSTMENT_IN',
+        '2',
+        'INVENTORY_ADJUSTMENT',
+      );
+      await receipt(mixed, '2026-10-03T03:00:00Z', '3', '500');
+      // Out before in: quantity back to 0 while 1000 VND of value stays.
+      const residual = await newItem();
+      await ledger(
+        residual,
+        ids.warehouse,
+        '2026-10-03T03:00:00Z',
+        'ISSUE',
+        '-1',
+        'STOCK_ISSUE',
+      );
+      await receipt(residual, '2026-10-04T03:00:00Z', '1', '1000');
+
+      const today = vietnamDate(new Date());
+      const yearAgo = new Date(Date.parse(today) - 365 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const closing = async (dateFrom: string, warehouseId?: string) =>
+        String(
+          (
+            await dashboard.stockReport(ids.farm, dateFrom, today, warehouseId)
+          ).rows.reduce((sum, row) => sum + Number(row.closing.value), 0),
+        );
+      // Honey 4800 (SALE) + 2400 (OTHER), 1500 for `mixed`, 1000 left on `residual`.
+      expect(await closing(yearAgo)).toBe('9700');
+      expect(await closing(today)).toBe('9700');
+      expect(await dashboard.summary(ids.farm, ['FARM_OWNER'])).toMatchObject({
+        stockValue: '9700',
+        unpricedItems: 1,
+      });
+      expect(await closing(today, ids.warehouse)).toBe('7300');
+      expect(
+        await dashboard.summary(
+          ids.farm,
+          ['WAREHOUSE_MANAGER'],
+          [ids.warehouse],
+        ),
+      ).toMatchObject({ stockValue: '7300', unpricedItems: 0 });
+      expect(
+        await dashboard.summary(ids.farm, ['WAREHOUSE_MANAGER'], []),
+      ).toMatchObject({ stockValue: '0', unpricedItems: 0 });
+
+      // Store-only roles get no stock figures and never read the ledger.
+      const ledgerRead = jest.spyOn(
+        dashboard as unknown as { ledger: () => Promise<unknown> },
+        'ledger',
+      );
+      expect(
+        await dashboard.summary(ids.farm, ['STORE_MANAGER']),
+      ).toMatchObject({ stockValue: null, unpricedItems: null });
+      expect(ledgerRead).not.toHaveBeenCalled();
     }));
 });
