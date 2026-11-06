@@ -5,7 +5,8 @@ describe('StoreAdminController roles', () => {
   const roles = (handler: keyof StoreAdminController) =>
     Reflect.getMetadata(
       FARM_ROLES_KEY,
-      StoreAdminController.prototype[handler],
+      Object.getOwnPropertyDescriptor(StoreAdminController.prototype, handler)!
+        .value as object,
     ) as string[];
 
   // AC29 / D09: the delivery fee table is shared by every farm.

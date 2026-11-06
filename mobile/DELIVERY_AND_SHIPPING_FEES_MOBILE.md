@@ -101,7 +101,8 @@ Hai shipper cùng bấm "Nhận giao" một đơn: người sau nhận `409 Only
 - Tạo đơn (`POST /store/orders`): server tự cộng phí của `region`, `total = subtotal + shippingFee`. COD và VietQR đều dùng `total` này.
 - `expectedShippingFee` (tuỳ chọn, chuỗi VNĐ): phí khách đã thấy. Phí đã đổi trả `409 { code: 'SHIPPING_FEE_CHANGED', shippingFee }`. Nó được tính vào fingerprint chống trùng đơn, nên gửi lại cùng `idempotencyKey` thì phải gửi đúng giá trị cũ.
 - **Đã xoá** `PATCH /store-orders/:id/shipping-fee` (nhân viên sửa phí tay). Mobile không dùng endpoint này.
-- Sửa phí: `PUT /store-admin/shipping-fees` `{ NORTH, CENTRAL, SOUTH }`, chỉ `ADMIN` hoặc `FARM_OWNER`. Chỉ làm trên web (`/store-products`).
+- Sửa phí: `PUT /store-admin/shipping-fees` `{ NORTH, CENTRAL, SOUTH }`, **chỉ `ADMIN`** (T12/D09, từ 06/11/2026; `FARM_OWNER` nhận `403`). Chỉ làm trên web (`/store-products`). `FARM_OWNER` vẫn cấu hình kho bán, miền phục vụ và mapping của trại mình như cũ.
+- Mỗi lần lưu phí, API ghi một dòng lịch sử: `action = SHIPPING_FEES_UPDATED`, `entityType = STORE_SHIPPING_FEES`, `entityId = null`, `oldData`/`newData` = `{ NORTH, CENTRAL, SOUTH }`, gắn vào trại đang thao tác. Mobile **chưa có nhãn** cho dòng này (`src/features/activity/model.ts`), nên sẽ hiện mã thô. Cần thêm: `actionLabels.SHIPPING_FEES_UPDATED = 'Sửa phí giao hàng'`, `entityLabels.STORE_SHIPPING_FEES = 'Phí giao hàng'`, và `fieldLabels` cho `NORTH`/`CENTRAL`/`SOUTH` = `'Phí miền Bắc'`/`'Phí miền Trung'`/`'Phí miền Nam'`. Dòng có `entityId = null` thì hiển thị theo loại, không mở chi tiết.
 - Nếu sau này mobile có luồng mua hàng: hiện phí theo miền và tổng đã gồm phí trước khi đặt, gửi `expectedShippingFee`, khi gặp `SHIPPING_FEE_CHANGED` thì tải lại phí rồi cho khách xác nhận lại.
 
 ## Dữ liệu và triển khai

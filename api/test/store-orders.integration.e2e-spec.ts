@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { count, eq, ne, sql } from 'drizzle-orm';
+import { and, count, eq, ne, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import type { ClerkClient } from '@clerk/backend';
@@ -97,8 +97,17 @@ describe('Store orders (migrated PostgreSQL)', () => {
         shippingFee: '30000',
         total: '585000',
       });
+      // A Clerk id unlike the user's UUID, so the audit must resolve the user.
+      const editor = randomUUID();
+      await tx.insert(schema.users).values({
+        id: editor,
+        authProvider: 'CLERK',
+        authProviderUserId: `user_${editor}`,
+        email: `${editor}@orders.test`,
+        fullName: 'Fee editor',
+      });
       expect(
-        await admin.updateShippingFees(ids.farm, ids.admin, {
+        await admin.updateShippingFees(ids.farm, `user_${editor}`, {
           NORTH: '0',
           CENTRAL: '15000',
           SOUTH: '45000',
@@ -114,11 +123,16 @@ describe('Store orders (migrated PostgreSQL)', () => {
             newData: schema.auditLogs.newData,
           })
           .from(schema.auditLogs)
-          .where(eq(schema.auditLogs.action, 'SHIPPING_FEES_UPDATED')),
+          .where(
+            and(
+              eq(schema.auditLogs.farmId, ids.farm),
+              eq(schema.auditLogs.action, 'SHIPPING_FEES_UPDATED'),
+            ),
+          ),
       ).toEqual([
         {
           farmId: ids.farm,
-          userId: ids.admin,
+          userId: editor,
           oldData: { NORTH: '40000', CENTRAL: '20000', SOUTH: '30000' },
           newData: { NORTH: '0', CENTRAL: '15000', SOUTH: '45000' },
         },

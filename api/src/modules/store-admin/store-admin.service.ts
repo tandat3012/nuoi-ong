@@ -116,14 +116,18 @@ export class StoreAdminService {
     return this.databaseService.db.transaction(async (tx) => {
       const fees = (rows: { region: string; fee: string }[]) =>
         Object.fromEntries(rows.map(({ region, fee }) => [region, fee]));
+      // Row locks miss regions without a row yet; a table lock serialises saves
+      // (checkout's plain reads still go through) so the audit's old fees are right.
+      await tx.execute(
+        sql`LOCK TABLE ${storeShippingFees} IN SHARE ROW EXCLUSIVE MODE`,
+      );
       const before = fees(
         await tx
           .select({
             region: storeShippingFees.region,
             fee: storeShippingFees.fee,
           })
-          .from(storeShippingFees)
-          .for('update'),
+          .from(storeShippingFees),
       );
       const updatedAt = new Date().toISOString();
       const after = fees(
