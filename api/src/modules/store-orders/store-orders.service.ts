@@ -15,7 +15,6 @@ import {
   getTableColumns,
   inArray,
   isNull,
-  ne,
   sql,
   SQL,
 } from 'drizzle-orm';
@@ -34,7 +33,6 @@ import {
   stockTransferItems,
   stockTransfers,
   storeOrderReplenishments,
-  storeSourceWarehouses,
   storeOrderItems,
   storeOrders,
   storeProducts,
@@ -55,7 +53,6 @@ import {
   StockTransferHook,
   StockTransferHooks,
 } from '../warehouses/stock-transfer-hooks';
-import { notifyFarmApprovers } from '../notifications/notification-events';
 import { CreateStoreOrderDto } from './dto/store-order.dto';
 import {
   checkedMoney,
@@ -492,12 +489,13 @@ export class StoreOrdersService implements StockTransferHook {
         throw new ConflictException(
           'Only PENDING or PREPARING orders can be confirmed',
         );
-      // Still waiting for top-up transfers; never draft a second set.
-      if ((await this.pendingReplenishments(tx, id)).length > 0) {
-        if (order.status === 'PENDING')
-          await this.setPreparing(tx, id, memberId);
-        return;
-      }
+      // A legacy order (before T06) still waits for its top-up transfers.
+      if ((await this.pendingReplenishments(tx, id)).length > 0)
+        throw new ConflictException({
+          code: 'REPLENISHMENT_PENDING',
+          message:
+            'Đơn đang chờ kho duyệt phiếu chuyển bổ sung đã tạo trước đây.',
+        });
       await this.fulfil(tx, order, memberId, true);
     });
     return this.staffGet(farmId, id);
@@ -517,8 +515,9 @@ export class StoreOrdersService implements StockTransferHook {
   }
 
   /**
-   * Locks the order's balances in the sales and source warehouses in id
-   * order, so confirmations of the same stock see each other's drafts.
+   * Locks the order's balances in the sales warehouse (plus a legacy top-up
+   * transfer's source) in id order, so confirmations of the same stock see
+   * each other's drafts.
    */
   private async lockStock(
     tx: Transaction,
@@ -530,23 +529,6 @@ export class StoreOrdersService implements StockTransferHook {
       .from(storeOrderItems)
       .where(eq(storeOrderItems.orderId, order.id))
       .orderBy(asc(storeOrderItems.itemId));
-    const sources = (
-      await tx
-        .select({ id: warehouses.id })
-        .from(storeSourceWarehouses)
-        .innerJoin(
-          warehouses,
-          eq(warehouses.id, storeSourceWarehouses.warehouseId),
-        )
-        .where(
-          and(
-            eq(storeSourceWarehouses.farmId, order.farmId),
-            eq(warehouses.status, 'ACTIVE'),
-            ne(warehouses.id, order.warehouseId),
-          ),
-        )
-        .orderBy(asc(warehouses.code), asc(warehouses.id))
-    ).map((row) => row.id);
     await tx
       .select({ id: inventoryBalances.id })
       .from(inventoryBalances)
@@ -555,7 +537,6 @@ export class StoreOrdersService implements StockTransferHook {
           eq(inventoryBalances.farmId, order.farmId),
           inArray(inventoryBalances.warehouseId, [
             order.warehouseId,
-            ...sources,
             ...extraWarehouseIds,
           ]),
           inArray(
@@ -566,10 +547,10 @@ export class StoreOrdersService implements StockTransferHook {
       )
       .orderBy(asc(inventoryBalances.id))
       .for('update');
-    return { orderItems, sources };
+    return orderItems;
   }
 
-  /** The last top-up transfer arrived: issue the order from the sales warehouse. */
+  /** A legacy order's last top-up transfer arrived: issue it from the sales warehouse. */
   async confirmed(tx: Transaction, transferId: string, memberId: string) {
     const order = await this.replenishedOrder(tx, transferId);
     if (order?.status !== 'PREPARING') return;
@@ -648,27 +629,16 @@ export class StoreOrdersService implements StockTransferHook {
     }
   }
 
-  private async setPreparing(tx: Transaction, id: string, memberId: string) {
-    await tx
-      .update(storeOrders)
-      .set({
-        status: 'PREPARING',
-        handledByMemberId: memberId,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(storeOrders.id, id));
-  }
-
   /**
    * Reserve the order in its sales warehouse with a DRAFT SALE issue and mark
-   * it CONFIRMED. When the warehouse is short, `replenish` drafts top-up
-   * transfers and marks it PREPARING; otherwise the order is left as is.
+   * it CONFIRMED. Only the sales warehouse counts (D03): when it is short,
+   * `strict` fails with 409, otherwise the order is left as is.
    */
   private async fulfil(
     tx: Transaction,
     order: Order,
     memberId: string,
-    replenish: boolean,
+    strict: boolean,
   ) {
     const farmId = order.farmId;
     const id = order.id;
@@ -685,33 +655,27 @@ export class StoreOrdersService implements StockTransferHook {
       .limit(1);
     if (!warehouse)
       throw new ConflictException('Order warehouse is not active');
-    const { orderItems, sources } = await this.lockStock(tx, order);
+    const orderItems = await this.lockStock(tx, order);
     const allocations: Omit<
       typeof stockIssueItems.$inferInsert,
       'stockIssueId'
     >[] = [];
-    const shortages: { line: OrderItem; remaining: bigint }[] = [];
     for (const line of orderItems) {
       const picked = await this.pick(
         tx,
         order,
         line,
-        order.warehouseId,
         quantityMillis(line.stockQuantity),
       );
+      if (picked.remaining > 0n) {
+        if (strict) throw this.insufficient(line);
+        return;
+      }
       allocations.push(...picked.lines);
-      if (picked.remaining > 0n)
-        shortages.push({ line, remaining: picked.remaining });
       if (allocations.length > 1000)
         throw new BadRequestException(
           'Order requires more than 1000 stock issue lines',
         );
-    }
-    if (shortages.length > 0) {
-      if (!replenish) return;
-      await this.replenish(tx, order, memberId, sources, shortages);
-      await this.setPreparing(tx, id, memberId);
-      return;
     }
     const [issue] = await tx
       .insert(stockIssues)
@@ -737,85 +701,6 @@ export class StoreOrdersService implements StockTransferHook {
         updatedAt: now,
       })
       .where(eq(storeOrders.id, id));
-  }
-
-  /**
-   * Draft transfers from source warehouses into the sales warehouse covering
-   * every shortage, one per source; fails when the farm cannot cover one.
-   */
-  private async replenish(
-    tx: Transaction,
-    order: Order,
-    memberId: string,
-    sources: string[],
-    shortages: { line: OrderItem; remaining: bigint }[],
-  ) {
-    const lines = new Map<
-      string,
-      Omit<typeof stockIssueItems.$inferInsert, 'stockIssueId'>[]
-    >();
-    for (const shortage of shortages) {
-      for (const source of sources) {
-        if (shortage.remaining === 0n) break;
-        const picked = await this.pick(
-          tx,
-          order,
-          shortage.line,
-          source,
-          shortage.remaining,
-        );
-        if (picked.lines.length > 0)
-          lines.set(source, [...(lines.get(source) ?? []), ...picked.lines]);
-        shortage.remaining = picked.remaining;
-      }
-      if (shortage.remaining > 0n) throw this.insufficient(shortage.line);
-    }
-    for (const [fromWarehouseId, items] of lines) {
-      const [transfer] = await tx
-        .insert(stockTransfers)
-        .values({
-          farmId: order.farmId,
-          fromWarehouseId,
-          toWarehouseId: order.warehouseId,
-          createdByMemberId: memberId,
-          // Submitted straight away so warehouse approvers see it.
-          status: 'PENDING_APPROVAL',
-          note: `Bổ sung kho bán cho đơn ${orderCode(order.orderNumber)}`,
-        })
-        .returning();
-      const transferLines = items.map((line) => ({
-        stockTransferId: transfer.id,
-        itemId: line.itemId,
-        lotId: line.lotId,
-        quantity: line.quantity,
-      }));
-      await tx.insert(stockTransferItems).values(transferLines);
-      await tx
-        .insert(storeOrderReplenishments)
-        .values({ stockTransferId: transfer.id, orderId: order.id });
-      await auditStockDocument(
-        tx,
-        memberId,
-        'STOCK_TRANSFER',
-        'CREATE',
-        null,
-        transfer,
-        { after: transferLines },
-      );
-      await notifyFarmApprovers(
-        tx,
-        {
-          farmId: transfer.farmId,
-          entityType: 'STOCK_TRANSFER',
-          entityId: transfer.id,
-          documentCode: transfer.transferCode,
-          documentKind: 'Phiếu chuyển kho',
-          status: 'PENDING_APPROVAL',
-        },
-        memberId,
-        transfer.fromWarehouseId,
-      );
-    }
   }
 
   /** The caller takes a confirmed order out for delivery and becomes its shipper. */
@@ -1177,17 +1062,17 @@ export class StoreOrdersService implements StockTransferHook {
   }
 
   /**
-   * Up to `required` (in thousandths) of `line` that `warehouseId` can still
-   * give, net of unapproved issues and outgoing transfers already holding it.
-   * Assets are only ever taken from the order's sales warehouse.
+   * Up to `required` (in thousandths) of `line` that the order's sales
+   * warehouse can still give, net of unapproved issues and outgoing transfers
+   * already holding it.
    */
   private async pick(
     tx: Transaction,
     order: Order,
     line: OrderItem,
-    warehouseId: string,
     required: bigint,
   ) {
+    const { warehouseId } = order;
     type Pick = Omit<typeof stockIssueItems.$inferInsert, 'stockIssueId'>;
     const [item] = await tx
       .select({ trackingMode: items.trackingMode })
@@ -1222,8 +1107,6 @@ export class StoreOrdersService implements StockTransferHook {
         AND ${sameLot(stockTransferItems.lotId, lotId)}
     ), 0))`;
     if (item.trackingMode === 'ASSET') {
-      if (warehouseId !== order.warehouseId)
-        return { lines: [], remaining: required };
       if (required % 1000n !== 0n || required / 1000n > 1000n)
         throw new ConflictException('Invalid asset order quantity');
       const [balance] = await tx

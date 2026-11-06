@@ -71,7 +71,7 @@ pnpm db:studio           # Inspect the configured database
 pnpm db:seed             # Write core demo data
 pnpm db:seed:storefront  # Write storefront demo data after core seed
 pnpm db:seed:demo-inventory --farm FARM-DEMO      # Optional: DEMO-KHO warehouse stocked through the real services
-pnpm db:seed:store-demo  # Optional: FARM-DEMO/FARM-COFFEE sales, source and working warehouses with SD- products for every availability case
+pnpm db:seed:store-demo  # Optional: FARM-DEMO/FARM-COFFEE sales and working warehouses with SD- products for every availability case
 ```
 
 Seeds change data; check the target database and the storefront seed requirements before running them. The core seed is idempotent and writes the `FARM-DEMO` farm with ADMIN, FARM_OWNER, EMPLOYEE and GUEST members. Its users have placeholder Clerk IDs (`seed_admin`, …), so they cannot sign in; add your own Clerk account to the farm to browse the data. Besides confirmed documents it seeds approval work from the employee: a pending receipt (`RCV-DEMO-PENDING`) and issue (`ISS-DEMO-PENDING`), a rejected issue (`ISS-DEMO-REJECTED`), a pending maintenance request for `AST-SMOKER-001`, a pending transfer request that holds `AST-EXTRACTOR-001` in `TRANSFER_PENDING`, and matching notifications for every active farm approver.

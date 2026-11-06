@@ -27,6 +27,8 @@ import {
   items,
   stockIssueItems,
   stockIssues,
+  stockTransferItems,
+  stockTransfers,
   storeCategories,
   storeProductImages,
   storeProducts,
@@ -36,7 +38,6 @@ import {
   storeRegion,
   storeSettings,
   storeShippingFees,
-  storeSourceWarehouses,
   storeVariantItems,
   units,
   warehouses,
@@ -178,28 +179,13 @@ export class StoreAdminService {
       .leftJoin(warehouses, eq(warehouses.id, storeSettings.salesWarehouseId))
       .where(eq(storeSettings.farmId, farmId))
       .limit(1);
-    const sourceWarehouses = await this.databaseService.db
-      .select({
-        id: warehouses.id,
-        code: warehouses.code,
-        name: warehouses.name,
-        status: warehouses.status,
-      })
-      .from(storeSourceWarehouses)
-      .innerJoin(
-        warehouses,
-        eq(warehouses.id, storeSourceWarehouses.warehouseId),
-      )
-      .where(eq(storeSourceWarehouses.farmId, farmId))
-      .orderBy(asc(warehouses.code));
-    return {
-      ...(settings ?? {
+    return (
+      settings ?? {
         salesEnabled: false,
         regions: [],
         salesWarehouse: null,
-      }),
-      sourceWarehouses,
-    };
+      }
+    );
   }
 
   /**
@@ -218,26 +204,22 @@ export class StoreAdminService {
       WHERE ${inventoryBalances.itemId} = ${items.id}
         AND ${inventoryBalances.warehouseId} = ${warehouseId}
     )`;
-    // Shown to staff only; source stock reaches customers by transfer.
-    const sourceOnHand = sql<string>`(
-      SELECT COALESCE(SUM(${inventoryBalances.quantityOnHand}), 0)
-      FROM ${inventoryBalances}
-      JOIN ${storeSourceWarehouses}
-        ON ${storeSourceWarehouses.warehouseId} = ${inventoryBalances.warehouseId}
-      JOIN ${warehouses} sw ON sw.id = ${inventoryBalances.warehouseId}
-      WHERE ${inventoryBalances.itemId} = ${items.id}
-        AND ${storeSourceWarehouses.farmId} = ${farmId}
-        AND sw.status = 'ACTIVE'
-        AND ${inventoryBalances.warehouseId} <> ${warehouseId}
-    )`;
-    const held = sql<string>`(
+    // Unapproved issues and outgoing transfers, as order confirmation counts them.
+    const held = sql<string>`((
       SELECT COALESCE(SUM(${stockIssueItems.quantity}), 0)
       FROM ${stockIssueItems}
       JOIN ${stockIssues} ON ${stockIssues.id} = ${stockIssueItems.stockIssueId}
       WHERE ${stockIssueItems.itemId} = ${items.id}
         AND ${stockIssues.warehouseId} = ${warehouseId}
         AND ${stockIssues.status} IN ('DRAFT', 'PENDING_APPROVAL')
-    )`;
+    ) + (
+      SELECT COALESCE(SUM(${stockTransferItems.quantity}), 0)
+      FROM ${stockTransferItems}
+      JOIN ${stockTransfers} ON ${stockTransfers.id} = ${stockTransferItems.stockTransferId}
+      WHERE ${stockTransferItems.itemId} = ${items.id}
+        AND ${stockTransfers.fromWarehouseId} = ${warehouseId}
+        AND ${stockTransfers.status} IN ('DRAFT', 'PENDING_APPROVAL')
+    ))`;
     const rows = await this.databaseService.db
       .select({
         productId: storeProducts.id,
@@ -255,7 +237,6 @@ export class StoreAdminService {
         onHand: sql<string>`${onHand}::text`,
         held: sql<string>`${held}::text`,
         available: sql<string>`GREATEST(${onHand} - ${held}, 0)::text`,
-        sourceOnHand: sql<string>`${sourceOnHand}::text`,
       })
       .from(storeVariantItems)
       .innerJoin(items, eq(items.id, storeVariantItems.itemId))
@@ -348,40 +329,6 @@ export class StoreAdminService {
           .values({ farmId, ...values })
           .onConflictDoUpdate({ target: storeSettings.farmId, set: values }),
       );
-      // A warehouse that becomes the sales warehouse stops being its own source.
-      if (input.salesWarehouseId)
-        await tx
-          .delete(storeSourceWarehouses)
-          .where(eq(storeSourceWarehouses.warehouseId, input.salesWarehouseId));
-      const sources = input.sourceWarehouseIds;
-      if (!sources) return;
-      if (sources.includes(input.salesWarehouseId ?? ''))
-        throw new BadRequestException(
-          'The sales warehouse cannot also be a source warehouse',
-        );
-      if (sources.length > 0) {
-        const valid = await tx
-          .select({ id: warehouses.id })
-          .from(warehouses)
-          .where(
-            and(
-              inArray(warehouses.id, sources),
-              eq(warehouses.farmId, farmId),
-              eq(warehouses.status, 'ACTIVE'),
-            ),
-          );
-        if (valid.length !== sources.length)
-          throw new BadRequestException(
-            'Source warehouses must be active warehouses of this farm',
-          );
-      }
-      await tx
-        .delete(storeSourceWarehouses)
-        .where(eq(storeSourceWarehouses.farmId, farmId));
-      if (sources.length > 0)
-        await tx
-          .insert(storeSourceWarehouses)
-          .values(sources.map((warehouseId) => ({ warehouseId, farmId })));
     });
     return this.getSettings(farmId);
   }

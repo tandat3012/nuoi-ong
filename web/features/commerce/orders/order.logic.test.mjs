@@ -8,6 +8,7 @@ import {
   canShipOrder,
   canStaffCancel,
   canStaffCancelDetail,
+  confirmErrorMessage,
   isDefiniteOrderFailure,
   canonicalOrderPayload,
   formatOrderMoney,
@@ -232,5 +233,28 @@ test("tells farm staff why they cannot check out", () => {
   assert.match(
     orderErrorMessage({ status: 403, message: "Forbidden resource" }),
     /không có quyền/,
+  );
+});
+
+test("tells staff to transfer stock into the sales warehouse when confirming falls short", () => {
+  const short = {
+    status: 409,
+    message: "Không đủ hàng cho Mật ong — Chai.",
+    details: { code: "INSUFFICIENT_STOCK", message: "Không đủ hàng cho Mật ong — Chai." },
+  };
+  assert.match(confirmErrorMessage(short), /^Không đủ hàng cho Mật ong — Chai\. .*chuyển kho sang kho bán/);
+  // A body without a message never shows axios' English fallback.
+  assert.match(
+    confirmErrorMessage({
+      status: 409,
+      message: "Request failed with status code 409",
+      details: { code: "INSUFFICIENT_STOCK" },
+    }),
+    /^Kho bán không đủ hàng\. /,
+  );
+  // Other failures keep the shared order messages.
+  assert.equal(
+    confirmErrorMessage({ status: 409, details: { code: "ORDER_CANCEL_NOT_ALLOWED" } }),
+    "Đơn hàng không còn ở trạng thái được phép hủy.",
   );
 });

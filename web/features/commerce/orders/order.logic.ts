@@ -31,7 +31,7 @@ export function pendingReplenishments(detail: OrderDetail) {
   );
 }
 
-/** PENDING, or PREPARING whose transfers arrived but stock ran short again. */
+/** PENDING, or a legacy PREPARING order whose transfers are all settled. */
 export function canConfirmOrder(detail: OrderDetail) {
   return (
     detail.order.status === "PENDING" ||
@@ -266,6 +266,16 @@ export function validationMessage(details: unknown) {
   return matched.length ? matched.join(" ") : null;
 }
 
+/** Staff confirming an order its sales warehouse no longer covers (D03). */
+export function confirmErrorMessage(error: unknown) {
+  const details = (error as { details?: { code?: string; message?: unknown } } | null)
+    ?.details;
+  if (details?.code !== "INSUFFICIENT_STOCK") return orderErrorMessage(error);
+  const reason =
+    typeof details.message === "string" ? details.message : "Kho bán không đủ hàng.";
+  return `${reason} Đơn chưa giữ hàng; hãy chuyển kho sang kho bán rồi xác nhận lại.`;
+}
+
 export function orderErrorMessage(error: unknown) {
   const failure = error as {
     status?: number;
@@ -285,6 +295,8 @@ export function orderErrorMessage(error: unknown) {
     CART_NOT_FULFILLABLE:
       "Chưa có kho nào giao đủ toàn bộ giỏ hàng. Hãy tách thành nhiều đơn.",
     ORDER_CANCEL_NOT_ALLOWED: "Đơn hàng không còn ở trạng thái được phép hủy.",
+    REPLENISHMENT_PENDING:
+      "Đơn đang chờ kho duyệt phiếu chuyển bổ sung đã tạo trước đây.",
     PAYMENT_REQUIRED:
       "Đơn chuyển khoản phải được ghi nhận thanh toán trước khi hoàn tất.",
   };

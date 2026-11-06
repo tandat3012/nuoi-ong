@@ -17,6 +17,8 @@ import {
   maintenanceRecords,
   stockIssueItems,
   stockIssues,
+  stockTransferItems,
+  stockTransfers,
   storeCategories,
   storeProductImages,
   storeProducts,
@@ -24,7 +26,6 @@ import {
   storeRegion,
   storeSettings,
   storeShippingFees,
-  storeSourceWarehouses,
   storeVariantItems,
   units,
   warehouses,
@@ -498,34 +499,45 @@ export class CommerceService {
   }
 
   /**
-   * Stock of the `items` row in scope that a farm's sales warehouse can sell:
-   * its own plus the farm's active source warehouses, which top it up by
-   * transfer when an order is confirmed. Assets cannot be transferred that
-   * way, so they count only in the sales warehouse.
+   * Stock of the `items` row in scope that the farm's sales warehouse alone
+   * can still give, net of what unapproved issues (confirmed orders) and
+   * outgoing transfers hold, as StoreOrdersService.pick() counts it (D03).
    */
   private itemStock({ warehouseId, farmId }: StoreWarehouse, required: SQL) {
     const today = new Date().toISOString().slice(0, 10);
-    const pool = sql`(b.warehouse_id = ${warehouseId} OR b.warehouse_id IN (
-      SELECT ${storeSourceWarehouses.warehouseId}
-      FROM ${storeSourceWarehouses}
-      JOIN ${warehouses} sw ON sw.id = ${storeSourceWarehouses.warehouseId}
-      WHERE ${storeSourceWarehouses.farmId} = ${farmId} AND sw.status = 'ACTIVE'
-    ))`;
+    // Held from balance row `b` (same item and lot).
+    const held = sql`(COALESCE((
+      SELECT SUM(ii.quantity)
+      FROM ${stockIssueItems} ii
+      JOIN ${stockIssues} si ON si.id = ii.stock_issue_id
+      WHERE si.warehouse_id = ${warehouseId}
+        AND si.status IN ('DRAFT', 'PENDING_APPROVAL')
+        AND ii.item_id = b.item_id
+        AND ii.lot_id IS NOT DISTINCT FROM b.lot_id
+    ), 0) + COALESCE((
+      SELECT SUM(ti.quantity)
+      FROM ${stockTransferItems} ti
+      JOIN ${stockTransfers} st ON st.id = ti.stock_transfer_id
+      WHERE st.from_warehouse_id = ${warehouseId}
+        AND st.status IN ('DRAFT', 'PENDING_APPROVAL')
+        AND ti.item_id = b.item_id
+        AND ti.lot_id IS NOT DISTINCT FROM b.lot_id
+    ), 0))`;
 
     return sql<boolean>`
     CASE ${items.trackingMode}
       WHEN 'QUANTITY' THEN (
-        SELECT COALESCE(SUM(b.quantity_on_hand), 0)
+        SELECT COALESCE(SUM(b.quantity_on_hand - ${held}), 0)
                >= ${required}
         FROM ${inventoryBalances} b
         WHERE b.item_id = ${items.id}
           AND b.farm_id = ${farmId}
-          AND ${pool}
+          AND b.warehouse_id = ${warehouseId}
           AND b.lot_id IS NULL
       )
 
       WHEN 'LOT' THEN (
-        SELECT COALESCE(SUM(b.quantity_on_hand), 0)
+        SELECT COALESCE(SUM(GREATEST(b.quantity_on_hand - ${held}, 0)), 0)
                >= ${required}
         FROM ${inventoryBalances} b
         JOIN ${inventoryLots} l
@@ -534,7 +546,7 @@ export class CommerceService {
           AND l.farm_id = b.farm_id
         WHERE b.item_id = ${items.id}
           AND b.farm_id = ${farmId}
-          AND ${pool}
+          AND b.warehouse_id = ${warehouseId}
           AND (
             l.expiry_date IS NULL
             OR l.expiry_date >= ${today}::date
@@ -549,7 +561,7 @@ export class CommerceService {
             AND b.farm_id = ${farmId}
             AND b.warehouse_id = ${warehouseId}
             AND b.lot_id IS NULL
-            AND b.quantity_on_hand >= ${required}
+            AND b.quantity_on_hand - ${held} >= ${required}
         )
         AND (
           SELECT COUNT(*) FROM ${assets}

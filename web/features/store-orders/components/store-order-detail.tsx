@@ -18,6 +18,7 @@ import {
   pendingReplenishments,
   canStaffCancelDetail,
   formatOrderMoney,
+  confirmErrorMessage,
   orderErrorMessage,
 } from "@/features/commerce/orders/order.logic";
 import {
@@ -122,7 +123,11 @@ export function StoreOrderDetail({
       applyDetail(data);
       setCancelReason("");
     } catch (error: unknown) {
-      setActionError(orderErrorMessage(error));
+      setActionError(
+        action === "confirm"
+          ? confirmErrorMessage(error)
+          : orderErrorMessage(error),
+      );
       if (error instanceof ApiError && error.status === 409)
         setAttempt((value) => value + 1);
     } finally {
@@ -363,8 +368,8 @@ export function StoreOrderDetail({
                     </p>
                   ) : (
                     <p className="text-xs text-destructive">
-                      Hàng chuyển về đã bị đơn khác dùng; bấm “Xác nhận lại” để
-                      tạo phiếu chuyển mới.
+                      Kho bán vẫn thiếu hàng. Chuyển kho thêm hàng sang kho bán
+                      rồi bấm “Xác nhận lại”, hoặc hủy đơn.
                     </p>
                   ))}
                 {detail.order.status === "CONFIRMED" &&
@@ -470,7 +475,7 @@ function actionConfirmation(
   detail: OrderDetail,
 ) {
   if (action === "confirm")
-    return `Xác nhận đơn ${detail.order.code}? Nếu kho bán thiếu hàng, hệ thống tạo phiếu chuyển từ kho nguồn và đơn chuyển sang "Đang chuẩn bị hàng".`;
+    return `Xác nhận đơn ${detail.order.code}? Hệ thống giữ hàng ở kho bán; nếu kho bán thiếu, đơn không được xác nhận.`;
   if (action === "ship")
     return `Nhận giao đơn ${detail.order.code}? Bạn sẽ được ghi nhận là người giao.`;
   if (action === "complete")
