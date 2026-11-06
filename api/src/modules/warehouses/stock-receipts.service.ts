@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   and,
@@ -32,6 +33,7 @@ import {
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
+import { StockReceiptHooks } from './stock-transfer-hooks';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
@@ -60,6 +62,8 @@ export class StockReceiptsService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly warehousesService: WarehousesService,
+    @Optional()
+    private readonly hooks: StockReceiptHooks = new StockReceiptHooks(),
   ) {}
 
   async listReceipts(filters: StockReceiptListFilters) {
@@ -316,6 +320,7 @@ export class StockReceiptsService {
       clerkUserId,
     );
     await this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       assertOwnDocument(writer, receipt.createdByMemberId, receipt.warehouseId);
       if (receipt.status !== 'DRAFT')
@@ -339,6 +344,7 @@ export class StockReceiptsService {
           status: 'CANCELLED',
         },
       );
+      await this.hooks.run('rejected', tx, id, writer.memberId);
     });
     return this.getReceiptWithItems(id, farmId);
   }
@@ -403,6 +409,7 @@ export class StockReceiptsService {
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
     await this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       assertInScope(scope, receipt.warehouseId);
       if (receipt.status !== 'PENDING_APPROVAL')
@@ -432,6 +439,7 @@ export class StockReceiptsService {
           rejectionReason: reason,
         },
       );
+      await this.hooks.run('rejected', tx, id, memberId);
       if (receipt.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,
@@ -453,6 +461,7 @@ export class StockReceiptsService {
       WAREHOUSE_MANAGE_ROLES,
     );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       assertInScope(scope, receipt.warehouseId);
       if (receipt.status === 'CONFIRMED') return;
@@ -673,6 +682,7 @@ export class StockReceiptsService {
         receipt,
         confirmed,
       );
+      await this.hooks.run('confirmed', tx, id, memberId);
       if (receipt.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,

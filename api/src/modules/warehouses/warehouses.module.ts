@@ -9,7 +9,7 @@ import { StockTransfersController } from './stock-transfers.controller';
 import { StockTransfersService } from './stock-transfers.service';
 import { StockCountsController } from './stock-counts.controller';
 import { StockCountsService } from './stock-counts.service';
-import { StockTransferHooks } from './stock-transfer-hooks';
+import { StockReceiptHooks, StockTransferHooks } from './stock-transfer-hooks';
 
 @Module({
   controllers: [
@@ -26,6 +26,7 @@ import { StockTransferHooks } from './stock-transfer-hooks';
     StockTransfersService,
     StockCountsService,
     StockTransferHooks,
+    StockReceiptHooks,
   ],
   exports: [
     WarehousesService,
@@ -34,6 +35,7 @@ import { StockTransferHooks } from './stock-transfer-hooks';
     StockTransfersService,
     StockCountsService,
     StockTransferHooks,
+    StockReceiptHooks,
   ],
 })
 export class WarehousesModule {}

@@ -130,3 +130,56 @@ export class ReturnStoreOrderDeliveryDto {
   @Length(1, 1000)
   reason!: string;
 }
+
+export class StaffCancelStoreOrderDto extends CancelStoreOrderDto {
+  @ApiPropertyOptional({
+    example: '585000',
+    description: 'Bắt buộc khi đơn đã thanh toán: số tiền đã hoàn thủ công.',
+  })
+  @IsOptional()
+  @IsVndAmount()
+  refundAmount?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 1000,
+    description: 'Mã giao dịch hoàn tiền hoặc chứng cứ khác.',
+  })
+  @IsOptional()
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 1000)
+  refundReference?: string;
+}
+
+export class MarkStoreOrderPaidDto {
+  @ApiProperty({
+    maxLength: 100,
+    description: 'Mã giao dịch ngân hàng đã đối chiếu với sao kê.',
+  })
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 100)
+  reference!: string;
+
+  @ApiPropertyOptional({ maxLength: 1000 })
+  @IsOptional()
+  @Transform(trimText)
+  @IsString()
+  @Length(0, 1000)
+  note?: string;
+}
+
+export class RefundStoreOrderDto {
+  @ApiProperty({ example: '585000', description: 'Số tiền đã hoàn thủ công.' })
+  @IsVndAmount()
+  refundAmount!: string;
+
+  @ApiProperty({
+    maxLength: 1000,
+    description: 'Mã giao dịch hoàn tiền hoặc chứng cứ khác.',
+  })
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 1000)
+  refundReference!: string;
+}

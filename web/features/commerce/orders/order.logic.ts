@@ -10,10 +10,31 @@ export function canCustomerCancel(order: CustomerOrder) {
   return order.status === "PENDING" && order.paymentStatus === "UNPAID";
 }
 
+/** Staff may cancel before the goods leave; a paid order also needs a refund. */
 export function canStaffCancel(order: Order) {
+  return ["PENDING", "PREPARING", "CONFIRMED"].includes(order.status);
+}
+
+/** Paid and not refunded yet: cancelling or closing a return records a refund (D11). */
+export function needsRefund(order: Order) {
+  return order.paymentStatus === "PAID" && !order.refundedAt;
+}
+
+/** A bank transfer staff can still reconcile by hand (D10). */
+export function canMarkPaid(order: Order) {
   return (
-    ["PENDING", "PREPARING", "CONFIRMED"].includes(order.status) &&
-    order.paymentStatus === "UNPAID"
+    order.paymentMethod === "BANK_TRANSFER" &&
+    order.paymentStatus === "UNPAID" &&
+    ["PENDING", "PREPARING", "CONFIRMED", "SHIPPING"].includes(order.status)
+  );
+}
+
+/** Delivered COD whose cash no manager has received from the shipper yet. */
+export function canRemitCod(order: Order) {
+  return (
+    order.paymentMethod === "COD" &&
+    order.status === "COMPLETED" &&
+    !order.codRemittedAt
   );
 }
 
@@ -43,7 +64,10 @@ export function canConfirmOrder(detail: OrderDetail) {
 export function canShipOrder(detail: OrderDetail) {
   return (
     detail.order.status === "CONFIRMED" &&
-    detail.stockIssue?.status === "CONFIRMED"
+    detail.stockIssue?.status === "CONFIRMED" &&
+    // An unpaid bank transfer cannot go out (AC18).
+    (detail.order.paymentMethod === "COD" ||
+      detail.order.paymentStatus === "PAID")
   );
 }
 
@@ -295,10 +319,14 @@ export function orderErrorMessage(error: unknown) {
     CART_NOT_FULFILLABLE:
       "Chưa có kho nào giao đủ toàn bộ giỏ hàng. Hãy tách thành nhiều đơn.",
     ORDER_CANCEL_NOT_ALLOWED: "Đơn hàng không còn ở trạng thái được phép hủy.",
+    ALREADY_PAID: "Đơn đã được ghi nhận thanh toán.",
+    PAYMENT_REFERENCE_USED:
+      "Mã giao dịch này đã được dùng để đối soát một đơn khác.",
+    COD_ALREADY_REMITTED: "Tiền COD của đơn này đã được xác nhận nhận.",
     REPLENISHMENT_PENDING:
       "Đơn đang chờ kho duyệt phiếu chuyển bổ sung đã tạo trước đây.",
     PAYMENT_REQUIRED:
-      "Đơn chuyển khoản phải được ghi nhận thanh toán trước khi hoàn tất.",
+      "Đơn chuyển khoản phải được ghi nhận thanh toán trước khi giao.",
   };
   if (code && messages[code]) return messages[code];
   const serverMessages: Record<string, string> = {
@@ -318,6 +346,13 @@ export function orderErrorMessage(error: unknown) {
       "Chỉ đơn đang giao mới có thể hoàn tất.",
     "Record the bank transfer before completing the order":
       "Hãy ghi nhận chuyển khoản trước khi hoàn tất đơn.",
+    "COD is collected on delivery":
+      "Đơn COD được ghi đã thu khi giao xong, không đối soát chuyển khoản.",
+    "Returned orders cannot be paid": "Đơn đã trả về kho không thể ghi nhận thanh toán.",
+    "Only completed COD orders hand over cash":
+      "Chỉ đơn COD đã giao xong mới xác nhận nhận tiền.",
+    "Refund amount must be positive and at most the order total":
+      "Số tiền hoàn phải lớn hơn 0 và không vượt tổng đơn.",
     "Cancelled orders cannot be paid":
       "Đơn đã hủy không thể ghi nhận thanh toán.",
     "Order warehouse is not active": "Kho gắn với đơn đã ngừng hoạt động.",

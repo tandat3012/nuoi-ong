@@ -7,6 +7,9 @@ import {
   canCustomerCancel,
   canShipOrder,
   canStaffCancel,
+  canMarkPaid,
+  canRemitCod,
+  needsRefund,
   canStaffCancelDetail,
   confirmErrorMessage,
   isDefiniteOrderFailure,
@@ -40,7 +43,28 @@ test("order cancellation rules match V1 transitions", () => {
   assert.equal(canCustomerCancel(order({ paymentStatus: "PAID" })), false);
   assert.equal(canStaffCancel(order({ status: "CONFIRMED" })), true);
   assert.equal(canStaffCancel(order({ status: "SHIPPING" })), false);
-  assert.equal(canStaffCancel(order({ paymentStatus: "PAID" })), false);
+  // Staff cancel a paid order too, recording the manual refund.
+  assert.equal(canStaffCancel(order({ paymentStatus: "PAID" })), true);
+  assert.equal(needsRefund(order({ paymentStatus: "PAID", refundedAt: null })), true);
+  assert.equal(needsRefund(order()), false);
+});
+
+test("reconcile only unpaid bank transfers and receive COD cash once", () => {
+  assert.equal(canMarkPaid(order({ paymentMethod: "BANK_TRANSFER" })), true);
+  assert.equal(canMarkPaid(order()), false);
+  assert.equal(
+    canMarkPaid(order({ paymentMethod: "BANK_TRANSFER", status: "CANCELLED" })),
+    false,
+  );
+  assert.equal(canRemitCod(order({ status: "COMPLETED", codRemittedAt: null })), true);
+  assert.equal(
+    canRemitCod(order({ status: "COMPLETED", codRemittedAt: "2026-11-06T00:00:00Z" })),
+    false,
+  );
+  assert.equal(
+    canRemitCod(order({ status: "COMPLETED", paymentMethod: "BANK_TRANSFER" })),
+    false,
+  );
 });
 
 test("only paid bank transfers can complete; COD completion remains available", () => {
@@ -67,6 +91,13 @@ test("shipping and staff cancellation wait for linked issue state", () => {
   });
   assert.equal(canShipOrder(detail("DRAFT")), false);
   assert.equal(canShipOrder(detail("CONFIRMED")), true);
+  assert.equal(
+    canShipOrder({
+      ...detail("CONFIRMED"),
+      order: order({ status: "CONFIRMED", paymentMethod: "BANK_TRANSFER" }),
+    }),
+    false,
+  );
   assert.equal(canStaffCancelDetail(detail("CONFIRMED")), false);
   assert.equal(canStaffCancelDetail(detail("DRAFT")), true);
 });

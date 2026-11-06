@@ -8,7 +8,11 @@ import { StoreOrdersService } from '../src/modules/store-orders/store-orders.ser
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
 import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
-import { StockTransferHooks } from '../src/modules/warehouses/stock-transfer-hooks';
+import {
+  StockReceiptHooks,
+  StockTransferHooks,
+} from '../src/modules/warehouses/stock-transfer-hooks';
+import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.service';
 
 export type OrderTestDb = NodePgDatabase<typeof schema>;
 
@@ -148,11 +152,18 @@ export async function seedOrders(db: OrderTestDb) {
   const warehouseService = new WarehousesService(database);
   const commerce = new CommerceService(database);
   const hooks = new StockTransferHooks();
+  const receiptHooks = new StockReceiptHooks();
   const service = new StoreOrdersService(
     database,
     commerce,
     warehouseService,
     hooks,
+    receiptHooks,
+  );
+  const receipts = new StockReceiptsService(
+    database,
+    warehouseService,
+    receiptHooks,
   );
   const issues = new StockIssuesService(database, warehouseService);
   const transfers = new StockTransfersService(
@@ -181,7 +192,16 @@ export async function seedOrders(db: OrderTestDb) {
     paymentMethod: 'COD' as const,
     items: [{ variantId: ids.variant, quantity }],
   });
-  return { ids, database, service, issues, transfers, commerce, input };
+  return {
+    ids,
+    database,
+    service,
+    issues,
+    transfers,
+    receipts,
+    commerce,
+    input,
+  };
 }
 
 export const testBankAccount = {

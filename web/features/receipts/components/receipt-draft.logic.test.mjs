@@ -414,6 +414,14 @@ test('maps lot and validation rejections from the API', () => {
     /chỉ dùng cho vật tư theo lô/,
   );
   assert.match(
+    receiptSaveErrorMessage(
+      400,
+      'A return receipt cannot receive more than the order shipped, or other items or lots',
+      'xác nhận',
+    ),
+    /đơn đã xuất/,
+  );
+  assert.match(
     receiptSaveErrorMessage(400, 'Expiry date cannot be earlier than manufactured date', 'tạo'),
     /Hạn sử dụng phải từ ngày sản xuất/,
   );

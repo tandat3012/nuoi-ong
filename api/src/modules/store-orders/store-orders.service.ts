@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   and,
@@ -15,6 +16,7 @@ import {
   getTableColumns,
   inArray,
   isNull,
+  or,
   sql,
   SQL,
 } from 'drizzle-orm';
@@ -30,6 +32,8 @@ import {
   paymentTransactions,
   stockIssueItems,
   stockIssues,
+  stockReceiptItems,
+  stockReceipts,
   stockTransferItems,
   stockTransfers,
   storeOrderReplenishments,
@@ -49,8 +53,10 @@ import { vietQrPayload } from '../payments/vietqr';
 import { CommerceService } from '../commerce/commerce.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { auditStockDocument } from '../warehouses/stock-document-audit';
+import { notifyFarmApprovers } from '../notifications/notification-events';
 import {
   StockTransferHook,
+  StockReceiptHooks,
   StockTransferHooks,
 } from '../warehouses/stock-transfer-hooks';
 import { CreateStoreOrderDto } from './dto/store-order.dto';
@@ -71,6 +77,12 @@ type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Order = typeof storeOrders.$inferSelect;
 type OrderItem = typeof storeOrderItems.$inferSelect;
+/** A manual refund: whole VND and the bank reference or other evidence. */
+export interface Refund {
+  amount: string;
+  reference: string;
+}
+
 export interface OrderFilters extends PaginationParams {
   status?: Order['status'];
   paymentStatus?: Order['paymentStatus'];
@@ -78,6 +90,8 @@ export interface OrderFilters extends PaginationParams {
   to?: string;
   q?: string;
   customerId?: string;
+  /** COMPLETED COD orders whose cash no manager has received yet. */
+  codPending?: boolean;
 }
 
 @Injectable()
@@ -87,8 +101,16 @@ export class StoreOrdersService implements StockTransferHook {
     private readonly commerce: CommerceService,
     private readonly warehousesService: WarehousesService,
     transferHooks?: StockTransferHooks,
+    @Optional() receiptHooks?: StockReceiptHooks,
   ) {
     transferHooks?.register(this);
+    receiptHooks?.register({
+      lock: (tx, receiptId) => this.returnedOrder(tx, receiptId).then(() => {}),
+      confirmed: (tx, receiptId, memberId) =>
+        this.returnReceived(tx, receiptId, memberId),
+      rejected: (tx, receiptId, memberId) =>
+        this.returnRejected(tx, receiptId, memberId),
+    });
   }
 
   async create(userId: string, input: CreateStoreOrderDto) {
@@ -472,6 +494,8 @@ export class StoreOrdersService implements StockTransferHook {
       SHIPPING: 0,
       COMPLETED: 0,
       CANCELLED: 0,
+      RETURNING: 0,
+      RETURNED: 0,
     };
     for (const row of statusRows) counts[row.status] = row.value;
     return { counts, ...summary, daily, topProducts, topCustomers };
@@ -715,6 +739,14 @@ export class StoreOrdersService implements StockTransferHook {
       );
       if (order.status !== 'CONFIRMED' || !order.stockIssueId)
         throw new ConflictException('Only CONFIRMED orders can be shipped');
+      if (
+        order.paymentMethod === 'BANK_TRANSFER' &&
+        order.paymentStatus !== 'PAID'
+      )
+        throw new ConflictException({
+          code: 'PAYMENT_REQUIRED',
+          message: 'Record the bank transfer before shipping the order',
+        });
       const [issue] = await tx
         .select()
         .from(stockIssues)
@@ -740,7 +772,7 @@ export class StoreOrdersService implements StockTransferHook {
           updatedAt: now,
         })
         .where(eq(storeOrders.id, id));
-      await this.auditDelivery(tx, order, memberId, 'DELIVERY_CLAIM', {});
+      await this.auditOrder(tx, order, memberId, 'DELIVERY_CLAIM', {});
     });
     return this.deliveryResult(farmId, id, caller);
   }
@@ -782,7 +814,7 @@ export class StoreOrdersService implements StockTransferHook {
             : {}),
         })
         .where(eq(storeOrders.id, id));
-      await this.auditDelivery(tx, order, memberId, 'DELIVERY_COMPLETE', {
+      await this.auditOrder(tx, order, memberId, 'DELIVERY_COMPLETE', {
         collectedCod:
           order.paymentMethod === 'COD' && order.paymentStatus === 'UNPAID',
       });
@@ -818,12 +850,228 @@ export class StoreOrdersService implements StockTransferHook {
           updatedAt: now,
         })
         .where(eq(storeOrders.id, id));
-      await this.auditDelivery(tx, order, caller.memberId, 'DELIVERY_RETURN', {
+      await this.auditOrder(tx, order, caller.memberId, 'DELIVERY_RETURN', {
         reason,
         shipperMemberId: order.shipperMemberId,
       });
     });
     return this.deliveryResult(farmId, id, caller);
+  }
+
+  /**
+   * The delivery failed for good (D11): the goods head back to the sales
+   * warehouse. A DRAFT return receipt with what the order shipped waits for
+   * the warehouse to count it; stock only rises when that receipt is
+   * confirmed. Retrying the delivery instead is `returnDelivery`.
+   */
+  async returnToWarehouse(
+    farmId: string,
+    clerkUserId: string,
+    id: string,
+    reason: string,
+  ) {
+    const caller = await this.deliveryMember(farmId, clerkUserId);
+    await this.databaseService.db.transaction(async (tx) => {
+      const order = await this.lockOrder(
+        tx,
+        id,
+        eq(storeOrders.farmId, farmId),
+      );
+      if (order.status !== 'SHIPPING' || !order.stockIssueId)
+        throw new ConflictException('Only SHIPPING orders can be returned');
+      this.assertShipper(order, caller);
+      const shipped = await tx
+        .select({
+          itemId: stockIssueItems.itemId,
+          lotId: stockIssueItems.lotId,
+          assetId: stockIssueItems.assetId,
+          quantity: sql<string>`SUM(${stockIssueItems.quantity})::text`,
+        })
+        .from(stockIssueItems)
+        .where(eq(stockIssueItems.stockIssueId, order.stockIssueId))
+        .groupBy(
+          stockIssueItems.itemId,
+          stockIssueItems.lotId,
+          stockIssueItems.assetId,
+        );
+      // shortcut: sold assets are retired on issue; returning them needs an asset flow, add when serialized goods are sold.
+      if (shipped.some((line) => line.assetId))
+        throw new ConflictException({
+          code: 'ASSET_RETURN_UNSUPPORTED',
+          message:
+            'Đơn có tài sản định danh; chưa hỗ trợ trả về kho, hãy xử lý thủ công.',
+        });
+      const [receipt] = await tx
+        .insert(stockReceipts)
+        .values({
+          farmId,
+          warehouseId: order.warehouseId,
+          createdByMemberId: caller.memberId,
+          note: `Hàng trả về đơn ${orderCode(order.orderNumber)}: ${reason}`,
+        })
+        .returning();
+      const lines = shipped.map((line) => ({
+        stockReceiptId: receipt.id,
+        itemId: line.itemId,
+        lotId: line.lotId,
+        quantity: line.quantity,
+      }));
+      await tx.insert(stockReceiptItems).values(lines);
+      await auditStockDocument(
+        tx,
+        caller.memberId,
+        'STOCK_RECEIPT',
+        'CREATE',
+        null,
+        receipt,
+        { after: lines },
+      );
+      const now = new Date().toISOString();
+      await tx
+        .update(storeOrders)
+        .set({
+          status: 'RETURNING',
+          returnReceiptId: receipt.id,
+          handledByMemberId: caller.memberId,
+          updatedAt: now,
+        })
+        .where(eq(storeOrders.id, id));
+      await this.auditOrder(tx, order, caller.memberId, 'RETURN_TO_WAREHOUSE', {
+        reason,
+        receiptId: receipt.id,
+      });
+      await notifyFarmApprovers(
+        tx,
+        {
+          farmId,
+          entityType: 'STOCK_RECEIPT',
+          entityId: receipt.id,
+          documentCode: null,
+          documentKind: 'Phiếu nhập hàng trả về',
+          status: 'PENDING_APPROVAL',
+        },
+        caller.memberId,
+        order.warehouseId,
+      );
+    });
+    return this.deliveryResult(farmId, id, caller);
+  }
+
+  /** Order a return receipt was created for, locked FOR UPDATE. */
+  private async returnedOrder(tx: Transaction, receiptId: string) {
+    const [order] = await tx
+      .select()
+      .from(storeOrders)
+      .where(eq(storeOrders.returnReceiptId, receiptId))
+      .for('update');
+    return order;
+  }
+
+  /**
+   * The warehouse counted the goods back: what it received may be less than
+   * shipped (damaged or missing goods stay out of stock), never more.
+   */
+  private async returnReceived(
+    tx: Transaction,
+    receiptId: string,
+    memberId: string,
+  ) {
+    const order = await this.returnedOrder(tx, receiptId);
+    if (order?.status !== 'RETURNING') return;
+    const [receipt] = await tx
+      .select({ warehouseId: stockReceipts.warehouseId })
+      .from(stockReceipts)
+      .where(eq(stockReceipts.id, receiptId));
+    if (receipt.warehouseId !== order.warehouseId)
+      throw new BadRequestException(
+        "A return receipt must go into the order's sales warehouse",
+      );
+    const shipped = new Map<string, bigint>();
+    const key = (itemId: string, lotId: string | null) => `${itemId}:${lotId}`;
+    for (const line of await tx
+      .select()
+      .from(stockIssueItems)
+      .where(eq(stockIssueItems.stockIssueId, order.stockIssueId!))) {
+      const k = key(line.itemId, line.lotId);
+      shipped.set(k, (shipped.get(k) ?? 0n) + quantityMillis(line.quantity));
+    }
+    const received = await tx
+      .select()
+      .from(stockReceiptItems)
+      .where(eq(stockReceiptItems.stockReceiptId, receiptId));
+    for (const line of received) {
+      const k = key(line.itemId, line.lotId);
+      const left = (shipped.get(k) ?? 0n) - quantityMillis(line.quantity);
+      if (left < 0n)
+        throw new BadRequestException(
+          'A return receipt cannot receive more than the order shipped, or other items or lots',
+        );
+      shipped.set(k, left);
+    }
+    const now = new Date().toISOString();
+    await tx
+      .update(storeOrders)
+      .set({ status: 'RETURNED', handledByMemberId: memberId, updatedAt: now })
+      .where(eq(storeOrders.id, order.id));
+    await this.auditOrder(tx, order, memberId, 'RETURN_RECEIVED', {
+      receiptId,
+      received: received.map(({ itemId, lotId, quantity }) => ({
+        itemId,
+        lotId,
+        quantity,
+      })),
+    });
+  }
+
+  /** The return receipt was rejected or cancelled: the shipper still holds the goods. */
+  private async returnRejected(
+    tx: Transaction,
+    receiptId: string,
+    memberId: string,
+  ) {
+    const order = await this.returnedOrder(tx, receiptId);
+    if (order?.status !== 'RETURNING') return;
+    await tx
+      .update(storeOrders)
+      .set({
+        status: 'SHIPPING',
+        returnReceiptId: null,
+        handledByMemberId: memberId,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(storeOrders.id, order.id));
+    await this.auditOrder(tx, order, memberId, 'RETURN_REJECTED', {
+      receiptId,
+    });
+  }
+
+  /** Refund a paid order the warehouse took back (D11); nothing is sent to the bank. */
+  async refundReturned(
+    farmId: string,
+    clerkUserId: string,
+    id: string,
+    refund: Refund,
+  ) {
+    const memberId = await this.staffMember(farmId, clerkUserId);
+    await this.databaseService.db.transaction(async (tx) => {
+      const order = await this.lockOrder(
+        tx,
+        id,
+        eq(storeOrders.farmId, farmId),
+      );
+      if (order.status !== 'RETURNED')
+        throw new ConflictException('Only returned orders are refunded here');
+      await tx
+        .update(storeOrders)
+        .set({
+          ...this.refund(order, refund, memberId),
+          handledByMemberId: memberId,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(storeOrders.id, id));
+      await this.auditOrder(tx, order, memberId, 'REFUND', { ...refund });
+    });
+    return this.staffGet(farmId, id);
   }
 
   /** Orders ready to take (`available`) or out with the caller (`mine`), with what to hand over. */
@@ -844,6 +1092,11 @@ export class StoreOrdersService implements StockTransferHook {
           : and(
               eq(storeOrders.status, 'CONFIRMED'),
               eq(stockIssues.status, 'CONFIRMED'),
+              // An unpaid bank transfer cannot go out (AC18).
+              or(
+                eq(storeOrders.paymentMethod, 'COD'),
+                eq(storeOrders.paymentStatus, 'PAID'),
+              ),
             ),
       )!,
     );
@@ -918,7 +1171,17 @@ export class StoreOrdersService implements StockTransferHook {
     }));
   }
 
-  async markPaid(farmId: string, clerkUserId: string, id: string) {
+  /**
+   * Staff matched a bank transfer by hand (D10): recorded as a MANUAL payment
+   * transaction, so the bank reference can settle one order only and a
+   * webhook for the same order afterwards is ALREADY_PAID.
+   */
+  async markPaid(
+    farmId: string,
+    clerkUserId: string,
+    id: string,
+    input: { reference: string; note?: string },
+  ) {
     const memberId = await this.staffMember(farmId, clerkUserId);
     await this.databaseService.db.transaction(async (tx) => {
       const order = await this.lockOrder(
@@ -926,20 +1189,94 @@ export class StoreOrdersService implements StockTransferHook {
         id,
         eq(storeOrders.farmId, farmId),
       );
+      if (order.paymentStatus === 'PAID')
+        throw new ConflictException({
+          code: 'ALREADY_PAID',
+          message: 'Đơn đã được ghi nhận thanh toán.',
+        });
       if (order.status === 'CANCELLED')
         throw new ConflictException('Cancelled orders cannot be paid');
-      if (order.paymentStatus === 'PAID') return;
+      if (order.status === 'RETURNING' || order.status === 'RETURNED')
+        throw new ConflictException('Returned orders cannot be paid');
+      if (order.paymentMethod !== 'BANK_TRANSFER')
+        throw new ConflictException('COD is collected on delivery');
       const now = new Date().toISOString();
+      const [payment] = await tx
+        .insert(paymentTransactions)
+        .values({
+          farmId,
+          provider: 'MANUAL',
+          providerTxId: input.reference,
+          accountNumber: '',
+          amount: order.total,
+          content: input.note || input.reference,
+          transactionAt: now,
+          orderId: order.id,
+          result: 'MATCHED',
+          rawPayload: { reference: input.reference, note: input.note ?? null },
+          createdByMemberId: memberId,
+        })
+        .onConflictDoNothing({
+          target: [
+            paymentTransactions.provider,
+            paymentTransactions.providerTxId,
+          ],
+        })
+        .returning({ id: paymentTransactions.id });
+      if (!payment)
+        throw new ConflictException({
+          code: 'PAYMENT_REFERENCE_USED',
+          message: 'Mã giao dịch này đã được dùng để đối soát.',
+        });
       await tx
         .update(storeOrders)
         .set({
           paymentStatus: 'PAID',
           paidAt: now,
           paidByMemberId: memberId,
+          paymentTransactionId: payment.id,
           handledByMemberId: memberId,
           updatedAt: now,
         })
         .where(eq(storeOrders.id, id));
+      await this.auditOrder(tx, order, memberId, 'PAYMENT_RECONCILE', {
+        reference: input.reference,
+        note: input.note ?? null,
+        amount: order.total,
+      });
+    });
+    return this.staffGet(farmId, id);
+  }
+
+  /** A store manager received a delivered COD order's cash from the shipper. */
+  async remitCod(farmId: string, clerkUserId: string, id: string) {
+    const memberId = await this.staffMember(farmId, clerkUserId);
+    await this.databaseService.db.transaction(async (tx) => {
+      const order = await this.lockOrder(
+        tx,
+        id,
+        eq(storeOrders.farmId, farmId),
+      );
+      if (order.paymentMethod !== 'COD' || order.status !== 'COMPLETED')
+        throw new ConflictException('Only completed COD orders hand over cash');
+      if (order.codRemittedAt)
+        throw new ConflictException({
+          code: 'COD_ALREADY_REMITTED',
+          message: 'Tiền COD của đơn này đã được xác nhận nhận.',
+        });
+      const now = new Date().toISOString();
+      await tx
+        .update(storeOrders)
+        .set({
+          codRemittedAt: now,
+          codRemittedByMemberId: memberId,
+          updatedAt: now,
+        })
+        .where(eq(storeOrders.id, id));
+      await this.auditOrder(tx, order, memberId, 'COD_REMIT', {
+        amount: order.total,
+        shipperMemberId: order.shipperMemberId,
+      });
     });
     return this.staffGet(farmId, id);
   }
@@ -954,9 +1291,16 @@ export class StoreOrdersService implements StockTransferHook {
     clerkUserId: string,
     id: string,
     reason: string,
+    refund?: Refund,
   ) {
     const memberId = await this.staffMember(farmId, clerkUserId);
-    await this.cancel(id, reason, eq(storeOrders.farmId, farmId), memberId);
+    await this.cancel(
+      id,
+      reason,
+      eq(storeOrders.farmId, farmId),
+      memberId,
+      refund,
+    );
     return this.staffGet(farmId, id);
   }
 
@@ -965,6 +1309,7 @@ export class StoreOrdersService implements StockTransferHook {
     reason: string,
     scope: SQL,
     memberId?: string,
+    refund?: Refund,
   ) {
     await this.databaseService.db.transaction(async (tx) => {
       const order = await this.lockOrder(tx, id, scope);
@@ -975,10 +1320,13 @@ export class StoreOrdersService implements StockTransferHook {
         throw new ConflictException(
           'Order cannot be cancelled in its current state',
         );
-      if (order.paymentStatus === 'PAID')
+      // Customers never cancel a paid order; staff record the manual refund.
+      if (order.paymentStatus === 'PAID' && !(memberId && refund))
         throw new ConflictException(
           'Paid orders require a refund workflow before cancellation',
         );
+      const refunded =
+        memberId && refund ? this.refund(order, refund, memberId) : {};
       await this.cancelReplenishments(tx, id, memberId);
       const now = new Date().toISOString();
       if (order.stockIssueId) {
@@ -1005,9 +1353,33 @@ export class StoreOrdersService implements StockTransferHook {
           cancelledAt: now,
           updatedAt: now,
           ...(memberId ? { handledByMemberId: memberId } : {}),
+          ...refunded,
         })
         .where(eq(storeOrders.id, id));
+      if (memberId && refund)
+        await this.auditOrder(tx, order, memberId, 'REFUND', { ...refund });
     });
+  }
+
+  /** Refund columns for a paid order; nothing is sent to the bank. */
+  private refund(order: Order, refund: Refund, memberId: string) {
+    if (order.paymentStatus !== 'PAID')
+      throw new BadRequestException('Only paid orders can be refunded');
+    if (order.refundedAt)
+      throw new ConflictException('The order is already refunded');
+    if (
+      BigInt(refund.amount) <= 0n ||
+      BigInt(refund.amount) > BigInt(order.total)
+    )
+      throw new BadRequestException(
+        'Refund amount must be positive and at most the order total',
+      );
+    return {
+      refundAmount: refund.amount,
+      refundReference: refund.reference,
+      refundedAt: new Date().toISOString(),
+      refundedByMemberId: memberId,
+    };
   }
 
   /**
@@ -1214,6 +1586,12 @@ export class StoreOrdersService implements StockTransferHook {
       conditions.push(eq(storeOrders.paymentStatus, filters.paymentStatus));
     if (filters.customerId)
       conditions.push(eq(storeOrders.userId, filters.customerId));
+    if (filters.codPending)
+      conditions.push(
+        eq(storeOrders.status, 'COMPLETED'),
+        eq(storeOrders.paymentMethod, 'COD'),
+        isNull(storeOrders.codRemittedAt),
+      );
     if (filters.q !== undefined && typeof filters.q !== 'string')
       throw new BadRequestException('q must be a string');
     if (filters.q)
@@ -1350,6 +1728,9 @@ export class StoreOrdersService implements StockTransferHook {
       handledByMemberId,
       shipperMemberId,
       paymentTransactionId,
+      codRemittedByMemberId,
+      refundedByMemberId,
+      returnReceiptId,
       ...data
     } = order;
     void [
@@ -1360,6 +1741,9 @@ export class StoreOrdersService implements StockTransferHook {
       handledByMemberId,
       shipperMemberId,
       paymentTransactionId,
+      codRemittedByMemberId,
+      refundedByMemberId,
+      returnReceiptId,
     ];
     return data;
   }
@@ -1479,11 +1863,20 @@ export class StoreOrdersService implements StockTransferHook {
       );
   }
 
-  private async auditDelivery(
+  private async auditOrder(
     tx: Transaction,
     order: Order,
     memberId: string,
-    action: 'DELIVERY_CLAIM' | 'DELIVERY_RETURN' | 'DELIVERY_COMPLETE',
+    action:
+      | 'DELIVERY_CLAIM'
+      | 'DELIVERY_RETURN'
+      | 'DELIVERY_COMPLETE'
+      | 'PAYMENT_RECONCILE'
+      | 'COD_REMIT'
+      | 'REFUND'
+      | 'RETURN_TO_WAREHOUSE'
+      | 'RETURN_RECEIVED'
+      | 'RETURN_REJECTED',
     data: Record<string, unknown>,
   ) {
     await tx.insert(auditLogs).values({
