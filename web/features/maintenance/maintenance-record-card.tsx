@@ -32,6 +32,9 @@ export type MaintenanceRecord = MaintenanceWorkflow & {
   supplierId: string | null;
   expectedReturnAt: string | null;
   receivedAt: string | null;
+  startedAt: string | null;
+  issuedByMemberId: string | null;
+  issuedByName: string | null;
   returnWarehouseName: string | null;
   returnLocationName: string | null;
   resultNote: string | null;
@@ -129,6 +132,18 @@ export function MaintenanceRecordCard({
               </dt>
               <dd className="mt-1.5 font-medium tabular-nums">
                 {maintenanceDate(record.expectedReturnAt)}
+              </dd>
+            </div>
+          )}
+          {record.startedAt && (
+            <div>
+              <dt className="text-xs text-muted-foreground">
+                {/* Records started before T05 have no warehouse confirmation. */}
+                {record.issuedByMemberId ? "Kho xác nhận xuất" : "Gửi sửa"}
+              </dt>
+              <dd className="mt-1.5 font-medium tabular-nums">
+                {maintenanceDate(record.startedAt)}
+                {record.issuedByName && ` · ${record.issuedByName}`}
               </dd>
             </div>
           )}

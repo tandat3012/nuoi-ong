@@ -76,6 +76,10 @@ type Filters = PaginationParams & {
   dateTo?: string;
 };
 
+const issuedByName = sql<string | null>`(SELECT COALESCE(u.full_name, u.email)
+  FROM farm_members m JOIN users u ON u.id = m.user_id
+  WHERE m.id = ${maintenanceRecords.issuedByMemberId})`;
+
 @Injectable()
 export class MaintenanceService {
   private readonly logger = new Logger(MaintenanceService.name);
@@ -137,6 +141,7 @@ export class MaintenanceService {
           returnLocationName: sql<
             string | null
           >`(SELECT name FROM locations WHERE id=${maintenanceRecords.returnLocationId})`,
+          issuedByName,
         })
         .from(maintenanceRecords)
         .leftJoin(
@@ -191,6 +196,7 @@ export class MaintenanceService {
         returnLocationName: sql<
           string | null
         >`(SELECT name FROM locations WHERE id=${maintenanceRecords.returnLocationId})`,
+        issuedByName,
       })
       .from(maintenanceRecords)
       .leftJoin(
@@ -373,8 +379,9 @@ export class MaintenanceService {
     });
   }
 
+  /** The warehouse confirms the asset physically left for repair: debits stock once (AC10). */
   async start(id: string, farmId: string, clerkUserId: string) {
-    const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
+    const actor = await this.actor(farmId, clerkUserId, WAREHOUSE_MANAGE_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
       if (record.status !== 'SCHEDULED')
@@ -543,7 +550,12 @@ export class MaintenanceService {
         .where(and(eq(assets.id, asset.id), eq(assets.farmId, farmId)));
       const [updated] = await tx
         .update(maintenanceRecords)
-        .set({ status: 'IN_PROGRESS', startedAt: now, updatedAt: now })
+        .set({
+          status: 'IN_PROGRESS',
+          startedAt: now,
+          issuedByMemberId: actor.memberId,
+          updatedAt: now,
+        })
         .where(
           and(
             eq(maintenanceRecords.id, id),
@@ -561,7 +573,7 @@ export class MaintenanceService {
         {
           status: 'MAINTENANCE',
           referenceId: record.id,
-          summary: 'Đã bắt đầu bảo trì tài sản',
+          summary: 'Kho đã xác nhận xuất thiết bị đi sửa',
         },
       );
       return updated;

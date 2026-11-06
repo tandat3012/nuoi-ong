@@ -1010,6 +1010,10 @@ export const maintenanceRecords = pgTable(
     receivedByMemberId: uuid('received_by_member_id').references(
       () => farmMembers.id,
     ),
+    // Warehouse member who confirmed the asset left for repair (start); AC10.
+    issuedByMemberId: uuid('issued_by_member_id').references(
+      () => farmMembers.id,
+    ),
     inspectedByMemberId: uuid('inspected_by_member_id').references(
       () => farmMembers.id,
     ),
