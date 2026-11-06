@@ -333,6 +333,24 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
         }
       }
 
+      // AC27: the dashboard card is the report's closing value, for the farm and per warehouse.
+      const closing = (rows: typeof report.rows) =>
+        String(rows.reduce((sum, row) => sum + Number(row.closing.value), 0));
+      expect(await dashboard.summary(ids.farm, ['FARM_OWNER'])).toMatchObject({
+        stockValue: closing(report.rows),
+        unpricedItems: 0,
+      });
+      expect(
+        await dashboard.summary(
+          ids.farm,
+          ['WAREHOUSE_MANAGER'],
+          [ids.warehouse],
+        ),
+      ).toMatchObject({ stockValue: '4800' });
+      expect(
+        await dashboard.summary(ids.farm, ['WAREHOUSE_MANAGER'], []),
+      ).toMatchObject({ stockValue: '0', unpricedItems: 0 });
+
       const salesOnly = await dashboard.stockReport(
         ids.farm,
         '2026-10-05',
