@@ -65,7 +65,7 @@ describe('MaterialsService', () => {
 
   it('rejects expiry tracking unless LOT mode is used', async () => {
     await expect(
-      service.createMaterial(farmId, {
+      service.createMaterial(farmId, 'user_1', {
         ...validInput,
         trackingMode: 'QUANTITY',
       }),
@@ -89,21 +89,26 @@ describe('MaterialsService', () => {
       values: jest.fn(),
       returning: jest.fn().mockResolvedValue([{ id: 'item-1' }]),
     };
-    const profileInsert = { values: jest.fn() };
+    const profileInsert = {
+      values: jest.fn(),
+      returning: jest.fn().mockResolvedValue([{ itemId: 'item-1' }]),
+    };
+    const auditInsert = { values: jest.fn().mockResolvedValue([]) };
     itemInsert.values.mockReturnValue(itemInsert);
     profileInsert.values.mockReturnValue(profileInsert);
     tx.insert
       .mockReturnValueOnce(itemInsert)
-      .mockReturnValueOnce(profileInsert);
+      .mockReturnValueOnce(profileInsert)
+      .mockReturnValueOnce(auditInsert);
     transaction.mockImplementation((callback: (tx: any) => Promise<unknown>) =>
       callback(tx),
     );
     const material = { item: { id: 'item-1', code: validInput.code } };
     mockGetMaterial([material]);
 
-    await expect(service.createMaterial(farmId, validInput)).resolves.toBe(
-      material,
-    );
+    await expect(
+      service.createMaterial(farmId, 'user_1', validInput),
+    ).resolves.toBe(material);
     expect(itemInsert.values).toHaveBeenCalledWith(
       expect.objectContaining({
         farmId,
@@ -113,6 +118,16 @@ describe('MaterialsService', () => {
     );
     expect(profileInsert.values).toHaveBeenCalledWith(
       expect.objectContaining({ farmId, itemId: 'item-1', kind: 'FEED' }),
+    );
+    // NV07: who created it, in the same transaction.
+    expect(auditInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        farmId,
+        action: 'ITEM_CREATED',
+        entityType: 'ITEM',
+        entityId: 'item-1',
+        oldData: null,
+      }),
     );
   });
 
@@ -129,9 +144,9 @@ describe('MaterialsService', () => {
       callback(tx),
     );
 
-    await expect(service.createMaterial(farmId, validInput)).rejects.toEqual(
-      expect.any(BadRequestException),
-    );
+    await expect(
+      service.createMaterial(farmId, 'user_1', validInput),
+    ).rejects.toEqual(expect.any(BadRequestException));
   });
 
   it('maps duplicate database errors to ConflictException', async () => {
@@ -140,22 +155,22 @@ describe('MaterialsService', () => {
       constraint: 'uq_item_code_per_farm',
     });
 
-    await expect(service.createMaterial(farmId, validInput)).rejects.toEqual(
-      expect.any(ConflictException),
-    );
+    await expect(
+      service.createMaterial(farmId, 'user_1', validInput),
+    ).rejects.toEqual(expect.any(ConflictException));
   });
 
   it('rejects an empty update', async () => {
-    await expect(service.updateMaterial('item-1', farmId, {})).rejects.toEqual(
-      expect.any(BadRequestException),
-    );
+    await expect(
+      service.updateMaterial('item-1', farmId, 'user_1', {}),
+    ).rejects.toEqual(expect.any(BadRequestException));
   });
 
   it('rejects updates for a missing material', async () => {
     mockGetMaterial([]);
 
     await expect(
-      service.updateMaterial('item-1', farmId, { name: 'Tên mới' }),
+      service.updateMaterial('item-1', farmId, 'user_1', { name: 'Tên mới' }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -175,8 +190,14 @@ describe('MaterialsService', () => {
       .mockReturnValueOnce(queryReturning([current]))
       .mockReturnValueOnce(queryReturning([updated]));
 
+    const auditInsert = { values: jest.fn().mockResolvedValue([]) };
     const tx = {
       update: jest.fn(),
+      select: jest
+        .fn()
+        .mockReturnValueOnce(queryReturning([updated.item]))
+        .mockReturnValueOnce(queryReturning([current.profile])),
+      insert: jest.fn().mockReturnValue(auditInsert),
     };
     const itemUpdate = { set: jest.fn(), where: jest.fn() };
     itemUpdate.set.mockReturnValue(itemUpdate);
@@ -187,13 +208,22 @@ describe('MaterialsService', () => {
     );
 
     await expect(
-      service.updateMaterial('item-1', farmId, { name: 'Tên mới' }),
+      service.updateMaterial('item-1', farmId, 'user_1', { name: 'Tên mới' }),
     ).resolves.toBe(updated);
     expect(itemUpdate.set).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'Tên mới',
       }),
     );
+    const [[audit]] = auditInsert.values.mock.calls as [
+      [{ action: string; oldData: unknown; newData: { item: unknown } }],
+    ];
+    expect(audit.action).toBe('ITEM_UPDATED');
+    expect(audit.oldData).toEqual({
+      item: current.item,
+      profile: current.profile,
+    });
+    expect(audit.newData.item).toEqual(updated.item);
   });
 
   it('returns a paginated material list and quantity', async () => {

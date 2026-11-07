@@ -1,3 +1,4 @@
+import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import {
   Body,
   Controller,
@@ -151,12 +152,14 @@ export class MaterialsController {
     description: 'Chỉ quản trị viên hoặc chủ trang trại được tạo vật tư.',
   })
   async createMaterial(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmIdValue: string | undefined,
     @Body() input: CreateMaterialDto,
   ) {
     return {
       data: await this.materialsService.createMaterial(
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
         input,
       ),
     };
@@ -446,6 +449,7 @@ export class MaterialsController {
     description: 'Chỉ quản trị viên hoặc chủ trang trại được cập nhật vật tư.',
   })
   async updateMaterial(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue: string | undefined,
     @Body() input: UpdateMaterialDto,
@@ -454,6 +458,7 @@ export class MaterialsController {
       data: await this.materialsService.updateMaterial(
         requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
         input,
       ),
     };

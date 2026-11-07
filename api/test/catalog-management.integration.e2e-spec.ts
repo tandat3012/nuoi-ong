@@ -121,6 +121,7 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
         [[farm, otherFarm]],
       );
       for (const table of [
+        'audit_logs',
         'stock_receipts',
         'inventory_balances',
         'assets',
@@ -376,6 +377,28 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
       [item.id],
     );
     expect(stock.rows[0]).toEqual({ balances: 0, moves: 0, assets: 0 });
+    // NV07 (P2-01): who created which template, written with it.
+    const audits = async () =>
+      (
+        await pool.query<{
+          action: string;
+          user_id: string;
+          old_data: { itemType?: string } | null;
+          new_data: { code: string; itemType: string };
+        }>(
+          `SELECT action, user_id, old_data, new_data FROM audit_logs
+            WHERE entity_type = 'ITEM' AND entity_id = $1 ORDER BY created_at, id`,
+          [item.id],
+        )
+      ).rows;
+    const [createdLog, ...others] = await audits();
+    expect(others).toEqual([]);
+    expect(createdLog).toMatchObject({
+      action: 'ITEM_CREATED',
+      user_id: people.manager.user,
+      old_data: null,
+      new_data: { code: 'EQ-SMOKER' },
+    });
 
     await post('owner', template).expect(409);
     await post('employee', { ...template, code: 'EQ-2' }).expect(403);
@@ -407,6 +430,13 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
     await patch(item.id, { itemType: 'TOOL', trackingMode: 'QUANTITY' }).expect(
       200,
     );
+    // Before and after, by the owner; refused writes leave no entry.
+    expect((await audits())[1]).toMatchObject({
+      action: 'ITEM_UPDATED',
+      user_id: people.owner.user,
+      old_data: { itemType: 'EQUIPMENT' },
+      new_data: { itemType: 'TOOL' },
+    });
     await patch(item.id, { trackingMode: 'ASSET' }).expect(200);
     await patch(material, { name: 'Không sửa vật tư ở đây' }).expect(404);
     await patch(foreign, { name: 'Hijacked' }).expect(404);
@@ -418,6 +448,7 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
       [randomUUID(), farm, item.id, `${tag}-T1`],
     );
     await patch(item.id, { trackingMode: 'QUANTITY' }).expect(409);
+    expect(await audits()).toHaveLength(3);
     // Inactive references can be kept but not newly chosen.
     const retired = randomUUID();
     createdCategories.push(retired);
