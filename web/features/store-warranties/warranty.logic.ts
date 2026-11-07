@@ -95,16 +95,24 @@ export function nextSteps(request: Pick<WarrantyRequest, "status" | "kind" | "cu
         { action: "back", label: "Đối tác trả về", fields: ["result"] },
       ];
     case "AWAITING_CUSTOMER":
-      return [{ action: "decide", label: "Ghi quyết định của khách", fields: ["approved", "note"] }];
+      return [
+        { action: "decide", label: "Ghi quyết định của khách", fields: ["approved", "note"] },
+        { action: "quote", label: "Báo giá lại", fields: ["quoteAmount"] },
+      ];
     case "IN_REPAIR":
-      return [{
-        action: "back",
-        label: "Đối tác trả về",
-        fields: request.kind === "PAID_REPAIR" ? ["result", "actualCost"] : ["result"],
-      }];
+      return [
+        {
+          action: "back",
+          label: "Đối tác trả về",
+          fields: request.kind === "PAID_REPAIR" ? ["result", "actualCost"] : ["result"],
+        },
+        // Extra cost found mid-repair: the customer must agree again.
+        { action: "quote", label: "Báo giá lại (phát sinh)", fields: ["quoteAmount"] },
+      ];
     case "BACK_FROM_PARTNER":
       return [
         { action: "return", label: "Đã trả khách", fields: [] },
+        { action: "send", label: "Gửi xử lý tiếp", fields: ["partnerName"] },
         { action: "exchange", label: "Đổi hàng mới", fields: [] },
       ];
     case "EXCHANGING": {
