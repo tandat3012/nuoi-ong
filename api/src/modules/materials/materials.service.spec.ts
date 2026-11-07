@@ -30,6 +30,7 @@ describe('MaterialsService', () => {
       groupBy: jest.fn(),
       limit: jest.fn(),
       offset: jest.fn(),
+      for: jest.fn(),
       then: (resolve: (value: T[]) => unknown) =>
         Promise.resolve(rows).then(resolve),
     };
@@ -41,6 +42,7 @@ describe('MaterialsService', () => {
     query.groupBy.mockReturnValue(query);
     query.limit.mockReturnValue(query);
     query.offset.mockReturnValue(query);
+    query.for.mockReturnValue(query);
     return query;
   }
 
@@ -195,6 +197,8 @@ describe('MaterialsService', () => {
       update: jest.fn(),
       select: jest
         .fn()
+        .mockReturnValueOnce(queryReturning([current.item]))
+        .mockReturnValueOnce(queryReturning([current.profile]))
         .mockReturnValueOnce(queryReturning([updated.item]))
         .mockReturnValueOnce(queryReturning([current.profile])),
       insert: jest.fn().mockReturnValue(auditInsert),

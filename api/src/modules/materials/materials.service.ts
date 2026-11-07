@@ -151,6 +151,16 @@ export class MaterialsService {
 
     try {
       await this.databaseService.db.transaction(async (transaction) => {
+        // The audited before-state, read under the item lock every edit takes.
+        const [beforeItem] = await transaction
+          .select()
+          .from(items)
+          .where(and(eq(items.id, id), eq(items.farmId, farmId)))
+          .for('update');
+        const [beforeProfile] = await transaction
+          .select()
+          .from(materialProfiles)
+          .where(eq(materialProfiles.itemId, id));
         if (input.categoryId !== undefined || input.unitId !== undefined) {
           await this.validateReferences(
             transaction,
@@ -270,7 +280,7 @@ export class MaterialsService {
           transaction,
           clerkUserId,
           'ITEM_UPDATED',
-          { item: current.item, profile: current.profile },
+          { item: beforeItem, profile: beforeProfile ?? null },
           { id, farmId, item, profile },
         );
       });
