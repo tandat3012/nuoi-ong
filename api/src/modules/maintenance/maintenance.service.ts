@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { assertHoldsStillCovered } from '../warehouses/stock-holds';
 import {
   and,
   count,
@@ -531,6 +532,9 @@ export class MaintenanceService {
           throw new ConflictException(
             'Asset is missing from warehouse inventory',
           );
+        await assertHoldsStillCovered(tx, balance.id, {
+          assetId: asset.id,
+        });
         await tx.insert(inventoryTransactions).values({
           farmId,
           warehouseId: sourceWarehouseId!,

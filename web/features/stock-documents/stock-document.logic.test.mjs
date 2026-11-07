@@ -92,6 +92,27 @@ test("API rejections become specific messages and decide whether to reload", () 
     /không còn chờ duyệt/,
   );
   assert.match(
+    stockDocumentErrorMessage(
+      409,
+      "Insufficient available inventory: the stock is held for customer orders",
+    ),
+    /giữ cho đơn của khách/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(
+      409,
+      "A bank transfer order must be PAID before it is issued",
+    ),
+    /chưa được xác nhận đã thanh toán/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(
+      409,
+      "Exchange issue must match the item, quantity and warehouse of the warranty request",
+    ),
+    /đổi bảo hành/,
+  );
+  assert.match(
     stockDocumentErrorMessage(409, "Cancel the linked order instead"),
     /hủy đơn hàng/,
   );

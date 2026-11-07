@@ -31,6 +31,7 @@ import {
   stockIssues,
   storeOrders,
   storeOrderItems,
+  storeWarrantyRequests,
   units,
   warehouses,
 } from '../../db/schema';
@@ -52,6 +53,7 @@ import {
 import { quantityMillis } from '../store-orders/store-order.rules';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
+import { assertHoldsStillCovered } from './stock-holds';
 
 type Filters = PaginationParams & {
   farmId: string;
@@ -254,6 +256,20 @@ export class StockIssuesService {
               'Order issue warehouse and type cannot change',
             );
           await this.assertOrderLines(tx, current.orderId, lines);
+        } else if (current.warrantyRequestId) {
+          if (
+            (input.warehouseId && input.warehouseId !== current.warehouseId) ||
+            (input.issueType && input.issueType !== 'OTHER')
+          )
+            throw new ConflictException(
+              'Warranty exchange issue warehouse and type cannot change',
+            );
+          await this.assertWarrantyLines(
+            tx,
+            current.warrantyRequestId,
+            current.warehouseId,
+            lines,
+          );
         } else if (issueType === 'SALE') {
           throw new ConflictException('SALE issues must be linked to an order');
         }
@@ -278,6 +294,15 @@ export class StockIssuesService {
               note: line.note,
             })),
           );
+          // A held issue edited onto other lots/assets must be covered there too.
+          if (current.orderId || current.warrantyRequestId)
+            await this.assertEditedHold(
+              tx,
+              farmId,
+              current.warehouseId,
+              id,
+              input.items,
+            );
         }
         if (input.warehouseId)
           await this.assertWarehouse(tx, farmId, input.warehouseId);
@@ -488,7 +513,24 @@ export class StockIssuesService {
         );
       if (!lines.length)
         throw new BadRequestException('Issue must contain at least one item');
+      // Bank transfers must be PAID before the goods leave, not only before delivery.
+      if (
+        issue.orderPayment?.method === 'BANK_TRANSFER' &&
+        issue.orderPayment.status !== 'PAID'
+      )
+        throw new ConflictException({
+          code: 'PAYMENT_NOT_VERIFIED',
+          message: 'A bank transfer order must be PAID before it is issued',
+        });
       if (issue.orderId) await this.assertOrderLines(tx, issue.orderId, lines);
+      else if (issue.warrantyRequestId)
+        await this.assertWarrantyLines(
+          tx,
+          issue.warrantyRequestId,
+          issue.warehouseId,
+          lines,
+          issue.issueType,
+        );
       else if (issue.issueType === 'SALE')
         throw new ConflictException('SALE issues must be linked to an order');
       if (lines.some((line) => line.assetId))
@@ -539,6 +581,10 @@ export class StockIssuesService {
           )
           .returning({ id: inventoryBalances.id });
         if (!balance) throw new ConflictException('Insufficient inventory');
+        await assertHoldsStillCovered(tx, balance.id, {
+          issueId: id,
+          assetId: line.assetId,
+        });
         if (line.assetId) {
           const [asset] = await tx
             .select()
@@ -709,9 +755,31 @@ export class StockIssuesService {
       .from(stockIssues)
       .where(and(eq(stockIssues.id, id), eq(stockIssues.farmId, farmId)))
       .limit(1);
+    const warrantyQuery = db
+      .select({ id: storeWarrantyRequests.id })
+      .from(storeWarrantyRequests)
+      .where(
+        and(
+          eq(storeWarrantyRequests.exchangeIssueId, id),
+          eq(storeWarrantyRequests.farmId, farmId),
+        ),
+      );
+    // A warranty exchange issue is locked through its request, before the issue.
+    const [warranty] = order
+      ? []
+      : forUpdate
+        ? await warrantyQuery.for('update')
+        : await warrantyQuery;
     const [issue] = forUpdate ? await query.for('update') : await query;
     if (!issue) throw new NotFoundException('Stock issue not found');
-    return { ...issue, orderId: order?.id ?? null };
+    return {
+      ...issue,
+      orderId: order?.id ?? null,
+      orderPayment: order
+        ? { method: order.paymentMethod, status: order.paymentStatus }
+        : null,
+      warrantyRequestId: warranty?.id ?? null,
+    };
   }
 
   private async withItems(id: string, farmId: string) {
@@ -805,6 +873,95 @@ export class StockIssuesService {
     )
       throw new ConflictException(
         'Issue items and stock quantities must match the linked order',
+      );
+  }
+
+  private async assertEditedHold(
+    tx: Transaction,
+    farmId: string,
+    warehouseId: string,
+    issueId: string,
+    lines: CreateStockIssueDto['items'],
+  ) {
+    // Same lock order as order confirmation: balances by item then lot.
+    const ordered = [...lines].sort(
+      (a, b) =>
+        a.itemId.localeCompare(b.itemId) ||
+        (a.lotId ?? '').localeCompare(b.lotId ?? ''),
+    );
+    for (const line of ordered) {
+      const [balance] = await tx
+        .select({ id: inventoryBalances.id })
+        .from(inventoryBalances)
+        .where(
+          and(
+            eq(inventoryBalances.farmId, farmId),
+            eq(inventoryBalances.warehouseId, warehouseId),
+            eq(inventoryBalances.itemId, line.itemId),
+            line.lotId
+              ? eq(inventoryBalances.lotId, line.lotId)
+              : isNull(inventoryBalances.lotId),
+          ),
+        )
+        .for('update');
+      if (!balance) throw new ConflictException('Insufficient inventory');
+      await assertHoldsStillCovered(tx, balance.id, {
+        ownIssueId: issueId,
+        assetId: line.assetId,
+      });
+    }
+  }
+
+  /** A warranty exchange issue ships exactly what the request approved, from the order's warehouse. */
+  private async assertWarrantyLines(
+    db: Db | Transaction,
+    requestId: string,
+    warehouseId: string,
+    lines: CreateStockIssueDto['items'],
+    confirmingType?: string,
+  ) {
+    const [row] = await db
+      .select({
+        status: storeWarrantyRequests.status,
+        quantity: storeWarrantyRequests.quantity,
+        warehouseId: storeOrders.warehouseId,
+        itemId: storeOrderItems.itemId,
+        stockQuantity: storeOrderItems.stockQuantity,
+        orderQuantity: storeOrderItems.quantity,
+      })
+      .from(storeWarrantyRequests)
+      .innerJoin(storeOrders, eq(storeOrders.id, storeWarrantyRequests.orderId))
+      .innerJoin(
+        storeOrderItems,
+        eq(storeOrderItems.id, storeWarrantyRequests.orderItemId),
+      )
+      .where(eq(storeWarrantyRequests.id, requestId));
+    if (confirmingType !== undefined && row?.status !== 'EXCHANGING')
+      throw new ConflictException(
+        'The warranty request is no longer waiting for this exchange issue',
+      );
+    // Drafts changed to another type before the update guard existed.
+    if (confirmingType !== undefined && confirmingType !== 'OTHER')
+      throw new ConflictException(
+        'Warranty exchange issue warehouse and type cannot change',
+      );
+    // Same stock-per-unit arithmetic as when the issue was drafted.
+    const expected =
+      row &&
+      (quantityMillis(row.stockQuantity) * BigInt(row.quantity)) /
+        BigInt(row.orderQuantity);
+    const total = lines.reduce(
+      (sum, line) => sum + quantityMillis(line.quantity),
+      0n,
+    );
+    if (
+      !row ||
+      row.warehouseId !== warehouseId ||
+      total !== expected ||
+      lines.some((line) => line.itemId !== row.itemId)
+    )
+      throw new ConflictException(
+        'Exchange issue must match the item, quantity and warehouse of the warranty request',
       );
   }
 
