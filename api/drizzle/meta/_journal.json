@@ -309,6 +309,13 @@
       "when": 1794071377173,
       "tag": "0043_warranty-asset",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794073297756,
+      "tag": "0044_maintenance-final-decision",
+      "breakpoints": true
     }
   ]
 }

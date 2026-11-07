@@ -1569,8 +1569,22 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       .send(destinationInput())
       .expect(201);
     await maintenanceAction(recordId, 'return-receipt/approve').expect(201);
-    expect((await readAsset(assetIds[2])).status).toBe('AVAILABLE');
+    // Back in stock, but in use again only once the owner decides (NV04, P1-05).
+    expect((await readAsset(assetIds[2])).status).toBe('MAINTENANCE');
     expect(await balance(destinationWarehouseId)).toBe('1.000');
+    await maintenanceAction(recordId, 'final-decision/hold')
+      .send({})
+      .expect(400);
+    await maintenanceAction(recordId, 'final-decision/reuse')
+      .send({})
+      .expect(201);
+    await maintenanceAction(recordId, 'final-decision/reuse')
+      .send({})
+      .expect(201);
+    await maintenanceAction(recordId, 'final-decision/hold')
+      .send({ note: 'Đổi ý' })
+      .expect(409);
+    expect((await readAsset(assetIds[2])).status).toBe('AVAILABLE');
     expect(
       (await transactionRows(assetIds[2])).map((row) => row.quantity_change),
     ).toEqual(['-1.000', '1.000']);
@@ -1595,6 +1609,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       .send({ warehouseId, locationId })
       .expect(201);
     await maintenanceAction(first, 'return-receipt/approve').expect(201);
+    await maintenanceAction(first, 'final-decision/reuse').send({}).expect(201);
     const second = await scheduleMaintenance(assetIds[2]);
     await maintenanceAction(second, 'start').expect(201);
     await maintenanceAction(second, 'cancel').expect(409);

@@ -32,8 +32,8 @@ export function RequestReview({
 }) {
   const request = useAuthenticatedRequest();
   const [action, setAction] = useState<"approve" | "reject" | null>(null);
-  const actions = requestActions(roles, row.status);
   const maintenance = "maintenanceType" in row;
+  const actions = requestActions(roles, row.status, maintenance);
   const type = maintenance ? "maintenance" : "transfer";
   if (!actions.approve && !actions.reject) return null;
   return (

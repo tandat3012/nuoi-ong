@@ -133,7 +133,7 @@ export class InventoryService {
         WHERE a.id=${filters.assetId} AND a.farm_id=${filters.farmId}
           AND a.item_id=${inventoryBalances.itemId} AND l.warehouse_id=${inventoryBalances.warehouseId}
           AND (a.status IN ('AVAILABLE','TRANSFER_PENDING','DAMAGED') OR (a.status='MAINTENANCE' AND EXISTS (
-            SELECT 1 FROM maintenance_records m WHERE m.asset_id=a.id AND m.status='FAILED' AND m.return_status='CONFIRMED'
+            SELECT 1 FROM maintenance_records m WHERE m.asset_id=a.id AND m.status IN ('FAILED','COMPLETED') AND m.return_status='CONFIRMED'
           )))
       )`);
     }
