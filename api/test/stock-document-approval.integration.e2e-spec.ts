@@ -204,8 +204,10 @@ describe('Stock document approval rules', () => {
         counts.cancel(id, farm, clerk(actor)),
       submit: (id: string, actor: Actor) =>
         counts.submit(id, farm, clerk(actor)),
+      // A count with a difference needs an approver other than its author
+      // (P0-01); the shared cases create as the owner, so the admin approves.
       confirm: (id: string, actor: Actor) =>
-        counts.confirm(id, farm, clerk(actor)),
+        counts.confirm(id, farm, clerk(actor === 'owner' ? 'admin' : actor)),
       reject: (id: string, actor: Actor, reason = 'Sai số lượng') =>
         counts.reject(id, farm, clerk(actor), reason),
       sourceAfterConfirm: '22.000',
@@ -482,8 +484,13 @@ describe('Stock document approval rules', () => {
       );
       const direct = await document.create('owner');
       await document.confirm(direct, 'owner');
+      // A count is approved by the admin instead (P0-01), who tells the owner.
       expect(await notified(direct)).toEqual(
-        document.type === 'transfer' ? arrival : [],
+        document.type === 'transfer'
+          ? arrival
+          : document.type === 'count'
+            ? [[actors.owner.id, 'CONFIRMED']]
+            : [],
       );
     });
 
@@ -545,6 +552,40 @@ describe('Stock document approval rules', () => {
           : ['CREATE', 'CONFIRM'],
       );
     });
+  });
+
+  it('applies a count difference only when someone other than its author approves (P0-01)', async () => {
+    const id = (
+      await counts.create(farm, clerk('owner'), {
+        warehouseId: warehouse,
+        items: [{ itemId: item, actualQuantity: '100' }],
+      })
+    ).count.id;
+    // 20 → 100 by the same person is refused, whatever their role.
+    await expect(
+      counts.confirm(id, farm, clerk('owner')),
+    ).rejects.toMatchObject({ response: { code: 'SELF_APPROVAL' } });
+    expect(await sourceQuantity()).toBe('20.000');
+    await counts.confirm(id, farm, clerk('manager'));
+    await counts.confirm(id, farm, clerk('manager'));
+    expect(await sourceQuantity()).toBe('100.000');
+    // No difference: the counter completes it alone and nothing is adjusted.
+    const same = (
+      await counts.create(farm, clerk('manager'), {
+        warehouseId: warehouse,
+        items: [{ itemId: item, actualQuantity: '100' }],
+      })
+    ).count.id;
+    await counts.confirm(same, farm, clerk('manager'));
+    expect((await statusOf('stock_counts', same)).status).toBe('CONFIRMED');
+    expect(
+      (
+        await pool.query(
+          "SELECT 1 FROM inventory_transactions WHERE source_type='STOCK_COUNT' AND source_id=$1",
+          [same],
+        )
+      ).rowCount,
+    ).toBe(0);
   });
 
   it('lets only managers of the destination receive a dispatched transfer (TRF-08)', async () => {

@@ -100,6 +100,13 @@ test("API rejections become specific messages and decide whether to reload", () 
   );
   assert.match(
     stockDocumentErrorMessage(
+      403,
+      "A stock difference must be approved by someone other than its author",
+    ),
+    /người khác/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(
       409,
       "A bank transfer order must be PAID before it is issued",
     ),

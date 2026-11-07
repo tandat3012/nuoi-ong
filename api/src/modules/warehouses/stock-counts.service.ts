@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -59,6 +60,12 @@ type SnapshotLine = {
   systemQuantity: string;
   actualQuantity: string;
   note?: string | null;
+};
+
+export const SELF_APPROVAL = {
+  code: 'SELF_APPROVAL',
+  message:
+    'A stock difference must be approved by someone other than its author',
 };
 
 @Injectable()
@@ -387,6 +394,12 @@ export class StockCountsService {
         );
       if (!lines.length)
         throw new BadRequestException('Count must contain at least one item');
+      // NV03: a difference changes stock only once someone other than the counter approves it.
+      if (
+        row.createdByMemberId === member &&
+        lines.some((line) => line.difference && Number(line.difference) !== 0)
+      )
+        throw new ForbiddenException(SELF_APPROVAL);
       for (const line of lines) {
         await this.assertLine(tx, farmId, line, true);
         // Row lock: a concurrent issue/receipt/transfer either commits first
