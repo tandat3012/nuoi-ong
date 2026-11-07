@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   canReceiveTransfer,
+  canResolveTransfer,
   receiveErrorMessage,
   receivePayload,
 } from "./transfer-receive.logic.ts";
@@ -54,4 +55,11 @@ test("translates the API's receive errors", () => {
     /kho đích/,
   );
   assert.equal(receiveErrorMessage("something else"), "something else");
+});
+
+test("only the owner or admin settles a short receipt", () => {
+  assert.equal(canResolveTransfer(["FARM_OWNER"], { status: "DISCREPANCY" }), true);
+  assert.equal(canResolveTransfer(["ADMIN"], { status: "DISCREPANCY" }), true);
+  assert.equal(canResolveTransfer(["WAREHOUSE_MANAGER"], { status: "DISCREPANCY" }), false);
+  assert.equal(canResolveTransfer(["FARM_OWNER"], { status: "CONFIRMED" }), false);
 });
