@@ -30,6 +30,9 @@ export const assetStatus = pgEnum('asset_status', [
   'LOST',
   'RETIRED',
   'TRANSFER_PENDING',
+  // Returned broken: still in the warehouse (counted in stock) but never issued
+  // or sold; it goes to maintenance (NV04) or is retired.
+  'DAMAGED',
 ]);
 export const assignmentStatus = pgEnum('assignment_status', [
   'ACTIVE',

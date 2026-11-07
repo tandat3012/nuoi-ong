@@ -6,6 +6,7 @@ export const ASSET_STATUS_LABELS = {
   LOST: "Thất lạc",
   RETIRED: "Ngừng sử dụng",
   TRANSFER_PENDING: "Chờ chuyển",
+  DAMAGED: "Hỏng, chờ xử lý",
 } as const;
 
 export type AssetStatus = keyof typeof ASSET_STATUS_LABELS;
@@ -68,6 +69,8 @@ export interface AssetFilters {
 export interface ReturnAssetInput {
   warehouseId: string;
   locationId?: string;
+  /** Inspection on receipt: DAMAGED stays in the warehouse, out of use. */
+  condition: "GOOD" | "DAMAGED";
   note?: string | null;
 }
 

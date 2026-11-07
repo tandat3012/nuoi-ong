@@ -372,6 +372,8 @@ function CurrentBalancesView({
             {inventory.balances.length
               ? inventory.selectedAsset.status === "MAINTENANCE"
                 ? "Tài sản đã nhập lại kho nhưng đang cách ly, chưa được phép cấp phát hoặc sử dụng."
+                : inventory.selectedAsset.status === "DAMAGED"
+                  ? "Tài sản trả về bị hỏng: vẫn tính tồn trong kho nhưng không được cấp phát hay bán; chờ bảo trì hoặc thanh lý."
                 : inventory.selectedAsset.status === "TRANSFER_PENDING"
                   ? "Tài sản vẫn ở kho nhưng đang chờ duyệt điều chuyển, chưa sẵn sàng sử dụng."
                   : "Kết quả tồn bên dưới chỉ tính một tài sản đã chọn, không phải tổng số thiết bị cùng loại."

@@ -394,7 +394,7 @@ export class MaintenanceService {
         .limit(1);
       if (!preview) throw new NotFoundException('Asset not found');
       if (
-        !['AVAILABLE', 'ASSIGNED', 'IN_USE', 'MAINTENANCE'].includes(
+        !['AVAILABLE', 'DAMAGED', 'ASSIGNED', 'IN_USE', 'MAINTENANCE'].includes(
           preview.status,
         )
       )
@@ -426,7 +426,8 @@ export class MaintenanceService {
               )
               .limit(1)
           : [];
-      if (preview.status === 'AVAILABLE' || failedReturn) {
+      // A damaged return sits in the warehouse like an available asset.
+      if (['AVAILABLE', 'DAMAGED'].includes(preview.status) || failedReturn) {
         if (!preview.currentLocationId)
           throw new ConflictException('Available asset has no source location');
         const source = await this.activeSource(
@@ -478,7 +479,7 @@ export class MaintenanceService {
         throw new ConflictException(
           'Asset changed while starting maintenance; reload and retry',
         );
-      if (asset.status === 'AVAILABLE')
+      if (asset.status === 'AVAILABLE' || asset.status === 'DAMAGED')
         await this.activeLocation(
           tx,
           farmId,

@@ -636,8 +636,8 @@ export class AssetLifecycleService {
         actor.scope,
       );
       // A failed repair received back stays MAINTENANCE (not sellable); it retires
-      // from there instead of passing through AVAILABLE (AC28).
-      if (!['AVAILABLE', 'MAINTENANCE'].includes(preliminary.status))
+      // from there instead of passing through AVAILABLE (AC28); so does a damaged return.
+      if (!['AVAILABLE', 'MAINTENANCE', 'DAMAGED'].includes(preliminary.status))
         throw new ConflictException(
           'Return assigned or in-use assets before retiring them',
         );

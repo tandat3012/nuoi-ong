@@ -141,6 +141,8 @@ Stock promised to a customer is protected. Confirming a stock issue or transfer,
 
 Direct stock issues and completed/cancelled repairs can leave an asset `IN_USE` without a holder. Maintenance supports this state without another inventory debit or a fabricated assignment. Completion does not receive stock; an explicit return to a valid warehouse/location does.
 
+Returning an asset (`POST /assets/:id/return`) requires an inspection result `condition`: `GOOD` makes it `AVAILABLE`; `DAMAGED` (a `note` is required) puts it back in the warehouse location and stock (+1, `RETURN_IN`) as status `DAMAGED`, which can never be assigned, transferred, issued or sold; it can only go to maintenance (a PASSED repair makes it `AVAILABLE`) or be retired.
+
 The asset lifecycle covers assignment/handover/start/return, dedicated physical transfers, incidents/loss, recovery and retirement. General stock transfers and stock counts reject ASSET lines; use `/assets/:id/transfer` (or a transfer request) to preserve physical location and stock consistency. Count and transfer lines for LOT items must carry a `lotId` of the same item. `SALE` issues are created only by store orders. Receipt lines for LOT items may reference an existing lot with `lotId` (`GET /lots`) instead of creating one. Receipt lines for ASSET items need a `locationId` in the receiving warehouse before the receipt can be confirmed; `scripts/list-assets-without-location.sql` lists older in-stock assets without one (read-only). Resolving or cancelling a loss report does not receive inventory; `/assets/:id/recover` records physical recovery into a valid warehouse/location.
 
 ## API documentation
