@@ -1419,6 +1419,14 @@ describe('Store orders (migrated PostgreSQL)', () => {
           }),
         ),
       );
+      // A retried save with the same line ids keeps the assets.
+      await edit(
+        both.map((line) =>
+          asLine(line, {
+            assetCondition: line.assetId === good.assetId ? 'GOOD' : 'DAMAGED',
+          }),
+        ),
+      );
       await receipts.confirmReceipt(receiptId, ids.farm, ids.admin);
       await receipts.confirmReceipt(receiptId, ids.farm, ids.admin);
       const back = await tx

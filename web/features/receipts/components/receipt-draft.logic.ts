@@ -104,25 +104,26 @@ function isValidDate(value: string) {
   );
 }
 
+// An order return may hold the shipped assets themselves, or nothing usable at all.
+const supportedLines = (detail: ReceiptDetail) =>
+  (detail.items.length > 0 || Boolean(detail.orderReturn)) &&
+  detail.items.every((line) => supportedLine(line, Boolean(detail.orderReturn)));
+
 export function supportsQuantityDraftEdit(detail: ReceiptDetail) {
-  return (
-    detail.receipt.status === 'DRAFT' &&
-    detail.items.length > 0 &&
-    detail.items.every(supportedLine)
-  );
+  return detail.receipt.status === 'DRAFT' && supportedLines(detail);
 }
 
 export function supportsQuantityDraftConfirm(detail: ReceiptDetail) {
   return (
     ['DRAFT', 'PENDING_APPROVAL'].includes(detail.receipt.status) &&
-    detail.items.length > 0 &&
-    detail.items.every(supportedLine)
+    supportedLines(detail)
   );
 }
 
-function supportedLine(line: ReceiptLine) {
+function supportedLine(line: ReceiptLine, orderReturn: boolean) {
   const mode = line.trackingMode;
-  if (!mode || line.assetId) return false;
+  if (!mode || (line.assetId && !(orderReturn && mode === 'ASSET')))
+    return false;
   if (mode === 'QUANTITY')
     return (
       !line.lotId &&

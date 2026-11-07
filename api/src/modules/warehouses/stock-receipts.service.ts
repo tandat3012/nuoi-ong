@@ -287,6 +287,8 @@ export class StockReceiptsService {
               'assetCondition is only for assets returned by an order',
             );
           return {
+            // A kept line keeps its id, so a retried save still finds it.
+            ...(source ? { id: source.id } : {}),
             stockReceiptId: id,
             itemId: item.itemId,
             quantity: item.quantity,

@@ -459,3 +459,28 @@ test("an order return may end empty, and a returned asset needs its condition", 
     null,
   );
 });
+
+test("order returns can be edited and confirmed with shipped assets or no line", () => {
+  const assetLine = {
+    trackingMode: "ASSET",
+    assetId: "a",
+    assetCode: "A-1",
+    quantity: "1.000",
+    lotId: null,
+    supplierLotNumber: null,
+    manufacturedDate: null,
+    expiryDate: null,
+    serialNumber: null,
+    locationId: null,
+  };
+  const draft = (items, orderReturn) => ({
+    receipt: { status: "DRAFT" },
+    items,
+    orderReturn,
+  });
+  assert.equal(editable(draft([assetLine], true)), true);
+  assert.equal(confirmable(draft([assetLine], true)), true);
+  assert.equal(editable(draft([assetLine], false)), false);
+  assert.equal(confirmable(draft([], true)), true);
+  assert.equal(confirmable(draft([], false)), false);
+});
