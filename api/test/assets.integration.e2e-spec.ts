@@ -1572,6 +1572,13 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     // Back in stock, but in use again only once the owner decides (NV04, P1-05).
     expect((await readAsset(assetIds[2])).status).toBe('MAINTENANCE');
     expect(await balance(destinationWarehouseId)).toBe('1.000');
+    // Still open until decided: no loss report (then recovery), no new repair.
+    await assetAction(assetIds[2], 'incidents', incidentInput()).expect(409);
+    await http()
+      .post('/api/v1/maintenance-records')
+      .query({ farmId })
+      .send({ assetId: assetIds[2], maintenanceType: 'INSPECTION' })
+      .expect(409);
     await maintenanceAction(recordId, 'final-decision/hold')
       .send({})
       .expect(400);
