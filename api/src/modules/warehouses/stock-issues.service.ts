@@ -535,6 +535,8 @@ export class StockIssuesService {
         throw new ConflictException('SALE issues must be linked to an order');
       if (lines.some((line) => line.assetId))
         this.assertAssetIssueType(issue.issueType, true);
+      const toCustomer =
+        issue.issueType === 'SALE' || !!issue.warrantyRequestId;
       for (const line of lines) {
         const [item] = await tx
           .select({ trackingMode: items.trackingMode })
@@ -635,12 +637,12 @@ export class StockIssuesService {
           await tx
             .update(assets)
             .set({
-              status: ['DISPOSAL', 'SALE'].includes(issue.issueType)
-                ? 'RETIRED'
-                : 'IN_USE',
-              ...(issue.issueType === 'SALE'
-                ? { currentLocationId: null }
-                : {}),
+              // Sold or handed to a customer as a warranty exchange: it left the farm.
+              status:
+                issue.issueType === 'DISPOSAL' || toCustomer
+                  ? 'RETIRED'
+                  : 'IN_USE',
+              ...(toCustomer ? { currentLocationId: null } : {}),
               updatedAt: new Date().toISOString(),
             })
             .where(eq(assets.id, line.assetId));
