@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+import { assertHoldsStillCovered } from '../warehouses/stock-holds';
 import { DatabaseService } from '../../db/database.service';
 import {
   assetAssignments,
@@ -349,6 +350,7 @@ export class AssetLifecycleService {
       let status: AssetStatus = asset.status;
       if (asset.status === 'AVAILABLE') {
         await this.debitBalance(tx, balanceId!);
+        await assertHoldsStillCovered(tx, balanceId!, { assetId: id });
         status = 'ASSIGNED';
         await tx.insert(inventoryTransactions).values({
           farmId,
@@ -553,6 +555,9 @@ export class AssetLifecycleService {
           updatedAt: now,
         })
         .where(eq(inventoryBalances.id, sourceBalanceId));
+      await assertHoldsStillCovered(tx, sourceBalanceId, {
+        assetId: id,
+      });
       await tx
         .update(inventoryBalances)
         .set({

@@ -38,6 +38,7 @@ import {
 import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
+import { assertHoldsStillCovered } from './stock-holds';
 import { StockTransferHooks } from './stock-transfer-hooks';
 import {
   confirmationCode,
@@ -455,6 +456,7 @@ export class StockTransfersService {
           .returning({ id: inventoryBalances.id });
         if (!debited.length)
           throw new ConflictException('Insufficient source inventory');
+        await assertHoldsStillCovered(tx, debited[0].id, { transferId: id });
         await tx.insert(inventoryTransactions).values({
           farmId,
           warehouseId: row.fromWarehouseId,

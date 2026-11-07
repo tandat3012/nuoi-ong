@@ -231,4 +231,54 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       });
       expect(await salesBalance(tx, ctx)).toBe('9.500');
     }));
+
+  it('keeps the exchange issue equal to the approved request until it is confirmed (P0-04)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, warranties, issues } = ctx;
+      const { order, line } = await delivered(ctx);
+      const { id } = await claim(ctx, order.id, line.id);
+      const exchanging = await warranties.act(ids.farm, ids.staff, id, {
+        action: 'exchange',
+      });
+      const issueId = exchanging.exchangeIssue!.id;
+      const edit = (input: object) =>
+        issues.update(issueId, ids.farm, ids.admin, input);
+      // One unit of 0.125 was approved: another warehouse, type or amount is refused.
+      await expect(edit({ warehouseId: ids.otherWarehouse })).rejects.toThrow(
+        'cannot change',
+      );
+      await expect(edit({ issueType: 'SALE' })).rejects.toThrow(
+        'cannot change',
+      );
+      await expect(
+        edit({ items: [{ itemId: ids.item, quantity: '5' }] }),
+      ).rejects.toThrow('must match');
+      // Saving the same content still works.
+      await edit({ items: [{ itemId: ids.item, quantity: '0.125' }] });
+      // A change that bypasses update() is caught again at confirmation.
+      await tx
+        .update(schema.stockIssueItems)
+        .set({ quantity: '5' })
+        .where(eq(schema.stockIssueItems.stockIssueId, issueId));
+      await expect(
+        issues.confirm(issueId, ids.farm, ids.admin),
+      ).rejects.toThrow('must match');
+      expect(await salesBalance(tx, ctx)).toBe('9.625');
+      // A draft already switched to another type is refused at confirmation too.
+      await tx
+        .update(schema.stockIssueItems)
+        .set({ quantity: '0.125' })
+        .where(eq(schema.stockIssueItems.stockIssueId, issueId));
+      await tx
+        .update(schema.stockIssues)
+        .set({ issueType: 'DISPOSAL' })
+        .where(eq(schema.stockIssues.id, issueId));
+      await expect(
+        issues.confirm(issueId, ids.farm, ids.admin),
+      ).rejects.toThrow('cannot change');
+      expect(await salesBalance(tx, ctx)).toBe('9.625');
+      await expect(
+        warranties.act(ids.farm, ids.staff, id, { action: 'close' }),
+      ).rejects.toMatchObject({ response: { code: 'EXCHANGE_NOT_ISSUED' } });
+    }));
 });

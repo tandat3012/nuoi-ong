@@ -1017,7 +1017,10 @@ describe('Store orders (migrated PostgreSQL)', () => {
       });
       expect(order.total).toBe('585000');
       const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
-      await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
+      // P1-06: the goods cannot leave the warehouse before the transfer is PAID.
+      await expect(
+        issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin),
+      ).rejects.toMatchObject({ response: { code: 'PAYMENT_NOT_VERIFIED' } });
       const ready = () => service.deliveries(ids.farm, ids.staff, 'available');
       expect((await ready()).map((row) => row.id)).not.toContain(order.id);
       await expect(
@@ -1062,6 +1065,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
           .where(eq(schema.paymentTransactions.farmId, ids.farm)),
       ).toHaveLength(1);
 
+      await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
       expect((await ready()).map((row) => row.id)).toContain(order.id);
       await service.ship(ids.farm, ids.staff, order.id);
       await service.complete(ids.farm, ids.staff, order.id);
