@@ -6,7 +6,10 @@ import type {
 
 const ASSET_QUANTITY = /^1(?:\.0{1,3})?$/;
 
-export function validateReceiptDraft(input: CreateReceiptInput): string | null {
+export function validateReceiptDraft(
+  input: CreateReceiptInput,
+  orderReturn = false,
+): string | null {
   if (!input.warehouseId) return 'Vui lòng chọn kho nhập.';
   if ((input.note?.length ?? 0) > 4000)
     return 'Ghi chú không được quá 4.000 ký tự.';
@@ -19,7 +22,9 @@ export function validateReceiptDraft(input: CreateReceiptInput): string | null {
     )
       return 'Ngày nhập không hợp lệ.';
   }
-  if (!input.items.length) return 'Vui lòng thêm ít nhất một vật tư.';
+  // A failed delivery may bring back nothing usable.
+  if (!input.items.length && !orderReturn)
+    return 'Vui lòng thêm ít nhất một vật tư.';
   const seenAssets = new Set<string>();
   const seenSerials = new Set<string>();
   for (const [index, line] of input.items.entries()) {
@@ -67,6 +72,8 @@ export function validateReceiptDraft(input: CreateReceiptInput): string | null {
         return `Dòng ${index + 1}: mã tài sản bị trùng trong phiếu.`;
       seenAssets.add(assetCode);
     }
+    if (line.assetCondition === '')
+      return `Dòng ${index + 1}: chọn kết quả kiểm nhận của tài sản trả về.`;
     if (line.serialNumber) {
       if (line.serialNumber.length > 255)
         return `Dòng ${index + 1}: số serial không được quá 255 ký tự.`;
@@ -159,7 +166,19 @@ const SAVE_ERRORS: [RegExp, string][] = [
   ],
   [
     /return receipt cannot receive more/,
-    'Phiếu hàng trả về chỉ nhận tối đa đúng mặt hàng, lô và số lượng đơn đã xuất.',
+    'Phiếu hàng trả về chỉ nhận tối đa đúng mặt hàng, lô, tài sản và số lượng đơn đã xuất.',
+  ],
+  [
+    /returned asset needs its inspected condition/,
+    'Chọn kết quả kiểm nhận (đạt/hỏng) cho từng tài sản trả về.',
+  ],
+  [
+    /asset that left the farm can be received back/,
+    'Tài sản này không ở trạng thái đã bán ra nên không nhận trả về được.',
+  ],
+  [
+    /assetCondition is only for assets returned/,
+    'Kết quả kiểm nhận chỉ dùng cho tài sản trả về từ đơn hàng.',
   ],
   [
     /lotId only selects/,

@@ -765,12 +765,18 @@ export const stockReceiptItems = pgTable(
     }),
     assetCode: varchar('asset_code', { length: 100 }),
     serialNumber: varchar('serial_number', { length: 255 }),
+    // Order returns only: the inspected condition of the asset taken back.
+    assetCondition: varchar('asset_condition', { length: 10 }),
     note: text(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
   },
   (table) => [
+    check(
+      'ck_receipt_item_asset_condition',
+      sql`(asset_condition IS NULL) OR (asset_condition IN ('GOOD', 'DAMAGED') AND asset_id IS NOT NULL)`,
+    ),
     foreignKey({
       columns: [table.itemId],
       foreignColumns: [items.id],

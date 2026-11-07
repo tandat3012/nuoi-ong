@@ -435,3 +435,27 @@ test('maps lot and validation rejections from the API', () => {
   assert.match(receiptSaveErrorMessage(409, 'x', 'tạo'), /Không thể tạo/);
   assert.match(receiptSaveErrorMessage(null, '', 'tạo'), /tải lại danh sách/);
 });
+
+test("an order return may end empty, and a returned asset needs its condition", () => {
+  const base = { warehouseId: "w", items: [] };
+  assert.equal(validateReceiptDraft(base), "Vui lòng thêm ít nhất một vật tư.");
+  assert.equal(validateReceiptDraft(base, true), null);
+  const asset = {
+    itemId: "i",
+    quantity: "1",
+    assetCode: "A-1",
+    locationId: "l",
+    assetCondition: "",
+  };
+  assert.match(
+    validateReceiptDraft({ warehouseId: "w", items: [asset] }, true),
+    /kết quả kiểm nhận/,
+  );
+  assert.equal(
+    validateReceiptDraft(
+      { warehouseId: "w", items: [{ ...asset, assetCondition: "DAMAGED" }] },
+      true,
+    ),
+    null,
+  );
+});
