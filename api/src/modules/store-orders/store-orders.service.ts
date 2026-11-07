@@ -653,7 +653,7 @@ export class StoreOrdersService implements StockTransferHook {
             stockTransfers.status,
             cancellable
               ? ['DRAFT', 'PENDING_APPROVAL']
-              : ['DRAFT', 'PENDING_APPROVAL', 'IN_TRANSIT'],
+              : ['DRAFT', 'PENDING_APPROVAL', 'IN_TRANSIT', 'DISCREPANCY'],
           ),
         ),
       )

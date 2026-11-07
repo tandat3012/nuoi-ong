@@ -626,7 +626,8 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     expect(
       (done.body as { data: { transfer: object; items: object[] } }).data,
     ).toMatchObject({
-      transfer: { status: 'CONFIRMED' },
+      // A short receipt never closes the transfer (P1-01).
+      transfer: { status: 'DISCREPANCY' },
       items: [
         {
           quantity: '5.000',
@@ -643,6 +644,85 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     );
     // The missing unit left the source and never arrived: no ledger row for it.
     expect(await ledger()).toEqual(['-5.000', '4.000']);
+  });
+
+  const resolve = (id: string, resolution: string, note = 'Đã kiểm tra') =>
+    http()
+      .post(`/api/v1/stock-transfers/${id}/resolve`)
+      .query({ farmId: farm })
+      .send({ resolution, note });
+  const dispatchedLine = async (id: string) => {
+    await confirm('transfers', id).expect(201);
+    const detail = await http()
+      .get(`/api/v1/stock-transfers/${id}`)
+      .query({ farmId: farm })
+      .expect(200);
+    return (detail.body as { data: { items: { id: string }[] } }).data.items[0]
+      .id;
+  };
+  const statusOf = async (id: string) =>
+    (
+      await pool.query<{ status: string; resolution: string | null }>(
+        'SELECT status, resolution FROM stock_transfers WHERE id=$1',
+        [id],
+      )
+    ).rows[0];
+
+  it('keeps a short receipt open until the rest is returned or written off (P1-01)', async () => {
+    const id = await create('transfers', '6');
+    const line = await dispatchedLine(id);
+    await receive(id, [
+      { id: line, receivedQuantity: '4', discrepancyReason: '2 hỏng' },
+    ]).expect(201);
+    // Retried receive neither credits twice nor closes the transfer.
+    await receive(id).expect(201);
+    // A late dispatch retry does not debit the source again.
+    await confirm('transfers', id).expect(201);
+    expect(await statusOf(id)).toEqual({
+      status: 'DISCREPANCY',
+      resolution: null,
+    });
+    await resolve(id, 'WRITE_OFF', '   ').expect(400);
+    await resolve(id, 'LOST').expect(400);
+    await resolve(id, 'RETURN_TO_SOURCE').expect(201);
+    // A retried click returns the rest only once.
+    await resolve(id, 'RETURN_TO_SOURCE').expect(201);
+    expect(await statusOf(id)).toEqual({
+      status: 'CONFIRMED',
+      resolution: 'RETURN_TO_SOURCE',
+    });
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '6.000' },
+        { warehouse_id: destination, quantity_on_hand: '4.000' },
+      ]),
+    );
+    expect(await ledger()).toEqual(['-6.000', '2.000', '4.000']);
+    // A settled transfer ignores a later resolve.
+    await resolve(id, 'WRITE_OFF').expect(201);
+    expect(await ledger()).toEqual(['-6.000', '2.000', '4.000']);
+  });
+
+  it('writes off a transfer that arrived with nothing usable without crediting anyone (P1-01)', async () => {
+    const id = await create('transfers', '6');
+    const line = await dispatchedLine(id);
+    await resolve(id, 'WRITE_OFF').expect(409);
+    await receive(id, [
+      { id: line, receivedQuantity: '0', discrepancyReason: 'Hỏng toàn bộ' },
+    ]).expect(201);
+    expect((await statusOf(id)).status).toBe('DISCREPANCY');
+    await resolve(id, 'WRITE_OFF', 'Hủy hàng hỏng').expect(201);
+    expect(await statusOf(id)).toEqual({
+      status: 'CONFIRMED',
+      resolution: 'WRITE_OFF',
+    });
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '4.000' },
+        { warehouse_id: destination, quantity_on_hand: '0.000' },
+      ]),
+    );
+    expect(await ledger()).toEqual(['-6.000']);
   });
 
   const createTransfer = async (from: string, to: string, quantity: string) => {

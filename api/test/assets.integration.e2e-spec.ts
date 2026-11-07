@@ -75,7 +75,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     const response = await http()
       .post(`/api/v1/assets/${id}/return`)
       .query({ farmId })
-      .send(body);
+      .send({ condition: 'GOOD', ...body });
     return { status: response.status, body: response.body as unknown };
   };
 
@@ -860,6 +860,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       .send({
         warehouseId: destinationWarehouseId,
         locationId: destinationLocationId,
+        condition: 'GOOD',
       })
       .expect(201);
     expect((await readAsset(assetIds[2])).status).toBe('AVAILABLE');
@@ -1296,6 +1297,34 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     expect(assignment.rows[0].returned_at).not.toBeNull();
   });
 
+  it('keeps a damaged return in stock but out of use until it is retired (P0-03)', async () => {
+    const damaged = { ...destinationInput(), condition: 'DAMAGED' };
+    expect((await returnAsset(assetIds[0], damaged)).status).toBe(400);
+    expect(
+      (await returnAsset(assetIds[0], { ...damaged, condition: 'BROKEN' }))
+        .status,
+    ).toBe(400);
+    const response = await returnAsset(assetIds[0], {
+      ...damaged,
+      note: 'Gãy càng',
+    });
+    expect(response.status).toBe(201);
+    expect((await readAsset(assetIds[0])).status).toBe('DAMAGED');
+    // Physically back in the warehouse, counted once.
+    expect(await balance(destinationWarehouseId)).toBe('1.000');
+    expect((await movements(assetIds[0])).count).toBe('1');
+    // Never handed out again, and a retry does not count it twice.
+    await assetAction(assetIds[0], 'assign', assignmentInput()).expect(409);
+    // Lost then recovered would make it AVAILABLE and count it twice.
+    await assetAction(assetIds[0], 'incidents', incidentInput()).expect(409);
+    expect((await returnAsset(assetIds[0])).status).toBe(409);
+    await assetAction(assetIds[0], 'retire', {
+      note: 'Không sửa được',
+    }).expect(201);
+    expect((await readAsset(assetIds[0])).status).toBe('RETIRED');
+    expect(await balance(destinationWarehouseId)).toBe('0.000');
+  });
+
   it('rejects sequential duplicate returns and returns only ASSIGNED or IN_USE assets', async () => {
     const first = await returnAsset(assetIds[0]);
     expect(first.status).toBe(201);
@@ -1605,7 +1634,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     const writes = () => [
       { action: 'assign', body: assignmentInput() },
       { action: 'start-use', body: {} },
-      { action: 'return', body: destinationInput() },
+      { action: 'return', body: { ...destinationInput(), condition: 'GOOD' } },
       { action: 'transfer', body: destinationInput() },
       { action: 'incidents', body: incidentInput() },
       {
@@ -1867,9 +1896,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
             409,
           );
           await assetAction(assetIds[2], 'start-use').expect(409);
-          await assetAction(assetIds[2], 'return', destinationInput()).expect(
-            409,
-          );
+          await assetAction(assetIds[2], 'return', {
+            ...destinationInput(),
+            condition: 'GOOD',
+          }).expect(409);
         }
         expect(await lifecycleState()).toEqual(before);
       }
@@ -1939,7 +1969,9 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
             ? assignmentInput()
             : action === 'start-use'
               ? {}
-              : destinationInput();
+              : action === 'return'
+                ? { ...destinationInput(), condition: 'GOOD' }
+                : destinationInput();
         const before = await lifecycleState();
         await assetAction(id, action, body).expect(409);
         expect(await lifecycleState()).toEqual(before);
@@ -1968,9 +2000,11 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         const body =
           action === 'start-use'
             ? {}
-            : ['return', 'transfer'].includes(action)
-              ? destinationInput()
-              : assignmentInput();
+            : action === 'return'
+              ? { ...destinationInput(), condition: 'GOOD' }
+              : action === 'transfer'
+                ? destinationInput()
+                : assignmentInput();
         const before = await lifecycleState();
         await withWriteFailure('audit_logs', id, auditAction, async () => {
           await assetAction(
@@ -2061,9 +2095,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         await assetAction(assetIds[2], `incidents/${incidentId}/status`, {
           status: 'IN_PROGRESS',
         }).expect(409);
-        await assetAction(assetIds[2], 'return', destinationInput()).expect(
-          409,
-        );
+        await assetAction(assetIds[2], 'return', {
+          ...destinationInput(),
+          condition: 'GOOD',
+        }).expect(409);
         await assetAction(assetIds[2], 'recover', destinationInput()).expect(
           201,
         );
