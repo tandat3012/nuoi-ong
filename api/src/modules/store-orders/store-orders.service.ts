@@ -42,6 +42,7 @@ import {
   storeProducts,
   storeProductVariants,
   storeSettings,
+  storeWarrantyRequests,
   units,
   users,
   warehouses,
@@ -380,7 +381,32 @@ export class StoreOrdersService implements StockTransferHook {
       replenishments,
       shipper: shipper ?? null,
       deliveryLog,
+      deliveredAssets: await this.deliveredAssets(this.databaseService.db, id),
     };
+  }
+
+  /** Serialised units this order handed over: its sale plus confirmed warranty exchanges. */
+  deliveredAssets(db: Pick<Db, 'select'>, orderId: string) {
+    return db
+      .select({
+        id: assets.id,
+        itemId: assets.itemId,
+        assetCode: assets.assetCode,
+        serialNumber: assets.serialNumber,
+      })
+      .from(stockIssueItems)
+      .innerJoin(assets, eq(assets.id, stockIssueItems.assetId))
+      .innerJoin(stockIssues, eq(stockIssues.id, stockIssueItems.stockIssueId))
+      .where(
+        and(
+          eq(stockIssues.status, 'CONFIRMED'),
+          sql`${stockIssues.id} IN (
+            SELECT ${storeOrders.stockIssueId} FROM ${storeOrders} WHERE ${storeOrders.id} = ${orderId}
+            UNION SELECT ${storeWarrantyRequests.exchangeIssueId} FROM ${storeWarrantyRequests}
+              WHERE ${storeWarrantyRequests.orderId} = ${orderId})`,
+        ),
+      )
+      .orderBy(asc(assets.assetCode));
   }
 
   async customerProfile(farmId: string, userId: string) {
