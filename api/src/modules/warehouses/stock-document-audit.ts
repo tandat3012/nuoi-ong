@@ -18,7 +18,9 @@ export type StockDocumentAction =
   | 'REJECT'
   // Two-step transfers: source sends, destination counts in.
   | 'DISPATCH'
-  | 'RECEIVE';
+  | 'RECEIVE'
+  // A short receipt settled: the rest goes back or is written off.
+  | 'RESOLVE';
 
 type DocumentRow = {
   id: string;
@@ -58,6 +60,8 @@ const DOCUMENT_FIELDS: Record<StockDocumentType, string[]> = {
     'toWarehouseId',
     'transferDate',
     'note',
+    'resolution',
+    'resolutionNote',
   ],
   STOCK_COUNT: ['countCode', 'warehouseId', 'note'],
 };

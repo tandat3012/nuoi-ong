@@ -477,6 +477,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
         assetsService.returnAsset(asset, farm, manager, {
           warehouseId: warehouse,
           locationId: location,
+          condition: 'GOOD',
         }),
       ).rejects.toThrow('active maintenance');
       expect(await balance()).toBe(original);

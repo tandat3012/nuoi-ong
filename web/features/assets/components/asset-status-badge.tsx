@@ -9,6 +9,7 @@ const variants: Record<AssetStatus, BadgeProps["variant"]> = {
   LOST: "destructive",
   RETIRED: "secondary",
   TRANSFER_PENDING: "warning",
+  DAMAGED: "destructive",
 };
 
 export function AssetStatusBadge({ status }: { status: AssetStatus }) {

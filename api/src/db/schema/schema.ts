@@ -30,6 +30,9 @@ export const assetStatus = pgEnum('asset_status', [
   'LOST',
   'RETIRED',
   'TRANSFER_PENDING',
+  // Returned broken: still in the warehouse (counted in stock) but never issued
+  // or sold; it goes to maintenance (NV04) or is retired.
+  'DAMAGED',
 ]);
 export const assignmentStatus = pgEnum('assignment_status', [
   'ACTIVE',
@@ -44,6 +47,8 @@ export const documentStatus = pgEnum('document_status', [
   'CANCELLED',
   // Stock transfers only: dispatched from the source, not yet received.
   'IN_TRANSIT',
+  // Stock transfers only: received short, waiting for a manager to settle the rest.
+  'DISCREPANCY',
 ]);
 export const incidentSeverity = pgEnum('incident_severity', [
   'LOW',
@@ -760,12 +765,18 @@ export const stockReceiptItems = pgTable(
     }),
     assetCode: varchar('asset_code', { length: 100 }),
     serialNumber: varchar('serial_number', { length: 255 }),
+    // Order returns only: the inspected condition of the asset taken back.
+    assetCondition: varchar('asset_condition', { length: 10 }),
     note: text(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
   },
   (table) => [
+    check(
+      'ck_receipt_item_asset_condition',
+      sql`(asset_condition IS NULL) OR (asset_condition IN ('GOOD', 'DAMAGED') AND asset_id IS NOT NULL)`,
+    ),
     foreignKey({
       columns: [table.itemId],
       foreignColumns: [items.id],
@@ -1316,6 +1327,14 @@ export const stockTransfers = pgTable(
     }),
     // Destination receipt; on one-step legacy transfers, the single confirmation.
     confirmedByMemberId: uuid('confirmed_by_member_id'),
+    // How a short receipt was settled: RETURN_TO_SOURCE or WRITE_OFF.
+    resolution: varchar({ length: 20 }),
+    resolutionNote: text('resolution_note'),
+    resolvedByMemberId: uuid('resolved_by_member_id'),
+    resolvedAt: timestamp('resolved_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     rejectionReason: text('rejection_reason'),
     rejectedByMemberId: uuid('rejected_by_member_id'),
     rejectedAt: timestamp('rejected_at', {
@@ -1358,6 +1377,15 @@ export const stockTransfers = pgTable(
       foreignColumns: [farmMembers.id],
       name: 'stock_transfers_dispatched_by_member_id_fkey',
     }),
+    foreignKey({
+      columns: [table.resolvedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_transfers_resolved_by_member_id_fkey',
+    }),
+    check(
+      'ck_transfer_resolution',
+      sql`(resolution IS NULL AND resolved_by_member_id IS NULL AND resolved_at IS NULL) OR (resolution IN ('RETURN_TO_SOURCE', 'WRITE_OFF') AND resolved_by_member_id IS NOT NULL AND resolved_at IS NOT NULL)`,
+    ),
     foreignKey({
       columns: [table.createdByMemberId],
       foreignColumns: [farmMembers.id],

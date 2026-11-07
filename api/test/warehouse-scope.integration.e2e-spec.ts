@@ -223,6 +223,7 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
         assetsService.returnAsset(asset, ids.farm, people.manager, {
           warehouseId: ids.warehouse,
           locationId: ids.location,
+          condition: 'GOOD',
         }),
       ).rejects.toThrow('assigned warehouses');
 

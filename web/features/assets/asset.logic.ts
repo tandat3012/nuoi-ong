@@ -7,6 +7,8 @@ export function canWriteAssets(roles: readonly string[]) {
 
 export function assetActions(status: AssetStatus) {
   if (status === "LOST") return ["recover"] as const;
+  // A damaged return goes to maintenance or is retired, never handed out.
+  if (status === "DAMAGED") return ["maintenance", "retire"] as const;
   // A pending transfer request must be approved or rejected first.
   if (
     status === "RETIRED" ||

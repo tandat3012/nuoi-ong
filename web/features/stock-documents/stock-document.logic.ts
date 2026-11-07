@@ -12,7 +12,9 @@ export type StockDocumentStatus =
   | "REJECTED"
   | "CANCELLED"
   // Transfers only: dispatched by the source, not yet received.
-  | "IN_TRANSIT";
+  | "IN_TRANSIT"
+  // Transfers only: received short, waiting for the owner to settle the rest.
+  | "DISCREPANCY";
 
 export type StockDocumentKind =
   "stock-receipts" | "stock-issues" | "stock-transfers" | "stock-counts";

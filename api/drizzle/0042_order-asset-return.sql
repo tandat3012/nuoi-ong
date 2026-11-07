@@ -1,0 +1,2 @@
+ALTER TABLE "stock_receipt_items" ADD COLUMN "asset_condition" varchar(10);--> statement-breakpoint
+ALTER TABLE "stock_receipt_items" ADD CONSTRAINT "ck_receipt_item_asset_condition" CHECK ((asset_condition IS NULL) OR (asset_condition IN ('GOOD', 'DAMAGED') AND asset_id IS NOT NULL));
