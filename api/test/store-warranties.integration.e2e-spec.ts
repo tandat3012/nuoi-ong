@@ -290,6 +290,10 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       });
       // A different serial of the same line is its own claim.
       expect(await claimAsset(sold[1])).toMatchObject({ assetId: sold[1] });
+      // The line is now full: the reason given is still the open claim, in any case.
+      await expect(claimAsset(sold[1].toUpperCase())).rejects.toMatchObject({
+        response: { code: 'WARRANTY_ASSET_OPEN' },
+      });
     }));
 
   it('refuses an asset id on a quantity line (P1-09)', () =>

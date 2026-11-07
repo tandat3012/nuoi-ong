@@ -103,6 +103,8 @@ export class StoreWarrantiesService {
     input: CreateStoreWarrantyDto,
   ) {
     const memberId = await this.orders.staffMember(farmId, clerkUserId);
+    // Postgres prints uuids in lower case; @IsUUID also accepts upper case.
+    const assetId = input.assetId?.toLowerCase();
     const id = await this.databaseService.db
       .transaction(async (tx) => {
         // AC22: only this farm's delivered orders; other farms' orders stay hidden.
@@ -145,7 +147,7 @@ export class StoreWarrantiesService {
           });
         // A serialised unit is claimed by itself, and only one the order handed over.
         if (line.trackingMode === 'ASSET') {
-          if (!input.assetId || input.quantity !== 1)
+          if (!assetId || input.quantity !== 1)
             throw new BadRequestException({
               code: 'WARRANTY_ASSET_REQUIRED',
               message: 'Choose the delivered asset; one claim covers one unit',
@@ -154,13 +156,25 @@ export class StoreWarrantiesService {
           if (
             !delivered.some(
               (asset) =>
-                asset.id === input.assetId && asset.itemId === line.line.itemId,
+                asset.id === assetId && asset.itemId === line.line.itemId,
             )
           )
             throw new BadRequestException({
               code: 'WARRANTY_ASSET_NOT_DELIVERED',
               message: 'This asset was not delivered with this order line',
             });
+          // Before the line quantity: a full line would hide the real reason.
+          const [claimed] = await tx
+            .select({ id: storeWarrantyRequests.id })
+            .from(storeWarrantyRequests)
+            .where(
+              and(
+                eq(storeWarrantyRequests.assetId, assetId),
+                inArray(storeWarrantyRequests.status, OPEN),
+              ),
+            )
+            .limit(1);
+          if (claimed) throw this.assetOpen();
         } else if (input.assetId)
           throw new BadRequestException(
             'Only asset-tracked lines are claimed by asset',
@@ -196,7 +210,7 @@ export class StoreWarrantiesService {
             orderId: order.id,
             orderItemId: line.line.id,
             quantity: input.quantity,
-            assetId: input.assetId ?? null,
+            assetId: assetId ?? null,
             kind: input.kind,
             issueDescription: input.issueDescription,
             intakeNote: input.intakeNote ?? null,
@@ -222,10 +236,7 @@ export class StoreWarrantiesService {
           (cause.constraint ?? cause.cause?.constraint) ===
           'uq_store_warranty_open_asset'
         )
-          throw new ConflictException({
-            code: 'WARRANTY_ASSET_OPEN',
-            message: 'This asset already has an open warranty request',
-          });
+          throw this.assetOpen();
         throw error;
       });
     return this.get(farmId, clerkUserId, id);
@@ -433,6 +444,13 @@ export class StoreWarrantiesService {
   }
 
   /** Lines ordered before T09 carry no policy (null): staff decide. */
+  private assetOpen() {
+    return new ConflictException({
+      code: 'WARRANTY_ASSET_OPEN',
+      message: 'This asset already has an open warranty request',
+    });
+  }
+
   private inWarranty(completedAt: string, months: number | null) {
     if (months === null) return true;
     const end = new Date(completedAt);
