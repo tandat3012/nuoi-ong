@@ -1315,6 +1315,8 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     expect((await movements(assetIds[0])).count).toBe('1');
     // Never handed out again, and a retry does not count it twice.
     await assetAction(assetIds[0], 'assign', assignmentInput()).expect(409);
+    // Lost then recovered would make it AVAILABLE and count it twice.
+    await assetAction(assetIds[0], 'incidents', incidentInput()).expect(409);
     expect((await returnAsset(assetIds[0])).status).toBe(409);
     await assetAction(assetIds[0], 'retire', {
       note: 'Không sửa được',

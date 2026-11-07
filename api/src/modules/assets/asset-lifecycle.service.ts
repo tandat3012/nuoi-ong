@@ -775,6 +775,12 @@ export class AssetLifecycleService {
           'Terminal assets cannot receive new incidents',
         );
       if (input.incidentType === 'LOSS') {
+        // Like a failed repair: a damaged return is repaired or retired, never
+        // lost and then recovered as AVAILABLE.
+        if (asset.status === 'DAMAGED')
+          throw new ConflictException(
+            'A damaged asset goes to maintenance or retirement, not a loss report',
+          );
         await this.assertNoActiveMaintenance(tx, farmId, id);
         await this.assertNoFailedMaintenance(tx, farmId, id);
       }
