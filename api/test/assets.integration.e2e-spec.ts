@@ -12,6 +12,8 @@ import { AssetsController } from '../src/modules/assets/assets.controller';
 import { AssetHistoryService } from '../src/modules/assets/asset-history.service';
 import { AssetLifecycleService } from '../src/modules/assets/asset-lifecycle.service';
 import { AssetsService } from '../src/modules/assets/assets.service';
+import { AssetTransferRequestsController } from '../src/modules/assets/asset-transfer-requests.controller';
+import { AssetTransferRequestsService } from '../src/modules/assets/asset-transfer-requests.service';
 import { FarmAccessGuard } from '../src/modules/auth/farm-access/farm-access.guard';
 import { StockIssuesController } from '../src/modules/warehouses/stock-issues.controller';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
@@ -248,6 +250,23 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       [farmId, warehouse, item, quantity],
     );
 
+  /** P1-02: the destination counts in the asset dispatched across warehouses. */
+  const receiveTransfer = async (
+    assetId: string,
+    body: Record<string, unknown> = {},
+    expected?: number,
+  ) => {
+    const { rows } = await pool.query<{ id: string; asset_code: string }>(
+      "SELECT r.id, a.asset_code FROM asset_transfer_requests r JOIN assets a ON a.id=r.asset_id WHERE r.farm_id=$1 AND r.asset_id=$2 AND r.status='IN_TRANSIT'",
+      [farmId, assetId],
+    );
+    const response = http()
+      .post(`/api/v1/asset-transfer-requests/${rows[0].id}/receive`)
+      .query({ farmId })
+      .send({ assetCode: rows[0].asset_code, condition: 'GOOD', ...body });
+    return expected ? response.expect(expected) : response;
+  };
+
   const transactionRows = async (assetId: string) => {
     const result = await pool.query<{
       transaction_type: string;
@@ -281,6 +300,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       farmId,
     ]);
     await pool.query('DELETE FROM asset_incidents WHERE farm_id=$1', [farmId]);
+    await pool.query('DELETE FROM asset_transfer_requests WHERE farm_id=$1', [
+      farmId,
+    ]);
+    await pool.query('DELETE FROM notifications WHERE farm_id=$1', [farmId]);
     await pool.query('DELETE FROM asset_assignments WHERE farm_id=$1', [
       farmId,
     ]);
@@ -515,12 +538,14 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     const module = await Test.createTestingModule({
       controllers: [
         AssetsController,
+        AssetTransferRequestsController,
         StockIssuesController,
         StockReceiptsController,
         MaintenanceController,
       ],
       providers: [
         AssetsService,
+        AssetTransferRequestsService,
         AssetLifecycleService,
         AssetHistoryService,
         StockIssuesService,
@@ -1098,12 +1123,36 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         note: 'Move to workshop',
       })
       .expect(201);
+    // P1-02: dispatched only; the destination is not credited and the asset is out of use.
     expect(moved.body as unknown).toMatchObject({
+      data: { status: 'TRANSFER_PENDING', currentLocationId: null },
+    });
+    expect(await balance(warehouseId)).toBe('0.000');
+    expect(await balance(destinationWarehouseId)).toBe('0.000');
+    expect(await transactionRows(assetIds[2])).toMatchObject([
+      { transaction_type: 'TRANSFER_OUT' },
+    ]);
+    await assetAction(assetIds[2], 'assign', assignmentInput()).expect(409);
+    await receiveTransfer(assetIds[2], { assetCode: 'NOT-THIS-ONE' }, 409);
+    await receiveTransfer(assetIds[2], { condition: 'DAMAGED' }, 400);
+    expect(await balance(destinationWarehouseId)).toBe('0.000');
+    const received = await receiveTransfer(assetIds[2], {}, 201);
+    expect(received.body as unknown).toMatchObject({
       data: {
-        status: 'AVAILABLE',
-        currentLocationId: destinationLocationId,
+        request: { status: 'CONFIRMED', receivedCondition: 'GOOD' },
+        asset: {
+          status: 'AVAILABLE',
+          currentLocationId: destinationLocationId,
+        },
       },
     });
+    const transferId = (received.body as { data: { request: { id: string } } })
+      .data.request.id;
+    await http()
+      .post(`/api/v1/asset-transfer-requests/${transferId}/receive`)
+      .query({ farmId })
+      .send({ assetCode: 'x', condition: 'GOOD' })
+      .expect(409);
     expect(await balance(warehouseId)).toBe('0.000');
     expect(await balance(destinationWarehouseId)).toBe('1.000');
     const rows = await transactionRows(assetIds[2]);
@@ -1115,8 +1164,8 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     expect(rows.every((row) => row.source_type === 'ASSET_TRANSFER')).toBe(
       true,
     );
-    expect(rows[0].movement_group_id).toBeTruthy();
-    expect(rows[0].movement_group_id).toBe(rows[1].movement_group_id);
+    expect(rows[0].movement_group_id).toBe(transferId);
+    expect(rows[1].movement_group_id).toBe(transferId);
 
     await resetData();
     await seedBalance(warehouseId, '1');
@@ -1155,6 +1204,14 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       201, 409,
     ]);
     expect(await balance(warehouseId)).toBe('0.000');
+    expect(await transactionRows(assetIds[2])).toHaveLength(1);
+    const receives = await Promise.all([
+      receiveTransfer(assetIds[2]),
+      receiveTransfer(assetIds[2]),
+    ]);
+    expect(receives.map((response) => response.status).sort()).toEqual([
+      201, 409,
+    ]);
     expect(await balance(destinationWarehouseId)).toBe('1.000');
     expect(await transactionRows(assetIds[2])).toHaveLength(2);
   });
@@ -1966,6 +2023,13 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         assetAction(assetIds[1], 'transfer', { warehouseId, locationId }),
       ]);
       expect(responses.map((response) => response.status)).toEqual([201, 201]);
+      expect(await balance(warehouseId)).toBe('0.000');
+      expect(await balance(destinationWarehouseId)).toBe('0.000');
+      const receives = await Promise.all([
+        receiveTransfer(assetIds[2]),
+        receiveTransfer(assetIds[1]),
+      ]);
+      expect(receives.map((response) => response.status)).toEqual([201, 201]);
       expect(await balance(warehouseId)).toBe('1.000');
       expect(await balance(destinationWarehouseId)).toBe('1.000');
       expect((await readAsset(assetIds[2])).current_location_id).toBe(
@@ -2033,7 +2097,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       ['assign', 'ASSET_ASSIGNED'],
       ['handover', 'ASSET_REASSIGNED'],
       ['start-use', 'ASSET_USE_STARTED'],
-      ['transfer', 'ASSET_TRANSFERRED'],
+      ['transfer', 'ASSET_TRANSFER_DISPATCHED'],
       ['return', 'ASSET_RETURNED'],
     ])(
       'rolls back %s completely if its audit write fails',
@@ -2071,23 +2135,31 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       },
     );
 
-    it('rolls back both transfer movements, location, audit and a new balance if the second movement fails', async () => {
+    it('rolls back a receipt completely (balance, location, status, request) if its movement fails', async () => {
       await seedBalance();
-      const before = await lifecycleState();
+      await assetAction(assetIds[2], 'transfer', destinationInput()).expect(
+        201,
+      );
+      const state = async () => [
+        await lifecycleState(),
+        (
+          await pool.query(
+            'SELECT * FROM asset_transfer_requests WHERE farm_id=$1',
+            [farmId],
+          )
+        ).rows,
+      ];
+      const before = await state();
       await withWriteFailure(
         'inventory_transactions',
         assetIds[2],
         'TRANSFER_IN',
         async () => {
-          await assetAction(assetIds[2], 'transfer', destinationInput()).expect(
-            500,
-          );
-          expect(await lifecycleState()).toEqual(before);
+          await receiveTransfer(assetIds[2], {}, 500);
+          expect(await state()).toEqual(before);
         },
       );
-      await assetAction(assetIds[2], 'transfer', destinationInput()).expect(
-        201,
-      );
+      await receiveTransfer(assetIds[2], {}, 201);
       expect(await transactionRows(assetIds[2])).toHaveLength(2);
     });
   });

@@ -209,3 +209,21 @@ export class StartUseAssetDto {
   @MaxLength(4000)
   note?: string | null;
 }
+
+export class ReceiveAssetTransferDto {
+  @ApiProperty({
+    description:
+      'Mã tài sản kho đích quét/nhập khi nhận; phải trùng tài sản đã xuất (409 ASSET_MISMATCH).',
+  })
+  @IsString()
+  @Length(1, 100)
+  assetCode!: string;
+  @ApiProperty({
+    enum: ['GOOD', 'DAMAGED'],
+    description:
+      'GOOD → AVAILABLE tại vị trí nhận; DAMAGED (bắt buộc note) → DAMAGED, nằm kho nhưng không dùng được.',
+  })
+  @IsIn(['GOOD', 'DAMAGED'])
+  condition!: 'GOOD' | 'DAMAGED';
+  @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+}

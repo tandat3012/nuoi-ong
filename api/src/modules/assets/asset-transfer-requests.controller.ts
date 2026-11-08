@@ -36,6 +36,7 @@ import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { AssetTransferRequestsService } from './asset-transfer-requests.service';
 import {
   CreateAssetTransferRequestDto,
+  ReceiveAssetTransferDto,
   RejectAssetTransferRequestDto,
 } from './dto/asset-lifecycle.dto';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
@@ -140,7 +141,7 @@ export class AssetTransferRequestsController {
   @Post(':id/approve')
   @ApiOperation({
     summary:
-      'Duyệt yêu cầu: chuyển tài sản tới vị trí đích và trả về AVAILABLE',
+      'Duyệt yêu cầu: cùng kho thì chuyển ngay; khác kho thì kho nguồn xuất (IN_TRANSIT), kho đích nhận sau',
   })
   @ApiUuidParam('id', 'ID yêu cầu chuyển tài sản.')
   @ApiFarmIdQuery()
@@ -188,6 +189,38 @@ export class AssetTransferRequestsController {
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         input.rejectionReason,
+      ),
+    };
+  }
+
+  @Post(':id/receive')
+  @ApiOperation({
+    summary:
+      'Kho đích xác nhận nhận tài sản đang chuyển: cộng tồn, đặt vị trí, AVAILABLE hoặc DAMAGED',
+  })
+  @ApiUuidParam('id', 'ID yêu cầu chuyển tài sản.')
+  @ApiFarmIdQuery()
+  @ApiBody({ type: ReceiveAssetTransferDto })
+  @ApiBadRequestResponse({ description: 'DAMAGED thiếu ghi chú.' })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản lý kho của kho đích được nhận.',
+  })
+  @ApiConflictResponse({
+    description:
+      'Yêu cầu không ở IN_TRANSIT, mã tài sản không khớp (ASSET_MISMATCH) hoặc vị trí nhận không còn hoạt động.',
+  })
+  async receive(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: ReceiveAssetTransferDto,
+  ) {
+    return {
+      data: await this.service.receive(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input,
       ),
     };
   }

@@ -323,6 +323,13 @@
       "when": 1794121348349,
       "tag": "0045_issue-receipt-ack",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794122949817,
+      "tag": "0046_asset-transfer-two-step",
+      "breakpoints": true
     }
   ]
 }

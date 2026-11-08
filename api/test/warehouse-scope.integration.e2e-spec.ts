@@ -7,6 +7,8 @@ import * as schema from '../src/db/schema';
 import { DatabaseService } from '../src/db/database.service';
 import { DashboardService } from '../src/modules/dashboard/dashboard.service';
 import { AssetsService } from '../src/modules/assets/assets.service';
+import { AssetLifecycleService } from '../src/modules/assets/asset-lifecycle.service';
+import { AssetTransferRequestsService } from '../src/modules/assets/asset-transfer-requests.service';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { MaintenanceService } from '../src/modules/maintenance/maintenance.service';
 import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.service';
@@ -170,6 +172,77 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
         ...page,
       });
       expect(idleWarehouses.page.totalItems).toBe(0);
+    }));
+
+  it('lets only managers of the destination receive an asset dispatched across warehouses (P1-02)', () =>
+    inRollback(async (tx) => {
+      const { ids, people, warehouses } = await setup(tx);
+      const database = { db: tx } as unknown as DatabaseService;
+      const lifecycle = new AssetLifecycleService(database, warehouses);
+      const transfers = new AssetTransferRequestsService(
+        database,
+        warehouses,
+        lifecycle,
+      );
+      const otherShelf = randomUUID();
+      await tx.insert(schema.locations).values({
+        id: otherShelf,
+        farmId: ids.farm,
+        warehouseId: ids.otherWarehouse,
+        code: 'OTHER-SHELF',
+        name: 'Other shelf',
+        type: 'WAREHOUSE',
+      });
+      const assetItem = randomUUID();
+      await tx.insert(schema.items).values({
+        id: assetItem,
+        farmId: ids.farm,
+        categoryId: ids.category,
+        unitId: ids.unit,
+        code: assetItem,
+        name: 'Smoker',
+        itemType: 'EQUIPMENT',
+        trackingMode: 'ASSET',
+      });
+      const asset = randomUUID();
+      const assetCode = `TS-${asset.slice(0, 8)}`;
+      await tx.insert(schema.assets).values({
+        id: asset,
+        farmId: ids.farm,
+        itemId: assetItem,
+        assetCode,
+        status: 'AVAILABLE',
+        currentLocationId: ids.location,
+      });
+      await tx.insert(schema.inventoryBalances).values({
+        farmId: ids.farm,
+        warehouseId: ids.warehouse,
+        itemId: assetItem,
+        quantityOnHand: '1',
+      });
+      await lifecycle.transfer(asset, ids.farm, people.manager, {
+        warehouseId: ids.otherWarehouse,
+        locationId: otherShelf,
+      });
+      const [transfer] = await tx
+        .select()
+        .from(schema.assetTransferRequests)
+        .where(eq(schema.assetTransferRequests.assetId, asset));
+      expect(transfer.status).toBe('IN_TRANSIT');
+      const body = { assetCode, condition: 'GOOD' as const };
+      await expect(
+        transfers.receive(transfer.id, ids.farm, people.manager, body),
+      ).rejects.toThrow('assigned warehouses');
+      const { asset: received } = await transfers.receive(
+        transfer.id,
+        ids.farm,
+        people.otherManager,
+        body,
+      );
+      expect(received).toMatchObject({
+        status: 'AVAILABLE',
+        currentLocationId: otherShelf,
+      });
     }));
 
   it('keeps the scope across warehouse boundaries: destinations, returns, maintenance', () =>

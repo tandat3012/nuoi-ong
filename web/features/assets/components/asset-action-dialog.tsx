@@ -48,7 +48,7 @@ export function AssetActionDialog({
       : action === "retire"
         ? `${asset.assetCode} · Tài sản sẽ ngừng sử dụng, tồn kho giảm 1. Hồ sơ và lịch sử được giữ lại. Thao tác không thể hoàn tác tại đây.`
         : action === "transfer"
-          ? `${asset.assetCode} · Di chuyển tài sản sẵn sàng tới kho và vị trí nhận. Hệ thống cập nhật tồn kho và ghi lịch sử điều chuyển.`
+          ? `${asset.assetCode} · Cùng kho: đổi vị trí ngay. Khác kho: kho nguồn xuất (trừ tồn) và tài sản ở trạng thái đang chuyển; kho đích xác nhận nhận tại trang Yêu cầu mới cộng tồn.`
           : action === "recover"
             ? `${asset.assetCode} · Xác nhận đã tìm lại thực tế, nhập lại 1 tài sản vào kho và vị trí bạn chọn.`
             : action === "maintenance"

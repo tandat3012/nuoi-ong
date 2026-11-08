@@ -17,11 +17,18 @@ const id = "12345678-1234-4123-8123-123456789abc";
 
 test("only approvers review pending requests; reviewed requests have no actions", () => {
   for (const roles of [[], ["GUEST"], ["EMPLOYEE"], ["ADMIN"], ["FARM_OWNER"], ["EMPLOYEE", "ADMIN"]]) {
-    for (const status of ["PENDING_APPROVAL", "CONFIRMED", "REJECTED"]) {
-      const allowed = status === "PENDING_APPROVAL" && roles.some((role) => ["ADMIN", "FARM_OWNER"].includes(role));
-      assert.deepEqual(requestActions(roles, status), { approve: allowed, reject: allowed }, `${roles}: ${status}`);
+    for (const status of ["PENDING_APPROVAL", "IN_TRANSIT", "CONFIRMED", "REJECTED"]) {
+      const approver = roles.some((role) => ["ADMIN", "FARM_OWNER"].includes(role));
+      const allowed = status === "PENDING_APPROVAL" && approver;
+      assert.deepEqual(
+        requestActions(roles, status),
+        { approve: allowed, reject: allowed, receive: status === "IN_TRANSIT" && approver },
+        `${roles}: ${status}`,
+      );
     }
   }
+  // Maintenance requests never travel.
+  assert.equal(requestActions(["ADMIN"], "IN_TRANSIT", true).receive, false);
 });
 
 test("only employee non-approvers create; transfers require an AVAILABLE asset", () => {
