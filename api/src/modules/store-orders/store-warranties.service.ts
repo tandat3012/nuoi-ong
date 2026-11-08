@@ -279,22 +279,34 @@ export class StoreWarrantiesService {
       let changes: Partial<typeof storeWarrantyRequests.$inferInsert>;
       switch (input.action) {
         case 'send':
-          from('RECEIVED');
+          // Back but not fixed: the same request goes round again. The last
+          // outcome stays in the audit log; a paid repair needs consent anew.
+          from('RECEIVED', 'BACK_FROM_PARTNER');
           changes = {
             status: 'AT_PARTNER',
             partnerName: required(input.partnerName, 'partnerName'),
             sentAt: now,
+            repairStartedAt: null,
+            backAt: null,
+            result: null,
+            actualCost: null,
+            customerApproved: null,
+            customerDecisionNote: null,
+            customerDecidedAt: null,
           };
           break;
         case 'quote':
           // A partner may also find a warranty claim not covered: it becomes paid.
-          from('AT_PARTNER');
+          // A new quote (also mid-repair) voids the earlier consent and pauses the repair.
+          from('AT_PARTNER', 'AWAITING_CUSTOMER', 'IN_REPAIR');
           changes = {
             status: 'AWAITING_CUSTOMER',
             kind: 'PAID_REPAIR',
             quoteAmount: required(input.quoteAmount, 'quoteAmount'),
             customerApproved: null,
+            customerDecisionNote: null,
             customerDecidedAt: null,
+            repairStartedAt: null,
           };
           break;
         case 'decide':

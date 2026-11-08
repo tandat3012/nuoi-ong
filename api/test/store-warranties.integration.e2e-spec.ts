@@ -169,6 +169,63 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       ).rejects.toThrow();
     }));
 
+  it('re-quotes and repairs again within the same request, asking consent each time (P1-10)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, warranties } = ctx;
+      const { order, line } = await delivered(ctx);
+      const { id } = await claim(ctx, order.id, line.id);
+      const act = (body: Parameters<StoreWarrantiesService['act']>[3]) =>
+        warranties.act(ids.farm, ids.staff, id, body);
+      await act({ action: 'send', partnerName: 'Sửa chữa Minh Phát' });
+      await act({ action: 'quote', quoteAmount: '350000' });
+      // The partner revises the quote before the customer answers.
+      await act({ action: 'quote', quoteAmount: '300000' });
+      await act({ action: 'decide', approved: true });
+      await act({ action: 'start-repair' });
+      // A further fault mid-repair: new price, the old consent no longer holds.
+      const requoted = await act({ action: 'quote', quoteAmount: '500000' });
+      expect(requoted).toMatchObject({
+        status: 'AWAITING_CUSTOMER',
+        quoteAmount: '500000',
+        customerApproved: null,
+        repairStartedAt: null,
+      });
+      await act({ action: 'decide', approved: true, note: 'Đồng ý giá mới' });
+      await act({ action: 'start-repair' });
+      await act({ action: 'back', result: 'Vẫn chưa chạy', actualCost: '0' });
+      // Back but not fixed: send it round again instead of closing.
+      const again = await act({ action: 'send', partnerName: 'Điện máy An' });
+      expect(again).toMatchObject({
+        status: 'AT_PARTNER',
+        partnerName: 'Điện máy An',
+        result: null,
+        customerApproved: null,
+      });
+      await expect(act({ action: 'start-repair' })).rejects.toMatchObject({
+        response: { code: 'CUSTOMER_CONSENT_REQUIRED' },
+      });
+      await act({ action: 'quote', quoteAmount: '200000' });
+      await act({ action: 'decide', approved: true });
+      await act({ action: 'start-repair' });
+      await act({ action: 'back', result: 'Đã chạy', actualCost: '200000' });
+      expect(await act({ action: 'return' })).toMatchObject({
+        status: 'CLOSED',
+        actualCost: '200000',
+      });
+      // One request, every round in its history.
+      const rounds = await tx
+        .select({ action: schema.auditLogs.action })
+        .from(schema.auditLogs)
+        .where(eq(schema.auditLogs.entityId, id));
+      expect(rounds.length).toBeGreaterThanOrEqual(14);
+      expect(
+        await tx
+          .select({ id: schema.storeWarrantyRequests.id })
+          .from(schema.storeWarrantyRequests)
+          .where(eq(schema.storeWarrantyRequests.orderId, order.id)),
+      ).toHaveLength(1);
+    }));
+
   it('records an agreed paid repair through to handing it back', () =>
     inRollback(async (ctx) => {
       const { ids, warranties } = ctx;
