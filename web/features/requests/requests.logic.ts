@@ -1,5 +1,5 @@
 import type { RequestsQuery, RequestStatus, TransferRequestRow } from "./types/request";
-import { WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
+import { FARM_ADMIN_ROLES, WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
 
 // These mirror the approver and reload rules in features/stock-documents/stock-document.logic.ts.
 function canApproveRequests(roles: readonly string[]) {
@@ -12,6 +12,7 @@ export function shouldReloadAfterFailure(status: number | null) {
 
 export const REQUEST_STATUS_LABELS = {
   PENDING_APPROVAL: "Chờ duyệt",
+  IN_TRANSIT: "Đang chuyển, chờ kho đích nhận",
   CONFIRMED: "Đã duyệt",
   REJECTED: "Đã từ chối",
 } as const;
@@ -21,9 +22,14 @@ export const REQUEST_MAINTENANCE_LABELS = {
   INSPECTION: "Kiểm tra",
 } as const;
 
-export function requestActions(roles: readonly string[], status: RequestStatus) {
-  const review = canApproveRequests(roles) && status === "PENDING_APPROVAL";
-  return { approve: review, reject: review };
+/** Maintenance requests are approved and assigned by the owner/admin only (NV04). */
+export function requestActions(roles: readonly string[], status: RequestStatus, maintenance = false) {
+  const review =
+    (maintenance ? hasAnyRole(roles, FARM_ADMIN_ROLES) : canApproveRequests(roles)) &&
+    status === "PENDING_APPROVAL";
+  // P1-02: across warehouses, approval only dispatches; a warehouse manager of the destination receives.
+  const receive = !maintenance && canApproveRequests(roles) && status === "IN_TRANSIT";
+  return { approve: review, reject: review, receive };
 }
 
 export function assetRequestActions(roles: readonly string[], assetStatus: string) {
@@ -67,7 +73,7 @@ export function parseRequestsQuery(
   const page = params.get("page") ?? "";
   const id = params.get("id") ?? "";
   const validStatus = status === "ALL" || status === "PENDING_APPROVAL" ||
-    status === "CONFIRMED" || status === "REJECTED";
+    status === "IN_TRANSIT" || status === "CONFIRMED" || status === "REJECTED";
   return {
     type: params.get("type") === "transfer" ? "transfer" : "maintenance",
     status: validStatus ? status : canApproveRequests(roles) ? "PENDING_APPROVAL" : "ALL",
@@ -124,6 +130,8 @@ const CONFLICTS: [RegExp, string][] = [
   [/pending maintenance request/, "Tài sản đã có một yêu cầu bảo trì chờ duyệt."],
   [/pending transfer request/, "Tài sản đã có một yêu cầu chuyển chờ duyệt."],
   [/Only PENDING_APPROVAL/, "Yêu cầu không còn chờ duyệt. Có thể người khác đã xử lý."],
+  [/ASSET_MISMATCH/, "Mã tài sản không khớp tài sản đã xuất. Kiểm tra lại tài sản thực nhận."],
+  [/Only IN_TRANSIT/, "Tài sản không còn đang chuyển. Có thể kho đích đã nhận."],
   [/Only AVAILABLE assets can be requested/, "Tài sản không còn sẵn sàng để yêu cầu chuyển."],
   [/Only AVAILABLE assets can be transferred|Asset changed during transfer/,
     "Trạng thái hoặc vị trí tài sản đã thay đổi nên chưa thể duyệt chuyển."],

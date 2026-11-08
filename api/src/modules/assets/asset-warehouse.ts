@@ -23,3 +23,11 @@ export function assetInScope(
   if (!scope.length) return sql`false`;
   return sql`${column} IN (SELECT assets.id FROM assets WHERE ${inArray(assetWarehouseId, scope)})`;
 }
+
+/**
+ * Assets a scoped member may read: in their warehouses, or on their way to one
+ * (P1-02: the destination opens and scans what it is about to receive).
+ */
+export function assetReadableInScope(scope: string[]): SQL {
+  return sql`(${inArray(assetWarehouseId, scope)} OR EXISTS (SELECT 1 FROM asset_transfer_requests r WHERE r.asset_id = assets.id AND r.status = 'IN_TRANSIT' AND ${inArray(sql`r.to_warehouse_id`, scope)}))`;
+}

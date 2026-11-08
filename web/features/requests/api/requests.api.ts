@@ -98,6 +98,18 @@ export function approveTransferRequest(
   );
 }
 
+export function receiveTransferRequest(
+  request: AuthenticatedRequest,
+  farmId: string,
+  id: string,
+  body: { assetCode: string; condition: "GOOD" | "DAMAGED"; note: string | null },
+) {
+  return request<{ data: { request: TransferRequestRecord; asset: { id: string } } }>(
+    `${PATHS.transfer}/${encodeURIComponent(id)}/receive`,
+    { method: "POST", params: { farmId }, data: body },
+  );
+}
+
 export function rejectRequest(
   request: AuthenticatedRequest,
   farmId: string,

@@ -1,0 +1,8 @@
+ALTER TABLE "maintenance_records" ADD COLUMN "final_decision" varchar(10);--> statement-breakpoint
+ALTER TABLE "maintenance_records" ADD COLUMN "final_decision_note" text;--> statement-breakpoint
+ALTER TABLE "maintenance_records" ADD COLUMN "final_decided_by_member_id" uuid;--> statement-breakpoint
+ALTER TABLE "maintenance_records" ADD COLUMN "final_decided_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "maintenance_records" ADD CONSTRAINT "maintenance_records_final_decided_by_member_id_farm_members_id_fk" FOREIGN KEY ("final_decided_by_member_id") REFERENCES "public"."farm_members"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+-- Passed repairs already received went straight back to AVAILABLE: record that as reuse by the reviewer.
+UPDATE "maintenance_records" SET "final_decision" = 'REUSE', "final_decided_by_member_id" = "return_reviewed_by_member_id", "final_decided_at" = "return_reviewed_at" WHERE "status" = 'COMPLETED' AND "return_status" = 'CONFIRMED' AND "return_reviewed_by_member_id" IS NOT NULL AND "return_reviewed_at" IS NOT NULL;--> statement-breakpoint
+ALTER TABLE "maintenance_records" ADD CONSTRAINT "ck_maintenance_final_decision" CHECK ((final_decision IS NULL AND final_decided_by_member_id IS NULL AND final_decided_at IS NULL) OR (final_decision IN ('REUSE', 'HOLD') AND final_decided_by_member_id IS NOT NULL AND final_decided_at IS NOT NULL));

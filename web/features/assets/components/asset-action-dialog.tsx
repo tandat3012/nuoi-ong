@@ -15,7 +15,7 @@ import {
 
 export const ASSET_ACTION_LABELS = {
   assign: "Cấp phát / bàn giao",
-  "start-use": "Bắt đầu sử dụng",
+  "start-use": "Xác nhận đã nhận",
   incidents: "Báo sự cố",
   maintenance: "Lên lịch bảo trì",
   recover: "Ghi nhận tìm lại",
@@ -28,11 +28,14 @@ export function AssetActionDialog({
   farmId,
   asset,
   action,
+  selfReceipt = false,
   ...feedback
 }: AssetMutationFeedback & {
   farmId: string;
   asset: Asset;
   action: AssetActionKind;
+  /** Start-use by the assignee; otherwise a manager records it and must give the basis. */
+  selfReceipt?: boolean;
 }) {
   const request = useAuthenticatedRequest();
   const [member, setMember] = useState<AssetChoice | null>(null);
@@ -45,14 +48,16 @@ export function AssetActionDialog({
       : action === "retire"
         ? `${asset.assetCode} · Tài sản sẽ ngừng sử dụng, tồn kho giảm 1. Hồ sơ và lịch sử được giữ lại. Thao tác không thể hoàn tác tại đây.`
         : action === "transfer"
-          ? `${asset.assetCode} · Di chuyển tài sản sẵn sàng tới kho và vị trí nhận. Hệ thống cập nhật tồn kho và ghi lịch sử điều chuyển.`
+          ? `${asset.assetCode} · Cùng kho: đổi vị trí ngay. Khác kho: kho nguồn xuất (trừ tồn) và tài sản ở trạng thái đang chuyển; kho đích xác nhận nhận tại trang Yêu cầu mới cộng tồn.`
           : action === "recover"
             ? `${asset.assetCode} · Xác nhận đã tìm lại thực tế, nhập lại 1 tài sản vào kho và vị trí bạn chọn.`
             : action === "maintenance"
               ? `${asset.assetCode} · Lập lịch gửi thiết bị đi bảo trì. Nhân viên bảo trì sẽ nhập chi phí theo báo giá của đơn vị bảo trì khi nhận lại và nghiệm thu.`
               : action === "incidents"
                 ? `${asset.assetCode} · Báo mất sẽ đưa tài sản sang Thất lạc, kết thúc cấp phát và giảm tồn nếu đang ở kho. Báo hỏng không tự chuyển trạng thái; hãy lên lịch bảo trì để xử lý.`
-                : `${asset.assetCode} · Xác nhận người nhận đã bắt đầu sử dụng tài sản.`;
+                : selfReceipt
+                  ? `${asset.assetCode} · Xác nhận bạn đã nhận tài sản và bắt đầu sử dụng. Tồn kho không thay đổi.`
+                  : `${asset.assetCode} · Ghi nhận thay người được giao rằng họ đã nhận tài sản. Cần ghi căn cứ (biên bản, chữ ký…). Tồn kho không thay đổi.`;
   return (
     <AssetMutationDialog
       {...feedback}
@@ -104,7 +109,7 @@ export function AssetActionDialog({
           farmId,
           asset.id,
           action,
-          action === "retire" ? { note } : {},
+          action === "retire" || action === "start-use" ? { note } : {},
         );
       }}
     >
@@ -213,12 +218,18 @@ export function AssetActionDialog({
           />
         </label>
       )}
-      {!["incidents", "maintenance", "start-use"].includes(action) && (
+      {!["incidents", "maintenance"].includes(action) && (
         <label className="block space-y-2 text-sm font-medium">
-          {action === "retire" ? "Lý do ngừng sử dụng (bắt buộc)" : "Ghi chú"}
+          {action === "retire"
+            ? "Lý do ngừng sử dụng (bắt buộc)"
+            : action === "start-use" && !selfReceipt
+              ? "Căn cứ ghi nhận thay (bắt buộc)"
+              : "Ghi chú"}
           <Textarea
             name="note"
-            required={action === "retire"}
+            required={
+              action === "retire" || (action === "start-use" && !selfReceipt)
+            }
             maxLength={4000}
             rows={3}
           />

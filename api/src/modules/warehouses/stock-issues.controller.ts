@@ -16,7 +16,10 @@ import {
 import { documentStatus } from '../../db/schema';
 import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { RejectStockDocumentDto } from './dto/reject-stock-document.dto';
-import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
+import {
+  AcknowledgeStockIssueDto,
+  CreateStockIssueDto,
+} from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { StockIssuesService } from './stock-issues.service';
 import {
@@ -71,6 +74,15 @@ const issueSchema = {
     },
     orderId: { type: 'string', format: 'uuid', nullable: true },
     maintenanceRecordId: { type: 'string', format: 'uuid', nullable: true },
+    recipientMemberId: { type: 'string', format: 'uuid', nullable: true },
+    receivedAt: { type: 'string', format: 'date-time', nullable: true },
+    receivedRecordedByMemberId: {
+      type: 'string',
+      format: 'uuid',
+      nullable: true,
+    },
+    receiptNote: { type: 'string', nullable: true },
+    recipientName: { type: 'string', nullable: true },
     status: { type: 'string', enum: [...documentStatus.enumValues] },
     rejectionReason: { type: 'string', nullable: true },
     rejectedByMemberId: { type: 'string', format: 'uuid', nullable: true },
@@ -400,6 +412,44 @@ export class StockIssuesController {
         requireUuid(id, 'id'),
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
+      ),
+    };
+  }
+
+  @Post(':id/acknowledge')
+  @ApiOperation({
+    summary: 'Người nhận xác nhận đã nhận hàng của phiếu xuất đã xác nhận',
+    description:
+      'Chỉ người nhận ghi trên phiếu, hoặc quản lý kho trong phạm vi kho ghi thay kèm ghi chú căn cứ. Không thay đổi tồn kho; gọi lại khi đã nhận không đổi gì.',
+  })
+  @ApiUuidParam('id', 'ID phiếu xuất.')
+  @ApiFarmIdQuery()
+  @ApiBody({ type: AcknowledgeStockIssueDto })
+  @ApiCreatedResponse({
+    description: 'Phiếu có receivedAt, người ghi nhận và ghi chú.',
+    schema: { type: 'object', properties: { data: issueDetailSchema } },
+  })
+  @ApiBadRequestResponse({
+    description: 'Quản lý ghi thay mà thiếu ghi chú căn cứ.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Không tìm thấy phiếu hoặc không phải người nhận/quản lý kho.',
+  })
+  @ApiConflictResponse({
+    description: 'Phiếu chưa xác nhận xuất hoặc không ghi người nhận.',
+  })
+  async acknowledge(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: AcknowledgeStockIssueDto,
+  ) {
+    return {
+      data: await this.service.acknowledge(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input.note,
       ),
     };
   }

@@ -120,7 +120,8 @@ describe('Warehouse business flow across documents and ledger', () => {
           await transfers.receive(transfer.transfer.id, ids.farm, ids.admin);
           await assertStock('50.000', '20.000');
 
-          const count = await counts.create(ids.farm, ids.admin, {
+          // Counted by staff, approved by the admin (P0-01: never self-approved).
+          const count = await counts.create(ids.farm, ids.staff, {
             warehouseId: ids.warehouse,
             countCode: 'DEMO-KIEMKE',
             items: [{ ...line, actualQuantity: '49.000' }],
@@ -142,8 +143,19 @@ describe('Warehouse business flow across documents and ledger', () => {
             reasonCode: 'DATA_ENTRY_ERROR' as const,
             idempotencyKey: randomUUID(),
           };
-          await adjustments.create(ids.farm, ids.admin, adjustment);
-          await adjustments.create(ids.farm, ids.admin, adjustment);
+          // Requested by staff (a retry replays it), applied by the admin (P0-01).
+          const requested = await adjustments.create(
+            ids.farm,
+            ids.staff,
+            adjustment,
+          );
+          await adjustments.create(ids.farm, ids.staff, adjustment);
+          await assertStock('49.000', '20.000');
+          await adjustments.approve(
+            ids.farm,
+            ids.admin,
+            requested.adjustment.id,
+          );
           await assertStock('51.500', '20.000');
 
           const insufficient = await issues.create(ids.farm, ids.admin, {
@@ -174,22 +186,23 @@ describe('Warehouse business flow across documents and ledger', () => {
           );
           await assertStock('51.500', '20.000');
 
-          const stale = await counts.create(ids.farm, ids.admin, {
+          const stale = await counts.create(ids.farm, ids.staff, {
             warehouseId: ids.warehouse,
             countCode: 'DEMO-SNAPSHOT-CU',
             items: [{ ...line, actualQuantity: '51.000' }],
           });
-          await adjustments.create(ids.farm, ids.admin, {
+          const more = await adjustments.create(ids.farm, ids.staff, {
             ...adjustment,
             quantityChange: '1.000',
             idempotencyKey: randomUUID(),
           });
+          await adjustments.approve(ids.farm, ids.admin, more.adjustment.id);
           await expect(
             counts.confirm(stale.count.id, ids.farm, ids.admin),
           ).rejects.toMatchObject({ status: 409 });
           await assertStock('52.500', '20.000');
 
-          const empty = await counts.create(ids.farm, ids.admin, {
+          const empty = await counts.create(ids.farm, ids.staff, {
             warehouseId: ids.warehouse,
             countCode: 'DEMO-HETTON',
             items: [{ ...line, actualQuantity: '0' }],

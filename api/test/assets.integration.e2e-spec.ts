@@ -12,6 +12,8 @@ import { AssetsController } from '../src/modules/assets/assets.controller';
 import { AssetHistoryService } from '../src/modules/assets/asset-history.service';
 import { AssetLifecycleService } from '../src/modules/assets/asset-lifecycle.service';
 import { AssetsService } from '../src/modules/assets/assets.service';
+import { AssetTransferRequestsController } from '../src/modules/assets/asset-transfer-requests.controller';
+import { AssetTransferRequestsService } from '../src/modules/assets/asset-transfer-requests.service';
 import { FarmAccessGuard } from '../src/modules/auth/farm-access/farm-access.guard';
 import { StockIssuesController } from '../src/modules/warehouses/stock-issues.controller';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
@@ -75,7 +77,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     const response = await http()
       .post(`/api/v1/assets/${id}/return`)
       .query({ farmId })
-      .send(body);
+      .send({ condition: 'GOOD', ...body });
     return { status: response.status, body: response.body as unknown };
   };
 
@@ -248,6 +250,23 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       [farmId, warehouse, item, quantity],
     );
 
+  /** P1-02: the destination counts in the asset dispatched across warehouses. */
+  const receiveTransfer = async (
+    assetId: string,
+    body: Record<string, unknown> = {},
+    expected?: number,
+  ) => {
+    const { rows } = await pool.query<{ id: string; asset_code: string }>(
+      "SELECT r.id, a.asset_code FROM asset_transfer_requests r JOIN assets a ON a.id=r.asset_id WHERE r.farm_id=$1 AND r.asset_id=$2 AND r.status='IN_TRANSIT'",
+      [farmId, assetId],
+    );
+    const response = http()
+      .post(`/api/v1/asset-transfer-requests/${rows[0].id}/receive`)
+      .query({ farmId })
+      .send({ assetCode: rows[0].asset_code, condition: 'GOOD', ...body });
+    return expected ? response.expect(expected) : response;
+  };
+
   const transactionRows = async (assetId: string) => {
     const result = await pool.query<{
       transaction_type: string;
@@ -281,6 +300,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       farmId,
     ]);
     await pool.query('DELETE FROM asset_incidents WHERE farm_id=$1', [farmId]);
+    await pool.query('DELETE FROM asset_transfer_requests WHERE farm_id=$1', [
+      farmId,
+    ]);
+    await pool.query('DELETE FROM notifications WHERE farm_id=$1', [farmId]);
     await pool.query('DELETE FROM asset_assignments WHERE farm_id=$1', [
       farmId,
     ]);
@@ -515,12 +538,14 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     const module = await Test.createTestingModule({
       controllers: [
         AssetsController,
+        AssetTransferRequestsController,
         StockIssuesController,
         StockReceiptsController,
         MaintenanceController,
       ],
       providers: [
         AssetsService,
+        AssetTransferRequestsService,
         AssetLifecycleService,
         AssetHistoryService,
         StockIssuesService,
@@ -816,12 +841,29 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       },
     ]);
 
+    // P1-11: a manager recording receipt for the assignee must give the basis.
+    await http()
+      .post(`/api/v1/assets/${assetIds[2]}/start-use`)
+      .query({ farmId })
+      .send({ note: '   ' })
+      .expect(400);
+    expect((await readAsset(assetIds[2])).status).toBe('ASSIGNED');
+    identity = guestIdentity;
     await http()
       .post(`/api/v1/assets/${assetIds[2]}/start-use`)
       .query({ farmId })
       .send({})
       .expect(201);
+    identity = ownerIdentity;
     expect((await readAsset(assetIds[2])).status).toBe('IN_USE');
+    const started = await pool.query<{ new_data: Record<string, unknown> }>(
+      "SELECT new_data FROM audit_logs WHERE farm_id=$1 AND entity_id=$2 AND action='ASSET_USE_STARTED'",
+      [farmId, assetIds[2]],
+    );
+    expect(started.rows[0].new_data).toMatchObject({
+      receivedByMemberId: guestMemberId,
+      recordedByMemberId: guestMemberId,
+    });
 
     await http()
       .post(`/api/v1/assets/${assetIds[2]}/assign`)
@@ -860,6 +902,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       .send({
         warehouseId: destinationWarehouseId,
         locationId: destinationLocationId,
+        condition: 'GOOD',
       })
       .expect(201);
     expect((await readAsset(assetIds[2])).status).toBe('AVAILABLE');
@@ -1080,12 +1123,36 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         note: 'Move to workshop',
       })
       .expect(201);
+    // P1-02: dispatched only; the destination is not credited and the asset is out of use.
     expect(moved.body as unknown).toMatchObject({
+      data: { status: 'TRANSFER_PENDING', currentLocationId: null },
+    });
+    expect(await balance(warehouseId)).toBe('0.000');
+    expect(await balance(destinationWarehouseId)).toBe('0.000');
+    expect(await transactionRows(assetIds[2])).toMatchObject([
+      { transaction_type: 'TRANSFER_OUT' },
+    ]);
+    await assetAction(assetIds[2], 'assign', assignmentInput()).expect(409);
+    await receiveTransfer(assetIds[2], { assetCode: 'NOT-THIS-ONE' }, 409);
+    await receiveTransfer(assetIds[2], { condition: 'DAMAGED' }, 400);
+    expect(await balance(destinationWarehouseId)).toBe('0.000');
+    const received = await receiveTransfer(assetIds[2], {}, 201);
+    expect(received.body as unknown).toMatchObject({
       data: {
-        status: 'AVAILABLE',
-        currentLocationId: destinationLocationId,
+        request: { status: 'CONFIRMED', receivedCondition: 'GOOD' },
+        asset: {
+          status: 'AVAILABLE',
+          currentLocationId: destinationLocationId,
+        },
       },
     });
+    const transferId = (received.body as { data: { request: { id: string } } })
+      .data.request.id;
+    await http()
+      .post(`/api/v1/asset-transfer-requests/${transferId}/receive`)
+      .query({ farmId })
+      .send({ assetCode: 'x', condition: 'GOOD' })
+      .expect(409);
     expect(await balance(warehouseId)).toBe('0.000');
     expect(await balance(destinationWarehouseId)).toBe('1.000');
     const rows = await transactionRows(assetIds[2]);
@@ -1097,8 +1164,8 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     expect(rows.every((row) => row.source_type === 'ASSET_TRANSFER')).toBe(
       true,
     );
-    expect(rows[0].movement_group_id).toBeTruthy();
-    expect(rows[0].movement_group_id).toBe(rows[1].movement_group_id);
+    expect(rows[0].movement_group_id).toBe(transferId);
+    expect(rows[1].movement_group_id).toBe(transferId);
 
     await resetData();
     await seedBalance(warehouseId, '1');
@@ -1137,6 +1204,14 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       201, 409,
     ]);
     expect(await balance(warehouseId)).toBe('0.000');
+    expect(await transactionRows(assetIds[2])).toHaveLength(1);
+    const receives = await Promise.all([
+      receiveTransfer(assetIds[2]),
+      receiveTransfer(assetIds[2]),
+    ]);
+    expect(receives.map((response) => response.status).sort()).toEqual([
+      201, 409,
+    ]);
     expect(await balance(destinationWarehouseId)).toBe('1.000');
     expect(await transactionRows(assetIds[2])).toHaveLength(2);
   });
@@ -1294,6 +1369,34 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     );
     expect(assignment.rows[0]).toMatchObject({ status: 'RETURNED' });
     expect(assignment.rows[0].returned_at).not.toBeNull();
+  });
+
+  it('keeps a damaged return in stock but out of use until it is retired (P0-03)', async () => {
+    const damaged = { ...destinationInput(), condition: 'DAMAGED' };
+    expect((await returnAsset(assetIds[0], damaged)).status).toBe(400);
+    expect(
+      (await returnAsset(assetIds[0], { ...damaged, condition: 'BROKEN' }))
+        .status,
+    ).toBe(400);
+    const response = await returnAsset(assetIds[0], {
+      ...damaged,
+      note: 'Gãy càng',
+    });
+    expect(response.status).toBe(201);
+    expect((await readAsset(assetIds[0])).status).toBe('DAMAGED');
+    // Physically back in the warehouse, counted once.
+    expect(await balance(destinationWarehouseId)).toBe('1.000');
+    expect((await movements(assetIds[0])).count).toBe('1');
+    // Never handed out again, and a retry does not count it twice.
+    await assetAction(assetIds[0], 'assign', assignmentInput()).expect(409);
+    // Lost then recovered would make it AVAILABLE and count it twice.
+    await assetAction(assetIds[0], 'incidents', incidentInput()).expect(409);
+    expect((await returnAsset(assetIds[0])).status).toBe(409);
+    await assetAction(assetIds[0], 'retire', {
+      note: 'Không sửa được',
+    }).expect(201);
+    expect((await readAsset(assetIds[0])).status).toBe('RETIRED');
+    expect(await balance(destinationWarehouseId)).toBe('0.000');
   });
 
   it('rejects sequential duplicate returns and returns only ASSIGNED or IN_USE assets', async () => {
@@ -1540,8 +1643,29 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       .send(destinationInput())
       .expect(201);
     await maintenanceAction(recordId, 'return-receipt/approve').expect(201);
-    expect((await readAsset(assetIds[2])).status).toBe('AVAILABLE');
+    // Back in stock, but in use again only once the owner decides (NV04, P1-05).
+    expect((await readAsset(assetIds[2])).status).toBe('MAINTENANCE');
     expect(await balance(destinationWarehouseId)).toBe('1.000');
+    // Still open until decided: no loss report (then recovery), no new repair.
+    await assetAction(assetIds[2], 'incidents', incidentInput()).expect(409);
+    await http()
+      .post('/api/v1/maintenance-records')
+      .query({ farmId })
+      .send({ assetId: assetIds[2], maintenanceType: 'INSPECTION' })
+      .expect(409);
+    await maintenanceAction(recordId, 'final-decision/hold')
+      .send({})
+      .expect(400);
+    await maintenanceAction(recordId, 'final-decision/reuse')
+      .send({})
+      .expect(201);
+    await maintenanceAction(recordId, 'final-decision/reuse')
+      .send({})
+      .expect(201);
+    await maintenanceAction(recordId, 'final-decision/hold')
+      .send({ note: 'Đổi ý' })
+      .expect(409);
+    expect((await readAsset(assetIds[2])).status).toBe('AVAILABLE');
     expect(
       (await transactionRows(assetIds[2])).map((row) => row.quantity_change),
     ).toEqual(['-1.000', '1.000']);
@@ -1566,6 +1690,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       .send({ warehouseId, locationId })
       .expect(201);
     await maintenanceAction(first, 'return-receipt/approve').expect(201);
+    await maintenanceAction(first, 'final-decision/reuse').send({}).expect(201);
     const second = await scheduleMaintenance(assetIds[2]);
     await maintenanceAction(second, 'start').expect(201);
     await maintenanceAction(second, 'cancel').expect(409);
@@ -1605,7 +1730,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     const writes = () => [
       { action: 'assign', body: assignmentInput() },
       { action: 'start-use', body: {} },
-      { action: 'return', body: destinationInput() },
+      { action: 'return', body: { ...destinationInput(), condition: 'GOOD' } },
       { action: 'transfer', body: destinationInput() },
       { action: 'incidents', body: incidentInput() },
       {
@@ -1782,9 +1907,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     it('allows only one concurrent start-use and requires an active assignment', async () => {
       await seedBalance();
       await assetAction(assetIds[2], 'assign', assignmentInput()).expect(201);
+      const basis = { note: 'Biên bản bàn giao số 12' };
       const responses = await Promise.all([
-        assetAction(assetIds[2], 'start-use'),
-        assetAction(assetIds[2], 'start-use'),
+        assetAction(assetIds[2], 'start-use', basis),
+        assetAction(assetIds[2], 'start-use', basis),
       ]);
       expect(responses.map((response) => response.status).sort()).toEqual([
         201, 409,
@@ -1796,6 +1922,15 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
           (action) => action === 'ASSET_USE_STARTED',
         ),
       ).toHaveLength(1);
+      const recorded = await pool.query<{ new_data: Record<string, unknown> }>(
+        "SELECT new_data FROM audit_logs WHERE farm_id=$1 AND entity_id=$2 AND action='ASSET_USE_STARTED'",
+        [farmId, assetIds[2]],
+      );
+      expect(recorded.rows[0].new_data).toMatchObject({
+        receivedByMemberId: guestMemberId,
+        recordedByMemberId: ownerMemberId,
+        note: basis.note,
+      });
       await pool.query("UPDATE assets SET status='ASSIGNED' WHERE id=$1", [
         assetIds[1],
       ]);
@@ -1867,9 +2002,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
             409,
           );
           await assetAction(assetIds[2], 'start-use').expect(409);
-          await assetAction(assetIds[2], 'return', destinationInput()).expect(
-            409,
-          );
+          await assetAction(assetIds[2], 'return', {
+            ...destinationInput(),
+            condition: 'GOOD',
+          }).expect(409);
         }
         expect(await lifecycleState()).toEqual(before);
       }
@@ -1887,6 +2023,13 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         assetAction(assetIds[1], 'transfer', { warehouseId, locationId }),
       ]);
       expect(responses.map((response) => response.status)).toEqual([201, 201]);
+      expect(await balance(warehouseId)).toBe('0.000');
+      expect(await balance(destinationWarehouseId)).toBe('0.000');
+      const receives = await Promise.all([
+        receiveTransfer(assetIds[2]),
+        receiveTransfer(assetIds[1]),
+      ]);
+      expect(receives.map((response) => response.status)).toEqual([201, 201]);
       expect(await balance(warehouseId)).toBe('1.000');
       expect(await balance(destinationWarehouseId)).toBe('1.000');
       expect((await readAsset(assetIds[2])).current_location_id).toBe(
@@ -1939,7 +2082,9 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
             ? assignmentInput()
             : action === 'start-use'
               ? {}
-              : destinationInput();
+              : action === 'return'
+                ? { ...destinationInput(), condition: 'GOOD' }
+                : destinationInput();
         const before = await lifecycleState();
         await assetAction(id, action, body).expect(409);
         expect(await lifecycleState()).toEqual(before);
@@ -1952,7 +2097,7 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       ['assign', 'ASSET_ASSIGNED'],
       ['handover', 'ASSET_REASSIGNED'],
       ['start-use', 'ASSET_USE_STARTED'],
-      ['transfer', 'ASSET_TRANSFERRED'],
+      ['transfer', 'ASSET_TRANSFER_DISPATCHED'],
       ['return', 'ASSET_RETURNED'],
     ])(
       'rolls back %s completely if its audit write fails',
@@ -1968,9 +2113,11 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         const body =
           action === 'start-use'
             ? {}
-            : ['return', 'transfer'].includes(action)
-              ? destinationInput()
-              : assignmentInput();
+            : action === 'return'
+              ? { ...destinationInput(), condition: 'GOOD' }
+              : action === 'transfer'
+                ? destinationInput()
+                : assignmentInput();
         const before = await lifecycleState();
         await withWriteFailure('audit_logs', id, auditAction, async () => {
           await assetAction(
@@ -1988,23 +2135,31 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       },
     );
 
-    it('rolls back both transfer movements, location, audit and a new balance if the second movement fails', async () => {
+    it('rolls back a receipt completely (balance, location, status, request) if its movement fails', async () => {
       await seedBalance();
-      const before = await lifecycleState();
+      await assetAction(assetIds[2], 'transfer', destinationInput()).expect(
+        201,
+      );
+      const state = async () => [
+        await lifecycleState(),
+        (
+          await pool.query(
+            'SELECT * FROM asset_transfer_requests WHERE farm_id=$1',
+            [farmId],
+          )
+        ).rows,
+      ];
+      const before = await state();
       await withWriteFailure(
         'inventory_transactions',
         assetIds[2],
         'TRANSFER_IN',
         async () => {
-          await assetAction(assetIds[2], 'transfer', destinationInput()).expect(
-            500,
-          );
-          expect(await lifecycleState()).toEqual(before);
+          await receiveTransfer(assetIds[2], {}, 500);
+          expect(await state()).toEqual(before);
         },
       );
-      await assetAction(assetIds[2], 'transfer', destinationInput()).expect(
-        201,
-      );
+      await receiveTransfer(assetIds[2], {}, 201);
       expect(await transactionRows(assetIds[2])).toHaveLength(2);
     });
   });
@@ -2061,9 +2216,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         await assetAction(assetIds[2], `incidents/${incidentId}/status`, {
           status: 'IN_PROGRESS',
         }).expect(409);
-        await assetAction(assetIds[2], 'return', destinationInput()).expect(
-          409,
-        );
+        await assetAction(assetIds[2], 'return', {
+          ...destinationInput(),
+          condition: 'GOOD',
+        }).expect(409);
         await assetAction(assetIds[2], 'recover', destinationInput()).expect(
           201,
         );
@@ -2086,7 +2242,9 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         if (status !== 'UNASSIGNED_IN_USE') {
           await assetAction(id, 'assign', assignmentInput()).expect(201);
           if (status === 'IN_USE')
-            await assetAction(id, 'start-use').expect(201);
+            await assetAction(id, 'start-use', {
+              note: 'Biên bản bàn giao',
+            }).expect(201);
         }
         const previousMovements = await transactionRows(id);
         const previousBalance = await balance(warehouseId);

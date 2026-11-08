@@ -376,26 +376,27 @@ describe('Asset transfer requests', () => {
     expect((await assetRow()).status).toBe('AVAILABLE');
   });
 
-  it('runs the transfer on approval and tells the requester', async () => {
+  it('dispatches on approval, waits for the destination, then receives once (P1-02)', async () => {
     const request = await create('creator');
     await expect(
       requests.approve(request.id, farm, clerk('creator')),
     ).rejects.toThrow('Warehouse write permission is required');
     const result = await requests.approve(request.id, farm, clerk('owner'));
     expect(result.request).toMatchObject({
-      status: 'CONFIRMED',
+      status: 'IN_TRANSIT',
       reviewedByMemberId: actors.owner.member,
     });
+    // Source debited; the destination is not credited and the asset is not usable yet.
     expect(await assetRow()).toEqual({
-      status: 'AVAILABLE',
-      current_location_id: targetShelf,
+      status: 'TRANSFER_PENDING',
+      current_location_id: null,
     });
     expect(await quantity(source)).toBe('0.000');
-    expect(await quantity(target)).toBe('1.000');
+    expect(Number((await quantity(target)) ?? 0)).toBe(0);
     expect(await notificationsFor(actors.creator.id)).toEqual([
       expect.objectContaining({
-        type: 'ASSET_TRANSFER_REQUEST_CONFIRMED',
-        title: 'Yêu cầu chuyển tài sản đã được duyệt',
+        type: 'ASSET_TRANSFER_REQUEST_IN_TRANSIT',
+        title: 'Yêu cầu chuyển tài sản đã duyệt, tài sản đang chuyển',
       }),
     ]);
     await expect(
@@ -403,6 +404,60 @@ describe('Asset transfer requests', () => {
     ).rejects.toThrow(
       'Only PENDING_APPROVAL transfer requests can be reviewed',
     );
+    await expect(
+      lifecycle.transfer(asset, farm, clerk('owner'), {
+        warehouseId: source,
+        locationId: sourceShelf,
+      }),
+    ).rejects.toThrow('Only AVAILABLE assets can be transferred');
+
+    const receive = (
+      actor: Actor,
+      body: { assetCode: string; condition: 'GOOD' | 'DAMAGED'; note?: string },
+    ) => requests.receive(request.id, farm, clerk(actor), body);
+    await expect(
+      receive('creator', { assetCode: `${tag}-A`, condition: 'GOOD' }),
+    ).rejects.toThrow('Warehouse write permission is required');
+    await expect(
+      receive('owner', { assetCode: `${tag}-B`, condition: 'GOOD' }),
+    ).rejects.toThrow('ASSET_MISMATCH');
+    await expect(
+      receive('owner', { assetCode: `${tag}-A`, condition: 'DAMAGED' }),
+    ).rejects.toThrow('note is required');
+    expect(Number((await quantity(target)) ?? 0)).toBe(0);
+
+    const received = await receive('owner', {
+      assetCode: ` ${tag}-a `,
+      condition: 'DAMAGED',
+      note: 'Móp vỏ khi vận chuyển',
+    });
+    expect(received.request).toMatchObject({
+      status: 'CONFIRMED',
+      receivedByMemberId: actors.owner.member,
+      receivedCondition: 'DAMAGED',
+      receiveNote: 'Móp vỏ khi vận chuyển',
+    });
+    // Damaged on arrival: in the destination stock, out of use.
+    expect(await assetRow()).toEqual({
+      status: 'DAMAGED',
+      current_location_id: targetShelf,
+    });
+    expect(await quantity(target)).toBe('1.000');
+    await expect(
+      receive('owner', { assetCode: `${tag}-A`, condition: 'GOOD' }),
+    ).rejects.toThrow('Only IN_TRANSIT');
+    expect(await quantity(source)).toBe('0.000');
+    expect(await quantity(target)).toBe('1.000');
+    expect(
+      (await notificationsFor(actors.creator.id)).map((n) => n.type),
+    ).toContain('ASSET_TRANSFER_REQUEST_CONFIRMED');
+    // The database refuses a receipt without its condition.
+    await expect(
+      pool.query(
+        'UPDATE asset_transfer_requests SET received_condition=NULL WHERE id=$1',
+        [request.id],
+      ),
+    ).rejects.toThrow('ck_asset_transfer_received');
   });
 
   it('frees the asset on rejection and separates each actor’s audit history', async () => {

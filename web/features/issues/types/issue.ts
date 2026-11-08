@@ -45,6 +45,12 @@ export interface Issue {
   confirmedAt: string | null;
   cancelledAt: string | null;
   rejectionReason?: string | null;
+  /** NV02: who receives the goods; they acknowledge after confirmation. */
+  recipientMemberId?: string | null;
+  recipientName?: string | null;
+  receivedAt?: string | null;
+  receivedRecordedByMemberId?: string | null;
+  receiptNote?: string | null;
 }
 
 export interface IssueLine {
@@ -84,6 +90,7 @@ export interface CreateIssueInput extends NumberingOptions {
   issueDate?: string;
   issueType: IssueType;
   maintenanceRecordId?: string | null;
+  recipientMemberId?: string | null;
   reason?: string | null;
   note?: string | null;
   items: {

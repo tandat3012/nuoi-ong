@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -22,8 +23,8 @@ import {
 } from '../../db/schema';
 import { ReturnAssetDto } from './dto/return-asset.dto';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { assertInScope, scopeCondition } from '../warehouses/warehouse-scope';
-import { assetWarehouseId } from './asset-warehouse';
+import { assertInScope } from '../warehouses/warehouse-scope';
+import { assetReadableInScope, assetWarehouseId } from './asset-warehouse';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 
@@ -69,6 +70,8 @@ export class AssetsService {
       WAREHOUSE_MANAGE_ROLES,
     );
     assertInScope(scope, input.warehouseId);
+    if (input.condition === 'DAMAGED' && !input.note?.trim())
+      throw new BadRequestException('A damaged return needs a note');
     const [actor] = await this.databaseService.db
       .select({ userId: users.id })
       .from(farmMembers)
@@ -229,7 +232,7 @@ export class AssetsService {
       const [updatedAsset] = await tx
         .update(assets)
         .set({
-          status: 'AVAILABLE',
+          status: input.condition === 'DAMAGED' ? 'DAMAGED' : 'AVAILABLE',
           currentLocationId: location.id,
           updatedAt: now,
         })
@@ -262,9 +265,14 @@ export class AssetsService {
         entityId: id,
         oldData: { status: asset.status, locationId: asset.currentLocationId },
         newData: {
-          status: 'AVAILABLE',
+          status: updatedAsset.status,
+          condition: input.condition,
+          note: input.note ?? null,
           locationId: location.id,
-          summary: `Đã nhận lại tài sản tại vị trí ${location.id}`,
+          summary:
+            input.condition === 'DAMAGED'
+              ? `Đã nhận lại tài sản hỏng tại vị trí ${location.id}`
+              : `Đã nhận lại tài sản tại vị trí ${location.id}`,
         },
       });
       return updatedAsset;
@@ -277,7 +285,8 @@ export class AssetsService {
       filters.farmId,
       filters.clerkUserId,
     );
-    if (scope) predicates.push(scopeCondition(assetWarehouseId, scope)!);
+    if (scope)
+      predicates.push(scope.length ? assetReadableInScope(scope) : sql`false`);
 
     if (filters.search) {
       predicates.push(
@@ -394,7 +403,23 @@ export class AssetsService {
       farmId,
       clerkUserId,
     );
-    const where = and(condition, scopeCondition(assetWarehouseId, scope));
+    let scoped: SQL | undefined = scope
+      ? scope.length
+        ? assetReadableInScope(scope)
+        : sql`false`
+      : undefined;
+    if (scoped) {
+      // The assignee reads their asset from any warehouse, to confirm receipt (P1-11).
+      const { memberId } = await this.warehousesService.getActiveMembership(
+        farmId,
+        clerkUserId,
+      );
+      scoped = or(
+        scoped,
+        sql`EXISTS (SELECT 1 FROM asset_assignments aa WHERE aa.asset_id = ${assets.id} AND aa.status = 'ACTIVE' AND aa.assigned_to_member_id = ${memberId})`,
+      );
+    }
+    const where = and(condition, scoped);
     const [asset] = await this.databaseService.db
       .select({
         asset: assets,

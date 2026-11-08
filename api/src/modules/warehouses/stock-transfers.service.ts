@@ -33,6 +33,7 @@ import {
 import {
   CreateStockTransferDto,
   ReceiveStockTransferDto,
+  ResolveStockTransferDto,
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
 import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
@@ -50,7 +51,10 @@ import {
   notifyDocumentCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  FARM_ADMIN_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 const balanceKey = (
   warehouseId: string,
   itemId: string,
@@ -61,6 +65,8 @@ const milli = (quantity: string) => {
   const [whole, fraction = ''] = quantity.split('.');
   return BigInt(whole + fraction.padEnd(3, '0'));
 };
+const fromMilli = (value: bigint) =>
+  `${value / 1000n}.${(value % 1000n).toString().padStart(3, '0')}`;
 type ReceivedLine = NonNullable<ReceiveStockTransferDto['items']>[number];
 type Filters = PaginationParams & {
   farmId: string;
@@ -413,7 +419,8 @@ export class StockTransfersService {
       const row = await this.only(id, farmId, tx, true);
       assertInScope(scope, row.fromWarehouseId);
       // A retried click: already dispatched, never debit twice.
-      if (row.status === 'IN_TRANSIT' || row.status === 'CONFIRMED') return;
+      if (['IN_TRANSIT', 'DISCREPANCY', 'CONFIRMED'].includes(row.status))
+        return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(row.status))
         throw new ConflictException(
           'Only DRAFT or PENDING_APPROVAL transfers can be confirmed',
@@ -517,7 +524,8 @@ export class StockTransfersService {
 
   /**
    * Destination manager counts the goods in. Lines not listed arrived in full;
-   * a short line needs a reason and only what arrived is credited.
+   * a short line needs a reason and only what arrived is credited. Any short
+   * line leaves the transfer DISCREPANCY until `resolve` settles the rest.
    */
   async receive(
     id: string,
@@ -537,7 +545,7 @@ export class StockTransfersService {
       const row = await this.only(id, farmId, tx, true);
       assertInScope(scope, row.toWarehouseId);
       // A retried click: already received, never credit twice.
-      if (row.status === 'CONFIRMED') return;
+      if (row.status === 'CONFIRMED' || row.status === 'DISCREPANCY') return;
       if (row.status !== 'IN_TRANSIT')
         throw new ConflictException(
           'Only IN_TRANSIT transfers can be received',
@@ -562,11 +570,13 @@ export class StockTransfersService {
         row.toWarehouseId,
         lines,
       );
+      let anyShort = false;
       for (const line of lines) {
         const entry = counted.get(line.id);
         const quantity = entry?.receivedQuantity ?? line.quantity;
         const reason = entry?.discrepancyReason?.trim() || null;
         const short = milli(quantity) < milli(line.quantity);
+        anyShort ||= short;
         if (milli(quantity) > milli(line.quantity))
           throw new BadRequestException(
             'Received quantity cannot exceed the dispatched quantity',
@@ -611,16 +621,19 @@ export class StockTransfersService {
         });
       }
       const now = new Date().toISOString();
+      const status = anyShort
+        ? ('DISCREPANCY' as const)
+        : ('CONFIRMED' as const);
       await tx
         .update(stockTransfers)
         .set({
-          status: 'CONFIRMED',
+          status,
           confirmedByMemberId: member,
           confirmedAt: now,
           updatedAt: now,
         })
         .where(eq(stockTransfers.id, id));
-      const confirmed = { ...row, status: 'CONFIRMED' as const };
+      const confirmed = { ...row, status };
       await auditStockDocument(
         tx,
         member,
@@ -630,12 +643,130 @@ export class StockTransfersService {
         confirmed,
         { after: received },
       );
+      // The order waiting on this top-up keeps waiting until the rest is settled.
+      if (anyShort) return;
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,
           {
             ...this.notification(confirmed, 'CONFIRMED'),
             title: 'Kho đích đã nhận hàng',
+          },
+          row.createdByMemberId,
+        );
+      await this.hooks.run('confirmed', tx, id, member);
+    });
+    return this.withItems(id, farmId);
+  }
+
+  /**
+   * A manager settles what a short receipt left open: the rest returns to the
+   * source warehouse, or is written off (already out of the source's stock).
+   */
+  async resolve(
+    id: string,
+    farmId: string,
+    user: string,
+    input: ResolveStockTransferDto,
+  ) {
+    const { memberId: member } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        FARM_ADMIN_ROLES,
+      );
+    const note = input.note.trim();
+    if (!note) throw new BadRequestException('A resolution needs a note');
+    await this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
+      const row = await this.only(id, farmId, tx, true);
+      // A retried click: already settled, never credit twice.
+      if (row.status === 'CONFIRMED' && row.resolution) return;
+      if (row.status !== 'DISCREPANCY')
+        throw new ConflictException(
+          'Only DISCREPANCY transfers can be resolved',
+        );
+      if (input.resolution === 'RETURN_TO_SOURCE') {
+        await this.assertWarehouse(tx, farmId, row.fromWarehouseId);
+        const lines = await tx
+          .select()
+          .from(stockTransferItems)
+          .where(eq(stockTransferItems.stockTransferId, id));
+        const open = lines
+          .map((line) => ({
+            line,
+            rest: milli(line.quantity) - milli(line.receivedQuantity ?? '0'),
+          }))
+          .filter(({ rest }) => rest > 0n);
+        const balances = await this.lockBalances(
+          tx,
+          farmId,
+          row.fromWarehouseId,
+          open.map(({ line }) => line),
+        );
+        for (const { line, rest } of open) {
+          const quantity = fromMilli(rest);
+          await tx
+            .update(inventoryBalances)
+            .set({
+              quantityOnHand: sql`${inventoryBalances.quantityOnHand} + ${quantity}`,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(
+              eq(
+                inventoryBalances.id,
+                balances.get(
+                  balanceKey(row.fromWarehouseId, line.itemId, line.lotId),
+                )!,
+              ),
+            );
+          await tx.insert(inventoryTransactions).values({
+            farmId,
+            warehouseId: row.fromWarehouseId,
+            itemId: line.itemId,
+            lotId: line.lotId,
+            assetId: line.assetId,
+            transactionType: 'RETURN_IN',
+            quantityChange: quantity,
+            sourceType: 'STOCK_TRANSFER',
+            sourceId: id,
+            performedByMemberId: member,
+          });
+        }
+      }
+      const now = new Date().toISOString();
+      await tx
+        .update(stockTransfers)
+        .set({
+          status: 'CONFIRMED',
+          resolution: input.resolution,
+          resolutionNote: note,
+          resolvedByMemberId: member,
+          resolvedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(stockTransfers.id, id));
+      const settled = {
+        ...row,
+        status: 'CONFIRMED' as const,
+        resolution: input.resolution,
+        resolutionNote: note,
+      };
+      await auditStockDocument(
+        tx,
+        member,
+        'STOCK_TRANSFER',
+        'RESOLVE',
+        row,
+        settled,
+      );
+      if (row.createdByMemberId !== member)
+        await notifyDocumentCreator(
+          tx,
+          {
+            ...this.notification(settled, 'CONFIRMED'),
+            title: 'Chênh lệch điều chuyển đã được xử lý',
           },
           row.createdByMemberId,
         );

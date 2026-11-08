@@ -169,6 +169,63 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       ).rejects.toThrow();
     }));
 
+  it('re-quotes and repairs again within the same request, asking consent each time (P1-10)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, warranties } = ctx;
+      const { order, line } = await delivered(ctx);
+      const { id } = await claim(ctx, order.id, line.id);
+      const act = (body: Parameters<StoreWarrantiesService['act']>[3]) =>
+        warranties.act(ids.farm, ids.staff, id, body);
+      await act({ action: 'send', partnerName: 'Sửa chữa Minh Phát' });
+      await act({ action: 'quote', quoteAmount: '350000' });
+      // The partner revises the quote before the customer answers.
+      await act({ action: 'quote', quoteAmount: '300000' });
+      await act({ action: 'decide', approved: true });
+      await act({ action: 'start-repair' });
+      // A further fault mid-repair: new price, the old consent no longer holds.
+      const requoted = await act({ action: 'quote', quoteAmount: '500000' });
+      expect(requoted).toMatchObject({
+        status: 'AWAITING_CUSTOMER',
+        quoteAmount: '500000',
+        customerApproved: null,
+        repairStartedAt: null,
+      });
+      await act({ action: 'decide', approved: true, note: 'Đồng ý giá mới' });
+      await act({ action: 'start-repair' });
+      await act({ action: 'back', result: 'Vẫn chưa chạy', actualCost: '0' });
+      // Back but not fixed: send it round again instead of closing.
+      const again = await act({ action: 'send', partnerName: 'Điện máy An' });
+      expect(again).toMatchObject({
+        status: 'AT_PARTNER',
+        partnerName: 'Điện máy An',
+        result: null,
+        customerApproved: null,
+      });
+      await expect(act({ action: 'start-repair' })).rejects.toMatchObject({
+        response: { code: 'CUSTOMER_CONSENT_REQUIRED' },
+      });
+      await act({ action: 'quote', quoteAmount: '200000' });
+      await act({ action: 'decide', approved: true });
+      await act({ action: 'start-repair' });
+      await act({ action: 'back', result: 'Đã chạy', actualCost: '200000' });
+      expect(await act({ action: 'return' })).toMatchObject({
+        status: 'CLOSED',
+        actualCost: '200000',
+      });
+      // One request, every round in its history.
+      const rounds = await tx
+        .select({ action: schema.auditLogs.action })
+        .from(schema.auditLogs)
+        .where(eq(schema.auditLogs.entityId, id));
+      expect(rounds.length).toBeGreaterThanOrEqual(14);
+      expect(
+        await tx
+          .select({ id: schema.storeWarrantyRequests.id })
+          .from(schema.storeWarrantyRequests)
+          .where(eq(schema.storeWarrantyRequests.orderId, order.id)),
+      ).toHaveLength(1);
+    }));
+
   it('records an agreed paid repair through to handing it back', () =>
     inRollback(async (ctx) => {
       const { ids, warranties } = ctx;
@@ -258,8 +315,18 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
       await service.ship(ids.farm, ids.staff, order.id);
       await service.complete(ids.farm, ids.staff, order.id);
-      const [line] = (await service.staffGet(ids.farm, order.id)).items;
-      const { id } = await claim(ctx, order.id, line.id);
+      const detail = await service.staffGet(ids.farm, order.id);
+      const [line] = detail.items;
+      // P1-09: an ASSET line is claimed by the delivered unit.
+      const { id } = await ctx.warranties.create(ids.farm, ids.staff, {
+        orderId: order.id,
+        orderItemId: line.id,
+        assetId: detail.deliveredAssets[0].id,
+        quantity: 1,
+        kind: 'WARRANTY',
+        issueDescription: 'Không hoạt động',
+        intakeNote: 'Khách mang đến cửa hàng',
+      });
       const exchanging = await warranties.act(ids.farm, ids.staff, id, {
         action: 'exchange',
       });
@@ -287,6 +354,85 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       expect(
         await warranties.act(ids.farm, ids.staff, id, { action: 'close' }),
       ).toMatchObject({ status: 'CLOSED', resolution: 'EXCHANGE' });
+    }));
+
+  it('claims an ASSET by the delivered unit, one open claim per unit (P1-09)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, issues, input } = ctx;
+      await tx
+        .update(schema.storeProductVariants)
+        .set({ quantityStep: '1' })
+        .where(eq(schema.storeProductVariants.id, ids.variant));
+      await tx
+        .update(schema.items)
+        .set({ trackingMode: 'ASSET', itemType: 'EQUIPMENT' })
+        .where(eq(schema.items.id, ids.item));
+      const assetIds = [randomUUID(), randomUUID(), randomUUID()];
+      await tx.insert(schema.assets).values(
+        assetIds.map((id, index) => ({
+          id,
+          farmId: ids.farm,
+          itemId: ids.item,
+          assetCode: id,
+          serialNumber: `SN-${index}`,
+          currentLocationId: ids.location,
+        })),
+      );
+      const { order } = await service.create(ids.customer, input(2));
+      const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
+      await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
+      await service.ship(ids.farm, ids.staff, order.id);
+      await service.complete(ids.farm, ids.staff, order.id);
+      const detail = await service.staffGet(ids.farm, order.id);
+      const sold = detail.deliveredAssets.map((asset) => asset.id);
+      expect(sold).toHaveLength(2);
+      const unsold = assetIds.find((id) => !sold.includes(id))!;
+      const line = detail.items[0];
+      const claimAsset = (assetId?: string, quantity = 1) =>
+        ctx.warranties.create(ids.farm, ids.staff, {
+          orderId: order.id,
+          orderItemId: line.id,
+          quantity,
+          assetId,
+          kind: 'WARRANTY',
+          issueDescription: 'Không chạy',
+        });
+      await expect(claimAsset()).rejects.toMatchObject({
+        response: { code: 'WARRANTY_ASSET_REQUIRED' },
+      });
+      await expect(claimAsset(sold[0], 2)).rejects.toMatchObject({
+        response: { code: 'WARRANTY_ASSET_REQUIRED' },
+      });
+      // A unit still in the warehouse (or another order's) is not this sale.
+      await expect(claimAsset(unsold)).rejects.toMatchObject({
+        response: { code: 'WARRANTY_ASSET_NOT_DELIVERED' },
+      });
+      const first = await claimAsset(sold[0]);
+      expect(first).toMatchObject({ assetId: sold[0], quantity: 1 });
+      await expect(claimAsset(sold[0])).rejects.toMatchObject({
+        response: { code: 'WARRANTY_ASSET_OPEN' },
+      });
+      // A different serial of the same line is its own claim.
+      expect(await claimAsset(sold[1])).toMatchObject({ assetId: sold[1] });
+      // The line is now full: the reason given is still the open claim, in any case.
+      await expect(claimAsset(sold[1].toUpperCase())).rejects.toMatchObject({
+        response: { code: 'WARRANTY_ASSET_OPEN' },
+      });
+    }));
+
+  it('refuses an asset id on a quantity line (P1-09)', () =>
+    inRollback(async (ctx) => {
+      const { order, line } = await delivered(ctx);
+      await expect(
+        ctx.warranties.create(ctx.ids.farm, ctx.ids.staff, {
+          orderId: order.id,
+          orderItemId: line.id,
+          quantity: 1,
+          assetId: randomUUID(),
+          kind: 'WARRANTY',
+          issueDescription: 'Lỗi',
+        }),
+      ).rejects.toThrow('asset-tracked');
     }));
 
   it('keeps the exchange issue equal to the approved request until it is confirmed (P0-04)', () =>

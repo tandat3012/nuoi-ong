@@ -42,15 +42,21 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     category = randomUUID(),
     unit = randomUUID();
   const actors = Object.fromEntries(
-    ['MAINTENANCE_STAFF', 'WAREHOUSE_MANAGER', 'EMPLOYEE', 'STORE_MANAGER'].map(
-      (role) => [
-        role,
-        { user: randomUUID(), member: randomUUID(), clerk: randomUUID() },
-      ],
-    ),
+    [
+      'MAINTENANCE_STAFF',
+      'WAREHOUSE_MANAGER',
+      'EMPLOYEE',
+      'STORE_MANAGER',
+      'FARM_OWNER',
+    ].map((role) => [
+      role,
+      { user: randomUUID(), member: randomUUID(), clerk: randomUUID() },
+    ]),
   );
   const worker = actors.MAINTENANCE_STAFF.clerk,
-    manager = actors.WAREHOUSE_MANAGER.clerk;
+    manager = actors.WAREHOUSE_MANAGER.clerk,
+    // Gives the final reuse decision on a passed repair (NV04, P1-05).
+    owner = actors.FARM_OWNER.clerk;
   const before = () => new Date(Date.now() - 86400000).toISOString();
   const future = () => new Date(Date.now() + 86400000 * 3).toISOString();
   let asset: string;
@@ -477,6 +483,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
         assetsService.returnAsset(asset, farm, manager, {
           warehouseId: warehouse,
           locationId: location,
+          condition: 'GOOD',
         }),
       ).rejects.toThrow('active maintenance');
       expect(await balance()).toBe(original);
@@ -545,6 +552,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       locationId: location,
     });
     await service.reviewReturn(passed.id, farm, manager, true);
+    await service.decide(passed.id, farm, owner, true);
     expect(
       (await assetsService.getAsset(asset, farm, manager))
         .maintenanceRetryEligible,
@@ -614,6 +622,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       expect(closed.status).toBe('RETURNED');
       expect(closed.returnedAt).not.toBeNull();
       expect(await history.holder(asset, farm)).toBeNull();
+      if (outcome === 'PASSED') await service.decide(r.id, farm, owner, true);
       if (outcome === 'PASSED')
         await expect(
           lifecycle.assign(asset, farm, manager, {
@@ -644,7 +653,8 @@ describe('External maintenance, inspection and warehouse receipt', () => {
           eq(schema.notifications.entityType, 'MAINTENANCE_ASSET'),
         ),
       );
-    expect(oldNotifications).toHaveLength(2);
+    // Manager, worker and the owner added for final decisions are reminded.
+    expect(oldNotifications).toHaveLength(3);
     const catchUp = async () => {
       const [device] = await db
         .insert(schema.devicePushTokens)
@@ -769,11 +779,20 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(await balance()).toBe(original);
+    // In stock at the location, out of use until the owner decides.
     expect(await assetRow()).toMatchObject({
       id: asset,
-      status: 'AVAILABLE',
+      status: 'MAINTENANCE',
       currentLocationId: location,
     });
+    await expect(service.decide(r.id, farm, manager, true)).rejects.toThrow(
+      'permission',
+    );
+    await expect(service.decide(r.id, farm, owner, false)).rejects.toThrow(
+      'needs a note',
+    );
+    await service.decide(r.id, farm, owner, false, 'Chưa yên tâm');
+    expect((await assetRow()).status).toBe('DAMAGED');
     expect(
       (
         await pool.query<{
@@ -1160,7 +1179,8 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       "SELECT id FROM notifications WHERE entity_id=$1 AND type='MAINTENANCE_RECORD_OVERDUE'",
       [r.id],
     );
-    expect(rows.rows).toHaveLength(2);
+    // One per reminded member (manager, worker, owner), sent once.
+    expect(rows.rows).toHaveLength(3);
     expect(
       Number(
         (
@@ -1175,6 +1195,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
           )
         ).rows[0].count,
       ),
+      // The owner has no push device in this test; only in-app.
     ).toBe(2);
     await service.update(r.id, farm, manager, {
       scheduledAt: new Date(Date.now() + 86400000 * 2).toISOString(),
@@ -1192,7 +1213,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
           [r.id],
         )
       ).rows[0].count,
-    ).toBe('2');
+    ).toBe('3');
     const stale = await db
       .select({ id: schema.notifications.id })
       .from(schema.notifications)
@@ -1223,7 +1244,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
           [r.id],
         )
       ).rows[0].count,
-    ).toBe('2');
+    ).toBe('3');
     await service.receive(r.id, farm, worker, new Date().toISOString());
     expect(
       await db

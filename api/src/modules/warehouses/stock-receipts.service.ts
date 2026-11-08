@@ -26,6 +26,7 @@ import {
   locations,
   stockReceiptItems,
   stockReceipts,
+  storeOrders,
   suppliers,
   units,
   warehouses,
@@ -155,6 +156,10 @@ export class StockReceiptsService {
     assertInScope(writer.scope, input.warehouseId);
     const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
+    if (input.items.some((item) => item.assetCondition))
+      throw new BadRequestException(
+        'assetCondition is only for assets returned by an order',
+      );
     const transaction = this.databaseService.db.transaction(async (tx) => {
       await this.assertActiveWarehouse(tx, input.warehouseId, farmId);
       await this.assertReferences(tx, farmId, input);
@@ -222,10 +227,12 @@ export class StockReceiptsService {
       clerkUserId,
     );
     const numbering = numberingOptionChanges(input, writer);
-    if (input.items) this.validateItems(input.items);
     const transaction = this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       assertOwnDocument(writer, receipt.createdByMemberId, receipt.warehouseId);
+      // An order return may end up with nothing usable to take back.
+      if (input.items && !(await this.isOrderReturn(tx, id)))
+        this.validateItems(input.items);
       if (input.warehouseId) assertInScope(writer.scope, input.warehouseId);
       if (receipt.status !== 'DRAFT') {
         throw new ConflictException('Only DRAFT receipts can be edited');
@@ -265,34 +272,45 @@ export class StockReceiptsService {
         const legacyByLine = new Map(
           currentItems.map((line) => [line.id, line] as const),
         );
-        const legacyLotNumber = (item: (typeof input.items)[number]) => {
+        // So does the asset an order shipped: an edit never turns it into a new asset.
+        const sourceOf = (item: (typeof input.items)[number]) => {
           const source = item.lineId && legacyByLine.get(item.lineId);
-          if (!source) return null;
+          if (!source || source.itemId !== item.itemId) return undefined;
           legacyByLine.delete(source.id);
-          return !item.lotId && source.itemId === item.itemId
-            ? source.legacyLotNumber
-            : null;
+          return source;
         };
-        await tx
-          .delete(stockReceiptItems)
-          .where(eq(stockReceiptItems.stockReceiptId, id));
-        await tx.insert(stockReceiptItems).values(
-          input.items.map((item) => ({
+        const rows = input.items.map((item) => {
+          const source = sourceOf(item);
+          const assetId = source?.assetId ?? null;
+          if (item.assetCondition && !assetId)
+            throw new BadRequestException(
+              'assetCondition is only for assets returned by an order',
+            );
+          return {
+            // A kept line keeps its id, so a retried save still finds it.
+            ...(source ? { id: source.id } : {}),
             stockReceiptId: id,
             itemId: item.itemId,
             quantity: item.quantity,
             unitPrice: item.unitPrice ?? '0',
             lotId: item.lotId,
             supplierLotNumber: item.supplierLotNumber,
-            legacyLotNumber: legacyLotNumber(item),
+            legacyLotNumber:
+              source && !item.lotId ? source.legacyLotNumber : null,
             locationId: item.locationId,
             manufacturedDate: item.manufacturedDate,
             expiryDate: item.expiryDate,
-            assetCode: item.assetCode,
-            serialNumber: item.serialNumber,
+            assetId,
+            assetCode: assetId ? source!.assetCode : item.assetCode,
+            serialNumber: assetId ? source!.serialNumber : item.serialNumber,
+            assetCondition: assetId ? (item.assetCondition ?? null) : null,
             note: item.note,
-          })),
-        );
+          };
+        });
+        await tx
+          .delete(stockReceiptItems)
+          .where(eq(stockReceiptItems.stockReceiptId, id));
+        if (rows.length) await tx.insert(stockReceiptItems).values(rows);
       }
       await auditStockDocument(
         tx,
@@ -364,7 +382,7 @@ export class StockReceiptsService {
         .from(stockReceiptItems)
         .where(eq(stockReceiptItems.stockReceiptId, id))
         .limit(1);
-      if (!line)
+      if (!line && !(await this.isOrderReturn(tx, id)))
         throw new BadRequestException('Receipt must contain at least one item');
       await tx
         .update(stockReceipts)
@@ -474,7 +492,7 @@ export class StockReceiptsService {
         .select()
         .from(stockReceiptItems)
         .where(eq(stockReceiptItems.stockReceiptId, id));
-      if (lines.length === 0)
+      if (lines.length === 0 && !(await this.isOrderReturn(tx, id)))
         throw new BadRequestException('Receipt must contain at least one item');
       for (const line of lines) {
         const [item] = await tx
@@ -636,6 +654,41 @@ export class StockReceiptsService {
               updatedAt: new Date().toISOString(),
             },
           });
+        // An asset shipped by an order comes back as itself, after the balance
+        // lock (the order stock issues use), in its inspected condition.
+        if (item.trackingMode === 'ASSET' && line.assetId) {
+          if (!line.assetCondition)
+            throw new BadRequestException(
+              'A returned asset needs its inspected condition',
+            );
+          const [asset] = await tx
+            .select({
+              status: assets.status,
+              locationId: assets.currentLocationId,
+            })
+            .from(assets)
+            .where(
+              and(
+                eq(assets.id, line.assetId),
+                eq(assets.farmId, farmId),
+                eq(assets.itemId, line.itemId),
+              ),
+            )
+            .for('update');
+          if (asset?.status !== 'RETIRED' || asset.locationId)
+            throw new ConflictException(
+              'Only an asset that left the farm can be received back',
+            );
+          await tx
+            .update(assets)
+            .set({
+              status:
+                line.assetCondition === 'DAMAGED' ? 'DAMAGED' : 'AVAILABLE',
+              currentLocationId: line.locationId,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(assets.id, line.assetId));
+        }
         await tx.insert(inventoryTransactions).values({
           farmId,
           warehouseId: receipt.warehouseId,
@@ -781,7 +834,25 @@ export class StockReceiptsService {
       )
       .where(eq(stockReceiptItems.stockReceiptId, id))
       .orderBy(stockReceiptItems.createdAt, stockReceiptItems.id);
-    return { receipt, items: lines };
+    return {
+      receipt,
+      items: lines,
+      // Goods back from a failed delivery: may close with no line at all.
+      orderReturn: await this.isOrderReturn(this.databaseService.db, id),
+    };
+  }
+
+  /** A receipt store orders created for goods coming back from a failed delivery. */
+  private async isOrderReturn(
+    db: Pick<DatabaseService['db'], 'select'>,
+    id: string,
+  ) {
+    const [order] = await db
+      .select({ id: storeOrders.id })
+      .from(storeOrders)
+      .where(eq(storeOrders.returnReceiptId, id))
+      .limit(1);
+    return !!order;
   }
 
   private validateItems(items: CreateStockReceiptDto['items']) {

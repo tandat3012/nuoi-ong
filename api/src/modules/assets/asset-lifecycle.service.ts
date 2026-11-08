@@ -12,6 +12,7 @@ import { DatabaseService } from '../../db/database.service';
 import {
   assetAssignments,
   assetIncidents,
+  assetTransferRequests,
   assetStatus,
   assets,
   auditLogs,
@@ -25,12 +26,16 @@ import {
   warehouses,
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { notifyFarmApprovers } from '../notifications/notification-events';
 import {
   assertInScope,
   type WarehouseScope,
 } from '../warehouses/warehouse-scope';
 import { assetWarehouseId } from './asset-warehouse';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  hasAnyRole,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 import {
   AssignAssetDto,
@@ -395,15 +400,26 @@ export class AssetLifecycleService {
     });
   }
 
-  async startUse(id: string, farmId: string, clerkUserId: string) {
-    const actor = await this.actor(farmId, clerkUserId);
+  /**
+   * NV02: the assignee confirms they received the asset and start using it. A
+   * warehouse manager may record it for them, but only with a note (the basis).
+   */
+  async startUse(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    note?: string | null,
+  ) {
+    const { memberId, userId, roleCodes } =
+      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    const basis = note?.trim() || null;
     return this.databaseService.db.transaction(async (tx) => {
-      const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
-      if (asset.status !== 'ASSIGNED')
-        throw new ConflictException('Only ASSIGNED assets can start use');
-      await this.assertNoActiveMaintenance(tx, farmId, id);
+      const asset = await this.getAsset(tx, id, farmId, true);
       const [assignment] = await tx
-        .select({ id: assetAssignments.id })
+        .select({
+          id: assetAssignments.id,
+          assignedToMemberId: assetAssignments.assignedToMemberId,
+        })
         .from(assetAssignments)
         .where(
           and(
@@ -414,8 +430,27 @@ export class AssetLifecycleService {
         )
         .for('update')
         .limit(1);
+      const byAssignee = assignment?.assignedToMemberId === memberId;
+      if (!byAssignee) {
+        if (!hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES))
+          throw new ForbiddenException(
+            'Only the assignee or a warehouse manager can confirm receipt',
+          );
+        const scope = await this.warehousesService.warehouseScope(
+          farmId,
+          clerkUserId,
+        );
+        await this.getAsset(tx, id, farmId, false, scope);
+      }
+      if (asset.status !== 'ASSIGNED')
+        throw new ConflictException('Only ASSIGNED assets can start use');
+      await this.assertNoActiveMaintenance(tx, farmId, id);
       if (!assignment)
         throw new ConflictException('An active assignment is required');
+      if (!byAssignee && !basis)
+        throw new BadRequestException(
+          'A note is required when recording receipt for the assignee',
+        );
       const now = new Date().toISOString();
       const [updated] = await tx
         .update(assets)
@@ -425,11 +460,20 @@ export class AssetLifecycleService {
       await this.audit(
         tx,
         farmId,
-        actor.userId,
+        userId,
         'ASSET_USE_STARTED',
         id,
         { status: asset.status },
-        { status: 'IN_USE', summary: 'Người nhận bắt đầu sử dụng tài sản' },
+        {
+          status: 'IN_USE',
+          assignmentId: assignment.id,
+          receivedByMemberId: assignment.assignedToMemberId,
+          recordedByMemberId: memberId,
+          ...(basis ? { note: basis } : {}),
+          summary: byAssignee
+            ? 'Người nhận xác nhận đã nhận và bắt đầu sử dụng tài sản'
+            : `Quản lý kho ghi nhận thay người nhận: ${basis}`,
+        },
       );
       return updated;
     });
@@ -442,13 +486,57 @@ export class AssetLifecycleService {
     input: TransferAssetDto,
   ) {
     const actor = await this.actor(farmId, clerkUserId);
-    return this.databaseService.db.transaction((tx) =>
-      this.transferInTransaction(tx, id, farmId, actor, input),
-    );
+    return this.databaseService.db.transaction(async (tx) => {
+      const transferId = randomUUID();
+      const { asset, inTransit, fromLocationId } =
+        await this.transferInTransaction(
+          tx,
+          id,
+          farmId,
+          actor,
+          input,
+          'AVAILABLE',
+          transferId,
+        );
+      // Across warehouses the destination still has to receive it (P1-02): record that as a dispatched transfer.
+      if (inTransit) {
+        const now = new Date().toISOString();
+        await tx.insert(assetTransferRequests).values({
+          id: transferId,
+          farmId,
+          assetId: id,
+          requestedByMemberId: actor.memberId,
+          fromLocationId,
+          toWarehouseId: input.warehouseId,
+          toLocationId: input.locationId,
+          note: input.note?.trim() || null,
+          status: 'IN_TRANSIT',
+          reviewedByMemberId: actor.memberId,
+          reviewedAt: now,
+        });
+        await notifyFarmApprovers(
+          tx,
+          {
+            farmId,
+            entityType: 'ASSET_TRANSFER_REQUEST',
+            entityId: transferId,
+            documentCode: asset.assetCode,
+            documentKind: 'Yêu cầu chuyển tài sản',
+            status: 'IN_TRANSIT',
+            title: 'Tài sản đang chuyển đến kho, cần xác nhận nhận',
+          },
+          actor.memberId,
+          input.warehouseId,
+        );
+      }
+      return asset;
+    });
   }
 
   /**
-   * Moves the asset inside the caller's transaction and leaves it AVAILABLE.
+   * Inside one warehouse the asset moves and stays AVAILABLE. Across warehouses
+   * this is only the dispatch (P1-02): the source is debited and the asset waits
+   * TRANSFER_PENDING without a location until the destination receives it.
    * Approving a transfer request passes `fromStatus` TRANSFER_PENDING.
    */
   async transferInTransaction(
@@ -458,6 +546,7 @@ export class AssetLifecycleService {
     actor: Actor,
     input: TransferAssetDto,
     fromStatus: 'AVAILABLE' | 'TRANSFER_PENDING' = 'AVAILABLE',
+    transferId: string = randomUUID(),
   ) {
     const preliminary = await this.getAsset(tx, id, farmId, false, actor.scope);
     if (preliminary.status !== fromStatus)
@@ -545,9 +634,9 @@ export class AssetLifecycleService {
     await this.activeWarehouse(tx, farmId, input.warehouseId);
 
     const now = new Date().toISOString();
-    if (source.warehouseId !== input.warehouseId) {
+    const inTransit = source.warehouseId !== input.warehouseId;
+    if (inTransit) {
       const sourceBalanceId = balances.get(source.warehouseId)!;
-      const destinationBalanceId = balances.get(input.warehouseId)!;
       await tx
         .update(inventoryBalances)
         .set({
@@ -558,63 +647,159 @@ export class AssetLifecycleService {
       await assertHoldsStillCovered(tx, sourceBalanceId, {
         assetId: id,
       });
-      await tx
-        .update(inventoryBalances)
-        .set({
-          quantityOnHand: sql`${inventoryBalances.quantityOnHand} + 1`,
-          updatedAt: now,
-        })
-        .where(eq(inventoryBalances.id, destinationBalanceId));
-      const movementGroupId = randomUUID();
-      await tx.insert(inventoryTransactions).values([
-        {
-          farmId,
-          warehouseId: source.warehouseId,
-          itemId: asset.itemId,
-          assetId: id,
-          transactionType: 'TRANSFER_OUT',
-          quantityChange: '-1',
-          sourceType: 'ASSET_TRANSFER',
-          sourceId: id,
-          movementGroupId,
-          performedByMemberId: actor.memberId,
-          reason: input.note ?? null,
-        },
-        {
-          farmId,
-          warehouseId: input.warehouseId,
-          itemId: asset.itemId,
-          assetId: id,
-          transactionType: 'TRANSFER_IN',
-          quantityChange: '1',
-          sourceType: 'ASSET_TRANSFER',
-          sourceId: id,
-          movementGroupId,
-          performedByMemberId: actor.memberId,
-          reason: input.note ?? null,
-        },
-      ]);
+      await tx.insert(inventoryTransactions).values({
+        farmId,
+        warehouseId: source.warehouseId,
+        itemId: asset.itemId,
+        assetId: id,
+        transactionType: 'TRANSFER_OUT',
+        quantityChange: '-1',
+        sourceType: 'ASSET_TRANSFER',
+        sourceId: id,
+        movementGroupId: transferId,
+        performedByMemberId: actor.memberId,
+        reason: input.note ?? null,
+      });
     }
     const [updated] = await tx
       .update(assets)
-      .set({
-        currentLocationId: destination.id,
-        status: 'AVAILABLE',
-        updatedAt: now,
-      })
+      .set(
+        inTransit
+          ? {
+              currentLocationId: null,
+              status: 'TRANSFER_PENDING',
+              updatedAt: now,
+            }
+          : {
+              currentLocationId: destination.id,
+              status: 'AVAILABLE',
+              updatedAt: now,
+            },
+      )
       .where(and(eq(assets.id, id), eq(assets.farmId, farmId)))
       .returning();
     await this.audit(
       tx,
       farmId,
       actor.userId,
-      'ASSET_TRANSFERRED',
+      inTransit ? 'ASSET_TRANSFER_DISPATCHED' : 'ASSET_TRANSFERRED',
       id,
       { locationId: lockedSource.id, warehouseId: source.warehouseId },
       {
-        locationId: destination.id,
+        locationId: inTransit ? null : destination.id,
         warehouseId: input.warehouseId,
-        summary: `Chuyển từ ${lockedSource.code} — ${lockedSource.name} đến ${destination.code} — ${destination.name}`,
+        transferId,
+        summary: inTransit
+          ? `Xuất chuyển từ ${lockedSource.code} — ${lockedSource.name} đến ${destination.code} — ${destination.name}, chờ kho đích nhận`
+          : `Chuyển từ ${lockedSource.code} — ${lockedSource.name} đến ${destination.code} — ${destination.name}`,
+      },
+    );
+    return { asset: updated, inTransit, fromLocationId: lockedSource.id };
+  }
+
+  /**
+   * P1-02: the destination warehouse counts a dispatched asset in. The scanned
+   * code must be the dispatched asset; DAMAGED arrives in stock but out of use.
+   */
+  async receiveTransferInTransaction(
+    tx: Transaction,
+    transfer: typeof assetTransferRequests.$inferSelect,
+    actor: Actor,
+    input: {
+      assetCode: string;
+      condition: 'GOOD' | 'DAMAGED';
+      note?: string | null;
+    },
+  ) {
+    const farmId = transfer.farmId;
+    const preliminary = await this.getAsset(tx, transfer.assetId, farmId);
+    // Same lock order as a dispatch: balance first, then the asset.
+    await this.ensureBalance(
+      tx,
+      farmId,
+      transfer.toWarehouseId,
+      preliminary.itemId,
+    );
+    const [balance] = await tx
+      .select({ id: inventoryBalances.id })
+      .from(inventoryBalances)
+      .where(
+        and(
+          eq(inventoryBalances.farmId, farmId),
+          eq(inventoryBalances.warehouseId, transfer.toWarehouseId),
+          eq(inventoryBalances.itemId, preliminary.itemId),
+          isNull(inventoryBalances.lotId),
+        ),
+      )
+      .for('update')
+      .limit(1);
+    if (!balance)
+      throw new ConflictException('Receiving warehouse balance is unavailable');
+    const asset = await this.getAsset(tx, transfer.assetId, farmId, true);
+    if (
+      asset.status !== 'TRANSFER_PENDING' ||
+      asset.currentLocationId !== null ||
+      asset.itemId !== preliminary.itemId
+    )
+      throw new ConflictException(
+        'Asset changed during transfer; reload before retrying',
+      );
+    if (input.assetCode.trim().toUpperCase() !== asset.assetCode.toUpperCase())
+      throw new ConflictException(
+        'ASSET_MISMATCH: the received asset is not the one dispatched',
+      );
+    const destination = await this.activeLocation(
+      tx,
+      farmId,
+      transfer.toLocationId,
+      transfer.toWarehouseId,
+    );
+    await this.activeWarehouse(tx, farmId, transfer.toWarehouseId);
+    const now = new Date().toISOString();
+    await tx
+      .update(inventoryBalances)
+      .set({
+        quantityOnHand: sql`${inventoryBalances.quantityOnHand} + 1`,
+        updatedAt: now,
+      })
+      .where(eq(inventoryBalances.id, balance.id));
+    const note = input.note?.trim() || null;
+    await tx.insert(inventoryTransactions).values({
+      farmId,
+      warehouseId: transfer.toWarehouseId,
+      itemId: asset.itemId,
+      assetId: asset.id,
+      transactionType: 'TRANSFER_IN',
+      quantityChange: '1',
+      sourceType: 'ASSET_TRANSFER',
+      sourceId: asset.id,
+      movementGroupId: transfer.id,
+      performedByMemberId: actor.memberId,
+      reason: note,
+    });
+    const status = input.condition === 'DAMAGED' ? 'DAMAGED' : 'AVAILABLE';
+    const [updated] = await tx
+      .update(assets)
+      .set({ currentLocationId: destination.id, status, updatedAt: now })
+      .where(eq(assets.id, asset.id))
+      .returning();
+    await this.audit(
+      tx,
+      farmId,
+      actor.userId,
+      'ASSET_TRANSFER_RECEIVED',
+      asset.id,
+      { status: asset.status, locationId: null },
+      {
+        status,
+        locationId: destination.id,
+        warehouseId: transfer.toWarehouseId,
+        transferId: transfer.id,
+        condition: input.condition,
+        ...(note ? { note } : {}),
+        summary: `Kho đích nhận tại ${destination.code} — ${destination.name}${
+          status === 'DAMAGED' ? ' (hỏng, chưa dùng được)' : ''
+        }`,
       },
     );
     return updated;
@@ -636,8 +821,8 @@ export class AssetLifecycleService {
         actor.scope,
       );
       // A failed repair received back stays MAINTENANCE (not sellable); it retires
-      // from there instead of passing through AVAILABLE (AC28).
-      if (!['AVAILABLE', 'MAINTENANCE'].includes(preliminary.status))
+      // from there instead of passing through AVAILABLE (AC28); so does a damaged return.
+      if (!['AVAILABLE', 'MAINTENANCE', 'DAMAGED'].includes(preliminary.status))
         throw new ConflictException(
           'Return assigned or in-use assets before retiring them',
         );
@@ -775,6 +960,12 @@ export class AssetLifecycleService {
           'Terminal assets cannot receive new incidents',
         );
       if (input.incidentType === 'LOSS') {
+        // Like a failed repair: a damaged return is repaired or retired, never
+        // lost and then recovered as AVAILABLE.
+        if (asset.status === 'DAMAGED')
+          throw new ConflictException(
+            'A damaged asset goes to maintenance or retirement, not a loss report',
+          );
         await this.assertNoActiveMaintenance(tx, farmId, id);
         await this.assertNoFailedMaintenance(tx, farmId, id);
       }

@@ -12,7 +12,9 @@ export type StockDocumentStatus =
   | "REJECTED"
   | "CANCELLED"
   // Transfers only: dispatched by the source, not yet received.
-  | "IN_TRANSIT";
+  | "IN_TRANSIT"
+  // Transfers only: received short, waiting for the owner to settle the rest.
+  | "DISCREPANCY";
 
 export type StockDocumentKind =
   "stock-receipts" | "stock-issues" | "stock-transfers" | "stock-counts";
@@ -119,7 +121,9 @@ export function stockDocumentErrorMessage(
   if (status === 403)
     return /own documents/.test(message)
       ? "Bạn chỉ thao tác được phiếu do chính mình tạo."
-      : "Bạn không có quyền thực hiện thao tác này trong trang trại.";
+      : /other than its author/.test(message)
+        ? "Phiếu có chênh lệch phải do người khác (không phải người lập) duyệt."
+        : "Bạn không có quyền thực hiện thao tác này trong trang trại.";
   if (status === 404)
     return "Phiếu không tồn tại hoặc không thuộc trang trại này.";
   if (status === 409)
