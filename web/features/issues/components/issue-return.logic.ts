@@ -19,12 +19,13 @@ export function remainingReturn(line: IssueLine) {
   return left > 0 ? left : 0;
 }
 
-/** Mirrors the API: confirmed CONSUMPTION/OTHER/MAINTENANCE issues, not order-linked. */
+/** Mirrors the API: confirmed CONSUMPTION/OTHER/MAINTENANCE issues, not order or warranty linked. */
 export function returnableLines(detail: IssueDetail) {
   const { issue } = detail;
   if (
     issue.status !== "CONFIRMED" ||
     issue.orderId ||
+    issue.warrantyRequestId ||
     !RETURNABLE_TYPES.includes(issue.issueType)
   )
     return [];

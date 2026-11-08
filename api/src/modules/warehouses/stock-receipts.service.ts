@@ -586,6 +586,13 @@ export class StockReceiptsService {
         .where(eq(stockReceiptItems.stockReceiptId, id));
       if (lines.length === 0 && !(await this.isOrderReturn(tx, id)))
         throw new BadRequestException('Receipt must contain at least one item');
+      // Returns of different issues lock the same lots and balances: same order as stock issues.
+      if (receipt.sourceIssueId)
+        lines.sort(
+          (a, b) =>
+            a.itemId.localeCompare(b.itemId) ||
+            (a.lotId ?? '').localeCompare(b.lotId ?? ''),
+        );
       // The issue lock serializes returns of one issue, so they never exceed it.
       if (receipt.sourceIssueId) {
         await this.lockReturnableIssue(tx, farmId, receipt.sourceIssueId);

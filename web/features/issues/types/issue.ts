@@ -35,6 +35,8 @@ export interface Issue {
   issueType: IssueType;
   maintenanceRecordId: string | null;
   orderId: string | null;
+  /** Warranty exchange issue: goods went to a customer. */
+  warrantyRequestId?: string | null;
   status: IssueStatus;
   reason: string | null;
   note: string | null;

@@ -32,6 +32,7 @@ test("only confirmed own-use issues with something left are returnable", () => {
   assert.equal(returnableLines(detail({ status: "DRAFT" })).length, 0);
   assert.equal(returnableLines(detail({ issueType: "DAMAGE" })).length, 0);
   assert.equal(returnableLines(detail({ orderId: "o1" })).length, 0);
+  assert.equal(returnableLines(detail({ issueType: "OTHER", warrantyRequestId: "w1" })).length, 0);
   assert.equal(returnableLines(detail({}, [line({ assetId: "a1", quantity: "1" })])).length, 0);
   assert.equal(returnableLines(detail({}, [line({ returnedQuantity: "10.000" })])).length, 0);
   assert.equal(remainingReturn(line({ returnedQuantity: "2.5" })), 7500);

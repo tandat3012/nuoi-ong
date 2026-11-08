@@ -396,6 +396,36 @@ describe('Internal return of issued QUANTITY/LOT goods', () => {
     expect(await balance(quantityItem)).toBe('17.000');
   });
 
+  it('confirms returns of two issues locking the same stock without deadlock', async () => {
+    const issues = [
+      await issue([
+        { itemId: quantityItem, quantity: '2' },
+        { itemId: lotItem, lotId: lot, quantity: '2' },
+      ]),
+      await issue([
+        { itemId: lotItem, lotId: lot, quantity: '2' },
+        { itemId: quantityItem, quantity: '2' },
+      ]),
+    ];
+    const ids = await Promise.all(
+      issues.map(async (issued, i) => {
+        const lines = i ? [...issued.items].reverse() : issued.items;
+        const response = await returnDraft(
+          issued.issue.id,
+          lines.map((line) => ({
+            issueItemId: line.id,
+            acceptedQuantity: '1',
+          })),
+        ).expect(201);
+        return (response.body as { data: ReceiptDetail }).data.receipt.id;
+      }),
+    );
+    const results = await Promise.all(ids.map((id) => confirm(id)));
+    expect(results.map((r) => r.status)).toEqual([201, 201]);
+    expect(await balance(quantityItem)).toBe('18.000');
+    expect(await balance(lotItem)).toBe('18.000');
+  });
+
   it('refuses unconfirmed, asset and damage issues, other farms and edits', async () => {
     const draft = await http()
       .post('/stock-issues')

@@ -987,7 +987,25 @@ export class StockIssuesService {
         and(eq(storeOrders.stockIssueId, id), eq(storeOrders.farmId, farmId)),
       )
       .limit(1);
-    return { issue: { ...issue, orderId: order?.id ?? null }, items: lines };
+    const [warranty] = await this.databaseService.db
+      .select({ id: storeWarrantyRequests.id })
+      .from(storeWarrantyRequests)
+      .where(
+        and(
+          eq(storeWarrantyRequests.exchangeIssueId, id),
+          eq(storeWarrantyRequests.farmId, farmId),
+        ),
+      )
+      .limit(1);
+    return {
+      issue: {
+        ...issue,
+        orderId: order?.id ?? null,
+        // A warranty exchange handed goods to a customer: never an internal return.
+        warrantyRequestId: warranty?.id ?? null,
+      },
+      items: lines,
+    };
   }
 
   private async assertOrderLines(
