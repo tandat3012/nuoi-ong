@@ -395,7 +395,13 @@ export class StockReceiptsService {
             assetId,
             assetCode: assetId ? source!.assetCode : item.assetCode,
             serialNumber: assetId ? source!.serialNumber : item.serialNumber,
-            assetCondition: assetId ? (item.assetCondition ?? null) : null,
+            // P1-08: a client that does not send the field (old mobile) keeps the
+            // inspected condition; only an explicit null clears it.
+            assetCondition: assetId
+              ? item.assetCondition === undefined
+                ? source!.assetCondition
+                : item.assetCondition
+              : null,
             note: item.note,
           };
         });

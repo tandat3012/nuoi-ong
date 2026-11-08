@@ -1398,9 +1398,16 @@ describe('Store orders (migrated PostgreSQL)', () => {
           },
         ]),
       ).rejects.toThrow('only for assets returned');
-      // Without an inspection result nothing is received.
+      // P1-08: a save that omits the field (old mobile) keeps the stored result.
       const current = await receipts.getReceipt(receiptId, ids.farm, ids.admin);
-      await edit([asLine(current.items.find((line) => line.assetId)!)]);
+      const shipped = current.items.find((line) => line.assetId)!;
+      await edit([asLine(shipped)]);
+      expect(
+        (await receipts.getReceipt(receiptId, ids.farm, ids.admin)).items[0]
+          .assetCondition,
+      ).toBe('GOOD');
+      // Without an inspection result (cleared on purpose) nothing is received.
+      await edit([asLine(shipped, { assetCondition: null })]);
       await expect(
         receipts.confirmReceipt(receiptId, ids.farm, ids.admin),
       ).rejects.toThrow('inspected condition');
