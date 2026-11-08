@@ -20,7 +20,9 @@ export type StockDocumentAction =
   | 'DISPATCH'
   | 'RECEIVE'
   // A short receipt settled: the rest goes back or is written off.
-  | 'RESOLVE';
+  | 'RESOLVE'
+  // An issue's recipient (or a manager for them) acknowledges receipt.
+  | 'ACKNOWLEDGE';
 
 type DocumentRow = {
   id: string;
@@ -53,6 +55,10 @@ const DOCUMENT_FIELDS: Record<StockDocumentType, string[]> = {
     'maintenanceRecordId',
     'reason',
     'note',
+    'recipientMemberId',
+    'receivedAt',
+    'receivedRecordedByMemberId',
+    'receiptNote',
   ],
   STOCK_TRANSFER: [
     'transferCode',

@@ -25,6 +25,7 @@ import {
   RecoverAssetDto,
   ReportAssetIncidentDto,
   RetireAssetDto,
+  StartUseAssetDto,
   TransferAssetDto,
   UpdateAssetDto,
   UpdateAssetIncidentStatusDto,
@@ -440,7 +441,12 @@ export class AssetsController {
   }
 
   @Post(':id/start-use')
-  @ApiOperation({ summary: 'Bắt đầu sử dụng tài sản đã bàn giao' })
+  @ApiOperation({
+    summary: 'Người được giao xác nhận đã nhận và bắt đầu sử dụng tài sản',
+    description:
+      'Người được giao tự xác nhận; quản lý kho trong phạm vi kho ghi nhận thay phải kèm ghi chú căn cứ. Không thay đổi tồn kho.',
+  })
+  @ApiBody({ type: StartUseAssetDto, required: false })
   @ApiUuidParam('id', 'ID tài sản.')
   @ApiFarmIdQuery()
   @ApiCreatedResponse({ description: 'Trạng thái tài sản thành IN_USE.' })
@@ -452,12 +458,14 @@ export class AssetsController {
     @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue: string | undefined,
+    @Body() input: StartUseAssetDto,
   ) {
     return {
       data: await this.lifecycleService.startUse(
         requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
         auth.clerkUserId,
+        input?.note,
       ),
     };
   }

@@ -402,7 +402,19 @@ export class AssetsService {
       farmId,
       clerkUserId,
     );
-    const where = and(condition, scopeCondition(assetWarehouseId, scope));
+    let scoped = scopeCondition(assetWarehouseId, scope);
+    if (scoped) {
+      // The assignee reads their asset from any warehouse, to confirm receipt (P1-11).
+      const { memberId } = await this.warehousesService.getActiveMembership(
+        farmId,
+        clerkUserId,
+      );
+      scoped = or(
+        scoped,
+        sql`EXISTS (SELECT 1 FROM asset_assignments aa WHERE aa.asset_id = ${assets.id} AND aa.status = 'ACTIVE' AND aa.assigned_to_member_id = ${memberId})`,
+      );
+    }
+    const where = and(condition, scoped);
     const [asset] = await this.databaseService.db
       .select({
         asset: assets,

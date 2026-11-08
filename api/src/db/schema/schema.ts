@@ -1177,6 +1177,14 @@ export const stockIssues = pgTable(
     note: text(),
     createdByMemberId: uuid('created_by_member_id').notNull(),
     confirmedByMemberId: uuid('confirmed_by_member_id'),
+    // NV02: who the goods are handed to; they (or a manager, with a note) acknowledge receipt after the issue is confirmed.
+    recipientMemberId: uuid('recipient_member_id'),
+    receivedAt: timestamp('received_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    receivedRecordedByMemberId: uuid('received_recorded_by_member_id'),
+    receiptNote: text('receipt_note'),
     rejectionReason: text('rejection_reason'),
     rejectedByMemberId: uuid('rejected_by_member_id'),
     rejectedAt: timestamp('rejected_at', {
@@ -1222,6 +1230,21 @@ export const stockIssues = pgTable(
       foreignColumns: [farmMembers.id],
       name: 'stock_issues_confirmed_by_member_id_fkey',
     }),
+    foreignKey({
+      columns: [table.recipientMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_issues_recipient_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.receivedRecordedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_issues_received_recorded_by_member_id_fkey',
+    }),
+    // Received only once confirmed and with a recipient; recorded by someone else needs a note.
+    check(
+      'ck_issue_receipt_ack',
+      sql`(received_at IS NULL AND received_recorded_by_member_id IS NULL) OR (received_at IS NOT NULL AND received_recorded_by_member_id IS NOT NULL AND recipient_member_id IS NOT NULL AND status = 'CONFIRMED'::document_status AND (received_recorded_by_member_id = recipient_member_id OR coalesce(btrim(receipt_note), '') <> ''))`,
+    ),
     foreignKey({
       columns: [table.createdByMemberId],
       foreignColumns: [farmMembers.id],

@@ -1,0 +1,7 @@
+ALTER TABLE "stock_issues" ADD COLUMN "recipient_member_id" uuid;--> statement-breakpoint
+ALTER TABLE "stock_issues" ADD COLUMN "received_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "stock_issues" ADD COLUMN "received_recorded_by_member_id" uuid;--> statement-breakpoint
+ALTER TABLE "stock_issues" ADD COLUMN "receipt_note" text;--> statement-breakpoint
+ALTER TABLE "stock_issues" ADD CONSTRAINT "stock_issues_recipient_member_id_fkey" FOREIGN KEY ("recipient_member_id") REFERENCES "public"."farm_members"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stock_issues" ADD CONSTRAINT "stock_issues_received_recorded_by_member_id_fkey" FOREIGN KEY ("received_recorded_by_member_id") REFERENCES "public"."farm_members"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stock_issues" ADD CONSTRAINT "ck_issue_receipt_ack" CHECK ((received_at IS NULL AND received_recorded_by_member_id IS NULL) OR (received_at IS NOT NULL AND received_recorded_by_member_id IS NOT NULL AND recipient_member_id IS NOT NULL AND status = 'CONFIRMED'::document_status AND (received_recorded_by_member_id = recipient_member_id OR coalesce(btrim(receipt_note), '') <> '')));

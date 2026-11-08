@@ -198,3 +198,14 @@ export class RejectAssetTransferRequestDto {
   @MaxLength(1000)
   rejectionReason!: string;
 }
+
+export class StartUseAssetDto {
+  @ApiPropertyOptional({
+    description:
+      'Bắt buộc khi quản lý kho ghi nhận thay người được giao (căn cứ bàn giao).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  note?: string | null;
+}

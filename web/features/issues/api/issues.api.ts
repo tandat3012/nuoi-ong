@@ -80,6 +80,19 @@ export function confirmIssue(
   });
 }
 
+export function acknowledgeIssue(
+  request: AuthenticatedRequest,
+  farmId: string,
+  id: string,
+  note: string | null,
+) {
+  return request<{ data: IssueDetail }>(`/stock-issues/${id}/acknowledge`, {
+    method: "POST",
+    params: { farmId },
+    data: { note },
+  });
+}
+
 export function cancelIssue(
   request: AuthenticatedRequest,
   farmId: string,

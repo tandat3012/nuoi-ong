@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  issueReceiptAction,
   preservesIssueItemTotals,
   splitIssueQuantity,
   validateIssueDraft,
@@ -75,4 +76,20 @@ test("linked lot splits retain exact per-item quantities", () => {
     ),
     false,
   );
+});
+
+test("only the recipient, or a manager for them, acknowledges a confirmed issue once", () => {
+  const issue = { status: "CONFIRMED", recipientMemberId: "m1", receivedAt: null };
+  assert.equal(issueReceiptAction({ roles: ["EMPLOYEE"], memberId: "m1" }, issue), "self");
+  assert.equal(
+    issueReceiptAction({ roles: ["WAREHOUSE_MANAGER"], memberId: "m2" }, issue),
+    "onBehalf",
+  );
+  assert.equal(issueReceiptAction({ roles: ["EMPLOYEE"], memberId: "m2" }, issue), null);
+  for (const other of [
+    { ...issue, status: "PENDING_APPROVAL" },
+    { ...issue, recipientMemberId: null },
+    { ...issue, receivedAt: "2026-11-08T00:00:00Z" },
+  ])
+    assert.equal(issueReceiptAction({ roles: ["ADMIN"], memberId: "m1" }, other), null);
 });
