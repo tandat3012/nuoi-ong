@@ -12,6 +12,7 @@ export const HISTORY_ENTITY_LABELS: Record<string, string> = {
   STORE_ORDER: "Đơn hàng",
   STORE_SHIPPING_FEES: "Phí giao hàng",
   STORE_WARRANTY: "Yêu cầu bảo hành",
+  WAREHOUSE: "Kho",
 };
 
 export const HISTORY_ACTION_LABELS: Record<string, string> = {
@@ -24,6 +25,9 @@ export const HISTORY_ACTION_LABELS: Record<string, string> = {
   DISPATCH: "Xuất hàng đi",
   RECEIVE: "Nhận hàng",
   RESOLVE: "Xử lý sai lệch",
+  WAREHOUSE_CREATED: "Tạo kho",
+  WAREHOUSE_UPDATED: "Sửa thông tin kho",
+  WAREHOUSE_DEACTIVATED: "Ngừng hoạt động kho",
   ACKNOWLEDGE: "Người nhận xác nhận đã nhận",
   ASSET_CREATED: "Tạo tài sản",
   ASSET_METADATA_UPDATED: "Cập nhật thông tin tài sản",

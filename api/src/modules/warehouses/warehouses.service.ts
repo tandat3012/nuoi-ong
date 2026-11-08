@@ -9,6 +9,7 @@ import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
+  auditLogs,
   assets,
   farmMemberRoles,
   farmMemberWarehouses,
@@ -37,6 +38,9 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 
 type WarehouseStatus = (typeof recordStatus.enumValues)[number];
+type Transaction = Parameters<
+  Parameters<DatabaseService['db']['transaction']>[0]
+>[0];
 
 export interface WarehouseListFilters extends PaginationParams {
   farmId: string;
@@ -140,18 +144,27 @@ export class WarehousesService {
       WAREHOUSE_MANAGE_ROLES,
     );
     try {
-      const [warehouse] = await this.databaseService.db
-        .insert(warehouses)
-        .values({
-          farmId,
-          code: input.code,
-          name: input.name,
-          address: input.address,
-          description: input.description,
-          status: 'ACTIVE',
-        })
-        .returning();
-      return warehouse;
+      return await this.databaseService.db.transaction(async (tx) => {
+        const [warehouse] = await tx
+          .insert(warehouses)
+          .values({
+            farmId,
+            code: input.code,
+            name: input.name,
+            address: input.address,
+            description: input.description,
+            status: 'ACTIVE',
+          })
+          .returning();
+        await this.auditWarehouse(
+          tx,
+          clerkUserId,
+          'WAREHOUSE_CREATED',
+          null,
+          warehouse,
+        );
+        return warehouse;
+      });
     } catch (error: unknown) {
       this.throwMappedDatabaseError(error);
     }
@@ -175,9 +188,6 @@ export class WarehousesService {
 
     await this.findWarehouse(id, farmId);
     assertInScope(scope, id);
-    if (input.status === 'INACTIVE') {
-      await this.assertCanDeactivate(id, farmId);
-    }
 
     const changes: Partial<typeof warehouses.$inferInsert> = {};
     this.assignDefined(changes, 'code', input.code);
@@ -188,12 +198,26 @@ export class WarehousesService {
     changes.updatedAt = new Date().toISOString();
 
     try {
-      const [warehouse] = await this.databaseService.db
-        .update(warehouses)
-        .set(changes)
-        .where(and(eq(warehouses.id, id), eq(warehouses.farmId, farmId)))
-        .returning();
-      return warehouse;
+      return await this.databaseService.db.transaction(async (tx) => {
+        const before = await this.lockWarehouse(tx, id, farmId);
+        if (input.status === 'INACTIVE' && before.status !== 'INACTIVE')
+          await this.assertCanDeactivate(id, farmId, tx);
+        const [warehouse] = await tx
+          .update(warehouses)
+          .set(changes)
+          .where(and(eq(warehouses.id, id), eq(warehouses.farmId, farmId)))
+          .returning();
+        await this.auditWarehouse(
+          tx,
+          clerkUserId,
+          before.status === 'ACTIVE' && warehouse.status === 'INACTIVE'
+            ? 'WAREHOUSE_DEACTIVATED'
+            : 'WAREHOUSE_UPDATED',
+          before,
+          warehouse,
+        );
+        return warehouse;
+      });
     } catch (error: unknown) {
       this.throwMappedDatabaseError(error);
     }
@@ -208,13 +232,54 @@ export class WarehousesService {
     );
     await this.findWarehouse(id, farmId);
     assertInScope(scope, id);
-    await this.assertCanDeactivate(id, farmId);
 
-    const [warehouse] = await this.databaseService.db
-      .update(warehouses)
-      .set({ status: 'INACTIVE', updatedAt: new Date().toISOString() })
+    return this.databaseService.db.transaction(async (tx) => {
+      const before = await this.lockWarehouse(tx, id, farmId);
+      await this.assertCanDeactivate(id, farmId, tx);
+      const [warehouse] = await tx
+        .update(warehouses)
+        .set({ status: 'INACTIVE', updatedAt: new Date().toISOString() })
+        .where(and(eq(warehouses.id, id), eq(warehouses.farmId, farmId)))
+        .returning();
+      // A retried deactivation changes nothing and logs nothing.
+      if (before.status !== 'INACTIVE')
+        await this.auditWarehouse(
+          tx,
+          clerkUserId,
+          'WAREHOUSE_DEACTIVATED',
+          before,
+          warehouse,
+        );
+      return warehouse;
+    });
+  }
+
+  /** NV08: who created, changed or deactivated a warehouse, in the same transaction. */
+  private async auditWarehouse(
+    tx: Transaction,
+    clerkUserId: string,
+    action: 'WAREHOUSE_CREATED' | 'WAREHOUSE_UPDATED' | 'WAREHOUSE_DEACTIVATED',
+    before: typeof warehouses.$inferSelect | null,
+    after: typeof warehouses.$inferSelect,
+  ) {
+    await tx.insert(auditLogs).values({
+      farmId: after.farmId,
+      userId: sql`(SELECT id FROM users WHERE auth_provider_user_id = ${clerkUserId})`,
+      action,
+      entityType: 'WAREHOUSE',
+      entityId: after.id,
+      oldData: before,
+      newData: after,
+    });
+  }
+
+  private async lockWarehouse(tx: Transaction, id: string, farmId: string) {
+    const [warehouse] = await tx
+      .select()
+      .from(warehouses)
       .where(and(eq(warehouses.id, id), eq(warehouses.farmId, farmId)))
-      .returning();
+      .for('update');
+    if (!warehouse) throw new NotFoundException('Warehouse not found');
     return warehouse;
   }
 
@@ -389,8 +454,12 @@ export class WarehousesService {
     return warehouse;
   }
 
-  private async assertCanDeactivate(id: string, farmId: string) {
-    const [inventory] = await this.databaseService.db
+  private async assertCanDeactivate(
+    id: string,
+    farmId: string,
+    db: Pick<DatabaseService['db'], 'select'> = this.databaseService.db,
+  ) {
+    const [inventory] = await db
       .select({
         quantity: sql<string>`COALESCE(SUM(${inventoryBalances.quantityOnHand}), 0)`,
       })
@@ -405,7 +474,7 @@ export class WarehousesService {
       throw new ConflictException('WAREHOUSE_NOT_EMPTY');
     }
 
-    const [assetCustody] = await this.databaseService.db
+    const [assetCustody] = await db
       .select({ value: count() })
       .from(assets)
       .innerJoin(locations, eq(locations.id, assets.currentLocationId))

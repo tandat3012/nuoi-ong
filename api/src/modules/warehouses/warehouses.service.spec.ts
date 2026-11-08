@@ -20,9 +20,10 @@ describe('WarehousesService', () => {
   };
   const insert = jest.fn(() => mutation);
   const update = jest.fn(() => mutation);
-  const service = new WarehousesService({
-    db: { select, insert, update },
-  } as unknown as DatabaseService);
+  const db: Record<string, unknown> = { select, insert, update };
+  db.transaction = (work: (tx: unknown) => unknown) => work(db);
+  const service = new WarehousesService({ db } as unknown as DatabaseService);
+  const locked = { id: 'warehouse', farmId: 'farm', status: 'ACTIVE' };
   const member = {
     memberId: 'member',
     userStatus: 'ACTIVE',
@@ -40,6 +41,7 @@ describe('WarehousesService', () => {
       limit: jest.fn(),
       orderBy: jest.fn(),
       offset: jest.fn(),
+      for: jest.fn(),
       then: (resolve: (value: unknown[]) => unknown) =>
         Promise.resolve(data).then(resolve),
     };
@@ -51,6 +53,7 @@ describe('WarehousesService', () => {
       'limit',
       'orderBy',
       'offset',
+      'for',
     ] as const)
       query[key].mockReturnValue(query);
     return query;
@@ -156,6 +159,7 @@ describe('WarehousesService', () => {
     async (method) => {
       select
         .mockReturnValueOnce(rows([{ id: 'warehouse' }]))
+        .mockReturnValueOnce(rows([locked]))
         .mockReturnValueOnce(rows([{ quantity: '0.001' }]));
       const result =
         method === 'delete'
@@ -170,6 +174,7 @@ describe('WarehousesService', () => {
   it('blocks deactivation with asset custody even without stock', async () => {
     select
       .mockReturnValueOnce(rows([{ id: 'warehouse' }]))
+      .mockReturnValueOnce(rows([locked]))
       .mockReturnValueOnce(rows([{ quantity: '0' }]))
       .mockReturnValueOnce(rows([{ value: 1 }]));
     await expect(
@@ -180,6 +185,7 @@ describe('WarehousesService', () => {
   it('soft-deactivates an eligible warehouse', async () => {
     select
       .mockReturnValueOnce(rows([{ id: 'warehouse' }]))
+      .mockReturnValueOnce(rows([locked]))
       .mockReturnValueOnce(rows([{ quantity: '0' }]))
       .mockReturnValueOnce(rows([{ value: 0 }]));
     await expect(
@@ -189,13 +195,24 @@ describe('WarehousesService', () => {
       status: 'INACTIVE',
       updatedAt: expect.any(String) as string,
     });
+    // A7/NV08: the deactivation is audited in the same transaction.
+    expect(mutation.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'WAREHOUSE_DEACTIVATED',
+        entityType: 'WAREHOUSE',
+        entityId: 'warehouse',
+        oldData: locked,
+      }),
+    );
   });
   it.each(['create', 'update'])(
     'maps real Drizzle duplicate errors for %s to 409',
     async (operation) => {
       const cause = Object.assign(new Error('duplicate'), { code: '23505' });
       returning.mockRejectedValue(new DrizzleQueryError('query', [], cause));
-      select.mockReturnValueOnce(rows([{ id: 'warehouse' }]));
+      select
+        .mockReturnValueOnce(rows([{ id: 'warehouse' }]))
+        .mockReturnValueOnce(rows([locked]));
       const result =
         operation === 'create'
           ? service.createWarehouse('farm', 'identity', {
