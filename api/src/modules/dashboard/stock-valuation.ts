@@ -52,6 +52,8 @@ export type LedgerMove = {
   quantity: number;
   /** The move's own unit price: its receipt line, or the asset's purchase price. */
   ownPrice: number | null;
+  /** Share of the quantity `ownPrice` covers (receipt mixing priced and unpriced lines); default 1. */
+  pricedShare?: number;
   /** Same for the outgoing and incoming row of one transfer line, null otherwise. */
   transferKey: string | null;
 };
@@ -110,11 +112,19 @@ export function valueMoves(moves: LedgerMove[]): ValuedMove[] {
       // The last units take whatever is left, so no rounding residue stays behind.
       const all = stock.quantity <= out;
       const share = all ? 1 : out / stock.quantity;
-      const value = all ? stock.value : Math.round(stock.value * share);
       const priced = Math.max(
         0,
-        all ? stock.priced : round3(stock.priced * share),
+        all
+          ? stock.priced
+          : Math.min(stock.priced, round3(stock.priced * share)),
       );
+      // Value follows the priced units, so no value stays on an unpriced remainder.
+      const value =
+        all || priced >= stock.priced
+          ? stock.value
+          : stock.priced > 0
+            ? Math.round((stock.value * priced) / stock.priced)
+            : 0;
       const unpricedOut = round3(Math.max(0, out - priced));
       stock.quantity = round3(stock.quantity - out);
       stock.priced = stock.quantity > 0 ? round3(stock.priced - priced) : 0;
@@ -141,7 +151,8 @@ export function valueMoves(moves: LedgerMove[]): ValuedMove[] {
     const transit = move.transferKey
       ? inTransit.get(move.transferKey)
       : undefined;
-    if (move.kind === 'transferIn' && transit && transit.quantity > 0) {
+    // A transfer's incoming row, or what a discrepancy returns to the source.
+    if (transit && transit.quantity > 0) {
       const all = quantity >= transit.quantity;
       const share = all ? 1 : quantity / transit.quantity;
       value = all ? transit.value : Math.round(transit.value * share);
@@ -152,10 +163,16 @@ export function valueMoves(moves: LedgerMove[]): ValuedMove[] {
       transit.value -= value;
       transit.unpricedQuantity = round3(transit.unpricedQuantity - unpricedIn);
     } else {
-      const unit =
-        move.ownPrice ?? stock.unitCost ?? latestPrice.get(move.itemId) ?? null;
-      value = unit === null ? 0 : Math.round(quantity * unit);
-      unpricedIn = unit === null ? quantity : 0;
+      const own =
+        move.ownPrice === null
+          ? 0
+          : round3(quantity * Math.min(1, move.pricedShare ?? 1));
+      const rest = round3(quantity - own);
+      const fallback = stock.unitCost ?? latestPrice.get(move.itemId) ?? null;
+      value =
+        Math.round(own * (move.ownPrice ?? 0)) +
+        (fallback === null ? 0 : Math.round(rest * fallback));
+      unpricedIn = fallback === null ? rest : 0;
       if (move.ownPrice !== null) latestPrice.set(move.itemId, move.ownPrice);
     }
     stock.quantity = round3(stock.quantity + quantity);

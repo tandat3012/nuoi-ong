@@ -112,6 +112,46 @@ describe('valueMoves', () => {
     ).toEqual([0, 1000, 100]);
   });
 
+  it('values only the priced share of a receipt mixing priced and unpriced lines', () => {
+    expect(
+      valueMoves([
+        move('receipt', 1, { ownPrice: 100, pricedShare: 0.5 }),
+        move('receipt', 1, { ownPrice: 100, pricedShare: 0.5 }),
+      ]),
+    ).toEqual([
+      // The first has nothing to fall back on; the second takes the average for its rest.
+      { value: 50, unpriced: true, unpricedQuantity: 0.5 },
+      { value: 100, unpriced: false, unpricedQuantity: 0 },
+    ]);
+  });
+
+  it('returns a discrepancy to the source with the value and unpriced units left in transit', () => {
+    const transfer = { transferKey: 't1' };
+    const result = valueMoves([
+      move('adjustmentIn', 2),
+      move('receipt', 2, { ownPrice: 100 }),
+      move('transferOut', -4, transfer),
+      move('transferIn', 2, { ...transfer, warehouseId: 'B' }),
+      move('assetReturn', 2, transfer),
+    ]);
+    expect(result.slice(3)).toEqual([
+      { value: 100, unpriced: true, unpricedQuantity: 1 },
+      { value: 100, unpriced: true, unpricedQuantity: 1 },
+    ]);
+    expect(result.reduce((sum, m) => sum + m.value, 0)).toBe(200);
+  });
+
+  it('leaves no value on an unpriced remainder after rounding', () => {
+    const result = valueMoves([
+      move('adjustmentIn', 0.001),
+      move('receipt', 0.001, { ownPrice: 100_000 }),
+      move('issue', -0.001),
+      move('issue', -0.001),
+    ]);
+    expect(result.slice(2).map((m) => m.value)).toEqual([-100, 0]);
+    expect(result[3].unpriced).toBe(true);
+  });
+
   it('carries the unpriced part through a transfer', () => {
     const transfer = { transferKey: 't1' };
     expect(
