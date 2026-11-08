@@ -1376,19 +1376,26 @@ describe('Store orders (migrated PostgreSQL)', () => {
         locationId: ids.location,
         ...extra,
       });
-      // A line that is not one of the shipped assets would create a new asset.
-      await edit([
-        asLine(draft.items[0], { assetCondition: 'GOOD' }),
-        {
-          itemId: ids.item,
-          quantity: '1',
-          assetCode: 'NEW-ASSET',
-          locationId: ids.location,
-        },
-      ]);
+      // A line that is not one of the shipped assets would create a new asset
+      // or drop a shipped one: refused before anything is replaced (P1-08).
       await expect(
-        receipts.confirmReceipt(receiptId, ids.farm, ids.admin),
-      ).rejects.toThrow('more than the order shipped');
+        edit([
+          asLine(draft.items[0], { assetCondition: 'GOOD' }),
+          {
+            itemId: ids.item,
+            quantity: '1',
+            assetCode: 'NEW-ASSET',
+            locationId: ids.location,
+          },
+        ]),
+      ).rejects.toThrow('keep the lineId of a shipped asset');
+      await expect(
+        edit([
+          asLine(draft.items[0], { assetCondition: 'GOOD' }),
+          asLine(draft.items[0], { assetCondition: 'GOOD' }),
+        ]),
+      ).rejects.toThrow('keep the lineId of a shipped asset');
+      await edit([asLine(draft.items[0], { assetCondition: 'GOOD' })]);
       await expect(
         edit([
           {
@@ -1397,15 +1404,14 @@ describe('Store orders (migrated PostgreSQL)', () => {
             assetCondition: 'GOOD',
           },
         ]),
-      ).rejects.toThrow('only for assets returned');
+      ).rejects.toThrow('keep the lineId of a shipped asset');
       // P1-08: a save that omits the field (old mobile) keeps the stored result.
       const current = await receipts.getReceipt(receiptId, ids.farm, ids.admin);
       const shipped = current.items.find((line) => line.assetId)!;
-      await edit([asLine(shipped)]);
+      await edit([{ ...asLine(shipped), locationId: undefined }]);
       expect(
-        (await receipts.getReceipt(receiptId, ids.farm, ids.admin)).items[0]
-          .assetCondition,
-      ).toBe('GOOD');
+        (await receipts.getReceipt(receiptId, ids.farm, ids.admin)).items[0],
+      ).toMatchObject({ assetCondition: 'GOOD', locationId: ids.location });
       // Without an inspection result (cleared on purpose) nothing is received.
       await edit([asLine(shipped, { assetCondition: null })]);
       await expect(
