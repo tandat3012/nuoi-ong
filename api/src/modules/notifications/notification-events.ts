@@ -12,6 +12,7 @@ import {
   FARM_ADMIN_ROLES,
   MAINTENANCE_WORK_ROLES,
   WAREHOUSE_MANAGE_ROLES,
+  WAREHOUSE_SCOPED_ROLES,
 } from '../auth/farm-access/farm-role-groups';
 
 type Db = DatabaseService['db'];
@@ -63,12 +64,14 @@ export function formatNotificationDocumentCode(
   entityId: string | null | undefined,
   documentCode?: string | null,
 ): string {
-  if (entityId) {
-    const shortId = entityId.slice(0, 8);
-    const prefix = entityType ? NOTIFICATION_DOCUMENT_PREFIXES[entityType] : undefined;
-    return prefix ? `${prefix}-${shortId}` : `#${shortId}`;
-  }
-  return documentCode?.trim() ?? '';
+  // The permanent code (or asset code) wins; only uncoded drafts get prefix + short id.
+  const code = documentCode?.trim();
+  if (code || !entityId) return code ?? '';
+  const prefix = entityType
+    ? NOTIFICATION_DOCUMENT_PREFIXES[entityType]
+    : undefined;
+  const shortId = entityId.slice(0, 8);
+  return prefix ? `${prefix}-${shortId}` : `#${shortId}`;
 }
 
 export function formatNotificationBody(
@@ -241,9 +244,19 @@ export async function notifyDocumentCreator(
   );
 }
 
+const holdsRole = (codes: string[]) =>
+  sql`EXISTS (SELECT 1 FROM farm_member_roles l JOIN roles r ON r.id = l.role_id
+    WHERE l.farm_member_id = farm_members.id
+      AND r.code IN (${sql.join(
+        codes.map((code) => sql`${code}`),
+        sql`, `,
+      )}))`;
+
+/** Maintenance staff; a member also holding a warehouse-scoped role only for `warehouseId` (WarehousesService.scopeFor). */
 export async function notifyMaintenanceStaff(
   tx: Transaction,
   notification: DocumentNotification,
+  warehouseId: string | null | undefined,
   excludedUserId?: string | null,
   excludedMemberId?: string | null,
 ) {
@@ -262,6 +275,15 @@ export async function notifyMaintenanceStaff(
         eq(farmMembers.status, 'ACTIVE'),
         eq(users.status, 'ACTIVE'),
         inArray(roles.code, MAINTENANCE_WORK_ROLES),
+        or(
+          holdsRole(FARM_ADMIN_ROLES),
+          sql`NOT ${holdsRole(WAREHOUSE_SCOPED_ROLES)}`,
+          warehouseId
+            ? sql`EXISTS (SELECT 1 FROM farm_member_warehouses fmw
+                WHERE fmw.farm_member_id = farm_members.id
+                  AND fmw.warehouse_id = ${warehouseId})`
+            : undefined,
+        ),
         excludedUserId ? ne(users.id, excludedUserId) : undefined,
         excludedMemberId ? ne(farmMembers.id, excludedMemberId) : undefined,
       ),

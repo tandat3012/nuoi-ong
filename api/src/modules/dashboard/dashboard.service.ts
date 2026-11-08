@@ -90,7 +90,12 @@ export type StockReportRow = {
   unpriced: boolean;
 };
 
-type Ledger = (LedgerMove & { document: string; period: string | null })[];
+type Ledger = (LedgerMove & {
+  document: string;
+  period: string | null;
+  // The warehouse at the other end of a transfer row, from the transfer itself.
+  otherWarehouseId: string | null;
+})[];
 
 const TZ = sql.raw(`'Asia/Ho_Chi_Minh'`);
 const rangeStart = (dateFrom: string) =>
@@ -267,6 +272,8 @@ export class DashboardService {
 
     const counted = inWarehouses(warehouseId, scope);
     // Transfers count when they cross the edge of the warehouses shown, so never for the whole farm.
+    // The other end comes from the transfer itself, so a dispatch not yet received
+    // still counts; rows without one fall back to pairing the ledger rows.
     const transferEnds = new Map<string, string[]>();
     for (const move of ledger)
       if (move.transferKey)
@@ -275,7 +282,11 @@ export class DashboardService {
           move.warehouseId,
         ]);
     const crossesEdge = (move: Ledger[number]) =>
-      (transferEnds.get(move.transferKey!) ?? []).some((id) => !counted(id));
+      move.otherWarehouseId
+        ? !counted(move.otherWarehouseId)
+        : (transferEnds.get(move.transferKey!) ?? []).some(
+            (id) => !counted(id),
+          );
     const directions: Partial<Record<MoveKind, 'in' | 'out'>> = {
       receipt: 'in',
       adjustmentIn: 'in',
@@ -510,6 +521,7 @@ export class DashboardService {
       quantity: string;
       ownPrice: string | null;
       transferKey: string | null;
+      otherWarehouseId: string | null;
       period: string | null;
     }>(sql`
       -- Several priced lines of the item on one receipt: quantity-weighted price.
@@ -531,6 +543,15 @@ export class DashboardService {
         CASE WHEN t.transaction_type IN ('TRANSFER_IN', 'TRANSFER_OUT')
           THEN concat_ws(':', t.source_id, t.item_id, t.lot_id, t.asset_id)
         END AS "transferKey",
+        CASE WHEN t.transaction_type IN ('TRANSFER_IN', 'TRANSFER_OUT') THEN COALESCE(
+          (SELECT CASE WHEN t.transaction_type = 'TRANSFER_OUT' THEN st.to_warehouse_id ELSE st.from_warehouse_id END
+            FROM stock_transfers st WHERE t.source_type = 'STOCK_TRANSFER' AND st.id = t.source_id),
+          (SELECT r.to_warehouse_id FROM asset_transfer_requests r
+            WHERE t.transaction_type = 'TRANSFER_OUT' AND r.id = t.movement_group_id),
+          (SELECT t2.warehouse_id FROM inventory_transactions t2
+            WHERE t2.movement_group_id = t.movement_group_id AND t2.id <> t.id
+              AND t2.transaction_type IN ('TRANSFER_IN', 'TRANSFER_OUT') LIMIT 1)
+        )::text END AS "otherWarehouseId",
         CASE WHEN t.created_at >= ${rangeStart(dateFrom)} THEN
           to_char(date_trunc(${unit}, t.created_at AT TIME ZONE ${TZ}), 'YYYY-MM-DD')
         END AS "period"
@@ -549,6 +570,7 @@ export class DashboardService {
       quantity: Number(row.quantity),
       ownPrice: row.ownPrice === null ? null : Number(row.ownPrice),
       transferKey: row.transferKey,
+      otherWarehouseId: row.otherWarehouseId,
       document: row.document,
       period: row.period,
     }));

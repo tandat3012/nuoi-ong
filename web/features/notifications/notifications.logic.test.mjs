@@ -70,16 +70,16 @@ test('notification errors explain auth, farm scope, invalid data and conflict re
   }
 });
 
-test('formats notification document codes with PN, PX, KK, CK, MNT, ATR, BT prefixes and actual document id', () => {
+test('notifications keep the permanent or asset code; uncoded drafts get the document prefix and short id', () => {
   const id = '8d049163-1111-4222-8333-444444444444';
   assert.equal(notificationDocumentCode({ entityType: 'STOCK_RECEIPT', entityId: id, data: { documentCode: null } }), 'PN-8d049163');
   assert.equal(notificationDocumentCode({ entityType: 'STOCK_ISSUE', entityId: id, data: { documentCode: null } }), 'PX-8d049163');
   assert.equal(notificationDocumentCode({ entityType: 'STOCK_COUNT', entityId: id, data: { documentCode: null } }), 'KK-8d049163');
   assert.equal(notificationDocumentCode({ entityType: 'STOCK_TRANSFER', entityId: id, data: { documentCode: null } }), 'CK-8d049163');
-  assert.equal(notificationDocumentCode({ entityType: 'MAINTENANCE_REQUEST', entityId: id, data: { documentCode: 'SURV-083' } }), 'MNT-8d049163');
-  assert.equal(notificationDocumentCode({ entityType: 'ASSET_TRANSFER_REQUEST', entityId: id, data: { documentCode: 'SURV-083' } }), 'ATR-8d049163');
-  assert.equal(notificationDocumentCode({ entityType: 'MAINTENANCE_RETURN', entityId: id, data: { documentCode: `BT-${id}` } }), 'BT-8d049163');
-  assert.equal(notificationDocumentCode({ entityType: 'MAINTENANCE_RECORD', entityId: id, data: { documentCode: `BT-${id}` } }), 'BT-8d049163');
+  assert.equal(notificationDocumentCode({ entityType: 'MAINTENANCE_REQUEST', entityId: id, data: { documentCode: 'SURV-083' } }), 'SURV-083');
+  assert.equal(notificationDocumentCode({ entityType: 'ASSET_TRANSFER_REQUEST', entityId: id, data: { documentCode: 'SURV-083' } }), 'SURV-083');
+  assert.equal(notificationDocumentCode({ entityType: 'MAINTENANCE_RETURN', entityId: id, data: { documentCode: null } }), 'BT-8d049163');
+  assert.equal(notificationDocumentCode({ entityType: 'MAINTENANCE_RECORD', entityId: id, data: {} }), 'BT-8d049163');
   assert.equal(
     notificationBodyText({
       type: 'MAINTENANCE_RECORD_IN_PROGRESS',
@@ -90,7 +90,7 @@ test('formats notification document codes with PN, PX, KK, CK, MNT, ATR, BT pref
     }),
     'Hồ sơ bảo trì BT-8d049163 đã được kho xác nhận xuất đi sửa, chờ nhận lại thiết bị.',
   );
-  assert.equal(notificationDocumentCode({ entityType: 'STOCK_RECEIPT', entityId: id, data: { documentCode: 'PN-2026-000001' } }), 'PN-8d049163');
+  assert.equal(notificationDocumentCode({ entityType: 'STOCK_RECEIPT', entityId: id, data: { documentCode: 'PN-2026-000001' } }), 'PN-2026-000001');
   assert.equal(
     notificationBodyText({
       type: 'STOCK_RECEIPT_PENDING_APPROVAL',

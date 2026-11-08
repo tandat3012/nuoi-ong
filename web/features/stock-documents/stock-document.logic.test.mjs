@@ -92,6 +92,34 @@ test("API rejections become specific messages and decide whether to reload", () 
     /không còn chờ duyệt/,
   );
   assert.match(
+    stockDocumentErrorMessage(
+      409,
+      "Insufficient available inventory: the stock is held for customer orders",
+    ),
+    /giữ cho đơn của khách/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(
+      403,
+      "A stock difference must be approved by someone other than its author",
+    ),
+    /người khác/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(
+      409,
+      "A bank transfer order must be PAID before it is issued",
+    ),
+    /chưa được xác nhận đã thanh toán/,
+  );
+  assert.match(
+    stockDocumentErrorMessage(
+      409,
+      "Exchange issue must match the item, quantity and warehouse of the warranty request",
+    ),
+    /đổi bảo hành/,
+  );
+  assert.match(
     stockDocumentErrorMessage(409, "Cancel the linked order instead"),
     /hủy đơn hàng/,
   );
@@ -174,11 +202,12 @@ test("receipt, transfer and count URLs preserve filters when opening, replacing 
 test("labels an uncoded draft by its short id and keeps a permanent code", async () => {
   const { documentCodeLabel } = await import("./stock-document.logic.ts");
   assert.equal(
-    documentCodeLabel(null, "1a2b3c4d-0000-4000-8000-000000000000"),
+    documentCodeLabel(null, "1a2b3c4d-0000-4000-8000-000000000000", "PN"),
     "PN-1a2b3c4d",
   );
+  assert.equal(documentCodeLabel(null, "1a2b3c4d", "PX"), "PX-1a2b3c4d");
   assert.equal(
-    documentCodeLabel("PN-2026-000001", "1a2b3c4d"),
+    documentCodeLabel("PN-2026-000001", "1a2b3c4d", "PX"),
     "PN-2026-000001",
   );
 });

@@ -1,8 +1,11 @@
 import type {
+  StorefrontItemType,
   StorefrontProduct,
   StorefrontProductDetail,
   StorefrontProductImage,
+  StorefrontProductSpecification,
   StorefrontProductVariant,
+  StorefrontTrackingMode,
 } from '../types/product';
 
 export interface DetailDiscountState {
@@ -132,6 +135,12 @@ export interface ActiveProductSnapshot {
   availability?: StorefrontProductVariant['availability'];
   sku?: string;
   image?: StorefrontProductImage;
+  unitName?: string;
+  unitSymbol?: string | null;
+  quantityStep?: string;
+  itemType?: StorefrontItemType | null;
+  trackingMode?: StorefrontTrackingMode | null;
+  warrantyMonths?: number | null;
 }
 
 export function resolveActiveProductSnapshot(
@@ -146,6 +155,11 @@ export function resolveActiveProductSnapshot(
       availability: product.availability,
       sku: product.sku,
       image: product.image,
+      unitName: product.unitName,
+      unitSymbol: product.unitSymbol,
+      itemType: product.itemType,
+      trackingMode: product.trackingMode,
+      warrantyMonths: product.warrantyMonths,
     };
   }
 
@@ -156,5 +170,140 @@ export function resolveActiveProductSnapshot(
     availability: selectedVariant.availability,
     sku: selectedVariant.sku ?? product.sku,
     image: selectedVariant.image ?? product.image,
+    unitName:
+      selectedVariant.unitName !== undefined
+        ? selectedVariant.unitName
+        : product.unitName,
+    unitSymbol:
+      selectedVariant.unitSymbol !== undefined
+        ? selectedVariant.unitSymbol
+        : product.unitSymbol,
+    quantityStep: selectedVariant.quantityStep,
+    itemType:
+      selectedVariant.itemType !== undefined
+        ? selectedVariant.itemType
+        : product.itemType,
+    trackingMode:
+      selectedVariant.trackingMode !== undefined
+        ? selectedVariant.trackingMode
+        : product.trackingMode,
+    warrantyMonths:
+      selectedVariant.warrantyMonths !== undefined
+        ? selectedVariant.warrantyMonths
+        : product.warrantyMonths,
   };
+}
+
+const ITEM_TYPE_LABELS: Record<StorefrontItemType, string> = {
+  MATERIAL: 'Vật tư & Nông sản ngành ong',
+  EQUIPMENT: 'Thiết bị nuôi ong chuyên dụng',
+  TOOL: 'Dụng cụ & Phụ kiện ngành ong',
+};
+
+export function resolveProductQualityBadge(
+  snapshot: Pick<
+    ActiveProductSnapshot,
+    'itemType' | 'trackingMode' | 'warrantyMonths'
+  >,
+): string | null {
+  if (
+    typeof snapshot.warrantyMonths === 'number' &&
+    snapshot.warrantyMonths > 0
+  ) {
+    return `Bảo hành chính hãng ${snapshot.warrantyMonths} tháng`;
+  }
+  return null;
+}
+
+export function buildProductSpecifications(
+  product: StorefrontProductDetail,
+  selectedVariant?: StorefrontProductVariant,
+): StorefrontProductSpecification[] {
+  if (
+    Array.isArray(product.specifications) &&
+    product.specifications.length > 0
+  ) {
+    return product.specifications;
+  }
+
+  const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
+  const hasMetadata = Boolean(
+    snapshot.itemType ||
+      snapshot.trackingMode ||
+      snapshot.unitName ||
+      (Array.isArray(product.variants) && product.variants.length > 0),
+  );
+  if (!hasMetadata) return [];
+
+  const specs: StorefrontProductSpecification[] = [];
+  if (product.category?.name) {
+    specs.push({ name: 'Danh mục', value: product.category.name });
+  }
+  if (snapshot.itemType && ITEM_TYPE_LABELS[snapshot.itemType]) {
+    specs.push({
+      name: 'Phân loại hàng hóa',
+      value: ITEM_TYPE_LABELS[snapshot.itemType],
+    });
+  }
+  if (selectedVariant?.name) {
+    specs.push({ name: 'Quy cách đang chọn', value: selectedVariant.name });
+  } else if (Array.isArray(product.variants) && product.variants.length > 0) {
+    specs.push({
+      name: 'Các quy cách cung cấp',
+      value: product.variants.map((v) => v.name).join(', '),
+    });
+  }
+  if (snapshot.unitName) {
+    const symbolSuffix =
+      snapshot.unitSymbol &&
+      snapshot.unitSymbol.toLowerCase() !== snapshot.unitName.toLowerCase()
+        ? ` (${snapshot.unitSymbol})`
+        : '';
+    specs.push({
+      name: 'Đơn vị tính',
+      value: `${snapshot.unitName}${symbolSuffix}`,
+    });
+  }
+  if (
+    typeof snapshot.warrantyMonths === 'number' &&
+    snapshot.warrantyMonths > 0
+  ) {
+    specs.push({
+      name: 'Chính sách bảo hành',
+      value: `Bảo hành chính hãng ${snapshot.warrantyMonths} tháng kể từ ngày giao hàng hoàn tất`,
+    });
+  } else if (
+    snapshot.itemType === 'EQUIPMENT' ||
+    snapshot.itemType === 'TOOL'
+  ) {
+    specs.push({
+      name: 'Chính sách hậu mãi',
+      value: 'Kiểm tra kỹ thuật khi nhận hàng · Hỗ trợ sửa chữa dịch vụ tại trại',
+    });
+  }
+  return specs;
+}
+
+export function resolveProductUsageGuidance(
+  product: StorefrontProductDetail,
+  selectedVariant?: StorefrontProductVariant,
+): string | undefined {
+  if (product.usageGuidance && product.usageGuidance.trim().length > 0) {
+    return product.usageGuidance;
+  }
+
+  const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
+  if (snapshot.trackingMode === 'LOT') {
+    return 'Bảo quản nơi khô ráo, thoáng mát, tránh ánh nắng trực tiếp. Đậy kín nắp sau mỗi lần sử dụng. Quý khách vui lòng kiểm tra tem lô và hạn dùng trên bao bì khi nhận hàng.';
+  }
+  if (snapshot.itemType === 'EQUIPMENT' || snapshot.trackingMode === 'ASSET') {
+    return 'Vệ sinh sạch thiết bị trước và sau mỗi đợt quay mật hoặc khai thác tại trại. Đặt thiết bị trên bề mặt phẳng, khô ráo và kiểm tra các khớp truyền động định kỳ. Vui lòng lưu giữ mã đơn hàng và mã tài sản / số Serial để được hỗ trợ bảo hành, đổi mới hoặc sửa chữa chính hãng.';
+  }
+  if (snapshot.itemType === 'TOOL') {
+    return 'Kiểm tra quy cách và phụ kiện ngay khi nhận hàng. Vệ sinh sạch sáp ong, keo ong bám trên dụng cụ sau khi thao tác tại đàn và bảo quản nơi khô thoáng để duy trì độ bền của gỗ, kim loại và lưới bảo hộ.';
+  }
+  if (snapshot.itemType === 'MATERIAL') {
+    return 'Sử dụng đúng định lượng và quy cách khuyến nghị theo mùa vụ nuôi ong. Bảo quản nơi khô thoáng, tránh ẩm ướt và kiểm tra tình trạng đóng gói trước khi đưa vào sử dụng tại trại.';
+  }
+  return undefined;
 }

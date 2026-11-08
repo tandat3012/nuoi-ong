@@ -199,6 +199,20 @@ export class CommerceService {
         id: storeProductVariants.id,
         name: storeProductVariants.name,
         price: storeProductVariants.price,
+        quantityStep: storeProductVariants.quantityStep,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+        itemType: this.variantItemColumn<
+          'MATERIAL' | 'EQUIPMENT' | 'TOOL' | null
+        >(sql`${items.itemType}`, region, quantity),
+        trackingMode: this.variantItemColumn<
+          'QUANTITY' | 'LOT' | 'ASSET' | null
+        >(sql`${items.trackingMode}`, region, quantity),
+        warrantyMonths: this.variantItemColumn<number | null>(
+          sql`CASE WHEN ${items.itemType} = 'MATERIAL' THEN NULL ELSE COALESCE(${items.warrantyMonths}, 0) END`,
+          region,
+          quantity,
+        ),
         ...this.availabilityFlags(region, quantity),
       })
       .from(storeProductVariants)
@@ -210,9 +224,18 @@ export class CommerceService {
         ),
       )
       .orderBy(asc(storeProductVariants.id));
+    const primary =
+      variants.find((v) =>
+        region ? v.regionQty || v.regionStep || v.served : v.anywhere,
+      ) ?? variants[0];
 
     return {
       ...this.toProduct(row, extras.get(row.id)),
+      unitName: primary?.unitName,
+      unitSymbol: primary?.unitSymbol ?? null,
+      itemType: primary?.itemType ?? null,
+      trackingMode: primary?.trackingMode ?? null,
+      warrantyMonths: primary?.warrantyMonths ?? null,
       images,
       variants: variants.map(
         ({ anywhere, served, regionStep, regionQty, ...variant }) => ({
@@ -495,6 +518,41 @@ export class CommerceService {
         AND ${items.status} = 'ACTIVE'
         AND ${this.sellingConditions()}
         ${extra ? sql`AND ${extra}` : sql``}
+    )`;
+  }
+
+  /** Metadata of the active item in the sales warehouse that would fulfil the variant. */
+  private variantItemColumn<T>(
+    expression: SQL,
+    region?: StoreRegion,
+    quantity = 1,
+  ) {
+    const step = sql`${storeProductVariants.quantityStep}`;
+    const warehouse = {
+      warehouseId: storeSettings.salesWarehouseId,
+      farmId: storeSettings.farmId,
+    };
+    const inStockQty = this.itemStock(
+      warehouse,
+      sql`${step} * ${quantity}::numeric`,
+    );
+    const inStockStep = this.itemStock(warehouse, step);
+    return sql<T>`(
+      SELECT ${expression}
+      FROM ${storeVariantItems}
+      JOIN ${storeSettings} ON ${storeSettings.farmId} = ${storeVariantItems.farmId}
+      JOIN ${farms} ON ${farms.id} = ${storeSettings.farmId}
+      JOIN ${items} ON ${items.id} = ${storeVariantItems.itemId}
+      WHERE ${storeVariantItems.variantId} = ${storeProductVariants.id}
+        AND ${items.status} = 'ACTIVE'
+        AND ${this.sellingConditions()}
+      ORDER BY
+        ${region ? sql`(${this.servesRegion(region)}) DESC,` : sql``}
+        (${inStockQty}) DESC,
+        (${inStockStep}) DESC,
+        ${farms.code} ASC,
+        ${farms.id} ASC
+      LIMIT 1
     )`;
   }
 

@@ -406,10 +406,11 @@ export function MaintenanceRecordCard({
             </dl>
             {farmId && (
               <HistoryPanel
-                key={`${farmId}:MAINTENANCE_RECORD:${record.id}`}
+                key={`${farmId}:ASSET:${record.assetId}`}
                 farmId={farmId}
-                entityType="MAINTENANCE_RECORD"
-                entityId={record.id}
+                // Maintenance steps are audited on the asset (MaintenanceService.audit).
+                entityType="ASSET"
+                entityId={record.assetId}
                 revision={now}
               />
             )}

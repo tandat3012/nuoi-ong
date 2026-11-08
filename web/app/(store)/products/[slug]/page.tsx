@@ -5,9 +5,7 @@ import { notFound } from 'next/navigation';
 import { ChevronRight, AlertCircle, RotateCcw } from 'lucide-react';
 import { getProductStore } from '@/features/commerce/products/api/product.api';
 import { getStoreRegion } from '@/features/commerce/region/region.server';
-import { ProductGallery } from '@/features/commerce/products/components/product-gallery';
-import { ProductDetailSummary } from '@/features/commerce/products/components/product-detail-summary';
-import { ProductDetailInfo } from '@/features/commerce/products/components/product-detail-info';
+import { ProductDetailContent } from '@/features/commerce/products/components/product-detail-summary';
 import { ProductRelatedProducts } from '@/features/commerce/products/components/product-related-products';
 
 // Request-level cache to avoid duplicate network fetches between generateMetadata and page render
@@ -146,18 +144,8 @@ export default async function ProductDetailPage({
         </span>
       </nav>
 
-      {/* Bố cục 2 cột chính: Gallery bên trái, Summary bên phải */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-16 items-start">
-        <ProductGallery
-          productName={product.name}
-          image={product.image}
-          images={product.images}
-        />
-        <ProductDetailSummary product={product} />
-      </div>
-
-      {/* Khối thông tin chi tiết: Mô tả / Thông số / Hướng dẫn */}
-      <ProductDetailInfo product={product} />
+      {/* Bố cục 2 cột chính (Gallery + Summary) & Khối thông tin chi tiết đồng bộ quy cách đang chọn */}
+      <ProductDetailContent product={product} />
 
       {/* Sản phẩm liên quan cùng danh mục */}
       <ProductRelatedProducts

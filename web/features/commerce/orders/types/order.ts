@@ -99,8 +99,17 @@ type StaffOrderField =
   | "codRemittedByMemberId"
   | "refundedByMemberId"
   | "returnReceiptId";
+export interface CustomerDeliveredAsset {
+  assetCode: string;
+  serialNumber: string | null;
+}
+
 export type CustomerOrder = Omit<Order, StaffOrderField>;
-export type CustomerOrderItem = Omit<OrderItem, "itemId">;
+export type CustomerOrderItem = Omit<OrderItem, "itemId"> & {
+  productSlug?: string | null;
+  imageUrl?: string | null;
+  deliveredAssets?: CustomerDeliveredAsset[];
+};
 
 export interface OrderCustomer {
   id: string;
@@ -181,6 +190,15 @@ export interface OrderDetail {
   shipper: { memberId: string; fullName: string } | null;
   /** Take, return and delivered steps, oldest first. */
   deliveryLog: OrderDeliveryLogEntry[];
+  /** Serialised units handed over (sale + confirmed warranty exchanges); staff only. */
+  deliveredAssets?: DeliveredAsset[];
+}
+
+export interface DeliveredAsset {
+  id: string;
+  itemId: string;
+  assetCode: string;
+  serialNumber: string | null;
 }
 
 export type DeliveryAction =
@@ -228,6 +246,8 @@ export interface CustomerWarranty {
   productName: string;
   variantName: string;
   quantity: number;
+  assetCode?: string | null;
+  assetSerialNumber?: string | null;
   kind: "WARRANTY" | "PAID_REPAIR";
   status: string;
   result: string | null;

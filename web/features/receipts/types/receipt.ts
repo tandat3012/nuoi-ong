@@ -62,6 +62,8 @@ export interface CreateReceiptInput extends NumberingOptions {
     assetCode?: string;
     serialNumber?: string;
     locationId?: string;
+    /** Order returns: inspected condition of a shipped asset ("" = not chosen yet). */
+    assetCondition?: 'GOOD' | 'DAMAGED' | '';
     note?: string | null;
   }[];
 }
@@ -84,6 +86,7 @@ export interface ReceiptLine {
   assetId: string | null;
   assetCode: string | null;
   serialNumber: string | null;
+  assetCondition: 'GOOD' | 'DAMAGED' | null;
   note: string | null;
   createdAt: string;
   // Joined by the detail endpoint; null when the referenced row is missing.
@@ -106,6 +109,8 @@ export interface ReceiptLine {
 export interface ReceiptDetail {
   receipt: Receipt;
   items: ReceiptLine[];
+  /** Goods back from a failed delivery: may end with no line at all. */
+  orderReturn?: boolean;
 }
 
 export interface ReceiptItemReference {

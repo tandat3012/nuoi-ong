@@ -1,4 +1,5 @@
 import {
+  FARM_ADMIN_ROLES,
   hasAnyRole,
   MAINTENANCE_WORK_ROLES,
   WAREHOUSE_MANAGE_ROLES,
@@ -22,7 +23,15 @@ export type MaintenanceWorkflow = {
   expectedReturnAt?: string | null;
   /** False when the asset returns to a warehouse the viewer is not assigned to; that warehouse reviews it. */
   returnWarehouseInScope?: boolean;
+  /** NV04: the owner's reuse decision on a passed repair back in stock. */
+  finalDecision?: "REUSE" | "HOLD" | null;
 };
+
+/** A passed repair received back in stock waits for the owner's reuse decision. */
+const awaitsDecision = (record: MaintenanceWorkflow) =>
+  record.status === "COMPLETED" &&
+  record.returnStatus === "CONFIRMED" &&
+  record.finalDecision === null;
 
 const readyToSend = (record: MaintenanceWorkflow) =>
   !!record.supplierId && !!record.expectedReturnAt;
@@ -55,6 +64,10 @@ export function maintenanceActions(
   const manager = hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES);
   if (record.returnStatus === "PENDING_APPROVAL")
     return reviewsReturn(record, roles) ? ["return-receipt/approve", "return-receipt/reject"] : [];
+  if (awaitsDecision(record))
+    return hasAnyRole(roles, FARM_ADMIN_ROLES)
+      ? ["final-decision/reuse", "final-decision/hold"]
+      : [];
   // The coordinator picks partner and return date; only the warehouse confirms the
   // physical hand-over, which moves stock (AC10).
   if (record.status === "SCHEDULED")
@@ -85,10 +98,16 @@ export function maintenanceNextStep(
       : hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES)
         ? "Thiết bị trả về kho khác · Chờ quản lý kho đó duyệt nhập lại."
         : "Chờ quản lý kho duyệt phiếu nhập lại.";
+  if (awaitsDecision(record))
+    return hasAnyRole(roles, FARM_ADMIN_ROLES)
+      ? "Đã nhập kho · Quyết định có cho dùng lại thiết bị không."
+      : "Đã nhập kho · Chờ chủ trại quyết định cho dùng lại.";
   if (record.returnStatus === "CONFIRMED")
     return record.status === "FAILED"
       ? "Đã nhập kho · Thiết bị chưa được phép sử dụng."
-      : "Đã nhập kho · Thiết bị sẵn sàng sử dụng.";
+      : record.finalDecision === "HOLD"
+        ? "Đã nhập kho · Chủ trại chưa cho dùng lại (hỏng, chờ xử lý)."
+        : "Đã nhập kho · Thiết bị sẵn sàng sử dụng.";
   if (record.returnStatus === "REJECTED")
     return "Nhân viên bảo trì cần chỉnh phiếu và gửi lại.";
   if (record.status === "SCHEDULED" && !readyToSend(record))

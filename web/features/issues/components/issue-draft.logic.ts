@@ -5,6 +5,7 @@ import type {
   IssueLotSuggestion,
   IssueAssetReference,
 } from "../types/issue";
+import { canApproveStockDocuments } from "../../stock-documents/stock-document.logic.ts";
 
 export function validateIssueDraft(
   input: CreateIssueInput,
@@ -205,4 +206,19 @@ function isValidIsoDate(value: string) {
   return (
     Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
   );
+}
+
+/** NV02 receipt: the recipient confirms themselves; a warehouse manager may record it for them (with a note). */
+export function issueReceiptAction(
+  viewer: { roles: readonly string[]; memberId?: string },
+  issue: {
+    status: string;
+    recipientMemberId?: string | null;
+    receivedAt?: string | null;
+  },
+): "self" | "onBehalf" | null {
+  if (issue.status !== "CONFIRMED" || !issue.recipientMemberId || issue.receivedAt)
+    return null;
+  if (viewer.memberId === issue.recipientMemberId) return "self";
+  return canApproveStockDocuments(viewer.roles) ? "onBehalf" : null;
 }

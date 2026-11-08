@@ -10,10 +10,13 @@ import type {
 import {
   computeDetailDiscount,
   resolveActiveProductSnapshot,
+  resolveProductQualityBadge,
 } from './product-detail.logic';
 import { getProductCardRating } from './product-card.logic';
 import { ProductQuantitySelector } from './product-quantity-selector';
 import { ProductPurchaseActions } from './product-purchase-actions';
+import { ProductGallery } from './product-gallery';
+import { ProductDetailInfo } from './product-detail-info';
 import { formatVndCurrency } from '@/shared/lib/currency';
 import { cn } from '@/shared/lib/utils';
 import { resolveCartInput } from '../../cart/components/cart.logic';
@@ -40,11 +43,10 @@ export function ProductDetailSummary({
   >(undefined);
   const [quantity, setQuantity] = React.useState<number>(1);
 
-  const selectedVariant =
+  const baseVariant =
     product.variants?.length === 1
       ? product.variants[0]
       : product.variants?.find((variant) => variant.id === selectedVariantId);
-  const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
   const { region } = useStoreRegion();
   // Labels for the chosen quantity; the page itself was rendered for one step.
   const labelKey = `${product.slug}|${region}|${quantity}`;
@@ -77,15 +79,23 @@ export function ProductDetailSummary({
       clearTimeout(timer);
     };
   }, [product.slug, region, quantity]);
+  const quantityVariant =
+    quantity > 1 && region && baseVariant && quantityLabels?.key === labelKey
+      ? quantityLabels.variants?.find((v) => v.id === baseVariant.id)
+      : undefined;
+  const selectedVariant = quantityVariant ?? baseVariant;
+  React.useEffect(() => {
+    onVariantChange?.(selectedVariant);
+  }, [onVariantChange, selectedVariant]);
+  const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
   const availability =
-    quantity <= 1 || !region || !selectedVariant
+    quantity <= 1 || !region || !baseVariant
       ? snapshot.availability
       : quantityLabels?.key === labelKey
-        ? quantityLabels.variants?.find((v) => v.id === selectedVariant.id)
-            ?.availability
+        ? quantityVariant?.availability
         : undefined;
   const checkingQuantity =
-    quantity > 1 && region && selectedVariant && availability === undefined;
+    quantity > 1 && region && baseVariant && availability === undefined;
   const canDeliver =
     snapshot.inStock &&
     !checkingQuantity &&
@@ -94,6 +104,7 @@ export function ProductDetailSummary({
     snapshot.price,
     snapshot.originalPrice,
   );
+  const qualityBadge = resolveProductQualityBadge(snapshot);
   const ratingInfo = getProductCardRating(product.rating);
 
   const { addItem, isCheckoutSubmitting } = useCart();
@@ -127,7 +138,7 @@ export function ProductDetailSummary({
         {product.name}
       </h1>
 
-      {/* 3. Optional SKU and brand */}
+      {/* 3. Optional SKU, unit and brand */}
       <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-muted-foreground">
         {snapshot.sku && (
           <>
@@ -136,6 +147,12 @@ export function ProductDetailSummary({
           </>
         )}
         <span>Thương hiệu: {product.brand || 'Mộc Ong'}</span>
+        {snapshot.unitName && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>Đơn vị tính: {snapshot.unitName}</span>
+          </>
+        )}
       </div>
 
       {/* 4. Rating summary only when data exists */}
@@ -187,32 +204,41 @@ export function ProductDetailSummary({
         )}
       </div>
 
-      {/* 6. Availability */}
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            'inline-block size-2 rounded-full',
-            canDeliver
-              ? 'bg-emerald-500'
-              : 'bg-muted-foreground/60',
-          )}
-          aria-hidden="true"
-        />
-        <span
-          className={cn(
-            'text-xs sm:text-sm font-medium',
-            canDeliver
-              ? 'text-emerald-700 dark:text-emerald-400'
-              : 'text-muted-foreground',
-          )}
-          role="status"
-        >
-          {!checkingQuantity
-            ? availabilityLabel({ inStock: snapshot.inStock, availability })
-            : quantityLabels?.key === labelKey
-              ? 'Chưa kiểm tra được số lượng tại khu vực'
-              : 'Đang kiểm tra số lượng tại khu vực…'}
-        </span>
+      {/* 6. Availability & Quality / Warranty badge */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              'inline-block size-2 rounded-full',
+              canDeliver
+                ? 'bg-emerald-500'
+                : 'bg-muted-foreground/60',
+            )}
+            aria-hidden="true"
+          />
+          <span
+            className={cn(
+              'text-xs sm:text-sm font-medium',
+              canDeliver
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-muted-foreground',
+            )}
+            role="status"
+          >
+            {!checkingQuantity
+              ? availabilityLabel({ inStock: snapshot.inStock, availability })
+              : quantityLabels?.key === labelKey
+                ? 'Chưa kiểm tra được số lượng tại khu vực'
+                : 'Đang kiểm tra số lượng tại khu vực…'}
+          </span>
+        </div>
+
+        {qualityBadge && (
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200/70 bg-amber-50/80 dark:border-amber-800/50 dark:bg-amber-950/40 px-2.5 py-1 text-xs font-medium text-amber-900 dark:text-amber-200">
+            <ShieldCheck className="size-3.5 text-primary shrink-0" aria-hidden="true" />
+            <span>{qualityBadge}</span>
+          </span>
+        )}
       </div>
 
       {/* 7. Product-specific short description */}
@@ -301,7 +327,12 @@ export function ProductDetailSummary({
             className="size-4 text-primary shrink-0"
             aria-hidden="true"
           />
-          <span>Chính hãng</span>
+          <span>
+            {typeof snapshot.warrantyMonths === 'number' &&
+            snapshot.warrantyMonths > 0
+              ? `Bảo hành ${snapshot.warrantyMonths} tháng`
+              : 'Chính hãng'}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <RotateCcw
@@ -312,5 +343,36 @@ export function ProductDetailSummary({
         </div>
       </div>
     </div>
+  );
+}
+
+export function ProductDetailContent({
+  product,
+}: {
+  product: StorefrontProductDetail;
+}) {
+  const [selectedVariant, setSelectedVariant] = React.useState<
+    StorefrontProductVariant | undefined
+  >(() => (product.variants?.length === 1 ? product.variants[0] : undefined));
+
+  return (
+    <>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-16 items-start">
+        <ProductGallery
+          productName={product.name}
+          image={product.image}
+          images={product.images}
+        />
+        <ProductDetailSummary
+          product={product}
+          onVariantChange={setSelectedVariant}
+        />
+      </div>
+
+      <ProductDetailInfo
+        product={product}
+        selectedVariant={selectedVariant}
+      />
+    </>
   );
 }

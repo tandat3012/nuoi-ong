@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -24,6 +25,22 @@ export class StockCountItemDto {
   @Matches(DECIMAL)
   actualQuantity!: string;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+  @ApiPropertyOptional({
+    enum: ['GOOD', 'DAMAGED'],
+    description:
+      'Dòng ASSET (actualQuantity 1 = có, 0 = thiếu): bắt buộc khi có, không gửi khi thiếu.',
+  })
+  @IsOptional()
+  @IsIn(['GOOD', 'DAMAGED'])
+  assetCondition?: 'GOOD' | 'DAMAGED' | null;
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Dòng ASSET: vị trí thực thấy trong kho kiểm kê nếu khác vị trí ghi nhận.',
+  })
+  @IsOptional()
+  @IsUUID()
+  foundLocationId?: string | null;
 }
 export class CreateStockCountDto extends DocumentNumberingOptionsDto {
   @IsUUID() warehouseId!: string;

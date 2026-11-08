@@ -282,6 +282,49 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
       ).rejects.toMatchObject({ status: 404 });
     }));
 
+  it('counts a dispatched transfer as outbound before the destination receives it', () =>
+    inRollback(async (tx) => {
+      const { ids, dashboard } = await scenario(tx);
+      const [transfer] = await tx
+        .insert(schema.stockTransfers)
+        .values({
+          farmId: ids.farm,
+          fromWarehouseId: ids.warehouse,
+          toWarehouseId: ids.otherWarehouse,
+          createdByMemberId: ids.member,
+        })
+        .returning();
+      // Only the outgoing row exists while the goods are on the way.
+      await tx.insert(schema.inventoryTransactions).values({
+        farmId: ids.farm,
+        warehouseId: ids.warehouse,
+        itemId: ids.item,
+        transactionType: 'TRANSFER_OUT',
+        quantityChange: '-1',
+        sourceType: 'STOCK_TRANSFER',
+        sourceId: transfer.id,
+        createdAt: '2026-10-18T03:00:00Z',
+      });
+      const sales = await dashboard.timeseries(
+        ids.farm,
+        '2026-10-01',
+        '2026-10-31',
+        ids.warehouse,
+      );
+      expect(
+        sales.periods.find((p) => p.period === '2026-10-18'),
+      ).toMatchObject({ outboundDocuments: 1 });
+      // The whole farm still sees no movement: the goods never left it.
+      const farm = await dashboard.timeseries(
+        ids.farm,
+        '2026-10-01',
+        '2026-10-31',
+      );
+      expect(farm.periods.find((p) => p.period === '2026-10-18')).toMatchObject(
+        { outboundDocuments: 0 },
+      );
+    }));
+
   it('reports opening, movements and closing per item and warehouse', () =>
     inRollback(async (tx) => {
       const { ids, dashboard } = await scenario(tx);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { nextSteps, warrantyCoverage, warrantyErrorMessage } from "./warranty.logic.ts";
+import { lineAssets, nextSteps, warrantyCoverage, warrantyErrorMessage } from "./warranty.logic.ts";
 
 const actions = (request) => nextSteps(request).map((step) => step.action);
 const base = { kind: "WARRANTY", customerApproved: null, exchangeIssue: null };
@@ -11,7 +11,7 @@ test("a paid repair cannot start before the customer agreed (AC23)", () => {
   assert.ok(!actions(paid).includes("start-repair"));
   assert.ok(!actions({ ...paid, customerApproved: false }).includes("start-repair"));
   assert.ok(actions({ ...paid, customerApproved: true }).includes("start-repair"));
-  assert.deepEqual(actions({ ...base, status: "AWAITING_CUSTOMER" }), ["decide"]);
+  assert.ok(!actions({ ...base, status: "AWAITING_CUSTOMER" }).includes("start-repair"));
 });
 
 test("an exchange closes only once the warehouse issued the replacement (AC24)", () => {
@@ -33,4 +33,25 @@ test("coverage counts from delivery and keeps the months sold", () => {
 test("explains API codes in Vietnamese", () => {
   assert.match(warrantyErrorMessage({ details: { code: "CUSTOMER_CONSENT_REQUIRED" } }), /khách đồng ý/);
   assert.equal(warrantyErrorMessage({ details: { message: "x" } }), "x");
+});
+
+test("an asset line claims one of its own delivered units", () => {
+  const delivered = [
+    { id: "a", itemId: "tool" },
+    { id: "b", itemId: "other" },
+  ];
+  assert.deepEqual(lineAssets(delivered, { itemId: "tool" }).map((a) => a.id), ["a"]);
+  assert.deepEqual(lineAssets(delivered, undefined), []);
+  assert.deepEqual(lineAssets(undefined, { itemId: "tool" }), []);
+  assert.equal(
+    warrantyErrorMessage({ details: { code: "WARRANTY_ASSET_OPEN" } }),
+    "Tài sản này đang có yêu cầu bảo hành chưa đóng.",
+  );
+});
+
+test("the same request can be re-quoted or sent round again (P1-10)", () => {
+  assert.ok(actions({ ...base, status: "AWAITING_CUSTOMER" }).includes("quote"));
+  assert.ok(actions({ ...base, status: "IN_REPAIR" }).includes("quote"));
+  assert.ok(actions({ ...base, status: "BACK_FROM_PARTNER" }).includes("send"));
+  assert.ok(!actions({ ...base, status: "BACK_FROM_PARTNER" }).includes("close"));
 });

@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { assertHoldsStillCovered } from '../warehouses/stock-holds';
 import {
   and,
   count,
@@ -16,6 +17,7 @@ import {
   or,
   sql,
   SQL,
+  type AnyColumn,
 } from 'drizzle-orm';
 import { activeMaintenanceCondition } from './maintenance-state';
 import { PaginationParams } from '../../common/query-params';
@@ -52,6 +54,7 @@ import {
 } from '../warehouses/warehouse-scope';
 import { assetInScope, assetWarehouseId } from '../assets/asset-warehouse';
 import {
+  FARM_ADMIN_ROLES,
   MAINTENANCE_WORK_ROLES,
   MAINTENANCE_SCHEDULE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
@@ -81,14 +84,24 @@ const issuedByName = sql<string | null>`(SELECT COALESCE(u.full_name, u.email)
   FROM farm_members m JOIN users u ON u.id = m.user_id
   WHERE m.id = ${maintenanceRecords.issuedByMemberId})`;
 
-const memberNameSql = (memberIdCol: SQL | unknown) =>
-  sql<string | null>`(SELECT COALESCE(u.full_name, u.email) FROM farm_members m JOIN users u ON u.id = m.user_id WHERE m.id = ${memberIdCol})`;
+const memberNameSql = (memberIdCol: AnyColumn) =>
+  sql<
+    string | null
+  >`(SELECT COALESCE(u.full_name, u.email) FROM farm_members m JOIN users u ON u.id = m.user_id WHERE m.id = ${memberIdCol})`;
 
 const maintenanceExtraColumns = {
-  itemName: sql<string | null>`(SELECT name FROM items WHERE id=${assets.itemId})`,
-  supplierName: sql<string | null>`(SELECT name FROM suppliers WHERE id=${maintenanceRecords.supplierId})`,
-  assetWarehouseName: sql<string | null>`(SELECT w.name FROM locations l JOIN warehouses w ON w.id = l.warehouse_id WHERE l.id=${assets.currentLocationId})`,
-  assetLocationName: sql<string | null>`(SELECT name FROM locations WHERE id=${assets.currentLocationId})`,
+  itemName: sql<
+    string | null
+  >`(SELECT name FROM items WHERE id=${assets.itemId})`,
+  supplierName: sql<
+    string | null
+  >`(SELECT name FROM suppliers WHERE id=${maintenanceRecords.supplierId})`,
+  assetWarehouseName: sql<
+    string | null
+  >`(SELECT w.name FROM locations l JOIN warehouses w ON w.id = l.warehouse_id WHERE l.id=${assets.currentLocationId})`,
+  assetLocationName: sql<
+    string | null
+  >`(SELECT name FROM locations WHERE id=${assets.currentLocationId})`,
   performedByName: memberNameSql(maintenanceRecords.performedByMemberId),
   receivedByName: memberNameSql(maintenanceRecords.receivedByMemberId),
   inspectedByName: memberNameSql(maintenanceRecords.inspectedByMemberId),
@@ -339,34 +352,29 @@ export class MaintenanceService {
         summary: `Đã lên lịch ${this.maintenanceName(record.maintenanceType)}`,
       },
     );
+    const warehouseId = await this.assetWarehouse(tx, asset.id);
     await notifyMaintenanceStaff(
       tx,
       this.recordNotification(record, 'SCHEDULED'),
+      warehouseId,
       actorUserId,
     );
     if (record.supplierId && record.expectedReturnAt) {
-      const [[actorMember], [assetWarehouse]] = await Promise.all([
-        tx
-          .select({ id: farmMembers.id })
-          .from(farmMembers)
-          .where(
-            and(
-              eq(farmMembers.farmId, farmId),
-              eq(farmMembers.userId, actorUserId),
-            ),
-          )
-          .limit(1),
-        tx
-          .select({ warehouseId: assetWarehouseId })
-          .from(assets)
-          .where(eq(assets.id, asset.id))
-          .limit(1),
-      ]);
+      const [actorMember] = await tx
+        .select({ id: farmMembers.id })
+        .from(farmMembers)
+        .where(
+          and(
+            eq(farmMembers.farmId, farmId),
+            eq(farmMembers.userId, actorUserId),
+          ),
+        )
+        .limit(1);
       await notifyFarmApprovers(
         tx,
         this.recordNotification(record, 'READY_TO_SEND'),
-        actorMember?.id ?? '',
-        assetWarehouse?.warehouseId,
+        actorMember.id,
+        warehouseId,
       );
     }
     return record;
@@ -384,10 +392,6 @@ export class MaintenanceService {
       if (current.status !== 'SCHEDULED')
         throw new ConflictException(
           'Completed or cancelled records cannot be edited',
-        );
-      if (current.supplierId && current.expectedReturnAt)
-        throw new ConflictException(
-          'Maintenance record has already been prepared for warehouse issue',
         );
       this.validateReturnDate(
         input.scheduledAt === undefined
@@ -430,16 +434,11 @@ export class MaintenanceService {
         record.expectedReturnAt &&
         (input.supplierId !== undefined || input.expectedReturnAt !== undefined)
       ) {
-        const [assetWarehouse] = await tx
-          .select({ warehouseId: assetWarehouseId })
-          .from(assets)
-          .where(eq(assets.id, record.assetId))
-          .limit(1);
         await notifyFarmApprovers(
           tx,
           this.recordNotification(record, 'READY_TO_SEND'),
           actor.memberId,
-          assetWarehouse?.warehouseId,
+          await this.assetWarehouse(tx, record.assetId),
         );
       }
       return record;
@@ -460,7 +459,7 @@ export class MaintenanceService {
         .limit(1);
       if (!preview) throw new NotFoundException('Asset not found');
       if (
-        !['AVAILABLE', 'ASSIGNED', 'IN_USE', 'MAINTENANCE'].includes(
+        !['AVAILABLE', 'DAMAGED', 'ASSIGNED', 'IN_USE', 'MAINTENANCE'].includes(
           preview.status,
         )
       )
@@ -492,7 +491,8 @@ export class MaintenanceService {
               )
               .limit(1)
           : [];
-      if (preview.status === 'AVAILABLE' || failedReturn) {
+      // A damaged return sits in the warehouse like an available asset.
+      if (['AVAILABLE', 'DAMAGED'].includes(preview.status) || failedReturn) {
         if (!preview.currentLocationId)
           throw new ConflictException('Available asset has no source location');
         const source = await this.activeSource(
@@ -544,7 +544,7 @@ export class MaintenanceService {
         throw new ConflictException(
           'Asset changed while starting maintenance; reload and retry',
         );
-      if (asset.status === 'AVAILABLE')
+      if (asset.status === 'AVAILABLE' || asset.status === 'DAMAGED')
         await this.activeLocation(
           tx,
           farmId,
@@ -598,6 +598,9 @@ export class MaintenanceService {
           throw new ConflictException(
             'Asset is missing from warehouse inventory',
           );
+        await assertHoldsStillCovered(tx, balance.id, {
+          assetId: asset.id,
+        });
         await tx.insert(inventoryTransactions).values({
           farmId,
           warehouseId: sourceWarehouseId!,
@@ -646,6 +649,7 @@ export class MaintenanceService {
       await notifyMaintenanceStaff(
         tx,
         this.recordNotification(updated, 'IN_PROGRESS'),
+        await this.assetWarehouse(tx, updated.assetId),
         actor.userId,
       );
       return updated;
@@ -924,7 +928,9 @@ export class MaintenanceService {
         await tx
           .update(assets)
           .set({
-            status: record.status === 'COMPLETED' ? 'AVAILABLE' : 'MAINTENANCE',
+            // Back in stock but not in use: a passed repair waits for the
+            // owner's final decision (NV04), a failed one stays out of use.
+            status: 'MAINTENANCE',
             currentLocationId: record.returnLocationId,
             updatedAt: now,
           })
@@ -961,6 +967,7 @@ export class MaintenanceService {
           ),
           rejectionReason: updated.returnRejectionReason ?? undefined,
         },
+        await this.assetWarehouse(tx, updated.assetId),
         actor.userId,
         record.returnCreatedByMemberId,
       );
@@ -981,6 +988,81 @@ export class MaintenanceService {
       );
       return updated;
     });
+  }
+
+  /** NV04: the owner/admin decides whether a passed repair goes back into use. */
+  async decide(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    reuse: boolean,
+    note?: string,
+  ) {
+    const actor = await this.actor(farmId, clerkUserId, FARM_ADMIN_ROLES);
+    const decisionNote = note?.trim() || null;
+    if (!reuse && !decisionNote)
+      throw new BadRequestException('Keeping an asset out of use needs a note');
+    const decision = reuse ? 'REUSE' : 'HOLD';
+    return this.databaseService.db.transaction(async (tx) => {
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      // A retried click: the same decision once, never a second movement.
+      if (record.finalDecision === decision) return record;
+      if (record.finalDecision)
+        throw new ConflictException('The final decision was already made');
+      if (record.status !== 'COMPLETED' || record.returnStatus !== 'CONFIRMED')
+        throw new ConflictException(
+          'Only a passed repair received back in stock awaits a final decision',
+        );
+      const [asset] = await tx
+        .select({ status: assets.status })
+        .from(assets)
+        .where(and(eq(assets.id, record.assetId), eq(assets.farmId, farmId)))
+        .for('update');
+      if (asset?.status !== 'MAINTENANCE')
+        throw new ConflictException(
+          'Asset is no longer waiting for a decision',
+        );
+      const now = new Date().toISOString();
+      // Not reused: it stays in stock as DAMAGED, for another repair or retirement.
+      await tx
+        .update(assets)
+        .set({ status: reuse ? 'AVAILABLE' : 'DAMAGED', updatedAt: now })
+        .where(eq(assets.id, record.assetId));
+      const [updated] = await tx
+        .update(maintenanceRecords)
+        .set({
+          finalDecision: decision,
+          finalDecisionNote: decisionNote,
+          finalDecidedByMemberId: actor.memberId,
+          finalDecidedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(maintenanceRecords.id, id))
+        .returning();
+      await this.audit(
+        tx,
+        farmId,
+        actor.userId,
+        'ASSET_MAINTENANCE_FINAL_DECISION',
+        record.assetId,
+        { status: asset.status },
+        {
+          status: reuse ? 'AVAILABLE' : 'DAMAGED',
+          referenceId: id,
+          summary: decisionNote,
+        },
+      );
+      return updated;
+    });
+  }
+
+  private async assetWarehouse(tx: Transaction, assetId: string) {
+    const [row] = await tx
+      .select({ warehouseId: assetWarehouseId })
+      .from(assets)
+      .where(eq(assets.id, assetId))
+      .limit(1);
+    return row?.warehouseId ?? null;
   }
 
   private recordNotification(

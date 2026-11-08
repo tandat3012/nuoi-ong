@@ -30,6 +30,7 @@ import {
   UpdateSupplierDto,
   UpdateUnitDto,
 } from './dto/catalog.dto';
+import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import {
   ApiBearerAuth,
   ApiBadRequestResponse,
@@ -718,12 +719,14 @@ export class CatalogController {
     description: 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho.',
   })
   async createItem(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmIdValue: string | undefined,
     @Body() input: CreateEquipmentItemDto,
   ) {
     return {
       data: await this.catalogService.createItem(
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
         input,
       ),
     };
@@ -751,6 +754,7 @@ export class CatalogController {
     description: 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho.',
   })
   async updateItem(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue: string | undefined,
     @Body() input: UpdateEquipmentItemDto,
@@ -759,6 +763,7 @@ export class CatalogController {
       data: await this.catalogService.updateItem(
         requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
         input,
       ),
     };

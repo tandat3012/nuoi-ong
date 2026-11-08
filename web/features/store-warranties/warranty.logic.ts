@@ -25,6 +25,10 @@ export interface WarrantyRequest {
   orderId: string;
   orderCode: string;
   orderItemId: string;
+  /** Asset-tracked lines: the claimed unit. */
+  assetId?: string | null;
+  assetCode?: string | null;
+  assetSerialNumber?: string | null;
   productName: string;
   variantName: string;
   quantity: number;
@@ -91,16 +95,24 @@ export function nextSteps(request: Pick<WarrantyRequest, "status" | "kind" | "cu
         { action: "back", label: "Đối tác trả về", fields: ["result"] },
       ];
     case "AWAITING_CUSTOMER":
-      return [{ action: "decide", label: "Ghi quyết định của khách", fields: ["approved", "note"] }];
+      return [
+        { action: "decide", label: "Ghi quyết định của khách", fields: ["approved", "note"] },
+        { action: "quote", label: "Báo giá lại", fields: ["quoteAmount"] },
+      ];
     case "IN_REPAIR":
-      return [{
-        action: "back",
-        label: "Đối tác trả về",
-        fields: request.kind === "PAID_REPAIR" ? ["result", "actualCost"] : ["result"],
-      }];
+      return [
+        {
+          action: "back",
+          label: "Đối tác trả về",
+          fields: request.kind === "PAID_REPAIR" ? ["result", "actualCost"] : ["result"],
+        },
+        // Extra cost found mid-repair: the customer must agree again.
+        { action: "quote", label: "Báo giá lại (phát sinh)", fields: ["quoteAmount"] },
+      ];
     case "BACK_FROM_PARTNER":
       return [
         { action: "return", label: "Đã trả khách", fields: [] },
+        { action: "send", label: "Gửi xử lý tiếp", fields: ["partnerName"] },
         { action: "exchange", label: "Đổi hàng mới", fields: [] },
       ];
     case "EXCHANGING": {
@@ -148,7 +160,18 @@ const MESSAGES: Record<string, string> = {
   EXCHANGE_PENDING: "Đã có phiếu xuất đổi hàng đang chờ kho.",
   EXCHANGE_NOT_ISSUED: "Kho chưa xác nhận phiếu xuất hàng đổi.",
   INSUFFICIENT_STOCK: "Kho bán không đủ hàng để đổi.",
+  WARRANTY_ASSET_REQUIRED: "Chọn đúng tài sản đã giao; mỗi yêu cầu chỉ cho một tài sản.",
+  WARRANTY_ASSET_NOT_DELIVERED: "Tài sản này không thuộc dòng hàng đã giao của đơn.",
+  WARRANTY_ASSET_OPEN: "Tài sản này đang có yêu cầu bảo hành chưa đóng.",
 };
+
+/** Units of this order line a claim must pick from; empty for quantity goods. */
+export function lineAssets<T extends { itemId: string }>(
+  delivered: readonly T[] | undefined,
+  line: { itemId: string } | undefined,
+) {
+  return line ? (delivered ?? []).filter((asset) => asset.itemId === line.itemId) : [];
+}
 
 export function warrantyErrorMessage(error: unknown) {
   const failure = error as { details?: { code?: string; message?: string | string[] }; message?: string } | null;

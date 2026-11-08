@@ -39,7 +39,10 @@ import {
 } from '../warehouses/warehouse-scope';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { AssetLifecycleService } from './asset-lifecycle.service';
-import { CreateAssetTransferRequestDto } from './dto/asset-lifecycle.dto';
+import {
+  CreateAssetTransferRequestDto,
+  ReceiveAssetTransferDto,
+} from './dto/asset-lifecycle.dto';
 
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -61,8 +64,11 @@ const reviewerUsers = alias(users, 'transfer_reviewer_users');
 
 const NOTIFICATION_TITLES = {
   PENDING_APPROVAL: 'Yêu cầu chuyển tài sản cần duyệt',
+  IN_TRANSIT: 'Yêu cầu chuyển tài sản đã duyệt, tài sản đang chuyển',
   CONFIRMED: 'Yêu cầu chuyển tài sản đã được duyệt',
   REJECTED: 'Yêu cầu chuyển tài sản bị từ chối',
+  RECEIVE: 'Tài sản đang chuyển đến kho, cần xác nhận nhận',
+  RECEIVED: 'Kho đích đã nhận tài sản điều chuyển',
 };
 
 /**
@@ -220,25 +226,107 @@ export class AssetTransferRequestsService {
     return this.databaseService.db.transaction(async (tx) => {
       const { request, assetCode } = await this.lockPending(tx, id, farmId);
       await this.assertSourceInScope(tx, request, reviewer.scope);
-      const asset = await this.lifecycleService.transferInTransaction(
-        tx,
-        request.assetId,
-        farmId,
-        reviewer,
-        {
-          warehouseId: request.toWarehouseId,
-          locationId: request.toLocationId,
-          note: request.note,
-        },
-        'TRANSFER_PENDING',
-      );
+      const { asset, inTransit } =
+        await this.lifecycleService.transferInTransaction(
+          tx,
+          request.assetId,
+          farmId,
+          reviewer,
+          {
+            warehouseId: request.toWarehouseId,
+            locationId: request.toLocationId,
+            note: request.note,
+          },
+          'TRANSFER_PENDING',
+          request.id,
+        );
+      // Across warehouses approval only dispatches; the destination receives later (P1-02).
+      const status = inTransit ? 'IN_TRANSIT' : 'CONFIRMED';
       const updated = await this.review(tx, request, reviewer.memberId, {
-        status: 'CONFIRMED',
+        status,
       });
-      await this.audit(tx, reviewer.memberId, 'CONFIRM', request, updated);
+      await this.audit(
+        tx,
+        reviewer.memberId,
+        inTransit ? 'DISPATCH' : 'CONFIRM',
+        request,
+        updated,
+      );
       await notifyDocumentCreator(
         tx,
-        this.notification(request, assetCode, 'CONFIRMED'),
+        this.notification(request, assetCode, status),
+        request.requestedByMemberId,
+      );
+      if (inTransit)
+        await notifyFarmApprovers(
+          tx,
+          {
+            ...this.notification(request, assetCode, 'IN_TRANSIT'),
+            title: NOTIFICATION_TITLES.RECEIVE,
+          },
+          reviewer.memberId,
+          request.toWarehouseId,
+        );
+      return { request: updated, asset };
+    });
+  }
+
+  /** P1-02: a manager of the destination warehouse counts the dispatched asset in. */
+  async receive(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    input: ReceiveAssetTransferDto,
+  ) {
+    const reviewer = await this.reviewer(farmId, clerkUserId);
+    const note = input.note?.trim() || null;
+    if (input.condition === 'DAMAGED' && !note)
+      throw new BadRequestException('A note is required for a damaged asset');
+    return this.databaseService.db.transaction(async (tx) => {
+      const [request] = await tx
+        .select()
+        .from(assetTransferRequests)
+        .where(
+          and(
+            eq(assetTransferRequests.id, id),
+            eq(assetTransferRequests.farmId, farmId),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!request)
+        throw new NotFoundException('Asset transfer request not found');
+      if (request.status !== 'IN_TRANSIT')
+        throw new ConflictException(
+          'Only IN_TRANSIT asset transfers can be received',
+        );
+      assertInScope(reviewer.scope, request.toWarehouseId);
+      const asset = await this.lifecycleService.receiveTransferInTransaction(
+        tx,
+        request,
+        reviewer,
+        { ...input, note },
+      );
+      const now = new Date().toISOString();
+      const [updated] = await tx
+        .update(assetTransferRequests)
+        .set({
+          status: 'CONFIRMED',
+          receivedByMemberId: reviewer.memberId,
+          receivedAt: now,
+          receivedCondition: input.condition,
+          receiveNote: note,
+          updatedAt: now,
+        })
+        .where(eq(assetTransferRequests.id, id))
+        .returning();
+      await this.audit(tx, reviewer.memberId, 'RECEIVE', request, updated);
+      await notifyDocumentCreator(
+        tx,
+        {
+          ...this.notification(request, asset.assetCode, 'CONFIRMED'),
+          title: NOTIFICATION_TITLES.RECEIVED,
+        },
         request.requestedByMemberId,
       );
       return { request: updated, asset };
@@ -480,7 +568,7 @@ export class AssetTransferRequestsService {
   private notification(
     request: TransferRequest,
     assetCode: string,
-    status: keyof typeof NOTIFICATION_TITLES,
+    status: 'PENDING_APPROVAL' | 'IN_TRANSIT' | 'CONFIRMED' | 'REJECTED',
   ) {
     return {
       farmId: request.farmId,
@@ -497,7 +585,7 @@ export class AssetTransferRequestsService {
   private async audit(
     tx: Transaction,
     actorMemberId: string,
-    action: 'CREATE' | 'CONFIRM' | 'REJECT',
+    action: 'CREATE' | 'CONFIRM' | 'REJECT' | 'DISPATCH' | 'RECEIVE',
     before: TransferRequest | null,
     after: TransferRequest,
   ) {
@@ -510,6 +598,8 @@ export class AssetTransferRequestsService {
       note: request.note,
       status: request.status,
       rejectionReason: request.rejectionReason,
+      receivedCondition: request.receivedCondition,
+      receiveNote: request.receiveNote,
     });
     await tx.insert(auditLogs).values({
       farmId: after.farmId,

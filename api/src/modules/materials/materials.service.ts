@@ -20,6 +20,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
+import { auditItem } from '../catalog/catalog.service';
 import { DatabaseService } from '../../db/database.service';
 import {
   categories,
@@ -55,7 +56,11 @@ export interface MaterialListFilters extends PaginationParams {
 export class MaterialsService {
   constructor(private readonly databaseService: DatabaseService) {}
 
-  async createMaterial(farmId: string, input: CreateMaterialDto) {
+  async createMaterial(
+    farmId: string,
+    clerkUserId: string,
+    input: CreateMaterialDto,
+  ) {
     this.validateExpiryTracking(
       input.trackingMode,
       input.requiresExpiryTracking ?? false,
@@ -88,17 +93,26 @@ export class MaterialsService {
               imageUrl: input.imageUrl,
               sourceUrl: input.sourceUrl,
             })
-            .returning({ id: items.id });
+            .returning();
 
-          await transaction.insert(materialProfiles).values({
+          const [profile] = await transaction
+            .insert(materialProfiles)
+            .values({
+              farmId,
+              itemId: item.id,
+              kind: input.kind,
+              requiresExpiryTracking: input.requiresExpiryTracking ?? false,
+              expiryWarningDays: input.expiryWarningDays ?? 30,
+              defaultShelfLifeDays: input.defaultShelfLifeDays,
+              storageInstructions: input.storageInstructions,
+              safetyNotes: input.safetyNotes,
+            })
+            .returning();
+          await auditItem(transaction, clerkUserId, 'ITEM_CREATED', null, {
+            id: item.id,
             farmId,
-            itemId: item.id,
-            kind: input.kind,
-            requiresExpiryTracking: input.requiresExpiryTracking ?? false,
-            expiryWarningDays: input.expiryWarningDays ?? 30,
-            defaultShelfLifeDays: input.defaultShelfLifeDays,
-            storageInstructions: input.storageInstructions,
-            safetyNotes: input.safetyNotes,
+            item,
+            profile,
           });
 
           return item.id;
@@ -111,7 +125,12 @@ export class MaterialsService {
     return this.getMaterial(itemId, farmId);
   }
 
-  async updateMaterial(id: string, farmId: string, input: UpdateMaterialDto) {
+  async updateMaterial(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    input: UpdateMaterialDto,
+  ) {
     if (!this.hasDefinedValue(input)) {
       throw new BadRequestException('At least one field must be provided');
     }
@@ -132,6 +151,16 @@ export class MaterialsService {
 
     try {
       await this.databaseService.db.transaction(async (transaction) => {
+        // The audited before-state, read under the item lock every edit takes.
+        const [beforeItem] = await transaction
+          .select()
+          .from(items)
+          .where(and(eq(items.id, id), eq(items.farmId, farmId)))
+          .for('update');
+        const [beforeProfile] = await transaction
+          .select()
+          .from(materialProfiles)
+          .where(eq(materialProfiles.itemId, id));
         if (input.categoryId !== undefined || input.unitId !== undefined) {
           await this.validateReferences(
             transaction,
@@ -239,6 +268,21 @@ export class MaterialsService {
             safetyNotes: input.safetyNotes,
           });
         }
+        const [item] = await transaction
+          .select()
+          .from(items)
+          .where(and(eq(items.id, id), eq(items.farmId, farmId)));
+        const [profile] = await transaction
+          .select()
+          .from(materialProfiles)
+          .where(eq(materialProfiles.itemId, id));
+        await auditItem(
+          transaction,
+          clerkUserId,
+          'ITEM_UPDATED',
+          { item: beforeItem, profile: beforeProfile ?? null },
+          { id, farmId, item, profile },
+        );
       });
     } catch (error: unknown) {
       this.throwMappedDatabaseError(error);

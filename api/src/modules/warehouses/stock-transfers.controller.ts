@@ -40,6 +40,7 @@ import { RejectStockDocumentDto } from './dto/reject-stock-document.dto';
 import {
   CreateStockTransferDto,
   ReceiveStockTransferDto,
+  ResolveStockTransferDto,
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
 import { StockTransfersService } from './stock-transfers.service';
@@ -81,6 +82,15 @@ const transferSchema = {
       description: 'Who received it at the destination.',
     },
     confirmedAt: { type: 'string', format: 'date-time', nullable: true },
+    resolution: {
+      type: 'string',
+      enum: ['RETURN_TO_SOURCE', 'WRITE_OFF'],
+      nullable: true,
+      description: 'How a short receipt was settled; null until then.',
+    },
+    resolutionNote: { type: 'string', nullable: true },
+    resolvedByMemberId: { type: 'string', format: 'uuid', nullable: true },
+    resolvedAt: { type: 'string', format: 'date-time', nullable: true },
     cancelledAt: { type: 'string', format: 'date-time', nullable: true },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -346,14 +356,15 @@ export class StockTransfersController {
 
   @Post(':id/receive')
   @ApiOperation({
-    summary: 'Kho đích xác nhận số thực nhận; phiếu sang CONFIRMED',
+    summary:
+      'Kho đích xác nhận số thực nhận; nhận đủ sang CONFIRMED, nhận thiếu sang DISCREPANCY',
   })
   @ApiUuidParam('id', 'ID phiếu điều chuyển.')
   @ApiFarmIdQuery()
   @ApiBody({ type: ReceiveStockTransferDto, required: false })
   @ApiCreatedResponse({
     description:
-      'Cộng tồn kho đích theo số thực nhận (TRANSFER_IN). Gọi lại khi đã nhận không cộng lần nữa.',
+      'Cộng tồn kho đích theo số thực nhận (TRANSFER_IN). Có dòng nhận thiếu thì phiếu sang DISCREPANCY và chờ /resolve. Gọi lại khi đã nhận không cộng lần nữa.',
     schema: { type: 'object', properties: { data: transferDetailSchema } },
   })
   @ApiBadRequestResponse({
@@ -380,6 +391,44 @@ export class StockTransfersController {
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         input?.items,
+      ),
+    };
+  }
+
+  @Post(':id/resolve')
+  @ApiOperation({
+    summary:
+      'Chủ trại/quản trị xử lý phần thiếu của phiếu DISCREPANCY; phiếu sang CONFIRMED',
+  })
+  @ApiUuidParam('id', 'ID phiếu điều chuyển.')
+  @ApiFarmIdQuery()
+  @ApiBody({ type: ResolveStockTransferDto })
+  @ApiCreatedResponse({
+    description:
+      'RETURN_TO_SOURCE cộng phần thiếu về kho nguồn (RETURN_IN); WRITE_OFF chỉ ghi nhận. Gọi lại khi đã xử lý không cộng lần nữa.',
+    schema: { type: 'object', properties: { data: transferDetailSchema } },
+  })
+  @ApiBadRequestResponse({ description: 'Thiếu căn cứ xử lý.' })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu.' })
+  @ApiConflictResponse({ description: 'Phiếu không ở trạng thái DISCREPANCY.' })
+  @ApiUnauthorizedResponse({
+    description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản trị viên hoặc chủ trang trại được xử lý chênh lệch.',
+  })
+  async resolve(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: ResolveStockTransferDto,
+  ) {
+    return {
+      data: await this.service.resolve(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input,
       ),
     };
   }

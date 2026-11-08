@@ -30,10 +30,16 @@ describe('MaterialsController', () => {
     const material = { item: { code: input.code } };
     materialsService.createMaterial.mockResolvedValueOnce(material);
 
-    await expect(controller.createMaterial(farmId, input)).resolves.toEqual({
+    await expect(
+      controller.createMaterial({ clerkUserId: 'user_1' }, farmId, input),
+    ).resolves.toEqual({
       data: material,
     });
-    expect(materialsService.createMaterial).toHaveBeenCalledWith(farmId, input);
+    expect(materialsService.createMaterial).toHaveBeenCalledWith(
+      farmId,
+      'user_1',
+      input,
+    );
   });
 
   it('updates a material scoped to its farm', async () => {
@@ -42,12 +48,13 @@ describe('MaterialsController', () => {
     const material = { item: { id, status: 'INACTIVE' } };
     materialsService.updateMaterial.mockResolvedValueOnce(material);
 
-    await expect(controller.updateMaterial(id, farmId, input)).resolves.toEqual(
-      { data: material },
-    );
+    await expect(
+      controller.updateMaterial({ clerkUserId: 'user_1' }, id, farmId, input),
+    ).resolves.toEqual({ data: material });
     expect(materialsService.updateMaterial).toHaveBeenCalledWith(
       id,
       farmId,
+      'user_1',
       input,
     );
   });

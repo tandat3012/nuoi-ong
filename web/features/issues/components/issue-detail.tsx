@@ -13,6 +13,7 @@ import {
 import { supportsIssueDraftEdit } from "./issue-draft.logic";
 import { formatInventoryQuantity } from "@/features/inventory/inventory.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
+import { IssueReceipt } from "./issue-receipt";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
@@ -276,6 +277,12 @@ export function IssueDetail({
                 </dd>
               </div>
             </dl>
+            <IssueReceipt
+              farmId={farmId}
+              issue={detail.issue}
+              viewer={viewer}
+              onChanged={refresh}
+            />
             {detail.items.length === 0 ? (
               <p role="status">Phiếu xuất chưa có dòng hàng.</p>
             ) : (

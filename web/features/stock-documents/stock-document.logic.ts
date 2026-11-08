@@ -12,7 +12,9 @@ export type StockDocumentStatus =
   | "REJECTED"
   | "CANCELLED"
   // Transfers only: dispatched by the source, not yet received.
-  | "IN_TRANSIT";
+  | "IN_TRANSIT"
+  // Transfers only: received short, waiting for the owner to settle the rest.
+  | "DISCREPANCY";
 
 export type StockDocumentKind =
   "stock-receipts" | "stock-issues" | "stock-transfers" | "stock-counts";
@@ -92,6 +94,18 @@ const CONFLICTS: [RegExp, string][] = [
   [/can be received/, "Phiếu không còn ở trạng thái đang chuyển."],
   [/can be cancelled/, "Phiếu không còn ở trạng thái nháp nên không hủy được."],
   [
+    /held for (a )?customer order/,
+    "Hàng đang được giữ cho đơn của khách nên không xuất/chuyển được phần này.",
+  ],
+  [
+    /PAYMENT_NOT_VERIFIED|bank transfer order must be PAID/,
+    "Đơn chuyển khoản chưa được xác nhận đã thanh toán nên chưa xuất kho được.",
+  ],
+  [
+    /Exchange issue must match|Warranty exchange issue/,
+    "Phiếu đổi bảo hành phải đúng mặt hàng, số lượng và kho đã duyệt trong yêu cầu bảo hành.",
+  ],
+  [
     /STOCK_COUNT_STALE/,
     "Tồn kho đã thay đổi từ lúc lập phiếu kiểm kê (có phiếu nhập/xuất/chuyển mới). Hãy kiểm lại và lập phiếu mới.",
   ],
@@ -107,7 +121,9 @@ export function stockDocumentErrorMessage(
   if (status === 403)
     return /own documents/.test(message)
       ? "Bạn chỉ thao tác được phiếu do chính mình tạo."
-      : "Bạn không có quyền thực hiện thao tác này trong trang trại.";
+      : /other than its author/.test(message)
+        ? "Phiếu có chênh lệch phải do người khác (không phải người lập) duyệt."
+        : "Bạn không có quyền thực hiện thao tác này trong trang trại.";
   if (status === 404)
     return "Phiếu không tồn tại hoặc không thuộc trang trại này.";
   if (status === 409)
@@ -165,7 +181,7 @@ export type DocumentCodePrefix = "PN" | "PX" | "KK" | "CK" | "MNT" | "ATR" | "BT
 export function documentCodeLabel(
   code: string | null | undefined,
   id: string,
-  prefix: DocumentCodePrefix = "PN",
+  prefix: DocumentCodePrefix,
 ) {
   return code ?? `${prefix}-${id.slice(0, 8)}`;
 }

@@ -19,6 +19,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
+  assets,
   farms,
   farmMembers,
   items,
@@ -639,6 +640,10 @@ export const storeWarrantyRequests = pgTable(
       .notNull()
       .references(() => storeOrderItems.id, { onDelete: 'restrict' }),
     quantity: integer().notNull(),
+    // ASSET-tracked lines: the very unit the order (or an exchange) handed over.
+    assetId: uuid('asset_id').references(() => assets.id, {
+      onDelete: 'restrict',
+    }),
     kind: storeWarrantyKind().notNull(),
     status: storeWarrantyStatus().default('RECEIVED').notNull(),
     issueDescription: text('issue_description').notNull(),
@@ -693,6 +698,16 @@ export const storeWarrantyRequests = pgTable(
       table.createdAt.desc(),
     ),
     index('idx_store_warranty_requests_order').on(table.orderId),
+    // One open claim per serialised unit, even when two staff file it at once.
+    uniqueIndex('uq_store_warranty_open_asset')
+      .on(table.assetId)
+      .where(
+        sql`${table.assetId} IS NOT NULL AND ${table.status} NOT IN ('CLOSED', 'CANCELLED')`,
+      ),
+    check(
+      'ck_store_warranty_asset_quantity',
+      sql`${table.assetId} IS NULL OR ${table.quantity} = 1`,
+    ),
     check(
       'ck_store_warranty_quantity',
       sql`${table.quantity} BETWEEN 1 AND 10000`,

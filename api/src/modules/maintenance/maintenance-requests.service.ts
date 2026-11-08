@@ -27,7 +27,7 @@ import {
 import { WarehousesService } from '../warehouses/warehouses.service';
 
 import { assetInScope, assetWarehouseId } from '../assets/asset-warehouse';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { FARM_ADMIN_ROLES } from '../auth/farm-access/farm-role-groups';
 import { CreateMaintenanceRequestDto } from './dto/maintenance-request.dto';
 import { MaintenanceService } from './maintenance.service';
 
@@ -372,12 +372,13 @@ export class MaintenanceRequestsService {
     return conditions;
   }
 
+  // NV04: only the farm owner/admin approves and assigns maintenance.
   private async reviewer(farmId: string, clerkUserId: string) {
     const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
-      WAREHOUSE_MANAGE_ROLES,
+      FARM_ADMIN_ROLES,
     );
     const [member] = await this.databaseService.db
       .select({ userId: farmMembers.userId })

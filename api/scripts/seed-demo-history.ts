@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import type { DatabaseService } from '../src/db/database.service';
 import * as schema from '../src/db/schema';
+import { secondApprover } from './second-approver';
 import { InventoryAdjustmentsService } from '../src/modules/inventory/inventory-adjustments.service';
 import { MaintenanceService } from '../src/modules/maintenance/maintenance.service';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
@@ -122,6 +123,7 @@ async function seed(db: Db, farmCode: string | undefined, weeks: number) {
     .limit(1);
   if (!owner) throw new Error('The farm has no active FARM_OWNER.');
   const user = owner.clerkUserId;
+  const approver = await secondApprover(db, farm.id, user);
 
   const allWarehouses: Warehouse[] = await db
     .select({
@@ -427,6 +429,9 @@ async function seed(db: Db, farmCode: string | undefined, weeks: number) {
       note: `${MARKER} ${surplus ? 'Kiểm kê thấy dư' : 'Hao hụt khi kiểm kê'}`,
     });
     const id = created.adjustment.id;
+    // Without a second approver the request stays pending (P0-01).
+    if (!approver) return done('điều chỉnh (chờ duyệt)', id);
+    await adjustments.approve(farm.id, approver, id);
     await backdate('inventory_adjustments', id, at, { reviewed_at: at });
     done('điều chỉnh', id);
   };

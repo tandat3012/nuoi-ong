@@ -17,11 +17,18 @@ const id = "12345678-1234-4123-8123-123456789abc";
 
 test("only approvers review pending requests; reviewed requests have no actions", () => {
   for (const roles of [[], ["GUEST"], ["EMPLOYEE"], ["ADMIN"], ["FARM_OWNER"], ["EMPLOYEE", "ADMIN"]]) {
-    for (const status of ["PENDING_APPROVAL", "CONFIRMED", "REJECTED"]) {
-      const allowed = status === "PENDING_APPROVAL" && roles.some((role) => ["ADMIN", "FARM_OWNER"].includes(role));
-      assert.deepEqual(requestActions(roles, status), { approve: allowed, reject: allowed }, `${roles}: ${status}`);
+    for (const status of ["PENDING_APPROVAL", "IN_TRANSIT", "CONFIRMED", "REJECTED"]) {
+      const approver = roles.some((role) => ["ADMIN", "FARM_OWNER"].includes(role));
+      const allowed = status === "PENDING_APPROVAL" && approver;
+      assert.deepEqual(
+        requestActions(roles, status),
+        { approve: allowed, reject: allowed, receive: status === "IN_TRANSIT" && approver },
+        `${roles}: ${status}`,
+      );
     }
   }
+  // Maintenance requests never travel.
+  assert.equal(requestActions(["ADMIN"], "IN_TRANSIT", true).receive, false);
 });
 
 test("only employee non-approvers create; transfers require an AVAILABLE asset", () => {
@@ -153,4 +160,10 @@ test("reload decisions preserve the shared stock-document policy", () => {
 test("transfer destinations use joined names with code fallbacks", () => {
   assert.equal(transferDestination({ toWarehouseName: "Kho chính", toWarehouseCode: "K1", toLocationName: "Kệ A", toLocationCode: "A" }), "Kho chính — Kệ A");
   assert.equal(transferDestination({ toWarehouseName: null, toWarehouseCode: "K1", toLocationName: null, toLocationCode: "A" }), "K1 — A");
+});
+
+test("only the owner or admin approves a maintenance request (P1-05)", () => {
+  assert.equal(requestActions(["WAREHOUSE_MANAGER"], "PENDING_APPROVAL", true).approve, false);
+  assert.equal(requestActions(["WAREHOUSE_MANAGER"], "PENDING_APPROVAL").approve, true);
+  assert.equal(requestActions(["FARM_OWNER"], "PENDING_APPROVAL", true).approve, true);
 });

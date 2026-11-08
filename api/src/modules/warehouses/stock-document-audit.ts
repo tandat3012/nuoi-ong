@@ -18,7 +18,11 @@ export type StockDocumentAction =
   | 'REJECT'
   // Two-step transfers: source sends, destination counts in.
   | 'DISPATCH'
-  | 'RECEIVE';
+  | 'RECEIVE'
+  // A short receipt settled: the rest goes back or is written off.
+  | 'RESOLVE'
+  // An issue's recipient (or a manager for them) acknowledges receipt.
+  | 'ACKNOWLEDGE';
 
 type DocumentRow = {
   id: string;
@@ -51,6 +55,10 @@ const DOCUMENT_FIELDS: Record<StockDocumentType, string[]> = {
     'maintenanceRecordId',
     'reason',
     'note',
+    'recipientMemberId',
+    'receivedAt',
+    'receivedRecordedByMemberId',
+    'receiptNote',
   ],
   STOCK_TRANSFER: [
     'transferCode',
@@ -58,6 +66,8 @@ const DOCUMENT_FIELDS: Record<StockDocumentType, string[]> = {
     'toWarehouseId',
     'transferDate',
     'note',
+    'resolution',
+    'resolutionNote',
   ],
   STOCK_COUNT: ['countCode', 'warehouseId', 'note'],
 };
@@ -70,7 +80,9 @@ const LINE_FIELDS = [
   'lotId',
   'supplierLotNumber',
   'assetId',
-  'assetCode', 'receivedQuantity', 'discrepancyReason',
+  'assetCode',
+  'receivedQuantity',
+  'discrepancyReason',
 ];
 
 function pick(source: object, keys: string[]) {

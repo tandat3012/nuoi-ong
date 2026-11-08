@@ -42,15 +42,21 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     category = randomUUID(),
     unit = randomUUID();
   const actors = Object.fromEntries(
-    ['MAINTENANCE_STAFF', 'WAREHOUSE_MANAGER', 'EMPLOYEE', 'STORE_MANAGER'].map(
-      (role) => [
-        role,
-        { user: randomUUID(), member: randomUUID(), clerk: randomUUID() },
-      ],
-    ),
+    [
+      'MAINTENANCE_STAFF',
+      'WAREHOUSE_MANAGER',
+      'EMPLOYEE',
+      'STORE_MANAGER',
+      'FARM_OWNER',
+    ].map((role) => [
+      role,
+      { user: randomUUID(), member: randomUUID(), clerk: randomUUID() },
+    ]),
   );
   const worker = actors.MAINTENANCE_STAFF.clerk,
-    manager = actors.WAREHOUSE_MANAGER.clerk;
+    manager = actors.WAREHOUSE_MANAGER.clerk,
+    // Gives the final reuse decision on a passed repair (NV04, P1-05).
+    owner = actors.FARM_OWNER.clerk;
   const before = () => new Date(Date.now() - 86400000).toISOString();
   const future = () => new Date(Date.now() + 86400000 * 3).toISOString();
   let asset: string;
@@ -477,6 +483,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
         assetsService.returnAsset(asset, farm, manager, {
           warehouseId: warehouse,
           locationId: location,
+          condition: 'GOOD',
         }),
       ).rejects.toThrow('active maintenance');
       expect(await balance()).toBe(original);
@@ -545,6 +552,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       locationId: location,
     });
     await service.reviewReturn(passed.id, farm, manager, true);
+    await service.decide(passed.id, farm, owner, true);
     expect(
       (await assetsService.getAsset(asset, farm, manager))
         .maintenanceRetryEligible,
@@ -614,6 +622,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       expect(closed.status).toBe('RETURNED');
       expect(closed.returnedAt).not.toBeNull();
       expect(await history.holder(asset, farm)).toBeNull();
+      if (outcome === 'PASSED') await service.decide(r.id, farm, owner, true);
       if (outcome === 'PASSED')
         await expect(
           lifecycle.assign(asset, farm, manager, {
@@ -644,7 +653,8 @@ describe('External maintenance, inspection and warehouse receipt', () => {
           eq(schema.notifications.entityType, 'MAINTENANCE_ASSET'),
         ),
       );
-    expect(oldNotifications).toHaveLength(2);
+    // Manager, worker and the owner added for final decisions are reminded.
+    expect(oldNotifications).toHaveLength(3);
     const catchUp = async () => {
       const [device] = await db
         .insert(schema.devicePushTokens)
@@ -695,6 +705,76 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     await service.reviewReturn(r.id, farm, manager, true);
     expect(await catchUp()).toBe(0);
   });
+  it('notifies maintenance staff and the warehouse at each step and still allows rescheduling', async () => {
+    const sent = async (type: string) =>
+      (
+        await pool.query<{ user_id: string; body: string }>(
+          'SELECT user_id, body FROM notifications WHERE entity_id=$1 AND type=$2 ORDER BY user_id',
+          [r.id, type],
+        )
+      ).rows;
+    const r = await schedule();
+    const code = `BT-${r.id.slice(0, 8)}`;
+    // Scheduled by the manager: staff hear of it, the actor does not.
+    expect(await sent('MAINTENANCE_RECORD_SCHEDULED')).toEqual([
+      {
+        user_id: actors.MAINTENANCE_STAFF.user,
+        body: `Hồ sơ bảo trì ${code} đã được lên lịch, chờ chọn đơn vị và ngày hẹn trả.`,
+      },
+    ]);
+    // Supplier and return date set: the warehouse approvers (not the actor) get it.
+    expect(
+      (await sent('MAINTENANCE_RECORD_READY_TO_SEND')).map((n) => n.user_id),
+    ).toEqual([actors.FARM_OWNER.user]);
+    // A ready record can still be moved to another day.
+    const later = new Date(Date.now() + 86400000 * 2).toISOString();
+    await expect(
+      service.update(r.id, farm, worker, { scheduledAt: later }),
+    ).resolves.toMatchObject({ status: 'SCHEDULED' });
+    await service.start(r.id, farm, manager);
+    expect(
+      (await sent('MAINTENANCE_RECORD_IN_PROGRESS')).map((n) => n.user_id),
+    ).toEqual([actors.MAINTENANCE_STAFF.user]);
+  });
+
+  it('keeps maintenance notifications inside the warehouses of staff who also hold a warehouse role', async () => {
+    const staff = actors.MAINTENANCE_STAFF;
+    const [employeeRole] = await db
+      .select({ id: schema.roles.id })
+      .from(schema.roles)
+      .where(eq(schema.roles.code, 'EMPLOYEE'));
+    const scheduledTo = async (id: string) =>
+      (
+        await pool.query<{ user_id: string }>(
+          "SELECT user_id FROM notifications WHERE entity_id=$1 AND type='MAINTENANCE_RECORD_SCHEDULED'",
+          [id],
+        )
+      ).rows.map((row) => row.user_id);
+    await db
+      .insert(schema.farmMemberRoles)
+      .values({ farmMemberId: staff.member, roleId: employeeRole.id });
+    try {
+      // Now warehouse-scoped with no assignment: this asset's warehouse is out of reach.
+      const outside = await schedule();
+      expect(await scheduledTo(outside.id)).toEqual([]);
+      await service.cancel(outside.id, farm, manager);
+      await db
+        .insert(schema.farmMemberWarehouses)
+        .values({ farmMemberId: staff.member, warehouseId: warehouse });
+      const inside = await schedule();
+      expect(await scheduledTo(inside.id)).toEqual([staff.user]);
+    } finally {
+      await pool.query(
+        'DELETE FROM farm_member_warehouses WHERE farm_member_id=$1',
+        [staff.member],
+      );
+      await pool.query(
+        'DELETE FROM farm_member_roles WHERE farm_member_id=$1 AND role_id=$2',
+        [staff.member, employeeRole.id],
+      );
+    }
+  });
+
   it('enforces duties, keeps original asset, adds stock once under concurrent approval', async () => {
     const original = await balance();
     const r = await schedule();
@@ -769,11 +849,20 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(await balance()).toBe(original);
+    // In stock at the location, out of use until the owner decides.
     expect(await assetRow()).toMatchObject({
       id: asset,
-      status: 'AVAILABLE',
+      status: 'MAINTENANCE',
       currentLocationId: location,
     });
+    await expect(service.decide(r.id, farm, manager, true)).rejects.toThrow(
+      'permission',
+    );
+    await expect(service.decide(r.id, farm, owner, false)).rejects.toThrow(
+      'needs a note',
+    );
+    await service.decide(r.id, farm, owner, false, 'Chưa yên tâm');
+    expect((await assetRow()).status).toBe('DAMAGED');
     expect(
       (
         await pool.query<{
@@ -1160,7 +1249,8 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       "SELECT id FROM notifications WHERE entity_id=$1 AND type='MAINTENANCE_RECORD_OVERDUE'",
       [r.id],
     );
-    expect(rows.rows).toHaveLength(2);
+    // One per reminded member (manager, worker, owner), sent once.
+    expect(rows.rows).toHaveLength(3);
     expect(
       Number(
         (
@@ -1175,6 +1265,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
           )
         ).rows[0].count,
       ),
+      // The owner has no push device in this test; only in-app.
     ).toBe(2);
     await service.update(r.id, farm, manager, {
       scheduledAt: new Date(Date.now() + 86400000 * 2).toISOString(),
@@ -1192,7 +1283,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
           [r.id],
         )
       ).rows[0].count,
-    ).toBe('2');
+    ).toBe('3');
     const stale = await db
       .select({ id: schema.notifications.id })
       .from(schema.notifications)
@@ -1223,7 +1314,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
           [r.id],
         )
       ).rows[0].count,
-    ).toBe('2');
+    ).toBe('3');
     await service.receive(r.id, farm, worker, new Date().toISOString());
     expect(
       await db

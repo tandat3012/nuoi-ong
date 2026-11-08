@@ -59,6 +59,7 @@ test("asset requests use relative routes, farm scope and unchanged envelopes", a
   await returnAsset(request, "selected", "asset-id", {
     warehouseId: "w",
     locationId: "l",
+    condition: "GOOD",
     note: null,
   });
   assert.deepEqual(
@@ -76,6 +77,7 @@ test("asset requests use relative routes, farm scope and unchanged envelopes", a
   assert.deepEqual(calls[4].data, {
     warehouseId: "w",
     locationId: "l",
+    condition: "GOOD",
     note: null,
   });
 });

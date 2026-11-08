@@ -85,9 +85,11 @@ export function CartProvider({ children }: CartProviderProps) {
 
   // Catalog fields apply to current lines, never to a captured cart snapshot.
   const reconcileCart = React.useCallback(async () => {
-    if (!isHydrated || items.length === 0) return stateRef.current.items;
+    const currentItems = stateRef.current.items;
+    if (!stateRef.current.isHydrated || currentItems.length === 0)
+      return currentItems;
     const request = ++reconciliation.current;
-    const slugs = [...new Set(items.map((item) => item.productSlug))];
+    const slugs = [...new Set(currentItems.map((item) => item.productSlug))];
     dispatch({ type: 'pending', slugs });
     setIsReconciling(true);
     const catalog = new Map<string, CartCatalogResult>();
@@ -106,7 +108,7 @@ export function CartProvider({ children }: CartProviderProps) {
     dispatch({ type: 'catalog', catalog });
     setIsReconciling(false);
     return snapshot;
-  }, [dispatch, isHydrated, items]);
+  }, [dispatch]);
 
   // Reconcile once upon initial hydration if there are items
   React.useEffect(() => {

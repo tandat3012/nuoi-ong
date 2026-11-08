@@ -28,7 +28,10 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
   const tag = `WH-FLOW-${randomUUID().replaceAll('-', '').slice(0, 20)}`;
   const farm = randomUUID(),
     user = randomUUID(),
-    member = randomUUID();
+    member = randomUUID(),
+    // Approves what `member` drafted: a count difference needs a second person (P0-01).
+    approverUser = randomUUID(),
+    approver = randomUUID();
   const source = randomUUID(),
     destination = randomUUID(),
     item = randomUUID();
@@ -40,6 +43,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
   const category = randomUUID(),
     unit = randomUUID();
   let canWrite = true;
+  let approveOwn = false;
   let app: INestApplication<App>;
   const http = () => request(app.getHttpServer());
   const create = async (kind: 'counts' | 'transfers', quantity: string) => {
@@ -103,9 +107,16 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         authProviderUserId: tag,
         email: `${tag}@example.local`,
       });
-      await tx
-        .insert(schema.farmMembers)
-        .values({ id: member, farmId: farm, userId: user });
+      await tx.insert(schema.users).values({
+        id: approverUser,
+        authProvider: 'CLERK',
+        authProviderUserId: `${tag}-approver`,
+        email: `${tag}-approver@example.local`,
+      });
+      await tx.insert(schema.farmMembers).values([
+        { id: member, farmId: farm, userId: user },
+        { id: approver, farmId: farm, userId: approverUser },
+      ]);
       await tx
         .insert(schema.categories)
         .values({ id: category, code: tag, name: tag });
@@ -195,7 +206,10 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
             assertScopedAccess(farmId: string, _user: string, write: boolean) {
               if (farmId !== farm || (write && !canWrite))
                 throw new ForbiddenException();
-              return Promise.resolve({ memberId: member, scope: null });
+              return Promise.resolve({
+                memberId: approveOwn ? member : approver,
+                scope: null,
+              });
             },
             assertDocumentWriter(farmId: string) {
               if (farmId !== farm || !canWrite) throw new ForbiddenException();
@@ -236,6 +250,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
 
   beforeEach(async () => {
     canWrite = true;
+    approveOwn = false;
     for (const table of [
       'inventory_transactions',
       'stock_counts',
@@ -483,18 +498,339 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     expect(await ledger()).toEqual([]);
   });
 
-  it('refuses to confirm a legacy count draft with an ASSET line', async () => {
-    const legacyDraft = randomUUID();
-    await pool.query(
-      'INSERT INTO stock_counts (id,farm_id,warehouse_id,count_code,created_by_member_id) VALUES ($1,$2,$3,$4,$5)',
-      [legacyDraft, farm, source, randomUUID(), member],
-    );
-    await pool.query(
-      'INSERT INTO stock_count_items (stock_count_id,item_id,asset_id,system_quantity,actual_quantity) VALUES ($1,$2,$3,0,1)',
-      [legacyDraft, assetItem, assetId],
-    );
-    await confirm('counts', legacyDraft).expect(409);
-    expect(await ledger()).toEqual([]);
+  describe('counting assets one by one (P1-12)', () => {
+    const shelf = randomUUID(),
+      otherShelf = randomUUID(),
+      destinationShelf = randomUUID();
+    const [good, damaged, missing, moved, away] = [
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+    ];
+    const code = (id: string) => `${tag}-${id.slice(0, 6)}`;
+    const assetState = async (id: string) =>
+      (
+        await pool.query<{ status: string; current_location_id: string }>(
+          'SELECT status, current_location_id FROM assets WHERE id=$1',
+          [id],
+        )
+      ).rows[0];
+    const assetBalance = async () =>
+      (
+        await pool.query<{ quantity_on_hand: string }>(
+          'SELECT quantity_on_hand FROM inventory_balances WHERE farm_id=$1 AND warehouse_id=$2 AND item_id=$3',
+          [farm, source, assetItem],
+        )
+      ).rows[0]?.quantity_on_hand;
+    const countAssets = (lines: object[]) =>
+      http()
+        .post('/api/v1/stock-counts')
+        .query({ farmId: farm })
+        .send({ warehouseId: source, countCode: randomUUID(), items: lines });
+
+    beforeAll(async () => {
+      await db.insert(schema.locations).values([
+        {
+          id: shelf,
+          farmId: farm,
+          warehouseId: source,
+          code: `${tag}-S1`,
+          name: 'Kệ 1',
+          type: 'WAREHOUSE_ZONE',
+        },
+        {
+          id: otherShelf,
+          farmId: farm,
+          warehouseId: source,
+          code: `${tag}-S2`,
+          name: 'Kệ 2',
+          type: 'WAREHOUSE_ZONE',
+        },
+        {
+          id: destinationShelf,
+          farmId: farm,
+          warehouseId: destination,
+          code: `${tag}-D1`,
+          name: 'Kệ đích',
+          type: 'WAREHOUSE_ZONE',
+        },
+      ]);
+    });
+    beforeEach(async () => {
+      await pool.query('DELETE FROM asset_incidents WHERE farm_id=$1', [farm]);
+      await pool.query('DELETE FROM assets WHERE id=ANY($1::uuid[])', [
+        [good, damaged, missing, moved, away],
+      ]);
+      await db.insert(schema.assets).values(
+        [good, damaged, missing, moved, away].map((id) => ({
+          id,
+          farmId: farm,
+          itemId: assetItem,
+          assetCode: code(id),
+          status: 'AVAILABLE' as const,
+          currentLocationId: id === away ? destinationShelf : shelf,
+        })),
+      );
+      await db.insert(schema.inventoryBalances).values({
+        farmId: farm,
+        warehouseId: source,
+        itemId: assetItem,
+        quantityOnHand: '4',
+      });
+    });
+
+    it('records found, damaged, misplaced and missing assets and settles them on approval', async () => {
+      const response = await countAssets([
+        {
+          itemId: assetItem,
+          assetId: good,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+        },
+        {
+          itemId: assetItem,
+          assetId: damaged,
+          actualQuantity: '1',
+          assetCondition: 'DAMAGED',
+          note: 'Nứt vỏ',
+        },
+        {
+          itemId: assetItem,
+          assetId: moved,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+          foundLocationId: otherShelf,
+        },
+        { itemId: assetItem, assetId: missing, actualQuantity: '0' },
+      ]).expect(201);
+      const body = response.body as {
+        data: {
+          count: { id: string };
+          items: {
+            assetId: string;
+            systemQuantity: string;
+            actualQuantity: string;
+            assetCondition: string | null;
+            assetCode: string;
+          }[];
+        };
+      };
+      expect(
+        body.data.items.find((line) => line.assetId === missing),
+      ).toMatchObject({
+        systemQuantity: '1.000',
+        actualQuantity: '0.000',
+        assetCondition: null,
+        assetCode: code(missing),
+      });
+      expect(
+        body.data.items.find((line) => line.assetId === good),
+      ).toMatchObject({ actualQuantity: '1.000', assetCondition: 'GOOD' });
+      // Counting changes nothing until someone else approves (P0-01).
+      expect(await assetState(missing)).toMatchObject({ status: 'AVAILABLE' });
+      approveOwn = true;
+      await confirm('counts', body.data.count.id).expect(403);
+      approveOwn = false;
+      await confirm('counts', body.data.count.id).expect(201);
+
+      expect(await assetState(good)).toEqual({
+        status: 'AVAILABLE',
+        current_location_id: shelf,
+      });
+      expect(await assetState(damaged)).toEqual({
+        status: 'DAMAGED',
+        current_location_id: shelf,
+      });
+      expect(await assetState(moved)).toEqual({
+        status: 'AVAILABLE',
+        current_location_id: otherShelf,
+      });
+      expect(await assetState(missing)).toMatchObject({ status: 'LOST' });
+      // Only the missing asset leaves stock, once, as a count adjustment with a loss incident.
+      expect(await assetBalance()).toBe('3.000');
+      const moves = await pool.query(
+        "SELECT asset_id, quantity_change::text FROM inventory_transactions WHERE farm_id=$1 AND source_type='STOCK_COUNT'",
+        [farm],
+      );
+      expect(moves.rows).toEqual([
+        { asset_id: missing, quantity_change: '-1.000' },
+      ]);
+      const incidents = await pool.query(
+        "SELECT asset_id FROM asset_incidents WHERE farm_id=$1 AND incident_type='LOSS'",
+        [farm],
+      );
+      expect(incidents.rows).toEqual([{ asset_id: missing }]);
+      await confirm('counts', body.data.count.id).expect(201);
+      expect(await assetBalance()).toBe('3.000');
+    });
+
+    it('lets the counter confirm alone when every asset is found where recorded', async () => {
+      const response = await countAssets([
+        {
+          itemId: assetItem,
+          assetId: good,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+        },
+      ]).expect(201);
+      approveOwn = true;
+      await confirm(
+        'counts',
+        (response.body as { data: { count: { id: string } } }).data.count.id,
+      ).expect(201);
+      expect(await assetState(good)).toEqual({
+        status: 'AVAILABLE',
+        current_location_id: shelf,
+      });
+      // Damaged or misplaced leaves the quantity equal but still needs another approver.
+      for (const line of [
+        { assetId: damaged, actualQuantity: '1', assetCondition: 'DAMAGED' },
+        {
+          assetId: moved,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+          foundLocationId: otherShelf,
+        },
+      ]) {
+        const draft = await countAssets([
+          { itemId: assetItem, ...line },
+        ]).expect(201);
+        await confirm(
+          'counts',
+          (draft.body as { data: { count: { id: string } } }).data.count.id,
+        ).expect(403);
+      }
+      expect(await assetState(damaged)).toMatchObject({ status: 'AVAILABLE' });
+      expect(await assetState(moved)).toMatchObject({
+        current_location_id: shelf,
+      });
+    });
+
+    it.each([
+      [
+        'an asset of another warehouse',
+        { assetId: away, actualQuantity: '1', assetCondition: 'GOOD' },
+        400,
+      ],
+      [
+        'an asset handed out',
+        { assetId: good, actualQuantity: '1', _status: 'ASSIGNED' },
+        400,
+      ],
+      [
+        'an unknown asset',
+        { assetId: randomUUID(), actualQuantity: '1', assetCondition: 'GOOD' },
+        404,
+      ],
+      [
+        'a quantity other than 0 or 1',
+        { assetId: good, actualQuantity: '2' },
+        400,
+      ],
+      [
+        'a missing asset with a condition',
+        { assetId: good, actualQuantity: '0', assetCondition: 'GOOD' },
+        400,
+      ],
+      [
+        'a found location in another warehouse',
+        {
+          assetId: good,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+          foundLocationId: destinationShelf,
+        },
+        409,
+      ],
+    ])('rejects %s and creates nothing', async (_label, line, status) => {
+      const { _status, ...rest } = line as { _status?: string };
+      if (_status)
+        await pool.query('UPDATE assets SET status=$2 WHERE id=$1', [
+          good,
+          _status,
+        ]);
+      await countAssets([{ itemId: assetItem, ...rest }]).expect(status);
+      const counts = await pool.query(
+        'SELECT id FROM stock_counts WHERE farm_id=$1',
+        [farm],
+      );
+      expect(counts.rows).toEqual([]);
+    });
+
+    it('goes stale when the asset changed after counting, and refuses unsafe missing reports', async () => {
+      const draft = await countAssets([
+        { itemId: assetItem, assetId: missing, actualQuantity: '0' },
+      ]).expect(201);
+      // Moved within the warehouse after the count: still eligible, but the count is stale.
+      await pool.query(
+        "UPDATE assets SET current_location_id=$2, updated_at=now() + interval '1 second' WHERE id=$1",
+        [missing, otherShelf],
+      );
+      await confirm(
+        'counts',
+        (draft.body as { data: { count: { id: string } } }).data.count.id,
+      ).expect(409);
+      expect(await assetState(missing)).toMatchObject({ status: 'AVAILABLE' });
+      expect(await assetBalance()).toBe('4.000');
+
+      // A damaged asset that is gone is retired, as with a loss report.
+      await pool.query("UPDATE assets SET status='DAMAGED' WHERE id=$1", [
+        damaged,
+      ]);
+      await countAssets([
+        { itemId: assetItem, assetId: damaged, actualQuantity: '0' },
+      ]).expect(400);
+      // A found asset must say its condition.
+      await countAssets([
+        { itemId: assetItem, assetId: good, actualQuantity: '1' },
+      ]).expect(400);
+
+      // Open maintenance must be settled before the asset is recorded missing.
+      const pending = await countAssets([
+        { itemId: assetItem, assetId: good, actualQuantity: '0' },
+      ]).expect(201);
+      await pool.query(
+        "INSERT INTO maintenance_records (farm_id, asset_id, maintenance_type, status) VALUES ($1, $2, 'INSPECTION', 'SCHEDULED')",
+        [farm, good],
+      );
+      try {
+        await confirm(
+          'counts',
+          (pending.body as { data: { count: { id: string } } }).data.count.id,
+        ).expect(409);
+        expect(await assetState(good)).toMatchObject({ status: 'AVAILABLE' });
+      } finally {
+        await pool.query('DELETE FROM maintenance_records WHERE asset_id=$1', [
+          good,
+        ]);
+      }
+    });
+
+    it('refuses the same asset twice and goes stale when the asset moves before approval', async () => {
+      await countAssets([
+        {
+          itemId: assetItem,
+          assetId: good,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+        },
+        { itemId: assetItem, assetId: good, actualQuantity: '0' },
+      ]).expect(400);
+      const response = await countAssets([
+        { itemId: assetItem, assetId: missing, actualQuantity: '0' },
+      ]).expect(201);
+      await pool.query("UPDATE assets SET status='ASSIGNED' WHERE id=$1", [
+        missing,
+      ]);
+      await confirm(
+        'counts',
+        (response.body as { data: { count: { id: string } } }).data.count.id,
+      ).expect(409);
+      expect(await assetBalance()).toBe('4.000');
+      expect(await assetState(missing)).toMatchObject({ status: 'ASSIGNED' });
+    });
   });
 
   it('transfers a LOT item between warehouses by lot', async () => {
@@ -546,9 +882,11 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         'stock_transfers',
         'stock_document_counters',
         'inventory_balances',
+        'asset_incidents',
         'assets',
         'inventory_lots',
         'items',
+        'locations',
         'warehouses',
         'farm_members',
       ]) {
@@ -557,6 +895,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       for (const [table, id] of [
         ['farms', farm],
         ['users', user],
+        ['users', approverUser],
         ['categories', category],
         ['units', unit],
       ]) {
@@ -626,7 +965,8 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     expect(
       (done.body as { data: { transfer: object; items: object[] } }).data,
     ).toMatchObject({
-      transfer: { status: 'CONFIRMED' },
+      // A short receipt never closes the transfer (P1-01).
+      transfer: { status: 'DISCREPANCY' },
       items: [
         {
           quantity: '5.000',
@@ -643,6 +983,85 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     );
     // The missing unit left the source and never arrived: no ledger row for it.
     expect(await ledger()).toEqual(['-5.000', '4.000']);
+  });
+
+  const resolve = (id: string, resolution: string, note = 'Đã kiểm tra') =>
+    http()
+      .post(`/api/v1/stock-transfers/${id}/resolve`)
+      .query({ farmId: farm })
+      .send({ resolution, note });
+  const dispatchedLine = async (id: string) => {
+    await confirm('transfers', id).expect(201);
+    const detail = await http()
+      .get(`/api/v1/stock-transfers/${id}`)
+      .query({ farmId: farm })
+      .expect(200);
+    return (detail.body as { data: { items: { id: string }[] } }).data.items[0]
+      .id;
+  };
+  const statusOf = async (id: string) =>
+    (
+      await pool.query<{ status: string; resolution: string | null }>(
+        'SELECT status, resolution FROM stock_transfers WHERE id=$1',
+        [id],
+      )
+    ).rows[0];
+
+  it('keeps a short receipt open until the rest is returned or written off (P1-01)', async () => {
+    const id = await create('transfers', '6');
+    const line = await dispatchedLine(id);
+    await receive(id, [
+      { id: line, receivedQuantity: '4', discrepancyReason: '2 hỏng' },
+    ]).expect(201);
+    // Retried receive neither credits twice nor closes the transfer.
+    await receive(id).expect(201);
+    // A late dispatch retry does not debit the source again.
+    await confirm('transfers', id).expect(201);
+    expect(await statusOf(id)).toEqual({
+      status: 'DISCREPANCY',
+      resolution: null,
+    });
+    await resolve(id, 'WRITE_OFF', '   ').expect(400);
+    await resolve(id, 'LOST').expect(400);
+    await resolve(id, 'RETURN_TO_SOURCE').expect(201);
+    // A retried click returns the rest only once.
+    await resolve(id, 'RETURN_TO_SOURCE').expect(201);
+    expect(await statusOf(id)).toEqual({
+      status: 'CONFIRMED',
+      resolution: 'RETURN_TO_SOURCE',
+    });
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '6.000' },
+        { warehouse_id: destination, quantity_on_hand: '4.000' },
+      ]),
+    );
+    expect(await ledger()).toEqual(['-6.000', '2.000', '4.000']);
+    // A settled transfer ignores a later resolve.
+    await resolve(id, 'WRITE_OFF').expect(201);
+    expect(await ledger()).toEqual(['-6.000', '2.000', '4.000']);
+  });
+
+  it('writes off a transfer that arrived with nothing usable without crediting anyone (P1-01)', async () => {
+    const id = await create('transfers', '6');
+    const line = await dispatchedLine(id);
+    await resolve(id, 'WRITE_OFF').expect(409);
+    await receive(id, [
+      { id: line, receivedQuantity: '0', discrepancyReason: 'Hỏng toàn bộ' },
+    ]).expect(201);
+    expect((await statusOf(id)).status).toBe('DISCREPANCY');
+    await resolve(id, 'WRITE_OFF', 'Hủy hàng hỏng').expect(201);
+    expect(await statusOf(id)).toEqual({
+      status: 'CONFIRMED',
+      resolution: 'WRITE_OFF',
+    });
+    expect(await balances()).toEqual(
+      expect.arrayContaining([
+        { warehouse_id: source, quantity_on_hand: '4.000' },
+        { warehouse_id: destination, quantity_on_hand: '0.000' },
+      ]),
+    );
+    expect(await ledger()).toEqual(['-6.000']);
   });
 
   const createTransfer = async (from: string, to: string, quantity: string) => {
@@ -852,6 +1271,18 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     expect(await balances()).toEqual([
       { warehouse_id: source, quantity_on_hand: '10.000' },
     ]);
+    expect(await ledger()).toEqual([]);
+  });
+
+  it('refuses a count difference confirmed by its own author (P0-01)', async () => {
+    const id = await create('counts', '7.125');
+    approveOwn = true;
+    const refused = await confirm('counts', id).expect(403);
+    expect(refused.body).toMatchObject({ code: 'SELF_APPROVAL' });
+    expect(await ledger()).toEqual([]);
+    // Without a difference the author completes it alone.
+    const same = await create('counts', '10');
+    await confirm('counts', same).expect(201);
     expect(await ledger()).toEqual([]);
   });
 

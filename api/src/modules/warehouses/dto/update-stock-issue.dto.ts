@@ -30,6 +30,10 @@ export class UpdateStockIssueDto extends DocumentNumberingOptionsDto {
   @IsIn(['SALE', 'CONSUMPTION', 'DAMAGE', 'DISPOSAL', 'OTHER', 'MAINTENANCE'])
   issueType?: string;
   @IsOptional() @IsUUID() maintenanceRecordId?: string | null;
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsOptional()
+  @IsUUID()
+  recipientMemberId?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) reason?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
   @IsOptional()
