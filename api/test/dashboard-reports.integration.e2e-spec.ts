@@ -180,6 +180,16 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
         '2026-10-31',
       );
       expect(farm.granularity).toBe('day');
+      expect(farm.maintenanceScope).toBe('FARM');
+      // NV09-F02: a limited viewer's maintenance costs cover their warehouses' assets.
+      const limited = await dashboard.timeseries(
+        ids.farm,
+        '2026-10-01',
+        '2026-10-31',
+        ids.warehouse,
+        [ids.warehouse],
+      );
+      expect(limited.maintenanceScope).toBe('ASSIGNED_WAREHOUSES');
       expect(farm.periods).toHaveLength(31);
       const day = (date: string) =>
         farm.periods.find((period) => period.period === date);

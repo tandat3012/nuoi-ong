@@ -134,7 +134,7 @@ export class DashboardController {
     description: 'Một kho; bỏ trống = toàn trang trại.',
   })
   @ApiOkResponse({
-    description: `Gom theo ngày (≤31 ngày), tuần (≤92 ngày, bắt đầu thứ Hai) hoặc tháng; tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Nhập = phiếu nhập + điều chỉnh tăng; xuất = phiếu xuất + điều chỉnh giảm; chuyển kho chỉ tính khi chọn một kho; cấp phát/hoàn trả tài sản không tính. Giá trị (VND) theo giá bình quân gia quyền di động của từng kho. Chi phí bảo trì tính toàn trang trại theo ngày hoàn thành.`,
+    description: `Gom theo ngày (≤31 ngày), tuần (≤92 ngày, bắt đầu thứ Hai) hoặc tháng; tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Nhập = phiếu nhập + điều chỉnh tăng; xuất = phiếu xuất + điều chỉnh giảm; chuyển kho chỉ tính khi chọn một kho; cấp phát/hoàn trả tài sản không tính. Giá trị (VND) theo giá bình quân gia quyền di động của từng kho. Chi phí bảo trì tính theo ngày hoàn thành và không lọc theo kho đã chọn: maintenanceScope = FARM (toàn trang trại) hoặc ASSIGNED_WAREHOUSES (chỉ tài sản thuộc các kho người xem được phân công).`,
     schema: {
       type: 'object',
       properties: {
@@ -143,6 +143,10 @@ export class DashboardController {
           properties: {
             granularity: { type: 'string', enum: ['day', 'week', 'month'] },
             unpricedMovements: { type: 'integer', example: 0 },
+            maintenanceScope: {
+              type: 'string',
+              enum: ['FARM', 'ASSIGNED_WAREHOUSES'],
+            },
             periods: {
               type: 'array',
               items: {

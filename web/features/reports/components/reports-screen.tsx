@@ -18,6 +18,7 @@ import {
   formatCompactVnd,
   formatDay,
   formatVnd,
+  maintenanceScopeNote,
   periodLabel,
   presetRange,
   rangeError,
@@ -173,7 +174,11 @@ function StockReports({ farmId, farmName, allLabel }: { farmId: string; farmName
           <Metric label="Giá trị nhập" value={formatVnd(totals.inboundValue)} note={`${totals.inboundDocuments} phiếu`} />
           <Metric label="Giá trị xuất" value={formatVnd(totals.outboundValue)} note={`${totals.outboundDocuments} phiếu`} />
           <Metric label="Chi phí mua hàng" value={formatVnd(totals.purchaseCost)} />
-          <Metric label="Chi phí bảo trì" value={formatVnd(totals.maintenanceCost)} note={`Tổng chi phí ${formatVnd(totals.totalCost)}`} />
+          <Metric
+            label={data?.maintenanceScope === "ASSIGNED_WAREHOUSES" ? "Chi phí bảo trì (các kho được phân công)" : "Chi phí bảo trì (toàn trang trại)"}
+            value={formatVnd(totals.maintenanceCost)}
+            note={`Tổng chi phí ${formatVnd(totals.totalCost)}${warehouseId ? " · bảo trì không lọc theo kho đã chọn" : ""}`}
+          />
         </section>
       )}
 
@@ -255,7 +260,8 @@ function StockReports({ farmId, farmName, allLabel }: { farmId: string; farmName
               ariaLabel={`Biểu đồ chi phí: tổng ${formatVnd(totals.totalCost)}`}
             />
             <p className="text-xs text-muted-foreground">
-              Mua hàng tính theo ngày duyệt phiếu nhập{warehouseId ? " của kho đã chọn" : ""}. Bảo trì tính theo ngày hoàn thành, luôn cho toàn trang trại.
+              Mua hàng tính theo ngày duyệt phiếu nhập{warehouseId ? " của kho đã chọn" : ""}.{" "}
+              {maintenanceScopeNote(data.maintenanceScope, Boolean(warehouseId))}
             </p>
           </section>
         </div>
