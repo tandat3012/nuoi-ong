@@ -25,6 +25,10 @@ export interface WarrantyRequest {
   orderId: string;
   orderCode: string;
   orderItemId: string;
+  /** Asset-tracked lines: the claimed unit. */
+  assetId?: string | null;
+  assetCode?: string | null;
+  assetSerialNumber?: string | null;
   productName: string;
   variantName: string;
   quantity: number;
@@ -148,7 +152,18 @@ const MESSAGES: Record<string, string> = {
   EXCHANGE_PENDING: "Đã có phiếu xuất đổi hàng đang chờ kho.",
   EXCHANGE_NOT_ISSUED: "Kho chưa xác nhận phiếu xuất hàng đổi.",
   INSUFFICIENT_STOCK: "Kho bán không đủ hàng để đổi.",
+  WARRANTY_ASSET_REQUIRED: "Chọn đúng tài sản đã giao; mỗi yêu cầu chỉ cho một tài sản.",
+  WARRANTY_ASSET_NOT_DELIVERED: "Tài sản này không thuộc dòng hàng đã giao của đơn.",
+  WARRANTY_ASSET_OPEN: "Tài sản này đang có yêu cầu bảo hành chưa đóng.",
 };
+
+/** Units of this order line a claim must pick from; empty for quantity goods. */
+export function lineAssets<T extends { itemId: string }>(
+  delivered: readonly T[] | undefined,
+  line: { itemId: string } | undefined,
+) {
+  return line ? (delivered ?? []).filter((asset) => asset.itemId === line.itemId) : [];
+}
 
 export function warrantyErrorMessage(error: unknown) {
   const failure = error as { details?: { code?: string; message?: string | string[] }; message?: string } | null;

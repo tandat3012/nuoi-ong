@@ -8,6 +8,7 @@ import { and, count, desc, eq, inArray, sql, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
+  assets,
   auditLogs,
   items,
   stockIssues,
@@ -102,86 +103,142 @@ export class StoreWarrantiesService {
     input: CreateStoreWarrantyDto,
   ) {
     const memberId = await this.orders.staffMember(farmId, clerkUserId);
-    const id = await this.databaseService.db.transaction(async (tx) => {
-      // AC22: only this farm's delivered orders; other farms' orders stay hidden.
-      const [order] = await tx
-        .select()
-        .from(storeOrders)
-        .where(
-          and(
-            eq(storeOrders.id, input.orderId),
-            eq(storeOrders.farmId, farmId),
-          ),
-        );
-      if (!order) throw new NotFoundException('Order not found');
-      if (order.status !== 'COMPLETED' || !order.completedAt)
-        throw new ConflictException({
-          code: 'ORDER_NOT_DELIVERED',
-          message: 'Only delivered (COMPLETED) orders can be claimed',
-        });
-      // The line lock serialises claims, so open quantities cannot overrun.
-      const [line] = await tx
-        .select({ line: storeOrderItems, itemType: items.itemType })
-        .from(storeOrderItems)
-        .innerJoin(items, eq(items.id, storeOrderItems.itemId))
-        .where(
-          and(
-            eq(storeOrderItems.id, input.orderItemId),
-            eq(storeOrderItems.orderId, order.id),
-          ),
+    // Postgres prints uuids in lower case; @IsUUID also accepts upper case.
+    const assetId = input.assetId?.toLowerCase();
+    const id = await this.databaseService.db
+      .transaction(async (tx) => {
+        // AC22: only this farm's delivered orders; other farms' orders stay hidden.
+        const [order] = await tx
+          .select()
+          .from(storeOrders)
+          .where(
+            and(
+              eq(storeOrders.id, input.orderId),
+              eq(storeOrders.farmId, farmId),
+            ),
+          );
+        if (!order) throw new NotFoundException('Order not found');
+        if (order.status !== 'COMPLETED' || !order.completedAt)
+          throw new ConflictException({
+            code: 'ORDER_NOT_DELIVERED',
+            message: 'Only delivered (COMPLETED) orders can be claimed',
+          });
+        // The line lock serialises claims, so open quantities cannot overrun.
+        const [line] = await tx
+          .select({
+            line: storeOrderItems,
+            itemType: items.itemType,
+            trackingMode: items.trackingMode,
+          })
+          .from(storeOrderItems)
+          .innerJoin(items, eq(items.id, storeOrderItems.itemId))
+          .where(
+            and(
+              eq(storeOrderItems.id, input.orderItemId),
+              eq(storeOrderItems.orderId, order.id),
+            ),
+          )
+          .for('update', { of: storeOrderItems });
+        if (!line) throw new BadRequestException('Order line not found');
+        if (line.itemType === 'MATERIAL')
+          throw new BadRequestException({
+            code: 'WARRANTY_NOT_APPLICABLE',
+            message: 'Materials are not covered by warranty or repair',
+          });
+        // A serialised unit is claimed by itself, and only one the order handed over.
+        if (line.trackingMode === 'ASSET') {
+          if (!assetId || input.quantity !== 1)
+            throw new BadRequestException({
+              code: 'WARRANTY_ASSET_REQUIRED',
+              message: 'Choose the delivered asset; one claim covers one unit',
+            });
+          const delivered = await this.orders.deliveredAssets(tx, order.id);
+          if (
+            !delivered.some(
+              (asset) =>
+                asset.id === assetId && asset.itemId === line.line.itemId,
+            )
+          )
+            throw new BadRequestException({
+              code: 'WARRANTY_ASSET_NOT_DELIVERED',
+              message: 'This asset was not delivered with this order line',
+            });
+          // Before the line quantity: a full line would hide the real reason.
+          const [claimed] = await tx
+            .select({ id: storeWarrantyRequests.id })
+            .from(storeWarrantyRequests)
+            .where(
+              and(
+                eq(storeWarrantyRequests.assetId, assetId),
+                inArray(storeWarrantyRequests.status, OPEN),
+              ),
+            )
+            .limit(1);
+          if (claimed) throw this.assetOpen();
+        } else if (input.assetId)
+          throw new BadRequestException(
+            'Only asset-tracked lines are claimed by asset',
+          );
+        const [{ open }] = await tx
+          .select({
+            open: sql<number>`COALESCE(SUM(${storeWarrantyRequests.quantity}), 0)::int`,
+          })
+          .from(storeWarrantyRequests)
+          .where(
+            and(
+              eq(storeWarrantyRequests.orderItemId, line.line.id),
+              inArray(storeWarrantyRequests.status, OPEN),
+            ),
+          );
+        if (open + input.quantity > line.line.quantity)
+          throw new BadRequestException({
+            code: 'WARRANTY_QUANTITY_EXCEEDED',
+            message: `At most ${line.line.quantity - open} more of this line can be claimed`,
+          });
+        if (
+          input.kind === 'WARRANTY' &&
+          !this.inWarranty(order.completedAt, line.line.warrantyMonths)
         )
-        .for('update', { of: storeOrderItems });
-      if (!line) throw new BadRequestException('Order line not found');
-      if (line.itemType === 'MATERIAL')
-        throw new BadRequestException({
-          code: 'WARRANTY_NOT_APPLICABLE',
-          message: 'Materials are not covered by warranty or repair',
+          throw new BadRequestException({
+            code: 'WARRANTY_EXPIRED',
+            message: 'Out of warranty: only a paid repair can be requested',
+          });
+        const [request] = await tx
+          .insert(storeWarrantyRequests)
+          .values({
+            farmId,
+            orderId: order.id,
+            orderItemId: line.line.id,
+            quantity: input.quantity,
+            assetId: assetId ?? null,
+            kind: input.kind,
+            issueDescription: input.issueDescription,
+            intakeNote: input.intakeNote ?? null,
+            createdByMemberId: memberId,
+            handledByMemberId: memberId,
+          })
+          .returning();
+        await this.audit(tx, request, memberId, 'WARRANTY_CREATE', {
+          order: orderCode(order.orderNumber),
+          quantity: request.quantity,
+          assetId: request.assetId,
+          kind: request.kind,
         });
-      const [{ open }] = await tx
-        .select({
-          open: sql<number>`COALESCE(SUM(${storeWarrantyRequests.quantity}), 0)::int`,
-        })
-        .from(storeWarrantyRequests)
-        .where(
-          and(
-            eq(storeWarrantyRequests.orderItemId, line.line.id),
-            inArray(storeWarrantyRequests.status, OPEN),
-          ),
-        );
-      if (open + input.quantity > line.line.quantity)
-        throw new BadRequestException({
-          code: 'WARRANTY_QUANTITY_EXCEEDED',
-          message: `At most ${line.line.quantity - open} more of this line can be claimed`,
-        });
-      if (
-        input.kind === 'WARRANTY' &&
-        !this.inWarranty(order.completedAt, line.line.warrantyMonths)
-      )
-        throw new BadRequestException({
-          code: 'WARRANTY_EXPIRED',
-          message: 'Out of warranty: only a paid repair can be requested',
-        });
-      const [request] = await tx
-        .insert(storeWarrantyRequests)
-        .values({
-          farmId,
-          orderId: order.id,
-          orderItemId: line.line.id,
-          quantity: input.quantity,
-          kind: input.kind,
-          issueDescription: input.issueDescription,
-          intakeNote: input.intakeNote ?? null,
-          createdByMemberId: memberId,
-          handledByMemberId: memberId,
-        })
-        .returning();
-      await this.audit(tx, request, memberId, 'WARRANTY_CREATE', {
-        order: orderCode(order.orderNumber),
-        quantity: request.quantity,
-        kind: request.kind,
+        return request.id;
+      })
+      .catch((error: unknown) => {
+        const cause = error as {
+          code?: string;
+          constraint?: string;
+          cause?: { code?: string; constraint?: string };
+        };
+        if (
+          (cause.constraint ?? cause.cause?.constraint) ===
+          'uq_store_warranty_open_asset'
+        )
+          throw this.assetOpen();
+        throw error;
       });
-      return request.id;
-    });
     return this.get(farmId, clerkUserId, id);
   }
 
@@ -387,6 +444,13 @@ export class StoreWarrantiesService {
   }
 
   /** Lines ordered before T09 carry no policy (null): staff decide. */
+  private assetOpen() {
+    return new ConflictException({
+      code: 'WARRANTY_ASSET_OPEN',
+      message: 'This asset already has an open warranty request',
+    });
+  }
+
   private inWarranty(completedAt: string, months: number | null) {
     if (months === null) return true;
     const end = new Date(completedAt);
@@ -404,6 +468,8 @@ export class StoreWarrantiesService {
         variantName: storeOrderItems.variantName,
         purchased: storeOrderItems.quantity,
         warrantyMonths: storeOrderItems.warrantyMonths,
+        assetCode: assets.assetCode,
+        assetSerialNumber: assets.serialNumber,
         exchangeIssue: {
           id: stockIssues.id,
           issueCode: stockIssues.issueCode,
@@ -420,6 +486,7 @@ export class StoreWarrantiesService {
         stockIssues,
         eq(stockIssues.id, storeWarrantyRequests.exchangeIssueId),
       )
+      .leftJoin(assets, eq(assets.id, storeWarrantyRequests.assetId))
       .where(where)
       .$dynamic();
   }

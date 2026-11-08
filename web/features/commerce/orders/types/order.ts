@@ -181,6 +181,15 @@ export interface OrderDetail {
   shipper: { memberId: string; fullName: string } | null;
   /** Take, return and delivered steps, oldest first. */
   deliveryLog: OrderDeliveryLogEntry[];
+  /** Serialised units handed over (sale + confirmed warranty exchanges); staff only. */
+  deliveredAssets?: DeliveredAsset[];
+}
+
+export interface DeliveredAsset {
+  id: string;
+  itemId: string;
+  assetCode: string;
+  serialNumber: string | null;
 }
 
 export type DeliveryAction =

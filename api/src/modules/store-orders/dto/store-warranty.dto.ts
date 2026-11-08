@@ -28,6 +28,14 @@ export class CreateStoreWarrantyDto {
   @Min(1)
   @Max(10000)
   quantity!: number;
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Bắt buộc với hàng theo dõi tài sản: đúng cá thể đơn (hoặc phiếu đổi bảo hành) đã giao; khi đó quantity = 1.',
+  })
+  @IsOptional()
+  @IsUUID()
+  assetId?: string;
   @ApiProperty({ enum: storeWarrantyKind.enumValues })
   @IsIn(storeWarrantyKind.enumValues)
   kind!: (typeof storeWarrantyKind.enumValues)[number];
