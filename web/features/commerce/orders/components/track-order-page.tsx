@@ -87,10 +87,11 @@ function SignedInOrderTracker() {
     error?: string;
   } | null>(null);
 
+  // The error clears when a reload answers, so the effect below sets no state synchronously.
   const loadOrders = React.useCallback(() => {
-    setListError(null);
     void getCustomerOrders(request, 1)
       .then((res) => {
+        setListError(null);
         setOrders(res.data);
         if (res.data.length > 0) {
           setSelectedOrderId((prev) => prev ?? res.data[0].id);
