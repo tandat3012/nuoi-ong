@@ -289,6 +289,73 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       expect(await salesBalance(tx, ctx)).toBe('9.500');
     }));
 
+  it('hands an exchanged ASSET to the customer instead of leaving it in internal use (P1-07)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, issues, warranties, input } = ctx;
+      await tx
+        .update(schema.storeProductVariants)
+        .set({ quantityStep: '1' })
+        .where(eq(schema.storeProductVariants.id, ids.variant));
+      await tx
+        .update(schema.items)
+        .set({ trackingMode: 'ASSET', itemType: 'EQUIPMENT' })
+        .where(eq(schema.items.id, ids.item));
+      const assetIds = [randomUUID(), randomUUID()];
+      await tx.insert(schema.assets).values(
+        assetIds.map((id) => ({
+          id,
+          farmId: ids.farm,
+          itemId: ids.item,
+          assetCode: id,
+          currentLocationId: ids.location,
+        })),
+      );
+      const { order } = await service.create(ids.customer, input(1));
+      const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
+      await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
+      await service.ship(ids.farm, ids.staff, order.id);
+      await service.complete(ids.farm, ids.staff, order.id);
+      const detail = await service.staffGet(ids.farm, order.id);
+      const [line] = detail.items;
+      // P1-09: an ASSET line is claimed by the delivered unit.
+      const { id } = await ctx.warranties.create(ids.farm, ids.staff, {
+        orderId: order.id,
+        orderItemId: line.id,
+        assetId: detail.deliveredAssets[0].id,
+        quantity: 1,
+        kind: 'WARRANTY',
+        issueDescription: 'Không hoạt động',
+        intakeNote: 'Khách mang đến cửa hàng',
+      });
+      const exchanging = await warranties.act(ids.farm, ids.staff, id, {
+        action: 'exchange',
+      });
+      const issueId = exchanging.exchangeIssue!.id;
+      const [picked] = (await issues.get(issueId, ids.farm, ids.admin)).items;
+      expect(picked.assetId).toBeTruthy();
+      await issues.confirm(issueId, ids.farm, ids.admin);
+      await issues.confirm(issueId, ids.farm, ids.admin);
+      const [given] = await tx
+        .select()
+        .from(schema.assets)
+        .where(eq(schema.assets.id, picked.assetId!));
+      // Left the warehouse for the customer: not IN_USE at the farm, no location.
+      expect(given).toMatchObject({
+        status: 'RETIRED',
+        currentLocationId: null,
+      });
+      // Both units left once: the sold one and the replacement.
+      expect(await salesBalance(tx, ctx)).toBe('8.000');
+      const moves = await tx
+        .select()
+        .from(schema.inventoryTransactions)
+        .where(eq(schema.inventoryTransactions.assetId, picked.assetId!));
+      expect(moves).toHaveLength(1);
+      expect(
+        await warranties.act(ids.farm, ids.staff, id, { action: 'close' }),
+      ).toMatchObject({ status: 'CLOSED', resolution: 'EXCHANGE' });
+    }));
+
   it('claims an ASSET by the delivered unit, one open claim per unit (P1-09)', () =>
     inRollback(async (ctx, tx) => {
       const { ids, service, issues, input } = ctx;
