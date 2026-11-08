@@ -382,6 +382,8 @@ export class DashboardService {
         moves: Record<MoveKind, { quantity: number; value: number }>;
         moved: boolean;
         unpriced: boolean;
+        openingUnpriced: number;
+        closingUnpriced: number;
       }
     >();
     const valued = valueMoves(ledger);
@@ -399,10 +401,12 @@ export class DashboardService {
           ) as Record<MoveKind, { quantity: number; value: number }>,
           moved: false,
           unpriced: false,
+          openingUnpriced: 0,
+          closingUnpriced: 0,
         };
         totals.set(key, row);
       }
-      const { value, unpriced } = valued[index];
+      const { value, unpriced, unpricedQuantity } = valued[index];
       if (move.period) {
         row.moves[move.kind].quantity += Math.abs(move.quantity);
         row.moves[move.kind].value += Math.abs(value);
@@ -411,7 +415,9 @@ export class DashboardService {
       } else {
         row.opening.quantity += move.quantity;
         row.opening.value += value;
+        row.openingUnpriced += unpricedQuantity;
       }
+      row.closingUnpriced += unpricedQuantity;
       row.closing.quantity += move.quantity;
       row.closing.value += value;
     });
@@ -436,8 +442,6 @@ export class DashboardService {
       const empty = (stock: Amount) =>
         stock.quantity === '0' && stock.value === '0';
       if (!row.moved && empty(opening) && empty(closing)) continue;
-      const noValue = (stock: Amount) =>
-        stock.quantity !== '0' && stock.value === '0';
       rows.push({
         ...name,
         opening,
@@ -445,7 +449,11 @@ export class DashboardService {
         moves: Object.fromEntries(
           MOVE_KINDS.map((kind) => [kind, amount(row.moves[kind])]),
         ) as Record<MoveKind, Amount>,
-        unpriced: row.unpriced || noValue(opening) || noValue(closing),
+        // Values cover the priced part only; unpriced stock is unknown, not 0 VND.
+        unpriced:
+          row.unpriced ||
+          Math.round(row.openingUnpriced * 1000) > 0 ||
+          Math.round(row.closingUnpriced * 1000) > 0,
       });
     }
     rows.sort(
@@ -463,29 +471,19 @@ export class DashboardService {
     const ledger = await this.ledger(farmId, today, today, 'day');
     const valued = valueMoves(ledger);
     const shown = inWarehouses(undefined, scope);
-    const stocks = new Map<
-      string,
-      { itemId: string; quantity: number; value: number }
-    >();
+    const stocks = new Map<string, { itemId: string; unpriced: number }>();
     let total = 0;
     ledger.forEach((move, index) => {
       if (!shown(move.warehouseId)) return;
       const key = `${move.warehouseId}:${move.itemId}`;
-      const stock = stocks.get(key) ?? {
-        itemId: move.itemId,
-        quantity: 0,
-        value: 0,
-      };
-      stock.quantity += move.quantity;
-      stock.value += valued[index].value;
+      const stock = stocks.get(key) ?? { itemId: move.itemId, unpriced: 0 };
+      stock.unpriced += valued[index].unpricedQuantity;
       stocks.set(key, stock);
       total += valued[index].value;
     });
     const unpriced = new Set(
       [...stocks.values()]
-        .filter(
-          (stock) => Math.round(stock.quantity * 1000) > 0 && stock.value === 0,
-        )
+        .filter((stock) => Math.round(stock.unpriced * 1000) > 0)
         .map((stock) => stock.itemId),
     );
     return { stockValue: String(total), unpricedItems: unpriced.size };

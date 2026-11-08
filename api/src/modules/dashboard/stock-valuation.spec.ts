@@ -63,21 +63,67 @@ describe('valueMoves', () => {
       move('assetReturn', 1, { warehouseId: 'C' }),
     ]);
     expect(result).toEqual([
-      { value: 0, unpriced: true },
-      { value: 500, unpriced: false },
+      { value: 0, unpriced: true, unpricedQuantity: 2 },
+      { value: 500, unpriced: false, unpricedQuantity: 0 },
       // No average in C yet: the item's latest price in the farm.
-      { value: 1000, unpriced: false },
-      { value: 800, unpriced: false },
-      { value: -1800, unpriced: false },
+      { value: 1000, unpriced: false, unpricedQuantity: 0 },
+      { value: 800, unpriced: false, unpricedQuantity: 0 },
+      { value: -1800, unpriced: false, unpricedQuantity: 0 },
       // C is empty but keeps its last average.
-      { value: 600, unpriced: false },
+      { value: 600, unpriced: false, unpricedQuantity: 0 },
     ]);
   });
 
   it('flags issues from stock that has no value', () => {
     expect(valueMoves([move('adjustmentIn', 2), move('issue', -1)])).toEqual([
-      { value: 0, unpriced: true },
-      { value: 0, unpriced: true },
+      { value: 0, unpriced: true, unpricedQuantity: 2 },
+      { value: 0, unpriced: true, unpricedQuantity: -1 },
+    ]);
+  });
+
+  // NV09-F01: unknown prices are not 0 VND and never pull the average down.
+  it('keeps unpriced units out of the average of the priced ones', () => {
+    const result = valueMoves([
+      move('adjustmentIn', 10),
+      move('receipt', 10, { ownPrice: 100 }),
+      move('issue', -10),
+      move('receipt', 5, { ownPrice: 100 }),
+      move('issue', -10),
+    ]);
+    expect(result).toEqual([
+      { value: 0, unpriced: true, unpricedQuantity: 10 },
+      { value: 1000, unpriced: false, unpricedQuantity: 0 },
+      // Half of the stock leaves: half its value, half of the unpriced units.
+      { value: -500, unpriced: true, unpricedQuantity: -5 },
+      // The average is still 100 for the priced units.
+      { value: 500, unpriced: false, unpricedQuantity: 0 },
+      { value: -667, unpriced: true, unpricedQuantity: -3.333 },
+    ]);
+  });
+
+  it('prices a move without its own price at the priced average', () => {
+    expect(
+      values([
+        move('adjustmentIn', 10),
+        move('receipt', 10, { ownPrice: 100 }),
+        // Not 50 (1000 VND over 20 units): the 10 unpriced units are unknown, not free.
+        move('adjustmentIn', 1),
+      ]),
+    ).toEqual([0, 1000, 100]);
+  });
+
+  it('carries the unpriced part through a transfer', () => {
+    const transfer = { transferKey: 't1' };
+    expect(
+      valueMoves([
+        move('adjustmentIn', 2),
+        move('receipt', 2, { ownPrice: 1000 }),
+        move('transferOut', -4, transfer),
+        move('transferIn', 4, { ...transfer, warehouseId: 'B' }),
+      ]).slice(2),
+    ).toEqual([
+      { value: -2000, unpriced: true, unpricedQuantity: -2 },
+      { value: 2000, unpriced: true, unpricedQuantity: 2 },
     ]);
   });
 });
