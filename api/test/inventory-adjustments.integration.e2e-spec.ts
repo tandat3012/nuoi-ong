@@ -78,6 +78,9 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
   const inactiveUserIdentity = `${tag}-inactive-user`;
   const employeeIdentity = `${tag}-employee`;
   const employeeMemberId = randomUUID();
+  // Approves what the owner requests: nobody approves their own adjustment (P0-01).
+  const approverIdentity = `${tag}-approver`;
+  const approverMemberId = randomUUID();
   const freshLotId = randomUUID();
   let ownerMemberId = '';
   let currentIdentity = ownerIdentity;
@@ -132,6 +135,16 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     } finally {
       currentIdentity = ownerIdentity;
     }
+  };
+  const idOf = (response: { body: unknown }) =>
+    (response.body as AdjustmentResponse).data.adjustment.id;
+  const approve = (id: string) =>
+    asIdentity(approverIdentity, () => review(id, 'approve'));
+  /** The owner requests, the second approver applies it; returns the approval. */
+  const apply = async (...args: Parameters<typeof submit>) => {
+    const created = await submit(...args);
+    if (created.status !== 201) return created;
+    return approve(idOf(created));
   };
 
   const readBalance = async (itemId: string, lotId: string | null = null) => {
@@ -261,6 +274,23 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     await pool.query(
       "INSERT INTO farm_member_roles (farm_member_id,role_id) SELECT $1,id FROM roles WHERE code='EMPLOYEE'",
       [employeeMemberId],
+    );
+    const approverUser = await pool.query<{ id: string }>(
+      'INSERT INTO users (auth_provider,auth_provider_user_id,email,full_name) VALUES ($1,$2,$3,$4) RETURNING id',
+      [
+        'CLERK',
+        approverIdentity,
+        `${approverIdentity}@example.local`,
+        `${tag} Approver`,
+      ],
+    );
+    await pool.query(
+      'INSERT INTO farm_members (id,farm_id,user_id) VALUES ($1,$2,$3)',
+      [approverMemberId, farmId, approverUser.rows[0].id],
+    );
+    await pool.query(
+      "INSERT INTO farm_member_roles (farm_member_id,role_id) SELECT $1,id FROM roles WHERE code='ADMIN'",
+      [approverMemberId],
     );
     await pool.query(
       'INSERT INTO categories (id,code,name) VALUES ($1,$2,$2)',
@@ -463,6 +493,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
             outsiderIdentity,
             inactiveUserIdentity,
             employeeIdentity,
+            approverIdentity,
           ],
         ],
       );
@@ -500,14 +531,15 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
   });
 
   it('applies positive and negative decimal strings and stores one matching ledger row each', async () => {
-    const positive = await submit(quantityItemId, '+10.125', {
+    const positive = await apply(quantityItemId, '+10.125', {
       note: '  Physical count  ',
-    }).expect(201);
+    });
+    expect(positive.status).toBe(201);
     const positiveBody = positive.body as AdjustmentResponse;
     expect(positiveBody.data.adjustment).toMatchObject({
       status: 'CONFIRMED',
       requestedByMemberId: ownerMemberId,
-      reviewedByMemberId: ownerMemberId,
+      reviewedByMemberId: approverMemberId,
     });
     expect(positiveBody.data.transaction).toMatchObject({
       transactionType: 'ADJUSTMENT_IN',
@@ -518,7 +550,8 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       performedByMemberId: ownerMemberId,
     });
 
-    const negative = await submit(quantityItemId, '-3.125').expect(201);
+    const negative = await apply(quantityItemId, '-3.125');
+    expect(negative.status).toBe(201);
     const negativeBody = negative.body as AdjustmentResponse;
     expect(negativeBody.data.transaction).toMatchObject({
       transactionType: 'ADJUSTMENT_OUT',
@@ -578,9 +611,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       .query({ farmId })
       .expect(201);
 
-    const adjustmentResponse = await submit(receiptIssueItemId, '-1', {
+    const adjustmentResponse = await apply(receiptIssueItemId, '-1', {
       note: '  Final count correction  ',
-    }).expect(201);
+    });
+    expect(adjustmentResponse.status).toBe(201);
     const adjustment = (adjustmentResponse.body as AdjustmentResponse).data
       .transaction;
 
@@ -648,9 +682,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
   });
 
   it('only lets expired lots and inactive items be decreased, and rejects invalid tracking combinations', async () => {
-    const lotAdjustment = await submit(lotItemId, '2.500', {
+    const lotAdjustment = await apply(lotItemId, '2.500', {
       lotId: freshLotId,
-    }).expect(201);
+    });
+    expect(lotAdjustment.status).toBe(201);
     const lotBody = lotAdjustment.body as AdjustmentResponse;
     expect(lotBody.data.transaction.lotId).toBe(freshLotId);
     expect(await readBalance(lotItemId, freshLotId)).toBe('2.500');
@@ -661,10 +696,14 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,lot_id,quantity_on_hand) VALUES ($1,$2,$3,$4,2.5)',
       [farmId, warehouseId, lotItemId, expiredLotId],
     );
-    await submit(lotItemId, '-1.250', {
-      lotId: expiredLotId,
-      reasonCode: 'EXPIRED',
-    }).expect(201);
+    expect(
+      (
+        await apply(lotItemId, '-1.250', {
+          lotId: expiredLotId,
+          reasonCode: 'EXPIRED',
+        })
+      ).status,
+    ).toBe(201);
     expect(await readBalance(lotItemId, expiredLotId)).toBe('1.250');
 
     await submit(quantityItemId, '1', { lotId: expiredLotId }).expect(400);
@@ -697,7 +736,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,lot_id,quantity_on_hand) VALUES ($1,$2,$3,NULL,3)',
       [farmId, warehouseId, inactiveQuantityItemId],
     );
-    await submit(inactiveQuantityItemId, '-3').expect(201);
+    expect((await apply(inactiveQuantityItemId, '-3')).status).toBe(201);
     expect(await readBalance(inactiveQuantityItemId)).toBe('0.000');
   });
 
@@ -732,10 +771,11 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
 
   it('accepts the numeric precision boundary and a 4000-character note', async () => {
     const note = 'r'.repeat(4000);
-    const response = await submit(maximumItemId, '999999999999999.999', {
+    const response = await apply(maximumItemId, '999999999999999.999', {
       reasonCode: 'OTHER',
       note,
-    }).expect(201);
+    });
+    expect(response.status).toBe(201);
     const body = response.body as AdjustmentResponse;
     expect(body.data.transaction.quantityChange).toBe('999999999999999.999');
     expect(body.data.transaction.reason).toBe(`Khác: ${note}`);
@@ -751,7 +791,8 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,lot_id,quantity_on_hand) VALUES ($1,$2,$3,NULL,$4)',
       [farmId, warehouseId, overflowItemId, '999999999999999.999'],
     );
-    await submit(overflowItemId, '0.001').expect(409);
+    // The overflow surfaces when the approval applies it.
+    expect((await apply(overflowItemId, '0.001')).status).toBe(409);
     expect(await readBalance(overflowItemId)).toBe('999999999999999.999');
     expect(await countAdjustments(overflowItemId)).toBe(0);
   });
@@ -790,10 +831,11 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,lot_id,quantity_on_hand) VALUES ($1,$2,$3,NULL,5)',
       [farmId, warehouseId, negativeRaceItemId],
     );
-    const responses = await Promise.all([
-      submit(negativeRaceItemId, '-4'),
-      submit(negativeRaceItemId, '-3'),
-    ]);
+    const ids = [
+      idOf(await submit(negativeRaceItemId, '-4').expect(201)),
+      idOf(await submit(negativeRaceItemId, '-3').expect(201)),
+    ];
+    const responses = await Promise.all(ids.map(approve));
     expect(responses.map(({ status }) => status).sort()).toEqual([201, 409]);
     expect(['1.000', '2.000']).toContain(await readBalance(negativeRaceItemId));
     expect(await countAdjustments(negativeRaceItemId)).toBe(1);
@@ -804,20 +846,22 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       'INSERT INTO inventory_balances (farm_id,warehouse_id,item_id,lot_id,quantity_on_hand) VALUES ($1,$2,$3,NULL,5)',
       [farmId, warehouseId, positiveRaceItemId],
     );
-    const responses = await Promise.all([
-      submit(positiveRaceItemId, '2'),
-      submit(positiveRaceItemId, '3'),
-    ]);
+    const ids = [
+      idOf(await submit(positiveRaceItemId, '2').expect(201)),
+      idOf(await submit(positiveRaceItemId, '3').expect(201)),
+    ];
+    const responses = await Promise.all(ids.map(approve));
     expect(responses.map(({ status }) => status)).toEqual([201, 201]);
     expect(await readBalance(positiveRaceItemId)).toBe('10.000');
     expect(await countAdjustments(positiveRaceItemId)).toBe(2);
   });
 
   it('creates one balance when positive updates race on a missing row', async () => {
-    const responses = await Promise.all([
-      submit(firstInsertRaceItemId, '2'),
-      submit(firstInsertRaceItemId, '3'),
-    ]);
+    const ids = [
+      idOf(await submit(firstInsertRaceItemId, '2').expect(201)),
+      idOf(await submit(firstInsertRaceItemId, '3').expect(201)),
+    ];
+    const responses = await Promise.all(ids.map(approve));
     expect(responses.map(({ status }) => status)).toEqual([201, 201]);
     expect(await readBalance(firstInsertRaceItemId)).toBe('5.000');
     expect(await countAdjustments(firstInsertRaceItemId)).toBe(2);
@@ -841,17 +885,18 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
         throw new Error('simulated failure after the ledger insert');
       });
     try {
-      await submit(rollbackItemId, '7').expect(500);
+      expect((await apply(rollbackItemId, '7')).status).toBe(500);
     } finally {
       failing.mockRestore();
     }
     expect(await readBalance(rollbackItemId)).toBeNull();
     expect(await countAdjustments(rollbackItemId)).toBe(0);
-    const rows = await pool.query(
-      'SELECT 1 FROM inventory_adjustments WHERE farm_id=$1 AND item_id=$2',
+    // The failed approval rolled back: the request is still waiting.
+    const rows = await pool.query<{ status: string }>(
+      'SELECT status FROM inventory_adjustments WHERE farm_id=$1 AND item_id=$2',
       [farmId, rollbackItemId],
     );
-    expect(rows.rowCount).toBe(0);
+    expect(rows.rows).toEqual([{ status: 'PENDING_APPROVAL' }]);
   });
 
   it('replays a retried idempotency key instead of adjusting twice', async () => {
@@ -865,6 +910,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     expect((retry.body as AdjustmentResponse).data).toEqual(
       (first.body as AdjustmentResponse).data,
     );
+    await approve(idOf(first)).then((res) => expect(res.status).toBe(201));
     expect(await readBalance(quantityItemId)).toBe('4.000');
     expect(await countAdjustments(quantityItemId)).toBe(1);
 
@@ -881,6 +927,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       submit(quantityItemId, '2', { idempotencyKey }),
     ]);
     expect(responses.map(({ status }) => status)).toEqual([201, 201]);
+    expect(idOf(responses[0])).toBe(idOf(responses[1]));
+    await approve(idOf(responses[0])).then((res) =>
+      expect(res.status).toBe(201),
+    );
     expect(await readBalance(quantityItemId)).toBe('2.000');
     expect(await countAdjustments(quantityItemId)).toBe(1);
   });
@@ -941,6 +991,20 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     expect(await countAdjustments(quantityItemId)).toBe(1);
   });
 
+  it('never applies an approver own adjustment without a second person (P0-01)', async () => {
+    const own = await submit(quantityItemId, '90').expect(201);
+    expect((own.body as AdjustmentResponse).data).toMatchObject({
+      adjustment: { status: 'PENDING_APPROVAL', reviewedByMemberId: null },
+      transaction: null,
+    });
+    expect(await readBalance(quantityItemId)).toBeNull();
+    const self = await review(idOf(own), 'approve').expect(403);
+    expect(self.body).toMatchObject({ code: 'SELF_APPROVAL' });
+    expect(await readBalance(quantityItemId)).toBeNull();
+    expect((await approve(idOf(own))).status).toBe(201);
+    expect(await readBalance(quantityItemId)).toBe('90.000');
+  });
+
   it('applies a pending approval at most once under concurrent clicks', async () => {
     const pending = await asIdentity(employeeIdentity, () =>
       submit(quantityItemId, '3').expect(201),
@@ -989,7 +1053,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       submit(quantityItemId, '-4').expect(201),
     );
     const id = (pending.body as AdjustmentResponse).data.adjustment.id;
-    await submit(quantityItemId, '-3').expect(201);
+    expect((await apply(quantityItemId, '-3')).status).toBe(201);
 
     await review(id, 'approve').expect(409);
     expect(await readBalance(quantityItemId)).toBe('2.000');

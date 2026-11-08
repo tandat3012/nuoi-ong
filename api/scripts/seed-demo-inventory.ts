@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, type PoolClient } from 'pg';
 import type { DatabaseService } from '../src/db/database.service';
 import * as schema from '../src/db/schema';
+import { secondApprover } from './second-approver';
 import { InventoryAdjustmentsService } from '../src/modules/inventory/inventory-adjustments.service';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
 import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.service';
@@ -333,6 +334,7 @@ async function seed(db: Db, farmCode?: string) {
   };
   const farm = await findFarm(db, farmCode);
   const owner = await findOwnerIdentity(db, farm.id);
+  const approver = await secondApprover(db, farm.id, owner);
   const items = await pickItems(db, farm.id);
   const warehouseId = await ensureWarehouse(db, services, farm.id, owner);
   const zoneId = await ensureLocations(db, farm.id, warehouseId);
@@ -483,7 +485,18 @@ async function seed(db: Db, farmCode?: string) {
       reasonCode: adjustment.reasonCode,
       note: adjustment.note,
     });
-    log(`${adjustment.key} (điều chỉnh)`, result.adjustment.status);
+    // Someone other than the requester applies it (P0-01); a replay is already done.
+    const status =
+      approver && result.adjustment.status === 'PENDING_APPROVAL'
+        ? (
+            await services.adjustments.approve(
+              farm.id,
+              approver,
+              result.adjustment.id,
+            )
+          ).adjustment.status
+        : result.adjustment.status;
+    log(`${adjustment.key} (điều chỉnh)`, status);
   }
 
   console.info(
