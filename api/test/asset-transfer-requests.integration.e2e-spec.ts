@@ -451,6 +451,13 @@ describe('Asset transfer requests', () => {
     expect(
       (await notificationsFor(actors.creator.id)).map((n) => n.type),
     ).toContain('ASSET_TRANSFER_REQUEST_CONFIRMED');
+    // The database refuses a receipt without its condition.
+    await expect(
+      pool.query(
+        'UPDATE asset_transfer_requests SET received_condition=NULL WHERE id=$1',
+        [request.id],
+      ),
+    ).rejects.toThrow('ck_asset_transfer_received');
   });
 
   it('frees the asset on rejection and separates each actor’s audit history', async () => {

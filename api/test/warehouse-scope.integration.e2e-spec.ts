@@ -229,6 +229,22 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
         .from(schema.assetTransferRequests)
         .where(eq(schema.assetTransferRequests.assetId, asset));
       expect(transfer.status).toBe('IN_TRANSIT');
+      // The destination opens and scans the incoming asset; others still cannot.
+      const assetsService = new AssetsService(database, warehouses);
+      await expect(
+        assetsService.getAsset(asset, ids.farm, people.otherManager),
+      ).resolves.toMatchObject({ asset: { id: asset } });
+      const incoming = await assetsService.listAssets({
+        farmId: ids.farm,
+        clerkUserId: people.otherManager,
+        page: 1,
+        pageSize: 20,
+        offset: 0,
+      });
+      expect(incoming.data.map((row) => row.asset.id)).toContain(asset);
+      await expect(
+        assetsService.getAsset(asset, ids.farm, people.idle),
+      ).rejects.toThrow('not found');
       const body = { assetCode, condition: 'GOOD' as const };
       await expect(
         transfers.receive(transfer.id, ids.farm, people.manager, body),

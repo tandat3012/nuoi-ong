@@ -2398,7 +2398,7 @@ export const assetTransferRequests = pgTable(
       ),
     check(
       'ck_asset_transfer_received',
-      sql`(received_at IS NULL AND received_by_member_id IS NULL AND received_condition IS NULL) OR (status = 'CONFIRMED'::document_status AND received_at IS NOT NULL AND received_by_member_id IS NOT NULL AND (received_condition = 'GOOD' OR (received_condition = 'DAMAGED' AND coalesce(btrim(receive_note), '') <> '')))`,
+      sql`(received_at IS NULL AND received_by_member_id IS NULL AND received_condition IS NULL) OR (status = 'CONFIRMED'::document_status AND received_at IS NOT NULL AND received_by_member_id IS NOT NULL AND received_condition IS NOT NULL AND (received_condition = 'GOOD' OR (received_condition = 'DAMAGED' AND coalesce(btrim(receive_note), '') <> '')))`,
     ),
     foreignKey({
       columns: [table.farmId],
