@@ -1,6 +1,7 @@
 import {
   ConflictException,
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -27,6 +28,8 @@ import {
   assetIncidents,
   assets,
   auditLogs,
+  farmMemberRoles,
+  farmMemberWarehouses,
   farmMembers,
   inventoryBalances,
   inventoryTransactions,
@@ -34,6 +37,7 @@ import {
   locations,
   maintenanceRecords,
   maintenanceStatus,
+  roles,
   suppliers,
   users,
   warehouses,
@@ -393,6 +397,18 @@ export class MaintenanceService {
         throw new ConflictException(
           'Completed or cancelled records cannot be edited',
         );
+      const manager = await this.isManager(tx, actor.memberId);
+      if (!manager) {
+        await this.assertOwnWork(tx, current, actor.memberId);
+        // P1-05: assigning is the managers' call; staff never claim a job themselves.
+        if (
+          input.performedByMemberId !== undefined &&
+          input.performedByMemberId !== current.performedByMemberId
+        )
+          throw new ForbiddenException(
+            'Only a farm owner, admin or warehouse manager assigns maintenance',
+          );
+      }
       this.validateReturnDate(
         input.scheduledAt === undefined
           ? current.scheduledAt
@@ -665,6 +681,7 @@ export class MaintenanceService {
     const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      await this.assertOwnWork(tx, record, actor.memberId);
       if (record.status !== 'IN_PROGRESS')
         throw new ConflictException(
           'Only external maintenance can be received',
@@ -711,6 +728,7 @@ export class MaintenanceService {
       throw new BadRequestException('Next maintenance interval is required');
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      await this.assertOwnWork(tx, record, actor.memberId);
       if (record.status !== 'RECEIVED' || !record.receivedAt)
         throw new ConflictException('Receive the asset before inspection');
       const [asset] = await tx
@@ -777,6 +795,7 @@ export class MaintenanceService {
     const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      await this.assertOwnWork(tx, record, actor.memberId);
       if (
         !['COMPLETED', 'FAILED'].includes(record.status) ||
         !record.receivedAt ||
@@ -1097,6 +1116,8 @@ export class MaintenanceService {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      if (!(await this.isManager(tx, actor.memberId)))
+        await this.assertOwnWork(tx, record, actor.memberId);
       if (record.status !== 'SCHEDULED')
         throw new ConflictException('Only active records can be cancelled');
       const [asset] = await tx
@@ -1258,6 +1279,38 @@ export class MaintenanceService {
         throw new ConflictException(
           'Performer must be an active member of this farm',
         );
+      // P1-05: the assignee coordinates the job, so needs a maintenance or management role.
+      const codes = await this.roleCodes(tx, input.performedByMemberId);
+      if (!codes.some((code) => MAINTENANCE_SCHEDULE_ROLES.includes(code)))
+        throw new ConflictException(
+          'Performer must be a maintenance staff member, warehouse manager, farm owner or admin',
+        );
+      // A warehouse manager only works in their assigned warehouses.
+      if (
+        !codes.some((code) => FARM_ADMIN_ROLES.includes(code)) &&
+        !codes.includes('MAINTENANCE_STAFF')
+      ) {
+        const warehouseId = await this.assetWarehouse(tx, assetId);
+        const [assigned] = warehouseId
+          ? await tx
+              .select({ id: farmMemberWarehouses.farmMemberId })
+              .from(farmMemberWarehouses)
+              .where(
+                and(
+                  eq(
+                    farmMemberWarehouses.farmMemberId,
+                    input.performedByMemberId,
+                  ),
+                  eq(farmMemberWarehouses.warehouseId, warehouseId),
+                ),
+              )
+              .limit(1)
+          : [{ id: input.performedByMemberId }];
+        if (!assigned)
+          throw new ConflictException(
+            "Performer must manage the asset's warehouse",
+          );
+      }
     }
     if (input.supplierId) {
       const [supplier] = await tx
@@ -1275,6 +1328,35 @@ export class MaintenanceService {
       if (!supplier)
         throw new ConflictException('Supplier must be active in this farm');
     }
+  }
+
+  private async roleCodes(tx: Transaction, memberId: string) {
+    const rows = await tx
+      .select({ code: roles.code })
+      .from(farmMemberRoles)
+      .innerJoin(roles, eq(roles.id, farmMemberRoles.roleId))
+      .where(eq(farmMemberRoles.farmMemberId, memberId));
+    return rows.map((row) => row.code);
+  }
+
+  private async isManager(tx: Transaction, memberId: string) {
+    return (await this.roleCodes(tx, memberId)).some((code) =>
+      WAREHOUSE_MANAGE_ROLES.includes(code),
+    );
+  }
+
+  /** P1-05: maintenance staff act only on unassigned jobs, their own, or ones a manager coordinates. */
+  private async assertOwnWork(
+    tx: Transaction,
+    record: typeof maintenanceRecords.$inferSelect,
+    memberId: string,
+  ) {
+    const assignee = record.performedByMemberId;
+    if (!assignee || assignee === memberId) return;
+    if ((await this.roleCodes(tx, assignee)).includes('MAINTENANCE_STAFF'))
+      throw new ForbiddenException(
+        'This maintenance job is assigned to another staff member',
+      );
   }
 
   private async activeWarehouse(tx: Transaction, farmId: string, id: string) {

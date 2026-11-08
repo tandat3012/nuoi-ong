@@ -1328,4 +1328,67 @@ describe('External maintenance, inspection and warehouse receipt', () => {
         ),
     ).toHaveLength(0);
   });
+  it('assigns only maintenance-capable members and keeps staff off jobs of others (P1-05)', async () => {
+    const assign = (performedByMemberId: string) =>
+      service.create(farm, manager, {
+        assetId: asset,
+        maintenanceType: 'PREVENTIVE',
+        scheduledAt: before(),
+        performedByMemberId,
+      });
+    for (const role of ['EMPLOYEE', 'STORE_MANAGER'])
+      await expect(assign(actors[role].member)).rejects.toThrow(
+        'Performer must be a maintenance staff member',
+      );
+    // A warehouse manager assigned to the asset's warehouse may coordinate it.
+    const coordinated = await assign(actors.WAREHOUSE_MANAGER.member);
+    await service.cancel(coordinated.id, farm, manager);
+
+    const record = await assign(actors.MAINTENANCE_STAFF.member);
+    // Staff never reassign a job, not even to themselves.
+    await expect(
+      service.update(record.id, farm, worker, {
+        performedByMemberId: actors.WAREHOUSE_MANAGER.member,
+      }),
+    ).rejects.toThrow('assigns maintenance');
+
+    // Registered with the actors so afterAll removes the extra member and user.
+    const peerClerk = randomUUID();
+    const peer = { user: randomUUID(), member: randomUUID(), clerk: peerClerk };
+    actors.PEER_MAINTENANCE_STAFF = peer;
+    await db.insert(schema.users).values({
+      id: peer.user,
+      email: `${peerClerk}@example.local`,
+      authProviderUserId: peerClerk,
+    });
+    await db
+      .insert(schema.farmMembers)
+      .values({ id: peer.member, userId: peer.user, farmId: farm });
+    const [staffRole] = await db
+      .select()
+      .from(schema.roles)
+      .where(eq(schema.roles.code, 'MAINTENANCE_STAFF'));
+    await db
+      .insert(schema.farmMemberRoles)
+      .values({ farmMemberId: peer.member, roleId: staffRole.id });
+    await expect(
+      service.update(record.id, farm, peerClerk, { resultNote: 'mine' }),
+    ).rejects.toThrow('assigned to another staff member');
+    await expect(service.cancel(record.id, farm, peerClerk)).rejects.toThrow(
+      'assigned to another staff member',
+    );
+    // A manager reassigns; then the new assignee works on it.
+    await service.update(record.id, farm, manager, {
+      performedByMemberId: peer.member,
+    });
+    await service.update(record.id, farm, peerClerk, {
+      supplierId: supplier,
+      expectedReturnAt: future(),
+    });
+    await service.start(record.id, farm, manager);
+    await expect(
+      service.receive(record.id, farm, worker, new Date().toISOString()),
+    ).rejects.toThrow('assigned to another staff member');
+    await service.receive(record.id, farm, peerClerk, new Date().toISOString());
+  });
 });
