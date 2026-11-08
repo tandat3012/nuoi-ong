@@ -52,6 +52,7 @@ import {
 } from '../warehouses/warehouse-scope';
 import { assetInScope, assetWarehouseId } from '../assets/asset-warehouse';
 import {
+  FARM_ADMIN_ROLES,
   MAINTENANCE_WORK_ROLES,
   MAINTENANCE_SCHEDULE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
@@ -857,7 +858,9 @@ export class MaintenanceService {
         await tx
           .update(assets)
           .set({
-            status: record.status === 'COMPLETED' ? 'AVAILABLE' : 'MAINTENANCE',
+            // Back in stock but not in use: a passed repair waits for the
+            // owner's final decision (NV04), a failed one stays out of use.
+            status: 'MAINTENANCE',
             currentLocationId: record.returnLocationId,
             updatedAt: now,
           })
@@ -898,6 +901,72 @@ export class MaintenanceService {
           returnStatus: updated.returnStatus,
           referenceId: id,
           summary: updated.returnRejectionReason,
+        },
+      );
+      return updated;
+    });
+  }
+
+  /** NV04: the owner/admin decides whether a passed repair goes back into use. */
+  async decide(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    reuse: boolean,
+    note?: string,
+  ) {
+    const actor = await this.actor(farmId, clerkUserId, FARM_ADMIN_ROLES);
+    const decisionNote = note?.trim() || null;
+    if (!reuse && !decisionNote)
+      throw new BadRequestException('Keeping an asset out of use needs a note');
+    const decision = reuse ? 'REUSE' : 'HOLD';
+    return this.databaseService.db.transaction(async (tx) => {
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      // A retried click: the same decision once, never a second movement.
+      if (record.finalDecision === decision) return record;
+      if (record.finalDecision)
+        throw new ConflictException('The final decision was already made');
+      if (record.status !== 'COMPLETED' || record.returnStatus !== 'CONFIRMED')
+        throw new ConflictException(
+          'Only a passed repair received back in stock awaits a final decision',
+        );
+      const [asset] = await tx
+        .select({ status: assets.status })
+        .from(assets)
+        .where(and(eq(assets.id, record.assetId), eq(assets.farmId, farmId)))
+        .for('update');
+      if (asset?.status !== 'MAINTENANCE')
+        throw new ConflictException(
+          'Asset is no longer waiting for a decision',
+        );
+      const now = new Date().toISOString();
+      // Not reused: it stays in stock as DAMAGED, for another repair or retirement.
+      await tx
+        .update(assets)
+        .set({ status: reuse ? 'AVAILABLE' : 'DAMAGED', updatedAt: now })
+        .where(eq(assets.id, record.assetId));
+      const [updated] = await tx
+        .update(maintenanceRecords)
+        .set({
+          finalDecision: decision,
+          finalDecisionNote: decisionNote,
+          finalDecidedByMemberId: actor.memberId,
+          finalDecidedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(maintenanceRecords.id, id))
+        .returning();
+      await this.audit(
+        tx,
+        farmId,
+        actor.userId,
+        'ASSET_MAINTENANCE_FINAL_DECISION',
+        record.assetId,
+        { status: asset.status },
+        {
+          status: reuse ? 'AVAILABLE' : 'DAMAGED',
+          referenceId: id,
+          summary: decisionNote,
         },
       );
       return updated;

@@ -40,6 +40,7 @@ import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import {
   ReceiveMaintenanceDto,
   MaintenanceReturnDto,
+  MaintenanceDecisionDto,
   RejectMaintenanceReturnDto,
   CompleteMaintenanceRecordDto,
   CreateMaintenanceRecordDto,
@@ -361,6 +362,49 @@ export class MaintenanceController {
         auth.clerkUserId,
         false,
         input.reason,
+      ),
+    };
+  }
+
+  @Post(':id/final-decision/reuse')
+  @ApiOperation({
+    summary: 'Chủ trại/quản trị cho dùng lại thiết bị bảo trì đạt đã nhập kho',
+  })
+  async reuse(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string,
+    @Body() input: MaintenanceDecisionDto,
+  ) {
+    return {
+      data: await this.service.decide(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        true,
+        input.note,
+      ),
+    };
+  }
+
+  @Post(':id/final-decision/hold')
+  @ApiOperation({
+    summary:
+      'Chủ trại/quản trị chưa cho dùng lại: thiết bị nằm kho ở trạng thái DAMAGED (bắt buộc ghi chú)',
+  })
+  async hold(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string,
+    @Body() input: MaintenanceDecisionDto,
+  ) {
+    return {
+      data: await this.service.decide(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        false,
+        input.note,
       ),
     };
   }

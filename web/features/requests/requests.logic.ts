@@ -1,5 +1,5 @@
 import type { RequestsQuery, RequestStatus, TransferRequestRow } from "./types/request";
-import { WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
+import { FARM_ADMIN_ROLES, WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
 
 // These mirror the approver and reload rules in features/stock-documents/stock-document.logic.ts.
 function canApproveRequests(roles: readonly string[]) {
@@ -21,8 +21,11 @@ export const REQUEST_MAINTENANCE_LABELS = {
   INSPECTION: "Kiểm tra",
 } as const;
 
-export function requestActions(roles: readonly string[], status: RequestStatus) {
-  const review = canApproveRequests(roles) && status === "PENDING_APPROVAL";
+/** Maintenance requests are approved and assigned by the owner/admin only (NV04). */
+export function requestActions(roles: readonly string[], status: RequestStatus, maintenance = false) {
+  const review =
+    (maintenance ? hasAnyRole(roles, FARM_ADMIN_ROLES) : canApproveRequests(roles)) &&
+    status === "PENDING_APPROVAL";
   return { approve: review, reject: review };
 }
 

@@ -105,3 +105,11 @@ export class MaintenanceReturnDto {
 export class RejectMaintenanceReturnDto {
   @IsString() @IsNotEmpty() @MaxLength(4000) reason!: string;
 }
+
+export class MaintenanceDecisionDto {
+  @ApiPropertyOptional({ description: 'Bắt buộc khi chưa cho dùng lại.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  note?: string;
+}

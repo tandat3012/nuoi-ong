@@ -1054,6 +1054,16 @@ export const maintenanceRecords = pgTable(
       mode: 'string',
     }),
     returnRejectionReason: text('return_rejection_reason'),
+    // NV04: after a passed repair is back in stock, the owner decides on reuse.
+    finalDecision: varchar('final_decision', { length: 10 }),
+    finalDecisionNote: text('final_decision_note'),
+    finalDecidedByMemberId: uuid('final_decided_by_member_id').references(
+      () => farmMembers.id,
+    ),
+    finalDecidedAt: timestamp('final_decided_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     status: maintenanceStatus().default('SCHEDULED').notNull(),
     description: text(),
     resultNote: text('result_note'),
@@ -1090,6 +1100,10 @@ export const maintenanceRecords = pgTable(
       table.farmId.asc().nullsLast(),
       table.status.asc().nullsLast(),
       table.scheduledAt.asc().nullsLast(),
+    ),
+    check(
+      'ck_maintenance_final_decision',
+      sql`(final_decision IS NULL AND final_decided_by_member_id IS NULL AND final_decided_at IS NULL) OR (final_decision IN ('REUSE', 'HOLD') AND final_decided_by_member_id IS NOT NULL AND final_decided_at IS NOT NULL)`,
     ),
     uniqueIndex('ux_one_active_maintenance_per_asset')
       .using('btree', table.assetId.asc().nullsLast())
