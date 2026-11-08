@@ -42,7 +42,10 @@ export function AssetReturnDialog({
   const request = useAuthenticatedRequest();
   const [warehouse, setWarehouse] = useState<AssetChoice | null>(null);
   const [location, setLocation] = useState<AssetChoice | null>(null);
+  const [condition, setCondition] = useState<"GOOD" | "DAMAGED">("GOOD");
   const [note, setNote] = useState("");
+  // A damaged return must say what is wrong with it.
+  const missingNote = condition === "DAMAGED" && !note.trim();
   const [pending, setPending] = useState(false);
   const alive = useRef(false);
   const submitting = useRef(false);
@@ -60,6 +63,7 @@ export function AssetReturnDialog({
       error?.reloadRequired ||
       !warehouse ||
       !location ||
+      missingNote ||
       note.length > 4000
     )
       return;
@@ -70,6 +74,7 @@ export function AssetReturnDialog({
       await returnAsset(request, farmId, asset.id, {
         warehouseId: warehouse.id,
         locationId: location.id,
+        condition,
         note: note.trim() || null,
       });
       if (alive.current) onReturned();
@@ -155,8 +160,34 @@ export function AssetReturnDialog({
               có vị trí phù hợp, chọn kho khác hoặc bổ sung vị trí trước.
             </p>
           )}
+          <fieldset
+            className="space-y-2 text-sm"
+            disabled={pending || error?.reloadRequired}
+          >
+            <legend className="font-medium">Kết quả kiểm nhận</legend>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="condition"
+                checked={condition === "GOOD"}
+                onChange={() => setCondition("GOOD")}
+              />
+              Đạt, dùng lại được
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="condition"
+                checked={condition === "DAMAGED"}
+                onChange={() => setCondition("DAMAGED")}
+              />
+              Hỏng: vẫn nhập kho nhưng không cấp phát/bán, chờ bảo trì hoặc thanh lý
+            </label>
+          </fieldset>
           <label className="block space-y-2 text-sm font-medium">
-            Ghi chú (không bắt buộc)
+            {condition === "DAMAGED"
+              ? "Tình trạng hỏng (bắt buộc)"
+              : "Ghi chú (không bắt buộc)"}
             <Textarea
               value={note}
               maxLength={4000}
@@ -194,6 +225,7 @@ export function AssetReturnDialog({
               disabled={
                 !warehouse ||
                 !location ||
+                missingNote ||
                 note.length > 4000 ||
                 error?.reloadRequired
               }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -69,6 +70,8 @@ export class AssetsService {
       WAREHOUSE_MANAGE_ROLES,
     );
     assertInScope(scope, input.warehouseId);
+    if (input.condition === 'DAMAGED' && !input.note?.trim())
+      throw new BadRequestException('A damaged return needs a note');
     const [actor] = await this.databaseService.db
       .select({ userId: users.id })
       .from(farmMembers)
@@ -229,7 +232,7 @@ export class AssetsService {
       const [updatedAsset] = await tx
         .update(assets)
         .set({
-          status: 'AVAILABLE',
+          status: input.condition === 'DAMAGED' ? 'DAMAGED' : 'AVAILABLE',
           currentLocationId: location.id,
           updatedAt: now,
         })
@@ -262,9 +265,14 @@ export class AssetsService {
         entityId: id,
         oldData: { status: asset.status, locationId: asset.currentLocationId },
         newData: {
-          status: 'AVAILABLE',
+          status: updatedAsset.status,
+          condition: input.condition,
+          note: input.note ?? null,
           locationId: location.id,
-          summary: `Đã nhận lại tài sản tại vị trí ${location.id}`,
+          summary:
+            input.condition === 'DAMAGED'
+              ? `Đã nhận lại tài sản hỏng tại vị trí ${location.id}`
+              : `Đã nhận lại tài sản tại vị trí ${location.id}`,
         },
       });
       return updatedAsset;
