@@ -554,4 +554,61 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     expect(Object.keys(result.data[0]).sort()).toEqual(['id', 'name', 'slug']);
     expect(result.page.totalItems).toBe(total.value);
   });
+
+  it('resolves variant item metadata from the farm serving the delivery region and stock', async () => {
+    const product = await createProduct('Extractor', '2500000', 'QUANTITY');
+    await db
+      .update(schema.items)
+      .set({ itemType: 'EQUIPMENT', warrantyMonths: 12 })
+      .where(eq(schema.items.id, product.itemId));
+    await db
+      .update(schema.storeSettings)
+      .set({ regions: ['NORTH'] })
+      .where(eq(schema.storeSettings.farmId, ids.farm));
+
+    const southWarehouse = randomUUID();
+    const southItem = randomUUID();
+    await db.insert(schema.warehouses).values({
+      id: southWarehouse,
+      farmId: ids.otherFarm,
+      code: 'SOUTH-SALES',
+      name: 'South Sales',
+    });
+    await db.insert(schema.storeSettings).values({
+      farmId: ids.otherFarm,
+      salesWarehouseId: southWarehouse,
+      salesEnabled: true,
+      regions: ['SOUTH'],
+    });
+    await db.insert(schema.items).values({
+      id: southItem,
+      farmId: ids.otherFarm,
+      categoryId: ids.category,
+      unitId: ids.unit,
+      code: southItem,
+      name: 'Extractor South',
+      itemType: 'EQUIPMENT',
+      trackingMode: 'QUANTITY',
+      warrantyMonths: null,
+    });
+    await db.insert(schema.storeVariantItems).values({
+      variantId: product.variantId,
+      farmId: ids.otherFarm,
+      itemId: southItem,
+    });
+    await db.insert(schema.inventoryBalances).values({
+      farmId: ids.otherFarm,
+      warehouseId: southWarehouse,
+      itemId: southItem,
+      quantityOnHand: '5',
+    });
+
+    const northView = await service.getProduct(product.id, 'NORTH');
+    expect(northView.warrantyMonths).toBe(12);
+    expect(northView.variants[0].warrantyMonths).toBe(12);
+
+    const southView = await service.getProduct(product.id, 'SOUTH');
+    expect(southView.warrantyMonths).toBe(0);
+    expect(southView.variants[0].warrantyMonths).toBe(0);
+  });
 });

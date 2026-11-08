@@ -2,7 +2,10 @@
 
 import * as React from 'react';
 import { Check, Star } from 'lucide-react';
-import type { StorefrontProductDetail } from '../types/product';
+import type {
+  StorefrontProductDetail,
+  StorefrontProductVariant,
+} from '../types/product';
 import {
   buildProductSpecifications,
   getAvailableDetailTabs,
@@ -13,20 +16,25 @@ import { cn } from '@/shared/lib/utils';
 
 export interface ProductDetailInfoProps {
   product: StorefrontProductDetail;
+  selectedVariant?: StorefrontProductVariant;
   className?: string;
 }
 
 export function ProductDetailInfo({
   product,
+  selectedVariant,
   className,
 }: ProductDetailInfoProps) {
+  const effectiveVariant =
+    selectedVariant ??
+    (product.variants?.length === 1 ? product.variants[0] : undefined);
   const specifications = React.useMemo(
-    () => buildProductSpecifications(product),
-    [product],
+    () => buildProductSpecifications(product, effectiveVariant),
+    [product, effectiveVariant],
   );
   const usageGuidance = React.useMemo(
-    () => resolveProductUsageGuidance(product),
-    [product],
+    () => resolveProductUsageGuidance(product, effectiveVariant),
+    [product, effectiveVariant],
   );
   const tabs = React.useMemo(() => {
     return getAvailableDetailTabs({

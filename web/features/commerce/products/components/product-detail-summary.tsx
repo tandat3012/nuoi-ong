@@ -15,6 +15,8 @@ import {
 import { getProductCardRating } from './product-card.logic';
 import { ProductQuantitySelector } from './product-quantity-selector';
 import { ProductPurchaseActions } from './product-purchase-actions';
+import { ProductGallery } from './product-gallery';
+import { ProductDetailInfo } from './product-detail-info';
 import { formatVndCurrency } from '@/shared/lib/currency';
 import { cn } from '@/shared/lib/utils';
 import { resolveCartInput } from '../../cart/components/cart.logic';
@@ -41,11 +43,10 @@ export function ProductDetailSummary({
   >(undefined);
   const [quantity, setQuantity] = React.useState<number>(1);
 
-  const selectedVariant =
+  const baseVariant =
     product.variants?.length === 1
       ? product.variants[0]
       : product.variants?.find((variant) => variant.id === selectedVariantId);
-  const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
   const { region } = useStoreRegion();
   // Labels for the chosen quantity; the page itself was rendered for one step.
   const labelKey = `${product.slug}|${region}|${quantity}`;
@@ -78,15 +79,23 @@ export function ProductDetailSummary({
       clearTimeout(timer);
     };
   }, [product.slug, region, quantity]);
+  const quantityVariant =
+    quantity > 1 && region && baseVariant && quantityLabels?.key === labelKey
+      ? quantityLabels.variants?.find((v) => v.id === baseVariant.id)
+      : undefined;
+  const selectedVariant = quantityVariant ?? baseVariant;
+  React.useEffect(() => {
+    onVariantChange?.(selectedVariant);
+  }, [onVariantChange, selectedVariant]);
+  const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
   const availability =
-    quantity <= 1 || !region || !selectedVariant
+    quantity <= 1 || !region || !baseVariant
       ? snapshot.availability
       : quantityLabels?.key === labelKey
-        ? quantityLabels.variants?.find((v) => v.id === selectedVariant.id)
-            ?.availability
+        ? quantityVariant?.availability
         : undefined;
   const checkingQuantity =
-    quantity > 1 && region && selectedVariant && availability === undefined;
+    quantity > 1 && region && baseVariant && availability === undefined;
   const canDeliver =
     snapshot.inStock &&
     !checkingQuantity &&
@@ -334,5 +343,36 @@ export function ProductDetailSummary({
         </div>
       </div>
     </div>
+  );
+}
+
+export function ProductDetailContent({
+  product,
+}: {
+  product: StorefrontProductDetail;
+}) {
+  const [selectedVariant, setSelectedVariant] = React.useState<
+    StorefrontProductVariant | undefined
+  >(() => (product.variants?.length === 1 ? product.variants[0] : undefined));
+
+  return (
+    <>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-16 items-start">
+        <ProductGallery
+          productName={product.name}
+          image={product.image}
+          images={product.images}
+        />
+        <ProductDetailSummary
+          product={product}
+          onVariantChange={setSelectedVariant}
+        />
+      </div>
+
+      <ProductDetailInfo
+        product={product}
+        selectedVariant={selectedVariant}
+      />
+    </>
   );
 }

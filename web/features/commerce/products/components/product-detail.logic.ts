@@ -170,12 +170,27 @@ export function resolveActiveProductSnapshot(
     availability: selectedVariant.availability,
     sku: selectedVariant.sku ?? product.sku,
     image: selectedVariant.image ?? product.image,
-    unitName: selectedVariant.unitName ?? product.unitName,
-    unitSymbol: selectedVariant.unitSymbol ?? product.unitSymbol,
+    unitName:
+      selectedVariant.unitName !== undefined
+        ? selectedVariant.unitName
+        : product.unitName,
+    unitSymbol:
+      selectedVariant.unitSymbol !== undefined
+        ? selectedVariant.unitSymbol
+        : product.unitSymbol,
     quantityStep: selectedVariant.quantityStep,
-    itemType: selectedVariant.itemType ?? product.itemType,
-    trackingMode: selectedVariant.trackingMode ?? product.trackingMode,
-    warrantyMonths: selectedVariant.warrantyMonths ?? product.warrantyMonths,
+    itemType:
+      selectedVariant.itemType !== undefined
+        ? selectedVariant.itemType
+        : product.itemType,
+    trackingMode:
+      selectedVariant.trackingMode !== undefined
+        ? selectedVariant.trackingMode
+        : product.trackingMode,
+    warrantyMonths:
+      selectedVariant.warrantyMonths !== undefined
+        ? selectedVariant.warrantyMonths
+        : product.warrantyMonths,
   };
 }
 
@@ -186,7 +201,7 @@ const ITEM_TYPE_LABELS: Record<StorefrontItemType, string> = {
 };
 
 const TRACKING_MODE_LABELS: Record<StorefrontTrackingMode, string> = {
-  LOT: 'Quản lý theo lô (FEFO) — Ưu tiên xuất lô có hạn sử dụng mới nhất',
+  LOT: 'Quản lý theo lô (FEFO) — Xuất theo thứ tự hạn dùng gần nhất còn hiệu lực, loại trừ lô hết hạn',
   ASSET: 'Quản lý theo từng cá thể thiết bị (Mã tài sản / Serial riêng)',
   QUANTITY: 'Kiểm định số lượng & quy cách tại kho bán hàng trước khi đóng gói',
 };
@@ -204,7 +219,7 @@ export function resolveProductQualityBadge(
     return `Bảo hành chính hãng ${snapshot.warrantyMonths} tháng`;
   }
   if (snapshot.trackingMode === 'LOT') {
-    return 'Kiểm soát chất lượng theo lô (FEFO) · Giao lô hạn mới';
+    return 'Kiểm soát chất lượng theo lô (FEFO) · Cam kết lô còn hạn dùng';
   }
   if (snapshot.trackingMode === 'ASSET') {
     return 'Thiết bị định danh mã tài sản & số Serial riêng';
@@ -302,7 +317,7 @@ export function resolveProductUsageGuidance(
 
   const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
   if (snapshot.trackingMode === 'LOT') {
-    return 'Bảo quản nơi khô ráo, thoáng mát, tránh ánh nắng trực tiếp. Đậy kín nắp sau mỗi lần sử dụng. Sản phẩm được xuất kho theo nguyên tắc FEFO (ưu tiên lô có hạn sử dụng phù hợp và luôn loại trừ lô hết hạn), quý khách vui lòng kiểm tra tem lô và hạn dùng trên bao bì khi nhận hàng.';
+    return 'Bảo quản nơi khô ráo, thoáng mát, tránh ánh nắng trực tiếp. Đậy kín nắp sau mỗi lần sử dụng. Sản phẩm được quản lý và xuất kho theo nguyên tắc FEFO (xuất lô có hạn sử dụng sớm nhất còn hiệu lực trước và tự động loại trừ các lô hết hạn), quý khách vui lòng kiểm tra tem lô và hạn dùng trên bao bì khi nhận hàng.';
   }
   if (snapshot.itemType === 'EQUIPMENT' || snapshot.trackingMode === 'ASSET') {
     return 'Vệ sinh sạch thiết bị trước và sau mỗi đợt quay mật hoặc khai thác tại trại. Đặt thiết bị trên bề mặt phẳng, khô ráo và kiểm tra các khớp truyền động định kỳ. Vui lòng lưu giữ mã đơn hàng và mã tài sản / số Serial để được hỗ trợ bảo hành, đổi mới hoặc sửa chữa chính hãng.';

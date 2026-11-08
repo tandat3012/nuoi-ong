@@ -106,10 +106,88 @@ test("synthesizes FEFO lot quality badge and guidance for LOT-tracked honey/mate
   const snapshot = resolveActiveProductSnapshot(honeyProduct);
   assert.equal(
     resolveProductQualityBadge(snapshot),
-    "Kiểm soát chất lượng theo lô (FEFO) · Giao lô hạn mới",
+    "Kiểm soát chất lượng theo lô (FEFO) · Cam kết lô còn hạn dùng",
   );
   const specs = buildProductSpecifications(honeyProduct);
   assert.ok(specs.some((s) => s.name === "Đơn vị tính" && s.value === "Chai (ml)"));
-  assert.ok(specs.some((s) => s.value.includes("FEFO")));
-  assert.ok(resolveProductUsageGuidance(honeyProduct)?.includes("FEFO"));
+  assert.ok(
+    specs.some(
+      (s) =>
+        s.value.includes("FEFO") &&
+        s.value.includes("hạn dùng gần nhất còn hiệu lực"),
+    ),
+  );
+  assert.ok(
+    resolveProductUsageGuidance(honeyProduct)?.includes(
+      "hạn sử dụng sớm nhất còn hiệu lực",
+    ),
+  );
+});
+
+test("updates specifications per selected variant and preserves explicit null warranty", () => {
+  const mixedProduct = {
+    ...baseProduct,
+    unitName: "Bộ",
+    itemType: "EQUIPMENT",
+    trackingMode: "ASSET",
+    warrantyMonths: 12,
+    variants: [
+      {
+        id: "var-12m",
+        name: "Bản tiêu chuẩn",
+        price: 2500000,
+        inStock: true,
+        unitName: "Bộ",
+        itemType: "EQUIPMENT",
+        trackingMode: "ASSET",
+        warrantyMonths: 12,
+      },
+      {
+        id: "var-24m",
+        name: "Bản cao cấp",
+        price: 3200000,
+        inStock: true,
+        unitName: "Chiếc",
+        itemType: "EQUIPMENT",
+        trackingMode: "ASSET",
+        warrantyMonths: 24,
+      },
+      {
+        id: "var-consumable",
+        name: "Túi lọc mật thay thế",
+        price: 90000,
+        inStock: true,
+        unitName: "Cái",
+        itemType: "MATERIAL",
+        trackingMode: "QUANTITY",
+        warrantyMonths: null,
+      },
+    ],
+  };
+
+  const specs24 = buildProductSpecifications(mixedProduct, mixedProduct.variants[1]);
+  assert.ok(
+    specs24.some(
+      (s) => s.name === "Chính sách bảo hành" && s.value.includes("24 tháng"),
+    ),
+  );
+  assert.ok(
+    specs24.some((s) => s.name === "Đơn vị tính" && s.value === "Chiếc"),
+  );
+
+  // Explicit null warrantyMonths on a MATERIAL variant must not fall back to product.warrantyMonths (12).
+  const materialSnapshot = resolveActiveProductSnapshot(
+    mixedProduct,
+    mixedProduct.variants[2],
+  );
+  assert.equal(materialSnapshot.warrantyMonths, null);
+  assert.equal(resolveProductQualityBadge(materialSnapshot), null);
+  const materialSpecs = buildProductSpecifications(
+    mixedProduct,
+    mixedProduct.variants[2],
+  );
+  assert.equal(
+    materialSpecs.some((s) => s.name === "Chính sách bảo hành"),
+    false,
+  );
 });
