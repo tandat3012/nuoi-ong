@@ -1,3 +1,4 @@
+import { FARM_ADMIN_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
 import { canApproveStockDocuments } from "../stock-documents/stock-document.logic.ts";
 
 export type ReceiveLine = { id: string; quantity: string };
@@ -17,6 +18,14 @@ export function canReceiveTransfer(
   transfer: { status: string },
 ) {
   return transfer.status === "IN_TRANSIT" && canApproveStockDocuments(roles);
+}
+
+/** A short receipt waits for the farm owner/admin to return or write off the rest. */
+export function canResolveTransfer(
+  roles: readonly string[],
+  transfer: { status: string },
+) {
+  return transfer.status === "DISCREPANCY" && hasAnyRole(roles, FARM_ADMIN_ROLES);
 }
 
 /**
@@ -49,6 +58,8 @@ const SERVER_MESSAGES: [RegExp, string][] = [
   [/needs a discrepancy reason/, "Nhận thiếu thì phải ghi lý do."],
   [/assigned warehouses/, "Chỉ quản lý của kho đích được xác nhận nhận hàng."],
   [/Only IN_TRANSIT/, "Phiếu không còn ở trạng thái đang chuyển."],
+  [/Only DISCREPANCY/, "Phiếu không còn chờ xử lý chênh lệch."],
+  [/needs a note|must not be empty/, "Phải ghi căn cứ xử lý."],
 ];
 
 export function receiveErrorMessage(message: string) {
