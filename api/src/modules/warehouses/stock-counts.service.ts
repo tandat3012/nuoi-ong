@@ -14,13 +14,20 @@ import {
   isNull,
   SQL,
   getTableColumns,
+  sql,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { DatabaseService } from '../../db/database.service';
 import {
+  assetIncidents,
+  assets,
+  auditLogs,
   inventoryBalances,
   inventoryLots,
   inventoryTransactions,
   items,
+  locations,
+  maintenanceRecords,
   stockCountItems,
   stockCounts,
   units,
@@ -44,6 +51,7 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 
 type Filters = {
   farmId: string;
@@ -60,7 +68,20 @@ type SnapshotLine = {
   systemQuantity: string;
   actualQuantity: string;
   note?: string | null;
+  assetCondition?: 'GOOD' | 'DAMAGED' | null;
+  foundLocationId?: string | null;
+  assetVersion?: string | null;
 };
+type CountLine = typeof stockCountItems.$inferSelect;
+type Tx = Parameters<Parameters<DatabaseService['db']['transaction']>[0]>[0];
+const foundLocations = alias(locations, 'count_found_locations');
+
+/** P1-12: an asset line changes something (missing, damaged or found elsewhere), so it needs approval. */
+const assetLineChanges = (line: CountLine) =>
+  !!line.assetId &&
+  (Number(line.actualQuantity) === 0 ||
+    line.assetCondition === 'DAMAGED' ||
+    !!line.foundLocationId);
 
 export const SELF_APPROVAL = {
   code: 'SELF_APPROVAL',
@@ -133,25 +154,12 @@ export class StockCountsService {
     this.validateItems(input.items);
     const id = await this.dbService.db.transaction(async (tx) => {
       await this.assertWarehouse(tx, farmId, input.warehouseId);
-      const rows: SnapshotLine[] = [];
-      for (const line of input.items) {
-        await this.assertLine(tx, farmId, line);
-        const [balance] = await this.findBalance(
-          tx,
-          farmId,
-          input.warehouseId,
-          line.itemId,
-          line.lotId,
-        );
-        rows.push({
-          itemId: line.itemId,
-          lotId: line.lotId,
-          assetId: line.assetId,
-          systemQuantity: balance?.quantityOnHand ?? '0',
-          actualQuantity: line.actualQuantity,
-          note: line.note,
-        });
-      }
+      const rows = await this.snapshot(
+        tx,
+        farmId,
+        input.warehouseId,
+        input.items,
+      );
       ignoreLegacyCode('countCode', input.countCode);
       const [row] = await tx
         .insert(stockCounts)
@@ -193,25 +201,12 @@ export class StockCountsService {
       let lines: { before?: object[]; after?: object[] } = {};
       if (input.items) {
         this.validateItems(input.items);
-        const rows: SnapshotLine[] = [];
-        for (const line of input.items) {
-          await this.assertLine(tx, farmId, line);
-          const [balance] = await this.findBalance(
-            tx,
-            farmId,
-            current.warehouseId,
-            line.itemId,
-            line.lotId,
-          );
-          rows.push({
-            itemId: line.itemId,
-            lotId: line.lotId,
-            assetId: line.assetId,
-            systemQuantity: balance?.quantityOnHand ?? '0',
-            actualQuantity: line.actualQuantity,
-            note: line.note,
-          });
-        }
+        const rows = await this.snapshot(
+          tx,
+          farmId,
+          current.warehouseId,
+          input.items,
+        );
         const before = await tx
           .select()
           .from(stockCountItems)
@@ -397,11 +392,19 @@ export class StockCountsService {
       // NV03: a difference changes stock only once someone other than the counter approves it.
       if (
         row.createdByMemberId === member &&
-        lines.some((line) => line.difference && Number(line.difference) !== 0)
+        lines.some(
+          (line) =>
+            (line.difference && Number(line.difference) !== 0) ||
+            assetLineChanges(line),
+        )
       )
         throw new ForbiddenException(SELF_APPROVAL);
       for (const line of lines) {
         await this.assertLine(tx, farmId, line, true);
+        if (line.assetId) {
+          await this.confirmAssetLine(tx, row, line, member);
+          continue;
+        }
         // Row lock: a concurrent issue/receipt/transfer either commits first
         // (and the count turns stale) or waits until the count is written.
         const [balance] = await this.findBalance(
@@ -552,6 +555,9 @@ export class StockCountsService {
         lotSupplierLotNumber: inventoryLots.supplierLotNumber,
         lotNumber: inventoryLots.lotCode, // deprecated alias of lotCode
         lotExpiryDate: inventoryLots.expiryDate,
+        assetCode: assets.assetCode,
+        foundLocationCode: foundLocations.code,
+        foundLocationName: foundLocations.name,
       })
       .from(stockCountItems)
       .leftJoin(
@@ -566,10 +572,309 @@ export class StockCountsService {
           eq(inventoryLots.farmId, farmId),
         ),
       )
+      .leftJoin(
+        assets,
+        and(eq(assets.id, stockCountItems.assetId), eq(assets.farmId, farmId)),
+      )
+      .leftJoin(
+        foundLocations,
+        eq(foundLocations.id, stockCountItems.foundLocationId),
+      )
       .where(eq(stockCountItems.stockCountId, id))
       .orderBy(asc(stockCountItems.createdAt));
     return { count: row, items: lines };
   }
+  /** System quantities at the time of counting; an asset line expects its asset in this warehouse. */
+  private async snapshot(
+    tx: Tx,
+    farmId: string,
+    warehouseId: string,
+    lines: CreateStockCountDto['items'],
+  ) {
+    const assetIds = lines.flatMap((line) => line.assetId ?? []);
+    if (new Set(assetIds).size !== assetIds.length)
+      throw new BadRequestException('Each asset can be counted only once');
+    const rows: SnapshotLine[] = [];
+    for (const line of lines) {
+      await this.assertLine(tx, farmId, line);
+      if (line.assetId) {
+        rows.push(await this.assetSnapshot(tx, farmId, warehouseId, line));
+        continue;
+      }
+      if (line.assetCondition || line.foundLocationId)
+        throw new BadRequestException(
+          'Only ASSET lines take a condition or a found location',
+        );
+      const [balance] = await this.findBalance(
+        tx,
+        farmId,
+        warehouseId,
+        line.itemId,
+        line.lotId,
+      );
+      rows.push({
+        itemId: line.itemId,
+        lotId: line.lotId,
+        systemQuantity: balance?.quantityOnHand ?? '0',
+        actualQuantity: line.actualQuantity,
+        note: line.note,
+      });
+    }
+    return rows;
+  }
+
+  private async assetSnapshot(
+    tx: Tx,
+    farmId: string,
+    warehouseId: string,
+    line: CreateStockCountDto['items'][number],
+  ): Promise<SnapshotLine> {
+    const asset = await this.countedAsset(
+      tx,
+      farmId,
+      warehouseId,
+      line,
+      BadRequestException,
+    );
+    const found = Number(line.actualQuantity);
+    if (found !== 0 && found !== 1)
+      throw new BadRequestException(
+        'An asset line counts 1 (found) or 0 (missing)',
+      );
+    if (!found && (line.assetCondition || line.foundLocationId))
+      throw new BadRequestException(
+        'A missing asset has no condition or found location',
+      );
+    // Explicit, so a client that drops the field fails instead of resetting a damage note to GOOD.
+    if (found && !line.assetCondition)
+      throw new BadRequestException('A found asset needs its assetCondition');
+    // As with a loss report: a damaged asset that is gone is retired, never recovered as usable.
+    if (!found && asset.status === 'DAMAGED')
+      throw new BadRequestException(
+        'A missing damaged asset is retired, not counted as lost',
+      );
+    if (line.foundLocationId)
+      await this.countLocation(tx, farmId, warehouseId, line.foundLocationId);
+    return {
+      itemId: line.itemId,
+      assetId: line.assetId,
+      systemQuantity: '1',
+      actualQuantity: String(found),
+      note: line.note,
+      assetCondition: found ? line.assetCondition : null,
+      foundLocationId: line.foundLocationId ?? null,
+      assetVersion: asset.updatedAt,
+    };
+  }
+
+  /** The asset must sit in this warehouse's stock (AVAILABLE or DAMAGED); never one handed out, away or of another farm. */
+  private async countedAsset(
+    tx: Tx,
+    farmId: string,
+    warehouseId: string,
+    line: { itemId: string; assetId?: string | null },
+    Invalid: typeof BadRequestException | typeof ConflictException,
+    forUpdate = false,
+  ) {
+    const query = tx
+      .select({
+        id: assets.id,
+        assetCode: assets.assetCode,
+        status: assets.status,
+        currentLocationId: assets.currentLocationId,
+        updatedAt: assets.updatedAt,
+        warehouseId: locations.warehouseId,
+      })
+      .from(assets)
+      .leftJoin(locations, eq(locations.id, assets.currentLocationId))
+      .where(
+        and(
+          eq(assets.id, line.assetId!),
+          eq(assets.farmId, farmId),
+          eq(assets.itemId, line.itemId),
+        ),
+      )
+      .limit(1);
+    const [asset] = forUpdate
+      ? await query.for('update', { of: assets })
+      : await query;
+    if (!asset) throw new NotFoundException('Counted asset not found');
+    if (
+      !['AVAILABLE', 'DAMAGED'].includes(asset.status) ||
+      asset.warehouseId !== warehouseId
+    )
+      throw new Invalid(
+        forUpdate
+          ? 'STOCK_COUNT_STALE'
+          : "Asset is not in this warehouse's stock",
+      );
+    return asset;
+  }
+
+  private async countLocation(
+    tx: Tx,
+    farmId: string,
+    warehouseId: string,
+    locationId: string,
+  ) {
+    const [location] = await tx
+      .select({ id: locations.id, code: locations.code })
+      .from(locations)
+      .where(
+        and(
+          eq(locations.id, locationId),
+          eq(locations.farmId, farmId),
+          eq(locations.warehouseId, warehouseId),
+          eq(locations.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    if (!location)
+      throw new ConflictException(
+        'Found location must be ACTIVE in the counted warehouse',
+      );
+    return location;
+  }
+
+  /**
+   * P1-12: settles one counted asset through its lifecycle. Missing: out of stock
+   * and LOST with a loss incident (recoverable later). Damaged: DAMAGED in place.
+   * Found elsewhere in the warehouse: moved to where it was found.
+   */
+  private async confirmAssetLine(
+    tx: Tx,
+    count: typeof stockCounts.$inferSelect,
+    line: CountLine,
+    member: string,
+  ) {
+    const farmId = count.farmId;
+    // Balance before asset, as every asset movement locks them.
+    const [balance] = await this.findBalance(
+      tx,
+      farmId,
+      count.warehouseId,
+      line.itemId,
+      null,
+      true,
+    );
+    const asset = await this.countedAsset(
+      tx,
+      farmId,
+      count.warehouseId,
+      line,
+      ConflictException,
+      true,
+    );
+    // Moved, handed out and back, damaged or repaired since it was counted: count again.
+    if (asset.updatedAt !== line.assetVersion)
+      throw new ConflictException('STOCK_COUNT_STALE');
+    const now = new Date().toISOString();
+    const userId = sql`(SELECT user_id FROM farm_members WHERE id = ${member})`;
+    const reason = `Kiểm kê ${count.countCode ?? count.id.slice(0, 8)}`;
+    if (Number(line.actualQuantity) === 0) {
+      if (!balance || Number(balance.quantityOnHand) < 1)
+        throw new ConflictException('STOCK_COUNT_STALE');
+      // Recovery refuses an asset with open maintenance, so settle that first.
+      const [maintenance] = await tx
+        .select({ id: maintenanceRecords.id })
+        .from(maintenanceRecords)
+        .where(
+          and(
+            eq(maintenanceRecords.farmId, farmId),
+            eq(maintenanceRecords.assetId, asset.id),
+            activeMaintenanceCondition,
+          ),
+        )
+        .limit(1);
+      if (maintenance)
+        throw new ConflictException(
+          'Asset has active maintenance; finish or cancel it before recording it missing',
+        );
+      await tx
+        .update(inventoryBalances)
+        .set({
+          quantityOnHand: sql`${inventoryBalances.quantityOnHand} - 1`,
+          updatedAt: now,
+        })
+        .where(eq(inventoryBalances.id, balance.id));
+      await tx.insert(inventoryTransactions).values({
+        farmId,
+        warehouseId: count.warehouseId,
+        itemId: line.itemId,
+        assetId: asset.id,
+        transactionType: 'ADJUSTMENT_OUT',
+        quantityChange: '-1',
+        sourceType: 'STOCK_COUNT',
+        sourceId: count.id,
+        performedByMemberId: member,
+        reason: line.note ?? reason,
+      });
+      const [incident] = await tx
+        .insert(assetIncidents)
+        .values({
+          farmId,
+          assetId: asset.id,
+          reportedByMemberId: member,
+          incidentType: 'LOSS',
+          description: `${reason}: không tìm thấy${line.note ? ` — ${line.note}` : ''}`,
+          severity: 'MEDIUM',
+        })
+        .returning({ id: assetIncidents.id });
+      await tx
+        .update(assets)
+        .set({ status: 'LOST', updatedAt: now })
+        .where(eq(assets.id, asset.id));
+      await tx.insert(auditLogs).values({
+        farmId,
+        userId,
+        action: 'ASSET_COUNTED',
+        entityType: 'ASSET',
+        entityId: asset.id,
+        oldData: { status: asset.status },
+        newData: {
+          status: 'LOST',
+          referenceId: incident.id,
+          stockCountId: count.id,
+          summary: `${reason}: thiếu, chuyển Thất lạc`,
+        },
+      });
+      return;
+    }
+    const status = line.assetCondition === 'DAMAGED' ? 'DAMAGED' : asset.status;
+    let locationId = asset.currentLocationId;
+    if (line.foundLocationId && line.foundLocationId !== locationId)
+      locationId = (
+        await this.countLocation(
+          tx,
+          farmId,
+          count.warehouseId,
+          line.foundLocationId,
+        )
+      ).id;
+    if (status === asset.status && locationId === asset.currentLocationId)
+      return;
+    await tx
+      .update(assets)
+      .set({ status, currentLocationId: locationId, updatedAt: now })
+      .where(eq(assets.id, asset.id));
+    await tx.insert(auditLogs).values({
+      farmId,
+      userId,
+      action: 'ASSET_COUNTED',
+      entityType: 'ASSET',
+      entityId: asset.id,
+      oldData: { status: asset.status, locationId: asset.currentLocationId },
+      newData: {
+        status,
+        locationId,
+        stockCountId: count.id,
+        summary: `${reason}: ${
+          status === 'DAMAGED' && asset.status !== 'DAMAGED' ? 'hỏng' : 'có'
+        }${locationId !== asset.currentLocationId ? ', đúng vị trí thực tế' : ''}`,
+      },
+    });
+  }
+
   private validateItems(items: CreateStockCountDto['items']) {
     if (!items?.length)
       throw new BadRequestException('Count must contain at least one item');
@@ -591,7 +896,7 @@ export class StockCountsService {
       );
     if (!row) throw new ConflictException('Warehouse must exist and be ACTIVE');
   }
-  /** Counts adjust quantity balances only; assets are reconciled through asset records. */
+  /** Quantity/LOT lines adjust balances; ASSET lines are counted one asset each (P1-12). */
   private async assertLine(
     db: Pick<DatabaseService['db'], 'select'>,
     farmId: string,
@@ -604,10 +909,12 @@ export class StockCountsService {
       .from(items)
       .where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
     if (!item) throw new NotFoundException('Count item not found');
-    if (line.assetId || item.trackingMode === 'ASSET')
-      throw new Invalid(
-        'ASSET items cannot be counted; check them through asset records',
-      );
+    if (item.trackingMode === 'ASSET') {
+      if (!line.assetId)
+        throw new Invalid('ASSET items are counted one asset per line');
+      return;
+    }
+    if (line.assetId) throw new Invalid('Only ASSET items accept an assetId');
     if (item.trackingMode === 'LOT' && !line.lotId)
       throw new Invalid('LOT items require a lotId');
     if (item.trackingMode !== 'LOT' && line.lotId)

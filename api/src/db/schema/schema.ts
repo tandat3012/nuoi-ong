@@ -1667,6 +1667,14 @@ export const stockCountItems = pgTable(
       sql`(actual_quantity - system_quantity)`,
     ),
     note: text(),
+    // P1-12 asset lines: condition when found (null = missing) and where it was found, if not its recorded place.
+    assetCondition: varchar('asset_condition', { length: 10 }),
+    foundLocationId: uuid('found_location_id'),
+    // The asset's updated_at when counted: any later change makes the count stale.
+    assetVersion: timestamp('asset_version', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -1700,6 +1708,19 @@ export const stockCountItems = pgTable(
       'ck_count_system_quantity_nonnegative',
       sql`system_quantity >= (0)::numeric`,
     ),
+    foreignKey({
+      columns: [table.foundLocationId],
+      foreignColumns: [locations.id],
+      name: 'stock_count_items_found_location_id_fkey',
+    }),
+    // One asset counted once: expected 1, found 1 with a condition or missing 0 without one.
+    check(
+      'ck_count_asset_line',
+      sql`(asset_id IS NULL AND asset_condition IS NULL AND found_location_id IS NULL) OR (asset_id IS NOT NULL AND system_quantity = 1 AND ((actual_quantity = 1 AND asset_condition IN ('GOOD', 'DAMAGED')) OR (actual_quantity = 0 AND asset_condition IS NULL AND found_location_id IS NULL)))`,
+    ),
+    uniqueIndex('ux_count_asset_once')
+      .on(table.stockCountId, table.assetId)
+      .where(sql`asset_id IS NOT NULL`),
   ],
 );
 

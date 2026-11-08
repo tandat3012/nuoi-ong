@@ -46,6 +46,8 @@ type Line = EditableLine & {
   unitName: string | null;
   lotCode: string | null;
   lotExpiryDate: string | null;
+  assetCode?: string | null;
+  foundLocationCode?: string | null;
   systemQuantity?: string;
   actualQuantity?: string;
   difference?: string | null;
@@ -338,7 +340,7 @@ export function StockDocumentLines({
                 <tr>
                   {[
                     "Hàng hóa",
-                    "Lô",
+                    counts ? "Lô / tài sản" : "Lô",
                     ...(counts
                       ? ["Sổ sách", "Thực tế", "Chênh lệch"]
                       : received
@@ -362,7 +364,15 @@ export function StockDocumentLines({
                     <tr key={line.id}>
                       <td className="px-3 py-2">{label}</td>
                       <td className="px-3 py-2">
-                        {line.lotCode
+                        {line.assetId
+                          ? `${line.assetCode ?? "Tài sản"} · ${
+                              Number(line.quantity) === 0
+                                ? "Thiếu"
+                                : line.assetCondition === "DAMAGED"
+                                  ? "Có, hỏng"
+                                  : "Có, tốt"
+                            }${line.foundLocationCode && Number(line.quantity) !== 0 ? ` · thấy ở ${line.foundLocationCode}` : ""}`
+                          : line.lotCode
                           ? `${line.lotCode}${line.lotExpiryDate ? ` · HSD ${date(line.lotExpiryDate)}` : ""}`
                           : line.lotId
                             ? "Lô đã chọn"
