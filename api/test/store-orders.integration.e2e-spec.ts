@@ -958,6 +958,11 @@ describe('Store orders (migrated PostgreSQL)', () => {
           items: [{ itemId: ids.item, quantity: '1' }],
         }),
       ).rejects.toThrow('must match');
+      await expect(
+        issues.update(issueId, ids.farm, ids.admin, {
+          recipientMemberId: ids.adminMember,
+        }),
+      ).rejects.toThrow('no recipient');
     }));
 
   it('cancels the draft with the order, but cannot cancel an approved issue or confirmed customer order', () =>

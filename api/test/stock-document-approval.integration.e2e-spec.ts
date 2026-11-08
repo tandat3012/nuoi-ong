@@ -670,6 +670,43 @@ describe('Stock document approval rules', () => {
           recipientMemberId: randomUUID(),
         }),
       ).rejects.toThrow('active farm member');
+      // A member without farm-area access could never open the issue to acknowledge it.
+      const [storeRole] = await pool
+        .query<{ id: string }>(
+          "INSERT INTO roles (code, name, scope) VALUES ('STORE_MANAGER','STORE_MANAGER','FARM') ON CONFLICT (code) DO UPDATE SET code=EXCLUDED.code RETURNING id",
+        )
+        .then((result) => result.rows);
+      const seller = { user: randomUUID(), member: randomUUID() };
+      await pool.query(
+        'INSERT INTO users (id, auth_provider_user_id, email) VALUES ($1, $2, $3)',
+        [seller.user, `${tag}-seller`, `${tag}-seller@example.local`],
+      );
+      await pool.query(
+        'INSERT INTO farm_members (id, user_id, farm_id) VALUES ($1, $2, $3)',
+        [seller.member, seller.user, farm],
+      );
+      await pool.query(
+        'INSERT INTO farm_member_roles (farm_member_id, role_id) VALUES ($1, $2)',
+        [seller.member, storeRole.id],
+      );
+      try {
+        await expect(
+          issues.create(farm, clerk('manager'), {
+            warehouseId: warehouse,
+            items: [line],
+            recipientMemberId: seller.member,
+          }),
+        ).rejects.toThrow('farm-area access');
+      } finally {
+        await pool.query(
+          'DELETE FROM farm_member_roles WHERE farm_member_id=$1',
+          [seller.member],
+        );
+        await pool.query('DELETE FROM farm_members WHERE id=$1', [
+          seller.member,
+        ]);
+        await pool.query('DELETE FROM users WHERE id=$1', [seller.user]);
+      }
       const id = (
         await issues.create(farm, clerk('manager'), {
           warehouseId: warehouse,

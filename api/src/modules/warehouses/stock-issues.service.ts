@@ -12,6 +12,7 @@ import {
   eq,
   getTableColumns,
   gte,
+  inArray,
   isNull,
   lte,
   or,
@@ -22,6 +23,7 @@ import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
   assets,
+  farmMemberRoles,
   farmMembers,
   inventoryBalances,
   inventoryLots,
@@ -34,6 +36,7 @@ import {
   storeOrders,
   storeOrderItems,
   storeWarrantyRequests,
+  roles,
   units,
   users,
   warehouses,
@@ -55,6 +58,7 @@ import {
 } from '../notifications/notification-events';
 import { quantityMillis } from '../store-orders/store-order.rules';
 import {
+  FARM_AREA_ROLES,
   hasAnyRole,
   WAREHOUSE_MANAGE_ROLES,
 } from '../auth/farm-access/farm-role-groups';
@@ -327,6 +331,12 @@ export class StockIssuesService {
         }
         if (input.warehouseId)
           await this.assertWarehouse(tx, farmId, input.warehouseId);
+        const recipient =
+          input.recipientMemberId === undefined
+            ? current.recipientMemberId
+            : input.recipientMemberId;
+        if (recipient && issueType === 'SALE')
+          throw new BadRequestException('SALE issues have no recipient');
         if (input.recipientMemberId)
           await this.assertRecipient(tx, farmId, input.recipientMemberId);
         const changes: Partial<typeof stockIssues.$inferInsert> = {};
@@ -824,19 +834,28 @@ export class StockIssuesService {
     farmId: string,
     memberId: string,
   ) {
+    // Only roles that can open stock issues, so the recipient can acknowledge.
     const [member] = await tx
       .select({ id: farmMembers.id })
       .from(farmMembers)
+      .innerJoin(
+        farmMemberRoles,
+        eq(farmMemberRoles.farmMemberId, farmMembers.id),
+      )
+      .innerJoin(roles, eq(roles.id, farmMemberRoles.roleId))
       .where(
         and(
           eq(farmMembers.id, memberId),
           eq(farmMembers.farmId, farmId),
           eq(farmMembers.status, 'ACTIVE'),
+          inArray(roles.code, FARM_AREA_ROLES),
         ),
       )
       .limit(1);
     if (!member)
-      throw new BadRequestException('Recipient must be an active farm member');
+      throw new BadRequestException(
+        'Recipient must be an active farm member with farm-area access',
+      );
   }
 
   private async getOnly(

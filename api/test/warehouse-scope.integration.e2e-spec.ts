@@ -226,6 +226,26 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
           condition: 'GOOD',
         }),
       ).rejects.toThrow('assigned warehouses');
+      // P1-11: the assignee reads it from another warehouse to confirm receipt.
+      await expect(
+        assetsService.getAsset(asset, ids.farm, people.manager),
+      ).rejects.toThrow('not found');
+      const [me] = await tx
+        .select({ id: schema.farmMembers.id })
+        .from(schema.farmMembers)
+        .where(eq(schema.farmMembers.userId, people.manager));
+      await tx.insert(schema.assetAssignments).values({
+        farmId: ids.farm,
+        assetId: asset,
+        assignedToMemberId: me.id,
+        assignedByMemberId: ids.member,
+      });
+      await expect(
+        assetsService.getAsset(asset, ids.farm, people.manager),
+      ).resolves.toMatchObject({ asset: { id: asset } });
+      await expect(
+        assetsService.getAsset(asset, ids.farm, people.idle),
+      ).rejects.toThrow('not found');
 
       // Repaired, leaving from the other warehouse and coming back to mine.
       const [record] = await tx
