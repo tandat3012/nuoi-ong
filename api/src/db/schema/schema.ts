@@ -639,6 +639,10 @@ export const stockReceipts = pgTable(
     farmId: uuid('farm_id').notNull(),
     warehouseId: uuid('warehouse_id').notNull(),
     supplierId: uuid('supplier_id'),
+    // NV02 internal return: the confirmed issue whose goods come back.
+    sourceIssueId: uuid('source_issue_id').references(
+      (): AnyPgColumn => stockIssues.id,
+    ),
     // Null on drafts: the permanent code is assigned at confirmation.
     receiptCode: varchar('receipt_code', { length: 50 }),
     ...documentNumberingColumns(),
@@ -681,6 +685,9 @@ export const stockReceipts = pgTable(
       table.farmId.asc().nullsLast(),
       table.status.asc().nullsLast(),
     ),
+    index('idx_stock_receipts_source_issue')
+      .using('btree', table.sourceIssueId.asc().nullsLast())
+      .where(sql`source_issue_id IS NOT NULL`),
     foreignKey({
       columns: [table.rejectedByMemberId],
       foreignColumns: [farmMembers.id],
@@ -767,6 +774,15 @@ export const stockReceiptItems = pgTable(
     serialNumber: varchar('serial_number', { length: 255 }),
     // Order returns only: the inspected condition of the asset taken back.
     assetCondition: varchar('asset_condition', { length: 10 }),
+    // Internal returns only: the issue line given back. `quantity` is the part
+    // that passed inspection (back to stock); `rejected_quantity` never is.
+    sourceIssueItemId: uuid('source_issue_item_id').references(
+      (): AnyPgColumn => stockIssueItems.id,
+    ),
+    rejectedQuantity: numeric('rejected_quantity', { precision: 18, scale: 3 })
+      .default('0')
+      .notNull(),
+    rejectionReason: text('rejection_reason'),
     note: text(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -788,7 +804,15 @@ export const stockReceiptItems = pgTable(
       name: 'stock_receipt_items_stock_receipt_id_fkey',
     }).onDelete('cascade'),
     check('ck_receipt_item_price_nonnegative', sql`unit_price >= (0)::numeric`),
-    check('ck_receipt_item_quantity_positive', sql`quantity > (0)::numeric`),
+    // A return line may pass nothing: all of it rejected.
+    check(
+      'ck_receipt_item_quantity_positive',
+      sql`quantity > (0)::numeric OR (quantity = (0)::numeric AND rejected_quantity > (0)::numeric)`,
+    ),
+    check(
+      'ck_receipt_item_rejected_return',
+      sql`rejected_quantity = (0)::numeric OR (rejected_quantity > (0)::numeric AND source_issue_item_id IS NOT NULL AND coalesce(btrim(rejection_reason), '') <> '')`,
+    ),
     check(
       'ck_receipt_item_asset_quantity',
       sql`(asset_id IS NULL) OR (quantity = (1)::numeric)`,
