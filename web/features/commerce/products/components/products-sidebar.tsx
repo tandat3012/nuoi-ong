@@ -23,6 +23,11 @@ export function ProductsSidebar({
   className,
 }: ProductsSidebarProps) {
   const selectedCategory = criteria.category;
+  const totalCatalogCount = categories.every(
+    (cat) => typeof cat.productCount === 'number',
+  )
+    ? categories.reduce((sum, cat) => sum + (cat.productCount ?? 0), 0)
+    : undefined;
 
   return (
     <aside
@@ -49,13 +54,25 @@ export function ProductsSidebar({
                     { category: undefined },
                   )}
                   className={cn(
-                    'flex items-center justify-between rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-primary',
+                    'flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-primary',
                     !selectedCategory
                       ? 'bg-store-category-selected text-store-category-selected-foreground font-semibold shadow-2xs'
                       : 'text-[#5c5249] dark:text-muted-foreground hover:bg-[#faf4ea] dark:hover:bg-muted hover:text-foreground',
                   )}
                 >
                   <span>Tất cả sản phẩm</span>
+                  {totalCatalogCount !== undefined && (
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[0.6875rem] font-medium tabular-nums',
+                        !selectedCategory
+                          ? 'bg-background/20 text-store-category-selected-foreground'
+                          : 'bg-muted text-muted-foreground',
+                      )}
+                    >
+                      {totalCatalogCount}
+                    </span>
+                  )}
                 </Link>
               </li>
 
@@ -70,13 +87,25 @@ export function ProductsSidebar({
                         { category: cat.slug },
                       )}
                       className={cn(
-                        'flex items-center justify-between rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-primary',
+                        'flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-primary',
                         isSelected
                           ? 'bg-store-category-selected text-store-category-selected-foreground font-semibold shadow-2xs'
                           : 'text-[#5c5249] dark:text-muted-foreground hover:bg-[#faf4ea] dark:hover:bg-muted hover:text-foreground',
                       )}
                     >
-                      <span>{cat.name}</span>
+                      <span className="truncate">{cat.name}</span>
+                      {typeof cat.productCount === 'number' && (
+                        <span
+                          className={cn(
+                            'shrink-0 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium tabular-nums',
+                            isSelected
+                              ? 'bg-background/20 text-store-category-selected-foreground'
+                              : 'bg-muted text-muted-foreground',
+                          )}
+                        >
+                          {cat.productCount}
+                        </span>
+                      )}
                     </Link>
                   </li>
                 );

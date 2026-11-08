@@ -7,6 +7,7 @@ export interface ProductsQueryCriteria {
   minPrice?: number;
   maxPrice?: number;
   sort?: ProductSortOption;
+  inStock?: boolean;
 }
 
 export interface ProductsQueryValidationResult {
@@ -44,6 +45,9 @@ export function buildProductsHref(
   if (merged.sort === 'price_asc' || merged.sort === 'price_desc') {
     query.set('sort', merged.sort);
   }
+  if (merged.inStock === true) {
+    query.set('inStock', 'true');
+  }
 
   const qs = query.toString();
   return qs ? `/products?${qs}` : '/products';
@@ -76,6 +80,7 @@ export function parseAndValidateProductsQuery(raw: {
   minPrice?: string | string[];
   maxPrice?: string | string[];
   sort?: string | string[];
+  inStock?: string | string[];
 }): ProductsQueryValidationResult {
   const criteria: ProductsQueryCriteria = {};
 
@@ -84,7 +89,8 @@ export function parseAndValidateProductsQuery(raw: {
     Array.isArray(raw.q) ||
     Array.isArray(raw.minPrice) ||
     Array.isArray(raw.maxPrice) ||
-    Array.isArray(raw.sort)
+    Array.isArray(raw.sort) ||
+    Array.isArray(raw.inStock)
   ) {
     return {
       isValid: false,
@@ -191,6 +197,20 @@ export function parseAndValidateProductsQuery(raw: {
       };
     }
     criteria.sort = raw.sort;
+  }
+
+  // 9. Validate bộ lọc còn hàng (inStock)
+  if (raw.inStock !== undefined && raw.inStock !== '') {
+    if (raw.inStock !== 'true' && raw.inStock !== 'false') {
+      return {
+        isValid: false,
+        criteria,
+        error: 'Tham số lọc tình trạng kho không hợp lệ (chỉ chấp nhận true hoặc false).',
+      };
+    }
+    if (raw.inStock === 'true') {
+      criteria.inStock = true;
+    }
   }
 
   return {

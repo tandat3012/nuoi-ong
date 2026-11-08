@@ -18,9 +18,9 @@ export function ProductsActiveFilters({
   categoryName,
   className,
 }: ProductsActiveFiltersProps) {
-  const { category, q, minPrice, maxPrice, sort } = criteria;
+  const { category, q, minPrice, maxPrice, sort, inStock } = criteria;
   const hasPrice = minPrice !== undefined || maxPrice !== undefined;
-  const hasAnyFilter = Boolean(category || q || hasPrice || sort);
+  const hasAnyFilter = Boolean(category || q || hasPrice || sort || inStock);
 
   if (!hasAnyFilter) {
     return null;
@@ -42,6 +42,10 @@ export function ProductsActiveFilters({
   const removeSortHref = buildProductsHref(
     { ...criteria, page: 1 },
     { sort: undefined },
+  );
+  const removeInStockHref = buildProductsHref(
+    { ...criteria, page: 1 },
+    { inStock: undefined },
   );
 
   return (
@@ -97,6 +101,22 @@ export function ProductsActiveFilters({
           <Link
             href={removePriceHref}
             aria-label="Xóa bộ lọc khoảng giá"
+            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <X className="size-3" aria-hidden="true" />
+          </Link>
+        </span>
+      )}
+
+      {/* Pill: Còn hàng */}
+      {inStock && (
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
+          <span>
+            Tình trạng: <strong className="font-semibold">Còn hàng</strong>
+          </span>
+          <Link
+            href={removeInStockHref}
+            aria-label="Xóa bộ lọc còn hàng"
             className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <X className="size-3" aria-hidden="true" />

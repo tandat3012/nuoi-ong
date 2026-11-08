@@ -11,6 +11,50 @@ import type {
 } from '../types/cart';
 
 export const CART_STORAGE_KEY = 'moc_ong_cart_v1';
+export const SAVED_SPLIT_CART_STORAGE_KEY = 'moc_ong_saved_split_cart_v1';
+
+export function partitionCartByVariantGroup(
+  items: CartItem[],
+  groupVariantIds: readonly string[],
+): { keptItems: CartItem[]; deferredItems: CartItem[] } {
+  const allowed = new Set(groupVariantIds);
+  const keptItems: CartItem[] = [];
+  const deferredItems: CartItem[] = [];
+
+  for (const item of items) {
+    if (item.variantId && allowed.has(item.variantId)) {
+      keptItems.push(item);
+    } else {
+      deferredItems.push(item);
+    }
+  }
+
+  return { keptItems, deferredItems };
+}
+
+export function mergeSavedSplitItems(
+  existingSaved: CartItem[],
+  newlyDeferred: CartItem[],
+): CartItem[] {
+  let merged = [...existingSaved];
+  for (const item of newlyDeferred) {
+    if (!item.variantId || !isValidCartPrice(item.unitPrice)) continue;
+    merged = addItemToCart(merged, {
+      productId: item.productId,
+      productSlug: item.productSlug,
+      productName: item.productName,
+      variantId: item.variantId,
+      variantName: item.variantName,
+      unitPrice: item.unitPrice,
+      originalPrice: item.originalPrice,
+      image: item.image,
+      quantity: item.quantity,
+      purchaseLimit: item.purchaseLimit,
+      inStock: true,
+    }).items;
+  }
+  return merged;
+}
 
 export function generateCartLineId(
   productId: string,

@@ -17,6 +17,7 @@ export default async function StoreProductsPage({
     minPrice?: string | string[];
     maxPrice?: string | string[];
     sort?: string | string[];
+    inStock?: string | string[];
   }>;
 }) {
   const query = await searchParams;
@@ -46,7 +47,7 @@ export default async function StoreProductsPage({
 
   return (
     <Suspense
-      key={`${page}:${category ?? ""}:${query.q ?? ""}:${query.minPrice ?? ""}:${query.maxPrice ?? ""}:${query.sort ?? ""}`}
+      key={`${page}:${category ?? ""}:${query.q ?? ""}:${query.minPrice ?? ""}:${query.maxPrice ?? ""}:${query.sort ?? ""}:${query.inStock ?? ""}`}
       fallback={<ProductsLoading />}
     >
       <ProductsPage
