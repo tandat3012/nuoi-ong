@@ -386,6 +386,14 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       const detail = await service.staffGet(ids.farm, order.id);
       const sold = detail.deliveredAssets.map((asset) => asset.id);
       expect(sold).toHaveLength(2);
+      const customerDetail = await service.customerGet(ids.customer, order.id);
+      expect(customerDetail.items[0].deliveredAssets).toHaveLength(2);
+      expect(customerDetail.items[0].deliveredAssets[0]).toEqual(
+        expect.objectContaining({
+          assetCode: expect.any(String),
+          serialNumber: expect.stringMatching(/^SN-/),
+        }),
+      );
       const unsold = assetIds.find((id) => !sold.includes(id))!;
       const line = detail.items[0];
       const claimAsset = (assetId?: string, quantity = 1) =>

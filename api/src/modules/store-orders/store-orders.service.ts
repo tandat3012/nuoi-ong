@@ -39,6 +39,7 @@ import {
   storeOrderReplenishments,
   storeOrderItems,
   storeOrders,
+  storeProductImages,
   storeProducts,
   storeProductVariants,
   storeSettings,
@@ -1795,12 +1796,54 @@ export class StoreOrdersService implements StockTransferHook {
       id,
       eq(storeOrders.userId, userId),
     );
+    const db = this.databaseService.db;
+    const productIds = [...new Set(items.map((line) => line.productId))];
+    const [products, coverImages, assetsDelivered] = await Promise.all([
+      productIds.length > 0
+        ? db
+            .select({ id: storeProducts.id, slug: storeProducts.slug })
+            .from(storeProducts)
+            .where(inArray(storeProducts.id, productIds))
+        : [],
+      productIds.length > 0
+        ? db
+            .selectDistinctOn([storeProductImages.productId], {
+              productId: storeProductImages.productId,
+              url: storeProductImages.url,
+            })
+            .from(storeProductImages)
+            .where(inArray(storeProductImages.productId, productIds))
+            .orderBy(
+              asc(storeProductImages.productId),
+              asc(storeProductImages.position),
+            )
+        : [],
+      this.deliveredAssets(db, id),
+    ]);
+    const slugByProduct = new Map(products.map((p) => [p.id, p.slug] as const));
+    const imageByProduct = new Map(
+      coverImages.map((img) => [img.productId, img.url] as const),
+    );
+    const assetsByItem = new Map<
+      string,
+      { assetCode: string; serialNumber: string | null }[]
+    >();
+    for (const asset of assetsDelivered) {
+      const list = assetsByItem.get(asset.itemId) ?? [];
+      list.push({
+        assetCode: asset.assetCode,
+        serialNumber: asset.serialNumber,
+      });
+      assetsByItem.set(asset.itemId, list);
+    }
     return {
       order: this.customerOrder(order),
-      items: items.map(({ itemId, ...line }) => {
-        void itemId;
-        return line;
-      }),
+      items: items.map(({ itemId, ...line }) => ({
+        ...line,
+        productSlug: slugByProduct.get(line.productId) ?? null,
+        imageUrl: imageByProduct.get(line.productId) ?? null,
+        deliveredAssets: assetsByItem.get(itemId) ?? [],
+      })),
       customer,
       payment: await this.transferInstructions(order),
     };

@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
@@ -16,6 +18,7 @@ import {
   FileText,
   Download,
   RefreshCw,
+  RotateCcw,
   Printer,
   XCircle,
   Package,
@@ -26,7 +29,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useAuthenticatedRequest } from "@/features/auth";
+import { useOptionalCart } from "@/features/commerce/cart/hooks/use-cart";
 import { ApiError } from "@/shared/api/client";
+import { imageLoader } from "@/shared/lib/cloudinary-image";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Textarea } from "@/shared/components/ui/textarea";
@@ -51,9 +56,14 @@ import {
 import {
   WARRANTY_KIND_LABELS,
   WARRANTY_STATUS_LABELS,
+  warrantyCoverage,
   type WarrantyStatus,
 } from "@/features/store-warranties/warranty.logic";
-import type { CustomerOrder, CustomerOrderDetail as CustomerOrderDetailType } from "../types/order";
+import type {
+  CustomerOrder,
+  CustomerOrderDetail as CustomerOrderDetailType,
+  CustomerOrderItem,
+} from "../types/order";
 import {
   OrderStatusBadge,
   PaymentStatusBadge,
@@ -236,8 +246,101 @@ function OrderProgressTracker({ order }: { order: CustomerOrder }) {
   );
 }
 
+function OrderLinePresentation({
+  item,
+  completedAt,
+}: {
+  item: CustomerOrderItem;
+  completedAt: string | null;
+}) {
+  const hasWarrantyPolicy =
+    typeof item.warrantyMonths === "number" && item.warrantyMonths > 0;
+  const coverage =
+    hasWarrantyPolicy && completedAt
+      ? warrantyCoverage(completedAt, item.warrantyMonths)
+      : null;
+
+  return (
+    <div className="flex items-start gap-3">
+      {item.imageUrl ? (
+        <Image
+          loader={imageLoader(item.imageUrl)}
+          unoptimized
+          src={item.imageUrl}
+          alt={item.productName}
+          width={44}
+          height={44}
+          className="size-11 shrink-0 rounded-lg border border-border/60 object-cover bg-muted/20"
+        />
+      ) : (
+        <div className="grid size-11 shrink-0 place-items-center rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-semibold text-xs border border-amber-200/50">
+          <Package className="size-5" />
+        </div>
+      )}
+
+      <div className="space-y-1 min-w-0">
+        {item.productSlug ? (
+          <Link
+            href={`/products/${item.productSlug}`}
+            className="font-semibold text-foreground hover:text-primary transition-colors line-clamp-2"
+          >
+            {item.productName}
+          </Link>
+        ) : (
+          <p className="font-semibold text-foreground">{item.productName}</p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {item.variantName && (
+            <span className="inline-block rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              {item.variantName}
+            </span>
+          )}
+
+          {coverage ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-medium",
+                coverage.inWarranty
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              <ShieldCheck className="size-3 shrink-0" />
+              <span>{coverage.label}</span>
+            </span>
+          ) : (
+            hasWarrantyPolicy && (
+              <span className="inline-flex items-center gap-1 rounded-sm bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60 px-1.5 py-0.5 text-[11px] font-medium">
+                <ShieldCheck className="size-3 shrink-0" />
+                <span>Bảo hành {item.warrantyMonths} tháng</span>
+              </span>
+            )
+          )}
+        </div>
+
+        {item.deliveredAssets && item.deliveredAssets.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {item.deliveredAssets.map((asset) => (
+              <span
+                key={asset.assetCode}
+                className="inline-flex items-center rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+              >
+                Mã TS: {asset.assetCode}
+                {asset.serialNumber ? ` · SN: ${asset.serialNumber}` : ""}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function CustomerOrderDetail({ id }: { id: string }) {
   const request = useAuthenticatedRequest();
+  const cart = useOptionalCart();
+  const router = useRouter();
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     id: string;
@@ -326,6 +429,36 @@ export function CustomerOrderDetail({ id }: { id: string }) {
     }
   }
 
+  const canReorder = Boolean(
+    cart && detail?.items.some((item) => Boolean(item.productSlug)),
+  );
+
+  function handleReorder() {
+    if (!detail || !cart) return;
+    let added = 0;
+    for (const item of detail.items) {
+      if (!item.productSlug) continue;
+      const ok = cart.addItem({
+        productId: item.productId,
+        productSlug: item.productSlug,
+        productName: item.productName,
+        variantId: item.variantId,
+        variantName: item.variantName,
+        unitPrice: Number(item.unitPrice),
+        image: item.imageUrl
+          ? { src: item.imageUrl, alt: item.productName }
+          : undefined,
+        quantity: item.quantity,
+        inStock: true,
+      });
+      if (ok) added++;
+    }
+    if (added > 0) {
+      void cart.reconcileCart();
+      router.push("/cart");
+    }
+  }
+
   return (
     <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       {/* Top Navigation Bar */}
@@ -338,6 +471,18 @@ export function CustomerOrderDetail({ id }: { id: string }) {
           <span>Danh sách đơn hàng của tôi</span>
         </Link>
         <div className="flex items-center gap-2">
+          {canReorder && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleReorder}
+              className="h-8 gap-1.5 text-xs cursor-pointer"
+            >
+              <RotateCcw className="size-3.5 text-primary" />
+              <span>Mua lại đơn này</span>
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -642,21 +787,10 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                       {detail.items.map((item) => (
                         <tr key={item.id} className="hover:bg-muted/15 transition-colors">
                           <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-semibold text-xs border border-amber-200/50">
-                                <Package className="size-5" />
-                              </div>
-                              <div>
-                                <p className="font-semibold text-foreground">
-                                  {item.productName}
-                                </p>
-                                {item.variantName && (
-                                  <span className="inline-block mt-0.5 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                                    {item.variantName}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                            <OrderLinePresentation
+                              item={item}
+                              completedAt={detail.order.completedAt}
+                            />
                           </td>
                           <td className="px-4 py-4 text-right text-muted-foreground font-mono">
                             {formatOrderMoney(item.unitPrice)}
@@ -680,17 +814,11 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                   {detail.items.map((item) => (
                     <div key={item.id} className="p-4 space-y-2">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-sm text-foreground">
-                            {item.productName}
-                          </p>
-                          {item.variantName && (
-                            <span className="inline-block rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                              {item.variantName}
-                            </span>
-                          )}
-                        </div>
-                        <span className="font-semibold text-sm text-foreground font-mono">
+                        <OrderLinePresentation
+                          item={item}
+                          completedAt={detail.order.completedAt}
+                        />
+                        <span className="font-semibold text-sm text-foreground font-mono shrink-0">
                           {formatOrderMoney(item.lineTotal)}
                         </span>
                       </div>
@@ -713,6 +841,12 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                       <li key={warranty.id} className="py-2 space-y-0.5">
                         <p className="font-medium">
                           {warranty.code} · {warranty.productName} — {warranty.variantName} × {warranty.quantity}
+                          {warranty.assetCode && (
+                            <span className="ml-2 inline-block rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs font-normal text-muted-foreground">
+                              Mã TS: {warranty.assetCode}
+                              {warranty.assetSerialNumber ? ` · SN: ${warranty.assetSerialNumber}` : ""}
+                            </span>
+                          )}
                         </p>
                         <p className="text-muted-foreground">
                           {WARRANTY_KIND_LABELS[warranty.kind]} ·{" "}

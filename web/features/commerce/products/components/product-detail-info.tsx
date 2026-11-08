@@ -2,25 +2,47 @@
 
 import * as React from 'react';
 import { Check, Star } from 'lucide-react';
-import type { StorefrontProductDetail } from '../types/product';
+import type {
+  StorefrontProductDetail,
+  StorefrontProductVariant,
+} from '../types/product';
 import {
+  buildProductSpecifications,
   getAvailableDetailTabs,
+  resolveProductUsageGuidance,
   type DetailTabKey,
 } from './product-detail.logic';
 import { cn } from '@/shared/lib/utils';
 
 export interface ProductDetailInfoProps {
   product: StorefrontProductDetail;
+  selectedVariant?: StorefrontProductVariant;
   className?: string;
 }
 
 export function ProductDetailInfo({
   product,
+  selectedVariant,
   className,
 }: ProductDetailInfoProps) {
+  const effectiveVariant =
+    selectedVariant ??
+    (product.variants?.length === 1 ? product.variants[0] : undefined);
+  const specifications = React.useMemo(
+    () => buildProductSpecifications(product, effectiveVariant),
+    [product, effectiveVariant],
+  );
+  const usageGuidance = React.useMemo(
+    () => resolveProductUsageGuidance(product, effectiveVariant),
+    [product, effectiveVariant],
+  );
   const tabs = React.useMemo(() => {
-    return getAvailableDetailTabs(product);
-  }, [product]);
+    return getAvailableDetailTabs({
+      ...product,
+      specifications,
+      usageGuidance,
+    });
+  }, [product, specifications, usageGuidance]);
 
   const [selectedTab, setSelectedTab] = React.useState<DetailTabKey>('description');
 
@@ -154,7 +176,7 @@ export function ProductDetailInfo({
         )}
 
         {/* Panel 2: Thông số kỹ thuật */}
-        {activeTab === 'specifications' && product.specifications && (
+        {activeTab === 'specifications' && specifications.length > 0 && (
           <div
             role="tabpanel"
             id="panel-specifications"
@@ -165,7 +187,7 @@ export function ProductDetailInfo({
             <table className="w-full text-left text-sm">
               <caption className="sr-only">Thông số kỹ thuật {product.name}</caption>
               <tbody className="divide-y divide-[#ede6dc] dark:divide-border/80">
-                {product.specifications.map((spec, i) => (
+                {specifications.map((spec, i) => (
                   <tr
                     key={i}
                     className={i % 2 === 0 ? 'bg-[#fbf9f5]/60 dark:bg-muted/20' : 'bg-transparent'}
@@ -184,7 +206,7 @@ export function ProductDetailInfo({
         )}
 
         {/* Panel 3: Hướng dẫn sử dụng */}
-        {activeTab === 'usage' && product.usageGuidance && (
+        {activeTab === 'usage' && usageGuidance && (
           <div
             role="tabpanel"
             id="panel-usage"
@@ -192,7 +214,7 @@ export function ProductDetailInfo({
             tabIndex={0}
             className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-4xl focus-visible:outline-2 focus-visible:outline-primary"
           >
-            <p>{product.usageGuidance}</p>
+            <p>{usageGuidance}</p>
           </div>
         )}
 
