@@ -198,7 +198,14 @@ describe('Commerce products (migrated PostgreSQL)', () => {
       image: { src: '/cover.jpg', alt: 'Cover' },
     });
     const detail = await service.getProduct(product.id);
-    expect(detail).toMatchObject(result.data[0]);
+    expect(detail).toMatchObject({
+      ...result.data[0],
+      unitName: 'Unit',
+      unitSymbol: 'u',
+      itemType: 'MATERIAL',
+      trackingMode: 'QUANTITY',
+      warrantyMonths: null,
+    });
     expect(detail.variants).toHaveLength(2);
     expect(new Set(detail.variants.map((variant) => variant.id)).size).toBe(2);
     expect(
@@ -206,8 +213,24 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     ).toBe(true);
     expect(detail.variants).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ price: 100000, inStock: false }),
-        expect.objectContaining({ price: 200000, inStock: true }),
+        expect.objectContaining({
+          price: 100000,
+          inStock: false,
+          unitName: 'Unit',
+          unitSymbol: 'u',
+          itemType: 'MATERIAL',
+          trackingMode: 'QUANTITY',
+          warrantyMonths: null,
+        }),
+        expect.objectContaining({
+          price: 200000,
+          inStock: true,
+          unitName: 'Unit',
+          unitSymbol: 'u',
+          itemType: 'MATERIAL',
+          trackingMode: 'QUANTITY',
+          warrantyMonths: null,
+        }),
       ]),
     );
     expect(

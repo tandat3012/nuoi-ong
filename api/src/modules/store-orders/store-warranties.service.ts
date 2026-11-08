@@ -401,6 +401,8 @@ export class StoreWarrantiesService {
         productName: p.productName,
         variantName: p.variantName,
         quantity: p.quantity,
+        assetCode: p.assetCode ?? null,
+        assetSerialNumber: p.assetSerialNumber ?? null,
         kind: p.kind,
         status: p.status,
         result: p.result,

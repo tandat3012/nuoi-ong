@@ -199,6 +199,18 @@ export class CommerceService {
         id: storeProductVariants.id,
         name: storeProductVariants.name,
         price: storeProductVariants.price,
+        quantityStep: storeProductVariants.quantityStep,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+        itemType: this.variantItemColumn<
+          'MATERIAL' | 'EQUIPMENT' | 'TOOL' | null
+        >(sql`${items.itemType}`),
+        trackingMode: this.variantItemColumn<
+          'QUANTITY' | 'LOT' | 'ASSET' | null
+        >(sql`${items.trackingMode}`),
+        warrantyMonths: this.variantItemColumn<number | null>(
+          sql`CASE WHEN ${items.itemType} = 'MATERIAL' THEN NULL ELSE COALESCE(${items.warrantyMonths}, 0) END`,
+        ),
         ...this.availabilityFlags(region, quantity),
       })
       .from(storeProductVariants)
@@ -210,9 +222,15 @@ export class CommerceService {
         ),
       )
       .orderBy(asc(storeProductVariants.id));
+    const primary = variants[0];
 
     return {
       ...this.toProduct(row, extras.get(row.id)),
+      unitName: primary?.unitName,
+      unitSymbol: primary?.unitSymbol ?? null,
+      itemType: primary?.itemType ?? null,
+      trackingMode: primary?.trackingMode ?? null,
+      warrantyMonths: primary?.warrantyMonths ?? null,
       images,
       variants: variants.map(
         ({ anywhere, served, regionStep, regionQty, ...variant }) => ({
@@ -495,6 +513,21 @@ export class CommerceService {
         AND ${items.status} = 'ACTIVE'
         AND ${this.sellingConditions()}
         ${extra ? sql`AND ${extra}` : sql``}
+    )`;
+  }
+
+  /** Metadata of the active item mapped to the current variant row in a selling farm. */
+  private variantItemColumn<T>(expression: SQL) {
+    return sql<T>`(
+      SELECT ${expression}
+      FROM ${storeVariantItems}
+      JOIN ${storeSettings} ON ${storeSettings.farmId} = ${storeVariantItems.farmId}
+      JOIN ${items} ON ${items.id} = ${storeVariantItems.itemId}
+      WHERE ${storeVariantItems.variantId} = ${storeProductVariants.id}
+        AND ${items.status} = 'ACTIVE'
+        AND ${this.sellingConditions()}
+      ORDER BY ${storeVariantItems.farmId}
+      LIMIT 1
     )`;
   }
 

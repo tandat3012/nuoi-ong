@@ -10,6 +10,7 @@ import type {
 import {
   computeDetailDiscount,
   resolveActiveProductSnapshot,
+  resolveProductQualityBadge,
 } from './product-detail.logic';
 import { getProductCardRating } from './product-card.logic';
 import { ProductQuantitySelector } from './product-quantity-selector';
@@ -94,6 +95,7 @@ export function ProductDetailSummary({
     snapshot.price,
     snapshot.originalPrice,
   );
+  const qualityBadge = resolveProductQualityBadge(snapshot);
   const ratingInfo = getProductCardRating(product.rating);
 
   const { addItem, isCheckoutSubmitting } = useCart();
@@ -127,7 +129,7 @@ export function ProductDetailSummary({
         {product.name}
       </h1>
 
-      {/* 3. Optional SKU and brand */}
+      {/* 3. Optional SKU, unit and brand */}
       <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-muted-foreground">
         {snapshot.sku && (
           <>
@@ -136,6 +138,12 @@ export function ProductDetailSummary({
           </>
         )}
         <span>Thương hiệu: {product.brand || 'Mộc Ong'}</span>
+        {snapshot.unitName && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>Đơn vị tính: {snapshot.unitName}</span>
+          </>
+        )}
       </div>
 
       {/* 4. Rating summary only when data exists */}
@@ -187,32 +195,41 @@ export function ProductDetailSummary({
         )}
       </div>
 
-      {/* 6. Availability */}
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            'inline-block size-2 rounded-full',
-            canDeliver
-              ? 'bg-emerald-500'
-              : 'bg-muted-foreground/60',
-          )}
-          aria-hidden="true"
-        />
-        <span
-          className={cn(
-            'text-xs sm:text-sm font-medium',
-            canDeliver
-              ? 'text-emerald-700 dark:text-emerald-400'
-              : 'text-muted-foreground',
-          )}
-          role="status"
-        >
-          {!checkingQuantity
-            ? availabilityLabel({ inStock: snapshot.inStock, availability })
-            : quantityLabels?.key === labelKey
-              ? 'Chưa kiểm tra được số lượng tại khu vực'
-              : 'Đang kiểm tra số lượng tại khu vực…'}
-        </span>
+      {/* 6. Availability & Quality / Warranty badge */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              'inline-block size-2 rounded-full',
+              canDeliver
+                ? 'bg-emerald-500'
+                : 'bg-muted-foreground/60',
+            )}
+            aria-hidden="true"
+          />
+          <span
+            className={cn(
+              'text-xs sm:text-sm font-medium',
+              canDeliver
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-muted-foreground',
+            )}
+            role="status"
+          >
+            {!checkingQuantity
+              ? availabilityLabel({ inStock: snapshot.inStock, availability })
+              : quantityLabels?.key === labelKey
+                ? 'Chưa kiểm tra được số lượng tại khu vực'
+                : 'Đang kiểm tra số lượng tại khu vực…'}
+          </span>
+        </div>
+
+        {qualityBadge && (
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200/70 bg-amber-50/80 dark:border-amber-800/50 dark:bg-amber-950/40 px-2.5 py-1 text-xs font-medium text-amber-900 dark:text-amber-200">
+            <ShieldCheck className="size-3.5 text-primary shrink-0" aria-hidden="true" />
+            <span>{qualityBadge}</span>
+          </span>
+        )}
       </div>
 
       {/* 7. Product-specific short description */}
@@ -301,7 +318,12 @@ export function ProductDetailSummary({
             className="size-4 text-primary shrink-0"
             aria-hidden="true"
           />
-          <span>Chính hãng</span>
+          <span>
+            {typeof snapshot.warrantyMonths === 'number' &&
+            snapshot.warrantyMonths > 0
+              ? `Bảo hành ${snapshot.warrantyMonths} tháng`
+              : 'Chính hãng'}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <RotateCcw

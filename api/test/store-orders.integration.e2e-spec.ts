@@ -291,10 +291,12 @@ describe('Store orders (migrated PostgreSQL)', () => {
       expect(detail.items[0]).not.toHaveProperty('itemId');
       expect(detail).not.toHaveProperty('stockIssue');
       expect(detail.items[0]).toMatchObject({
+        productSlug: ids.product,
         quantity: 3,
         stockQuantity: '0.375',
         unitPrice: '185000',
         lineTotal: '555000',
+        deliveredAssets: [],
       });
       expect(detail.order.code).toMatch(/^DH\d{6,}$/);
       expect(detail.order).not.toHaveProperty('requestFingerprint');
