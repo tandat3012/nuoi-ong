@@ -352,34 +352,29 @@ export class MaintenanceService {
         summary: `Đã lên lịch ${this.maintenanceName(record.maintenanceType)}`,
       },
     );
+    const warehouseId = await this.assetWarehouse(tx, asset.id);
     await notifyMaintenanceStaff(
       tx,
       this.recordNotification(record, 'SCHEDULED'),
+      warehouseId,
       actorUserId,
     );
     if (record.supplierId && record.expectedReturnAt) {
-      const [[actorMember], [assetWarehouse]] = await Promise.all([
-        tx
-          .select({ id: farmMembers.id })
-          .from(farmMembers)
-          .where(
-            and(
-              eq(farmMembers.farmId, farmId),
-              eq(farmMembers.userId, actorUserId),
-            ),
-          )
-          .limit(1),
-        tx
-          .select({ warehouseId: assetWarehouseId })
-          .from(assets)
-          .where(eq(assets.id, asset.id))
-          .limit(1),
-      ]);
+      const [actorMember] = await tx
+        .select({ id: farmMembers.id })
+        .from(farmMembers)
+        .where(
+          and(
+            eq(farmMembers.farmId, farmId),
+            eq(farmMembers.userId, actorUserId),
+          ),
+        )
+        .limit(1);
       await notifyFarmApprovers(
         tx,
         this.recordNotification(record, 'READY_TO_SEND'),
-        actorMember?.id ?? '',
-        assetWarehouse?.warehouseId,
+        actorMember.id,
+        warehouseId,
       );
     }
     return record;
@@ -439,16 +434,11 @@ export class MaintenanceService {
         record.expectedReturnAt &&
         (input.supplierId !== undefined || input.expectedReturnAt !== undefined)
       ) {
-        const [assetWarehouse] = await tx
-          .select({ warehouseId: assetWarehouseId })
-          .from(assets)
-          .where(eq(assets.id, record.assetId))
-          .limit(1);
         await notifyFarmApprovers(
           tx,
           this.recordNotification(record, 'READY_TO_SEND'),
           actor.memberId,
-          assetWarehouse?.warehouseId,
+          await this.assetWarehouse(tx, record.assetId),
         );
       }
       return record;
@@ -659,6 +649,7 @@ export class MaintenanceService {
       await notifyMaintenanceStaff(
         tx,
         this.recordNotification(updated, 'IN_PROGRESS'),
+        await this.assetWarehouse(tx, updated.assetId),
         actor.userId,
       );
       return updated;
@@ -976,6 +967,7 @@ export class MaintenanceService {
           ),
           rejectionReason: updated.returnRejectionReason ?? undefined,
         },
+        await this.assetWarehouse(tx, updated.assetId),
         actor.userId,
         record.returnCreatedByMemberId,
       );
@@ -1062,6 +1054,15 @@ export class MaintenanceService {
       );
       return updated;
     });
+  }
+
+  private async assetWarehouse(tx: Transaction, assetId: string) {
+    const [row] = await tx
+      .select({ warehouseId: assetWarehouseId })
+      .from(assets)
+      .where(eq(assets.id, assetId))
+      .limit(1);
+    return row?.warehouseId ?? null;
   }
 
   private recordNotification(

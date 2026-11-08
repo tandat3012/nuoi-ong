@@ -737,6 +737,44 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     ).toEqual([actors.MAINTENANCE_STAFF.user]);
   });
 
+  it('keeps maintenance notifications inside the warehouses of staff who also hold a warehouse role', async () => {
+    const staff = actors.MAINTENANCE_STAFF;
+    const [employeeRole] = await db
+      .select({ id: schema.roles.id })
+      .from(schema.roles)
+      .where(eq(schema.roles.code, 'EMPLOYEE'));
+    const scheduledTo = async (id: string) =>
+      (
+        await pool.query<{ user_id: string }>(
+          "SELECT user_id FROM notifications WHERE entity_id=$1 AND type='MAINTENANCE_RECORD_SCHEDULED'",
+          [id],
+        )
+      ).rows.map((row) => row.user_id);
+    await db
+      .insert(schema.farmMemberRoles)
+      .values({ farmMemberId: staff.member, roleId: employeeRole.id });
+    try {
+      // Now warehouse-scoped with no assignment: this asset's warehouse is out of reach.
+      const outside = await schedule();
+      expect(await scheduledTo(outside.id)).toEqual([]);
+      await service.cancel(outside.id, farm, manager);
+      await db
+        .insert(schema.farmMemberWarehouses)
+        .values({ farmMemberId: staff.member, warehouseId: warehouse });
+      const inside = await schedule();
+      expect(await scheduledTo(inside.id)).toEqual([staff.user]);
+    } finally {
+      await pool.query(
+        'DELETE FROM farm_member_warehouses WHERE farm_member_id=$1',
+        [staff.member],
+      );
+      await pool.query(
+        'DELETE FROM farm_member_roles WHERE farm_member_id=$1 AND role_id=$2',
+        [staff.member, employeeRole.id],
+      );
+    }
+  });
+
   it('enforces duties, keeps original asset, adds stock once under concurrent approval', async () => {
     const original = await balance();
     const r = await schedule();

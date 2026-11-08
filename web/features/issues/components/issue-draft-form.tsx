@@ -248,7 +248,7 @@ export function IssueDraftForm({
       <PageHeader
         title={
           initial
-            ? `Sửa phiếu xuất ${documentCodeLabel(initial.issue.issueCode, initial.issue.id)}`
+            ? `Sửa phiếu xuất ${documentCodeLabel(initial.issue.issueCode, initial.issue.id, "PX")}`
             : "Tạo phiếu xuất nháp"
         }
         description={isLinkedSale ? "Phiếu bán hàng liên kết đơn; chỉ phân bổ lại lô/tài sản và giữ nguyên tổng từng vật tư." : "Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho."}
@@ -260,7 +260,7 @@ export function IssueDraftForm({
             <p className="mb-1 block text-sm font-medium">Mã phiếu</p>
             <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
               {initial
-                ? documentCodeLabel(initial.issue.issueCode, initial.issue.id)
+                ? documentCodeLabel(initial.issue.issueCode, initial.issue.id, "PX")
                 : DOCUMENT_CODE_HINT}
             </p>
           </div>

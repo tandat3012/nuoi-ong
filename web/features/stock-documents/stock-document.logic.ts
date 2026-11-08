@@ -181,7 +181,7 @@ export type DocumentCodePrefix = "PN" | "PX" | "KK" | "CK" | "MNT" | "ATR" | "BT
 export function documentCodeLabel(
   code: string | null | undefined,
   id: string,
-  prefix: DocumentCodePrefix = "PN",
+  prefix: DocumentCodePrefix,
 ) {
   return code ?? `${prefix}-${id.slice(0, 8)}`;
 }

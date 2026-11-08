@@ -495,7 +495,7 @@ function FarmTransfersScreen() {
           key={resolving.id}
           farmId={selectedFarmId}
           id={resolving.id}
-          code={documentCodeLabel(resolving.transferCode, resolving.id)}
+          code={documentCodeLabel(resolving.transferCode, resolving.id, "CK")}
           lock={lock}
           onResolved={() => {
             setResolving(null);

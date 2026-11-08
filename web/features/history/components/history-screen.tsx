@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthContext, useFarmMembership } from "@/features/auth";
-import { WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "@/features/auth/farm-roles";
+import { FARM_ADMIN_ROLES, hasAnyRole } from "@/features/auth/farm-roles";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Input } from "@/shared/components/ui/input";
@@ -57,7 +57,7 @@ function FarmHistoryScreen({ farmId, roles }: { farmId: string; roles: readonly 
     <div className="min-w-0 space-y-6">
       <PageHeader title="Lịch sử thay đổi" description="Theo dõi người thao tác và dữ liệu thay đổi trong trang trại."
         actions={<Button variant="outline" onClick={() => setRevision((value) => value + 1)}>Tải lại</Button>} />
-      {!hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES) && (
+      {!hasAnyRole(roles, FARM_ADMIN_ROLES) && (
         <p className="text-sm text-muted-foreground">Bạn chỉ xem được lịch sử của phiếu và yêu cầu do mình tạo.</p>
       )}
       <form key={historyHref(query)} onSubmit={applyFilters} onChange={() => setFilterError(null)}
