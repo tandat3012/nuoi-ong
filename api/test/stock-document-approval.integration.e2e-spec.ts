@@ -571,6 +571,126 @@ describe('Stock document approval rules', () => {
     }
   });
 
+  describe('issue receipt acknowledgement (P1-11)', () => {
+    const issueFor = async (recipient: Actor) =>
+      (
+        await issues.create(farm, clerk('manager'), {
+          warehouseId: warehouse,
+          items: [line],
+          recipientMemberId: actors[recipient].member,
+        })
+      ).issue.id;
+    const receipt = async (id: string) =>
+      (
+        await pool.query<{
+          received_at: string | null;
+          received_recorded_by_member_id: string | null;
+          receipt_note: string | null;
+        }>(
+          'SELECT received_at, received_recorded_by_member_id, receipt_note FROM stock_issues WHERE id=$1',
+          [id],
+        )
+      ).rows[0];
+    const ledgerRows = async () =>
+      Number(
+        (
+          await pool.query<{ n: number }>(
+            'SELECT count(*)::int AS n FROM inventory_transactions WHERE farm_id=$1',
+            [farm],
+          )
+        ).rows[0].n,
+      );
+
+    it('lets only the recipient acknowledge a confirmed issue, once, without moving stock', async () => {
+      const id = await issueFor('peer');
+      await expect(issues.acknowledge(id, farm, clerk('peer'))).rejects.toThrow(
+        'Only CONFIRMED',
+      );
+      await issues.confirm(id, farm, clerk('manager'));
+      const stock = await sourceQuantity();
+      const moves = await ledgerRows();
+      // The recipient did not create the issue but still sees it.
+      expect((await issues.get(id, farm, clerk('peer'))).issue).toMatchObject({
+        recipientMemberId: actors.peer.member,
+        recipientName: `${clerk('peer')}@example.local`,
+      });
+      const peerView = await issues.list({
+        farmId: farm,
+        clerkUserId: clerk('peer'),
+        page: 1,
+        pageSize: 20,
+        offset: 0,
+      });
+      expect(peerView.data.map((row) => row.id)).toContain(id);
+      for (const actor of ['creator', 'guest'] as const)
+        await expect(
+          issues.acknowledge(id, farm, clerk(actor), 'Đã nhận'),
+        ).rejects.toThrow('not found');
+      await expect(
+        issues.acknowledge(id, farm, clerk('outsider'), 'Biên bản'),
+      ).rejects.toThrow('not found');
+
+      await issues.acknowledge(id, farm, clerk('peer'));
+      const first = await receipt(id);
+      expect(first).toMatchObject({
+        received_recorded_by_member_id: actors.peer.member,
+        receipt_note: null,
+      });
+      expect(first.received_at).not.toBeNull();
+      await issues.acknowledge(id, farm, clerk('peer'), 'lần hai');
+      expect(await receipt(id)).toEqual(first);
+      expect(await sourceQuantity()).toBe(stock);
+      expect(await ledgerRows()).toBe(moves);
+      const actions = await pool.query<{ action: string }>(
+        "SELECT action FROM audit_logs WHERE entity_id=$1 AND action='ACKNOWLEDGE'",
+        [id],
+      );
+      expect(actions.rows).toHaveLength(1);
+    });
+
+    it('lets a warehouse manager record receipt for the recipient only with a note', async () => {
+      const id = await issueFor('peer');
+      await issues.confirm(id, farm, clerk('owner'));
+      await expect(
+        issues.acknowledge(id, farm, clerk('manager'), '   '),
+      ).rejects.toThrow('note is required');
+      expect((await receipt(id)).received_at).toBeNull();
+      await issues.acknowledge(id, farm, clerk('manager'), 'Biên bản số 7');
+      expect(await receipt(id)).toMatchObject({
+        received_recorded_by_member_id: actors.manager.member,
+        receipt_note: 'Biên bản số 7',
+      });
+    });
+
+    it('needs a recipient who is an active member of the farm', async () => {
+      await expect(
+        issues.create(farm, clerk('manager'), {
+          warehouseId: warehouse,
+          items: [line],
+          recipientMemberId: randomUUID(),
+        }),
+      ).rejects.toThrow('active farm member');
+      const id = (
+        await issues.create(farm, clerk('manager'), {
+          warehouseId: warehouse,
+          items: [line],
+        })
+      ).issue.id;
+      await issues.confirm(id, farm, clerk('owner'));
+      await expect(
+        issues.acknowledge(id, farm, clerk('owner'), 'Biên bản'),
+      ).rejects.toThrow('no recipient');
+      // The database refuses a receipt on an unconfirmed issue too.
+      const draft = await issueFor('peer');
+      await expect(
+        pool.query(
+          'UPDATE stock_issues SET received_at=now(), received_recorded_by_member_id=recipient_member_id WHERE id=$1',
+          [draft],
+        ),
+      ).rejects.toThrow('ck_issue_receipt_ack');
+    });
+  });
+
   describe('audit history access', () => {
     it('shows approvers the whole farm and employees only actions they performed', async () => {
       const own = await cases[0].create('creator');

@@ -816,12 +816,29 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
       },
     ]);
 
+    // P1-11: a manager recording receipt for the assignee must give the basis.
+    await http()
+      .post(`/api/v1/assets/${assetIds[2]}/start-use`)
+      .query({ farmId })
+      .send({ note: '   ' })
+      .expect(400);
+    expect((await readAsset(assetIds[2])).status).toBe('ASSIGNED');
+    identity = guestIdentity;
     await http()
       .post(`/api/v1/assets/${assetIds[2]}/start-use`)
       .query({ farmId })
       .send({})
       .expect(201);
+    identity = ownerIdentity;
     expect((await readAsset(assetIds[2])).status).toBe('IN_USE');
+    const started = await pool.query<{ new_data: Record<string, unknown> }>(
+      "SELECT new_data FROM audit_logs WHERE farm_id=$1 AND entity_id=$2 AND action='ASSET_USE_STARTED'",
+      [farmId, assetIds[2]],
+    );
+    expect(started.rows[0].new_data).toMatchObject({
+      receivedByMemberId: guestMemberId,
+      recordedByMemberId: guestMemberId,
+    });
 
     await http()
       .post(`/api/v1/assets/${assetIds[2]}/assign`)
@@ -1833,9 +1850,10 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
     it('allows only one concurrent start-use and requires an active assignment', async () => {
       await seedBalance();
       await assetAction(assetIds[2], 'assign', assignmentInput()).expect(201);
+      const basis = { note: 'Biên bản bàn giao số 12' };
       const responses = await Promise.all([
-        assetAction(assetIds[2], 'start-use'),
-        assetAction(assetIds[2], 'start-use'),
+        assetAction(assetIds[2], 'start-use', basis),
+        assetAction(assetIds[2], 'start-use', basis),
       ]);
       expect(responses.map((response) => response.status).sort()).toEqual([
         201, 409,
@@ -1847,6 +1865,15 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
           (action) => action === 'ASSET_USE_STARTED',
         ),
       ).toHaveLength(1);
+      const recorded = await pool.query<{ new_data: Record<string, unknown> }>(
+        "SELECT new_data FROM audit_logs WHERE farm_id=$1 AND entity_id=$2 AND action='ASSET_USE_STARTED'",
+        [farmId, assetIds[2]],
+      );
+      expect(recorded.rows[0].new_data).toMatchObject({
+        receivedByMemberId: guestMemberId,
+        recordedByMemberId: ownerMemberId,
+        note: basis.note,
+      });
       await pool.query("UPDATE assets SET status='ASSIGNED' WHERE id=$1", [
         assetIds[1],
       ]);
@@ -2143,7 +2170,9 @@ describe('Asset HTTP and PostgreSQL consistency', () => {
         if (status !== 'UNASSIGNED_IN_USE') {
           await assetAction(id, 'assign', assignmentInput()).expect(201);
           if (status === 'IN_USE')
-            await assetAction(id, 'start-use').expect(201);
+            await assetAction(id, 'start-use', {
+              note: 'Biên bản bàn giao',
+            }).expect(201);
         }
         const previousMovements = await transactionRows(id);
         const previousBalance = await balance(warehouseId);

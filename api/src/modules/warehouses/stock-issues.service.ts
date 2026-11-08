@@ -14,6 +14,7 @@ import {
   gte,
   isNull,
   lte,
+  or,
   sql,
   SQL,
 } from 'drizzle-orm';
@@ -21,6 +22,7 @@ import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
   assets,
+  farmMembers,
   inventoryBalances,
   inventoryLots,
   inventoryTransactions,
@@ -33,6 +35,7 @@ import {
   storeOrderItems,
   storeWarrantyRequests,
   units,
+  users,
   warehouses,
 } from '../../db/schema';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
@@ -51,7 +54,10 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { quantityMillis } from '../store-orders/store-order.rules';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  hasAnyRole,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 import { assertHoldsStillCovered } from './stock-holds';
 
@@ -73,17 +79,25 @@ export class StockIssuesService {
   ) {}
 
   async list(filters: Filters) {
-    const { memberId: readMemberId, scope } =
-      await this.warehousesService.documentReadScope(
-        filters.farmId,
-        filters.clerkUserId,
-      );
+    const {
+      memberId: readMemberId,
+      viewerId,
+      scope,
+    } = await this.warehousesService.documentReadScope(
+      filters.farmId,
+      filters.clerkUserId,
+    );
 
     const conditions: SQL[] = [eq(stockIssues.farmId, filters.farmId)];
-    const scoped = scopeCondition(stockIssues.warehouseId, scope);
-    if (scoped) conditions.push(scoped);
-    if (readMemberId)
-      conditions.push(eq(stockIssues.createdByMemberId, readMemberId));
+    const own = and(
+      scopeCondition(stockIssues.warehouseId, scope),
+      readMemberId
+        ? eq(stockIssues.createdByMemberId, readMemberId)
+        : undefined,
+    );
+    // The recipient always sees the issues handed to them.
+    if (own)
+      conditions.push(or(own, eq(stockIssues.recipientMemberId, viewerId))!);
 
     if (filters.status) conditions.push(eq(stockIssues.status, filters.status));
     if (filters.dateFrom)
@@ -130,12 +144,16 @@ export class StockIssuesService {
   }
 
   async get(id: string, farmId: string, clerkUserId: string) {
-    const { memberId: readMemberId, scope } =
-      await this.warehousesService.documentReadScope(farmId, clerkUserId);
+    const {
+      memberId: readMemberId,
+      viewerId,
+      scope,
+    } = await this.warehousesService.documentReadScope(farmId, clerkUserId);
     const result = await this.withItems(id, farmId);
     if (
-      (readMemberId && result.issue.createdByMemberId !== readMemberId) ||
-      !inScope(scope, result.issue.warehouseId)
+      result.issue.recipientMemberId !== viewerId &&
+      ((readMemberId && result.issue.createdByMemberId !== readMemberId) ||
+        !inScope(scope, result.issue.warehouseId))
     )
       throw new NotFoundException('Stock issue not found');
     return result;
@@ -168,6 +186,8 @@ export class StockIssuesService {
       .transaction(async (tx) => {
         await this.assertWarehouse(tx, farmId, input.warehouseId);
         await this.validateLines(tx, farmId, input.items, issueType);
+        if (input.recipientMemberId)
+          await this.assertRecipient(tx, farmId, input.recipientMemberId);
         ignoreLegacyCode('issueCode', input.issueCode);
         const [issue] = await tx
           .insert(stockIssues)
@@ -178,6 +198,7 @@ export class StockIssuesService {
             issueDate: input.issueDate,
             issueType,
             maintenanceRecordId: input.maintenanceRecordId,
+            recipientMemberId: input.recipientMemberId,
             reason: input.reason,
             note: input.note,
             createdByMemberId: memberId,
@@ -306,12 +327,15 @@ export class StockIssuesService {
         }
         if (input.warehouseId)
           await this.assertWarehouse(tx, farmId, input.warehouseId);
+        if (input.recipientMemberId)
+          await this.assertRecipient(tx, farmId, input.recipientMemberId);
         const changes: Partial<typeof stockIssues.$inferInsert> = {};
         for (const key of [
           'warehouseId',
           'issueDate',
           'issueType',
           'maintenanceRecordId',
+          'recipientMemberId',
           'reason',
           'note',
         ] as const)
@@ -732,6 +756,89 @@ export class StockIssuesService {
     throw error;
   }
 
+  /** NV02: the recipient confirms they got the confirmed issue; a manager may record it for them with a note. Never touches stock. */
+  async acknowledge(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    note?: string | null,
+  ) {
+    const { memberId, roleCodes } =
+      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    const receiptNote = note?.trim() || null;
+    await this.databaseService.db.transaction(async (tx) => {
+      const [issue] = await tx
+        .select()
+        .from(stockIssues)
+        .where(and(eq(stockIssues.id, id), eq(stockIssues.farmId, farmId)))
+        .for('update')
+        .limit(1);
+      if (!issue) throw new NotFoundException('Stock issue not found');
+      const isRecipient = issue.recipientMemberId === memberId;
+      if (!isRecipient) {
+        const scope = await this.warehousesService.warehouseScope(
+          farmId,
+          clerkUserId,
+        );
+        if (
+          !hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ||
+          !inScope(scope, issue.warehouseId)
+        )
+          throw new NotFoundException('Stock issue not found');
+      }
+      if (issue.status !== 'CONFIRMED')
+        throw new ConflictException('Only CONFIRMED issues can be received');
+      if (!issue.recipientMemberId)
+        throw new ConflictException('This issue has no recipient');
+      // Retried acknowledgement: already recorded, nothing changes.
+      if (issue.receivedAt) return;
+      if (!isRecipient && !receiptNote)
+        throw new BadRequestException(
+          'A note is required when recording receipt for the recipient',
+        );
+      const now = new Date().toISOString();
+      const [updated] = await tx
+        .update(stockIssues)
+        .set({
+          receivedAt: now,
+          receivedRecordedByMemberId: memberId,
+          receiptNote,
+          updatedAt: now,
+        })
+        .where(eq(stockIssues.id, id))
+        .returning();
+      await auditStockDocument(
+        tx,
+        memberId,
+        'STOCK_ISSUE',
+        'ACKNOWLEDGE',
+        issue,
+        updated,
+      );
+    });
+    return this.withItems(id, farmId);
+  }
+
+  private async assertRecipient(
+    tx: Transaction,
+    farmId: string,
+    memberId: string,
+  ) {
+    const [member] = await tx
+      .select({ id: farmMembers.id })
+      .from(farmMembers)
+      .where(
+        and(
+          eq(farmMembers.id, memberId),
+          eq(farmMembers.farmId, farmId),
+          eq(farmMembers.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    if (!member)
+      throw new BadRequestException('Recipient must be an active farm member');
+  }
+
   private async getOnly(
     id: string,
     farmId: string,
@@ -788,6 +895,9 @@ export class StockIssuesService {
         ...getTableColumns(stockIssues),
         warehouseCode: warehouses.code,
         warehouseName: warehouses.name,
+        recipientName: sql<
+          string | null
+        >`coalesce(${users.fullName}, ${users.email})`,
       })
       .from(stockIssues)
       .leftJoin(
@@ -797,6 +907,8 @@ export class StockIssuesService {
           eq(warehouses.farmId, stockIssues.farmId),
         ),
       )
+      .leftJoin(farmMembers, eq(farmMembers.id, stockIssues.recipientMemberId))
+      .leftJoin(users, eq(users.id, farmMembers.userId))
       .where(and(eq(stockIssues.id, id), eq(stockIssues.farmId, farmId)))
       .limit(1);
     if (!issue) throw new NotFoundException('Stock issue not found');

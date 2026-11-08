@@ -20,6 +20,7 @@ import { IssueDraftPicker, type IssueChoice } from "./issue-draft-picker";
 import { IssueLotPicker, type IssueLotChoice } from "./issue-lot-picker";
 import { IssueAssetPicker, type IssueAssetChoice } from "./issue-asset-picker";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
+import { AssetLookup } from "@/features/assets";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Textarea } from "@/shared/components/ui/textarea";
@@ -78,6 +79,14 @@ export function IssueDraftForm({
     initial?.issue.maintenanceRecordId ?? null,
   );
   const [reason, setReason] = useState(initial?.issue.reason ?? "");
+  const [recipient, setRecipient] = useState<IssueChoice | null>(() =>
+    initial?.issue.recipientMemberId
+      ? {
+          id: initial.issue.recipientMemberId,
+          label: initial.issue.recipientName ?? "Người nhận đã chọn",
+        }
+      : null,
+  );
   const [note, setNote] = useState(initial?.issue.note ?? "");
   const [linkedError, setLinkedError] = useState<string | null>(null);
   const isLinkedSale =
@@ -206,6 +215,7 @@ export function IssueDraftForm({
             issueType,
             maintenanceRecordId:
               issueType === "MAINTENANCE" ? maintenanceRecordId : null,
+            recipientMemberId: issueType === "SALE" ? null : (recipient?.id ?? null),
             reason: reason.trim() || null,
             note: note.trim() || null,
             ...(isOwner ? numberingOptionsPayload(numbering) : {}),
@@ -322,6 +332,20 @@ export function IssueDraftForm({
               </p>
             )}
           </div>
+          {issueType !== "SALE" && (
+            <div className="space-y-1">
+              <AssetLookup
+                farmId={farmId}
+                kind="member"
+                selected={recipient}
+                onSelect={setRecipient}
+              />
+              <p className="text-xs text-muted-foreground">
+                Không bắt buộc. Sau khi phiếu được xác nhận, người nhận bấm
+                &quot;Xác nhận đã nhận&quot; trên phiếu.
+              </p>
+            </div>
+          )}
           <div>
             <label
               htmlFor="issue-reason"

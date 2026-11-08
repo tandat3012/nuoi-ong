@@ -30,7 +30,10 @@ import {
   type WarehouseScope,
 } from '../warehouses/warehouse-scope';
 import { assetWarehouseId } from './asset-warehouse';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  hasAnyRole,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 import {
   AssignAssetDto,
@@ -395,15 +398,26 @@ export class AssetLifecycleService {
     });
   }
 
-  async startUse(id: string, farmId: string, clerkUserId: string) {
-    const actor = await this.actor(farmId, clerkUserId);
+  /**
+   * NV02: the assignee confirms they received the asset and start using it. A
+   * warehouse manager may record it for them, but only with a note (the basis).
+   */
+  async startUse(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    note?: string | null,
+  ) {
+    const { memberId, userId, roleCodes } =
+      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    const basis = note?.trim() || null;
     return this.databaseService.db.transaction(async (tx) => {
-      const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
-      if (asset.status !== 'ASSIGNED')
-        throw new ConflictException('Only ASSIGNED assets can start use');
-      await this.assertNoActiveMaintenance(tx, farmId, id);
+      const asset = await this.getAsset(tx, id, farmId, true);
       const [assignment] = await tx
-        .select({ id: assetAssignments.id })
+        .select({
+          id: assetAssignments.id,
+          assignedToMemberId: assetAssignments.assignedToMemberId,
+        })
         .from(assetAssignments)
         .where(
           and(
@@ -414,8 +428,27 @@ export class AssetLifecycleService {
         )
         .for('update')
         .limit(1);
+      const byAssignee = assignment?.assignedToMemberId === memberId;
+      if (!byAssignee) {
+        if (!hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES))
+          throw new ForbiddenException(
+            'Only the assignee or a warehouse manager can confirm receipt',
+          );
+        const scope = await this.warehousesService.warehouseScope(
+          farmId,
+          clerkUserId,
+        );
+        await this.getAsset(tx, id, farmId, false, scope);
+      }
+      if (asset.status !== 'ASSIGNED')
+        throw new ConflictException('Only ASSIGNED assets can start use');
+      await this.assertNoActiveMaintenance(tx, farmId, id);
       if (!assignment)
         throw new ConflictException('An active assignment is required');
+      if (!byAssignee && !basis)
+        throw new BadRequestException(
+          'A note is required when recording receipt for the assignee',
+        );
       const now = new Date().toISOString();
       const [updated] = await tx
         .update(assets)
@@ -425,11 +458,20 @@ export class AssetLifecycleService {
       await this.audit(
         tx,
         farmId,
-        actor.userId,
+        userId,
         'ASSET_USE_STARTED',
         id,
         { status: asset.status },
-        { status: 'IN_USE', summary: 'Người nhận bắt đầu sử dụng tài sản' },
+        {
+          status: 'IN_USE',
+          assignmentId: assignment.id,
+          receivedByMemberId: assignment.assignedToMemberId,
+          recordedByMemberId: memberId,
+          ...(basis ? { note: basis } : {}),
+          summary: byAssignee
+            ? 'Người nhận xác nhận đã nhận và bắt đầu sử dụng tài sản'
+            : `Quản lý kho ghi nhận thay người nhận: ${basis}`,
+        },
       );
       return updated;
     });

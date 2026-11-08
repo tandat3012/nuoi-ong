@@ -242,13 +242,18 @@ export class WarehousesService {
   async documentReadScope(
     farmId: string,
     clerkUserId: string,
-  ): Promise<{ memberId: string | null; scope: WarehouseScope }> {
+  ): Promise<{
+    memberId: string | null;
+    viewerId: string;
+    scope: WarehouseScope;
+  }> {
     const { memberId, roleCodes } = await this.getActiveMembership(
       farmId,
       clerkUserId,
     );
     return {
       memberId: hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ? null : memberId,
+      viewerId: memberId,
       scope: await this.scopeFor(memberId, roleCodes),
     };
   }

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
-import { useAuthenticatedRequest } from "@/features/auth";
+import { useAuthenticatedRequest, useFarmMembership } from "@/features/auth";
+import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { getAssetHolder } from "../api/assets.api";
 import { assetError } from "../asset.logic";
@@ -12,11 +13,15 @@ import { BeeLoader } from "@/shared/components/ui/bee-loader";
 export function AssetHolderCard({
   farmId,
   assetId,
+  onConfirmReceipt,
 }: {
   farmId: string;
   assetId: string;
+  /** Set while the asset waits for its assignee to confirm receipt. */
+  onConfirmReceipt?: (trigger: HTMLButtonElement) => void;
 }) {
   const request = useAuthenticatedRequest();
+  const { membership } = useFarmMembership();
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     attempt: number;
@@ -76,6 +81,15 @@ export function AssetHolderCard({
               {current.holder.note}
             </p>
           )}
+          {onConfirmReceipt &&
+            current.holder.assignedToMemberId === membership?.memberId && (
+              <Button
+                className="mt-2"
+                onClick={(event) => onConfirmReceipt(event.currentTarget)}
+              >
+                Tôi đã nhận tài sản
+              </Button>
+            )}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
