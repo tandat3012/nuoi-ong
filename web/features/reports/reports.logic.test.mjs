@@ -9,6 +9,7 @@ import {
   stockSeries,
   vietnamToday,
 } from "./reports.logic.ts";
+import { maintenanceScopeNote } from "./reports.logic.ts";
 
 test("presets give day, week and month sized ranges ending today", () => {
   assert.deepEqual(presetRange("7d", "2026-11-05"), { dateFrom: "2026-10-30", dateTo: "2026-11-05" });
@@ -58,4 +59,10 @@ test("axis ticks are short", () => {
   assert.equal(formatCompactVnd(350_000), "350 N");
   assert.equal(formatCompactVnd(2_000_000_000), "2 tỷ");
   assert.equal(formatCompactVnd(0), "0");
+});
+
+test("maintenance cost note states its real scope (NV09-F02)", () => {
+  assert.equal(maintenanceScopeNote("FARM", false), "Bảo trì tính theo ngày hoàn thành, cho toàn trang trại.");
+  assert.match(maintenanceScopeNote("FARM", true), /toàn trang trại \(không lọc theo kho đã chọn\)/);
+  assert.match(maintenanceScopeNote("ASSIGNED_WAREHOUSES", true), /các kho bạn được phân công \(không lọc/);
 });

@@ -332,7 +332,10 @@ export class DashboardService {
         maintenanceOtherCost: row.maintenanceOtherCost,
       };
     });
-    return { granularity, periods, unpricedMovements };
+    // NV09-F02: maintenance costs ignore the selected warehouse; say what they cover.
+    const maintenanceScope =
+      scope === null ? ('FARM' as const) : ('ASSIGNED_WAREHOUSES' as const);
+    return { granularity, periods, unpricedMovements, maintenanceScope };
   }
 
   /**
