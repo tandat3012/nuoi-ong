@@ -62,6 +62,7 @@ import {
   MAINTENANCE_WORK_ROLES,
   MAINTENANCE_SCHEDULE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
+  WAREHOUSE_SCOPED_ROLES,
 } from '../auth/farm-access/farm-role-groups';
 import {
   CreateMaintenanceRecordDto,
@@ -107,6 +108,16 @@ const maintenanceExtraColumns = {
     string | null
   >`(SELECT name FROM locations WHERE id=${assets.currentLocationId})`,
   performedByName: memberNameSql(maintenanceRecords.performedByMemberId),
+  // P1-05: an active maintenance staff assignee keeps other staff off the job.
+  performedByStaff: sql<boolean>`EXISTS (
+    SELECT 1 FROM farm_members m
+    JOIN users u ON u.id = m.user_id
+    JOIN farm_member_roles fmr ON fmr.farm_member_id = m.id
+    JOIN roles r ON r.id = fmr.role_id
+    WHERE m.id = ${maintenanceRecords.performedByMemberId}
+      AND m.status = 'ACTIVE' AND u.status = 'ACTIVE'
+      AND r.code = 'MAINTENANCE_STAFF'
+  )`,
   receivedByName: memberNameSql(maintenanceRecords.receivedByMemberId),
   inspectedByName: memberNameSql(maintenanceRecords.inspectedByMemberId),
 };
@@ -265,6 +276,15 @@ export class MaintenanceService {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
       await this.assertAssetInScope(tx, input.assetId, actor.scope);
+      // Staff scheduling a job may take it themselves; assigning others is the managers' call.
+      if (
+        input.performedByMemberId &&
+        input.performedByMemberId !== actor.memberId &&
+        !(await this.isManager(tx, actor.memberId))
+      )
+        throw new ForbiddenException(
+          'Only a farm owner, admin or warehouse manager assigns maintenance',
+        );
       return this.schedule(tx, farmId, actor.userId, input);
     });
   }
@@ -1285,10 +1305,10 @@ export class MaintenanceService {
         throw new ConflictException(
           'Performer must be a maintenance staff member, warehouse manager, farm owner or admin',
         );
-      // A warehouse manager only works in their assigned warehouses.
+      // Same limit as the assignee's own warehouse scope (WarehousesService.scopeFor).
       if (
         !codes.some((code) => FARM_ADMIN_ROLES.includes(code)) &&
-        !codes.includes('MAINTENANCE_STAFF')
+        codes.some((code) => WAREHOUSE_SCOPED_ROLES.includes(code))
       ) {
         const warehouseId = await this.assetWarehouse(tx, assetId);
         const [assigned] = warehouseId
@@ -1305,7 +1325,7 @@ export class MaintenanceService {
                 ),
               )
               .limit(1)
-          : [{ id: input.performedByMemberId }];
+          : [];
         if (!assigned)
           throw new ConflictException(
             "Performer must manage the asset's warehouse",
@@ -1353,7 +1373,26 @@ export class MaintenanceService {
   ) {
     const assignee = record.performedByMemberId;
     if (!assignee || assignee === memberId) return;
-    if ((await this.roleCodes(tx, assignee)).includes('MAINTENANCE_STAFF'))
+    // An assignee who left the farm or lost the role no longer blocks the job.
+    const [staff] = await tx
+      .select({ id: farmMembers.id })
+      .from(farmMembers)
+      .innerJoin(users, eq(users.id, farmMembers.userId))
+      .innerJoin(
+        farmMemberRoles,
+        eq(farmMemberRoles.farmMemberId, farmMembers.id),
+      )
+      .innerJoin(roles, eq(roles.id, farmMemberRoles.roleId))
+      .where(
+        and(
+          eq(farmMembers.id, assignee),
+          eq(farmMembers.status, 'ACTIVE'),
+          eq(users.status, 'ACTIVE'),
+          eq(roles.code, 'MAINTENANCE_STAFF'),
+        ),
+      )
+      .limit(1);
+    if (staff)
       throw new ForbiddenException(
         'This maintenance job is assigned to another staff member',
       );

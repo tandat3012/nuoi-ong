@@ -1390,5 +1390,40 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       service.receive(record.id, farm, worker, new Date().toISOString()),
     ).rejects.toThrow('assigned to another staff member');
     await service.receive(record.id, farm, peerClerk, new Date().toISOString());
+    // An assignee who left the farm no longer blocks the job.
+    await pool.query("UPDATE farm_members SET status='INACTIVE' WHERE id=$1", [
+      peer.member,
+    ]);
+    await service.complete(record.id, farm, worker, {
+      outcome: 'PASSED',
+      resultNote: 'Done by a colleague',
+      intervalMonths: 3,
+    });
+  });
+
+  it('lets staff schedule only for themselves and keeps scoped managers to their warehouses (P1-05)', async () => {
+    const input = (performedByMemberId: string) => ({
+      assetId: asset,
+      maintenanceType: 'PREVENTIVE' as const,
+      scheduledAt: before(),
+      performedByMemberId,
+    });
+    await expect(
+      service.create(farm, worker, input(actors.WAREHOUSE_MANAGER.member)),
+    ).rejects.toThrow('assigns maintenance');
+    const own = await service.create(
+      farm,
+      worker,
+      input(actors.MAINTENANCE_STAFF.member),
+    );
+    expect(own.performedByMemberId).toBe(actors.MAINTENANCE_STAFF.member);
+    await service.cancel(own.id, farm, worker);
+    // An asset outside any warehouse is out of a scoped manager's reach.
+    await pool.query('UPDATE assets SET current_location_id=NULL WHERE id=$1', [
+      asset,
+    ]);
+    await expect(
+      service.create(farm, owner, input(actors.WAREHOUSE_MANAGER.member)),
+    ).rejects.toThrow("Performer must manage the asset's warehouse");
   });
 });
