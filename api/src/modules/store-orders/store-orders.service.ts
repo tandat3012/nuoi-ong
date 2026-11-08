@@ -968,22 +968,20 @@ export class StoreOrdersService implements StockTransferHook {
           itemId: stockIssueItems.itemId,
           lotId: stockIssueItems.lotId,
           assetId: stockIssueItems.assetId,
+          assetCode: assets.assetCode,
+          serialNumber: assets.serialNumber,
           quantity: sql<string>`SUM(${stockIssueItems.quantity})::text`,
         })
         .from(stockIssueItems)
+        .leftJoin(assets, eq(assets.id, stockIssueItems.assetId))
         .where(eq(stockIssueItems.stockIssueId, order.stockIssueId))
         .groupBy(
           stockIssueItems.itemId,
           stockIssueItems.lotId,
           stockIssueItems.assetId,
+          assets.assetCode,
+          assets.serialNumber,
         );
-      // shortcut: sold assets are retired on issue; returning them needs an asset flow, add when serialized goods are sold.
-      if (shipped.some((line) => line.assetId))
-        throw new ConflictException({
-          code: 'ASSET_RETURN_UNSUPPORTED',
-          message:
-            'Đơn có tài sản định danh; chưa hỗ trợ trả về kho, hãy xử lý thủ công.',
-        });
       const [receipt] = await tx
         .insert(stockReceipts)
         .values({
@@ -993,11 +991,15 @@ export class StoreOrdersService implements StockTransferHook {
           note: `Hàng trả về đơn ${orderCode(order.orderNumber)}: ${reason}`,
         })
         .returning();
+      // A sold asset comes back as itself; the warehouse picks its location and condition.
       const lines = shipped.map((line) => ({
         stockReceiptId: receipt.id,
         itemId: line.itemId,
         lotId: line.lotId,
         quantity: line.quantity,
+        assetId: line.assetId,
+        assetCode: line.assetCode,
+        serialNumber: line.serialNumber,
       }));
       await tx.insert(stockReceiptItems).values(lines);
       await auditStockDocument(
@@ -1070,12 +1072,17 @@ export class StoreOrdersService implements StockTransferHook {
         "A return receipt must go into the order's sales warehouse",
       );
     const shipped = new Map<string, bigint>();
-    const key = (itemId: string, lotId: string | null) => `${itemId}:${lotId}`;
+    // Keyed by asset too: only the very assets the order shipped come back.
+    const key = (line: {
+      itemId: string;
+      lotId: string | null;
+      assetId: string | null;
+    }) => `${line.itemId}:${line.lotId}:${line.assetId}`;
     for (const line of await tx
       .select()
       .from(stockIssueItems)
       .where(eq(stockIssueItems.stockIssueId, order.stockIssueId!))) {
-      const k = key(line.itemId, line.lotId);
+      const k = key(line);
       shipped.set(k, (shipped.get(k) ?? 0n) + quantityMillis(line.quantity));
     }
     const received = await tx
@@ -1083,11 +1090,11 @@ export class StoreOrdersService implements StockTransferHook {
       .from(stockReceiptItems)
       .where(eq(stockReceiptItems.stockReceiptId, receiptId));
     for (const line of received) {
-      const k = key(line.itemId, line.lotId);
+      const k = key(line);
       const left = (shipped.get(k) ?? 0n) - quantityMillis(line.quantity);
       if (left < 0n)
         throw new BadRequestException(
-          'A return receipt cannot receive more than the order shipped, or other items or lots',
+          'A return receipt cannot receive more than the order shipped, or other items, lots or assets',
         );
       shipped.set(k, left);
     }
@@ -1098,11 +1105,15 @@ export class StoreOrdersService implements StockTransferHook {
       .where(eq(storeOrders.id, order.id));
     await this.auditOrder(tx, order, memberId, 'RETURN_RECEIVED', {
       receiptId,
-      received: received.map(({ itemId, lotId, quantity }) => ({
-        itemId,
-        lotId,
-        quantity,
-      })),
+      received: received.map(
+        ({ itemId, lotId, assetId, assetCondition, quantity }) => ({
+          itemId,
+          lotId,
+          assetId,
+          assetCondition,
+          quantity,
+        }),
+      ),
     });
   }
 

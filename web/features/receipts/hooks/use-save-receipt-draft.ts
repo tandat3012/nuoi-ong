@@ -30,10 +30,11 @@ export function useSaveReceiptDraft(
     };
   }, []);
 
-  async function submit(input: CreateReceiptInput) {
+  async function submit(input: CreateReceiptInput, orderReturn = false) {
     if (submitting.current) return;
     const validation = canWrite
-      ? (validateReceiptDraft(input) ?? numberingOptionsError(input))
+      ? (validateReceiptDraft(input, orderReturn) ??
+        numberingOptionsError(input))
       : "Bạn không có quyền lưu phiếu nhập.";
     if (validation) {
       setError(validation);
