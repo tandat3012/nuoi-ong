@@ -429,6 +429,8 @@ export class InventoryAdjustmentsService {
           eq(warehouses.status, 'ACTIVE'),
         ),
       )
+      // Shares the row lock deactivation takes, so it waits for this move (NV08).
+      .for('share')
       .limit(1);
     if (!warehouse) {
       throw new ConflictException('Warehouse must exist and be ACTIVE');

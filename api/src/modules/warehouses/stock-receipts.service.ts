@@ -1063,7 +1063,9 @@ export class StockReceiptsService {
           eq(warehouses.farmId, farmId),
           eq(warehouses.status, 'ACTIVE'),
         ),
-      );
+      )
+      // Shares the row lock deactivation takes, so it waits for this move (NV08).
+      .for('share');
     if (!warehouse)
       throw new ConflictException('Warehouse must exist and be ACTIVE');
   }

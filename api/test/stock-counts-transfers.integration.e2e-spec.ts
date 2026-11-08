@@ -473,6 +473,31 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     expect(await ledger()).toEqual(['2.000']);
   });
 
+  it('does not credit a warehouse deactivated while its count was open (NV08)', async () => {
+    const response = await http()
+      .post('/api/v1/stock-counts')
+      .query({ farmId: farm })
+      .send({
+        warehouseId: source,
+        countCode: randomUUID(),
+        items: [{ itemId: lotItem, lotId: lot, actualQuantity: '2' }],
+      })
+      .expect(201);
+    const body = response.body as { data: { count: { id: string } } };
+    await pool.query("UPDATE warehouses SET status='INACTIVE' WHERE id=$1", [
+      source,
+    ]);
+    try {
+      await confirm('counts', body.data.count.id).expect(409);
+    } finally {
+      await pool.query("UPDATE warehouses SET status='ACTIVE' WHERE id=$1", [
+        source,
+      ]);
+    }
+    expect(await lotBalances()).toEqual([]);
+    expect(await ledger()).toEqual([]);
+  });
+
   it('rejects a count as stale when a receipt creates the missing balance during confirmation', async () => {
     const response = await http()
       .post('/api/v1/stock-counts')

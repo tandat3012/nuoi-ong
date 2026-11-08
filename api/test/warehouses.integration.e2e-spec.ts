@@ -36,12 +36,29 @@ describe('Warehouse management HTTP contract', () => {
   const reader = `${tag}-reader`;
   let identity = owner;
   let client: PoolClient | undefined;
+  // Services open their own transactions: run the suite inside a drizzle
+  // transaction so they become savepoints instead of committing fixtures.
+  let finish: (() => void) | undefined;
+  let done: Promise<void> | undefined;
   let app: INestApplication<App> | undefined;
   const base = '/api/v1/warehouses';
 
   beforeAll(async () => {
     client = await pool.connect();
-    await client.query('BEGIN');
+    const rollback = new Error('Rollback warehouse fixtures');
+    let ready!: (db: unknown) => void;
+    const transaction = new Promise<unknown>((resolve) => (ready = resolve));
+    const finished = new Promise<void>((resolve) => (finish = resolve));
+    done = drizzle({ client, schema })
+      .transaction(async (tx) => {
+        ready(tx);
+        await finished;
+        throw rollback;
+      })
+      .catch((error: unknown) => {
+        if (error !== rollback) throw error;
+      });
+    const db = await transaction;
     await client.query(
       'INSERT INTO farms (id, code, name) VALUES ($1,$3,$3),($2,$4,$4)',
       [farmA, farmB, `${tag}-A`, `${tag}-B`],
@@ -87,7 +104,7 @@ describe('Warehouse management HTTP contract', () => {
         WarehousesService,
         {
           provide: DatabaseService,
-          useValue: { db: drizzle({ client, schema }) },
+          useValue: { db },
         },
       ],
     }).compile();
@@ -125,7 +142,8 @@ describe('Warehouse management HTTP contract', () => {
     await app?.close();
     try {
       if (client) {
-        await client.query('ROLLBACK');
+        finish?.();
+        await done;
         const remaining = await client.query<{ count: number }>(
           'SELECT count(*)::int AS count FROM farms WHERE id IN ($1,$2)',
           [farmA, farmB],
@@ -330,6 +348,78 @@ describe('Warehouse management HTTP contract', () => {
       expect((detail.body as WarehouseResponse).data.status).toBe('ACTIVE');
     },
   );
+
+  it('audits create, update and deactivation with actor and before/after (NV08-F01)', async () => {
+    const audits = async () =>
+      (
+        await client!.query<{
+          action: string;
+          entity_id: string;
+          email: string;
+          old_name: string | null;
+          new_name: string;
+          new_status: string;
+        }>(
+          `SELECT a.action, a.entity_id, u.email, a.old_data->>'name' AS old_name,
+             a.new_data->>'name' AS new_name, a.new_data->>'status' AS new_status
+           FROM audit_logs a JOIN users u ON u.id = a.user_id
+           WHERE a.farm_id = $1 AND a.entity_type = 'WAREHOUSE'
+           -- One outer test transaction: created_at is equal, so order by step.
+           ORDER BY array_position(ARRAY['WAREHOUSE_CREATED','WAREHOUSE_UPDATED','WAREHOUSE_DEACTIVATED']::varchar[], a.action)`,
+          [farmA],
+        )
+      ).rows;
+    const created = await request(app!.getHttpServer())
+      .post(base)
+      .query({ farmId: farmA })
+      .send({ code: `${tag}-AUDIT`, name: 'Audited' })
+      .expect(201);
+    const id = (created.body as WarehouseResponse).data.id;
+    await request(app!.getHttpServer())
+      .patch(`${base}/${id}`)
+      .query({ farmId: farmA })
+      .send({ name: 'Audited 2' })
+      .expect(200);
+    await request(app!.getHttpServer())
+      .delete(`${base}/${id}`)
+      .query({ farmId: farmA })
+      .expect(200);
+    // Retried deactivation and a failed write log nothing more.
+    await request(app!.getHttpServer())
+      .delete(`${base}/${id}`)
+      .query({ farmId: farmA })
+      .expect(200);
+    await request(app!.getHttpServer())
+      .post(base)
+      .query({ farmId: farmA })
+      .send({ code: tag, name: 'Duplicate' })
+      .expect(409);
+    identity = reader;
+    await request(app!.getHttpServer())
+      .patch(`${base}/${id}`)
+      .query({ farmId: farmA })
+      .send({ name: 'Guest' })
+      .expect(403);
+    const email = `${owner}@example.local`;
+    expect(await audits()).toEqual([
+      expect.objectContaining({
+        action: 'WAREHOUSE_CREATED',
+        entity_id: id,
+        email,
+        old_name: null,
+        new_name: 'Audited',
+      }),
+      expect.objectContaining({
+        action: 'WAREHOUSE_UPDATED',
+        old_name: 'Audited',
+        new_name: 'Audited 2',
+      }),
+      expect.objectContaining({
+        action: 'WAREHOUSE_DEACTIVATED',
+        new_status: 'INACTIVE',
+      }),
+    ]);
+  });
 
   it('allows guest reads while denying all write operations', async () => {
     identity = reader;
