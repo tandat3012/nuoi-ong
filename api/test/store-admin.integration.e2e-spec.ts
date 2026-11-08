@@ -548,6 +548,7 @@ describe('Store admin (migrated PostgreSQL)', () => {
           categoryId: ids.storeCategory,
           name: 'Audit',
           slug: `audit-${ids.farm.slice(0, 8)}`,
+          description: 'Xem https://example.com/?token=SECRET',
         },
         actor,
       );
@@ -604,6 +605,8 @@ describe('Store admin (migrated PostgreSQL)', () => {
         .from(schema.auditLogs)
         .where(eq(schema.auditLogs.userId, user.id));
       expect(rows.every((row) => row.farmId === ids.farm)).toBe(true);
+      // Free text that may carry a token never reaches the audit trail.
+      expect(JSON.stringify(rows)).not.toContain('SECRET');
       expect(rows.map((row) => row.action).sort()).toEqual(
         [
           'PRODUCT_CREATED',

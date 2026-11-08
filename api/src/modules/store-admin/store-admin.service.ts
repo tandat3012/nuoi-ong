@@ -285,6 +285,10 @@ export class StoreAdminService {
     actor?: StoreActor,
   ) {
     await this.databaseService.db.transaction(async (tx) => {
+      // FOR UPDATE misses a first save; this serializes it so the audit's old value is right.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${'store_settings:' + farmId}))`,
+      );
       const [current] = await tx
         .select({
           salesWarehouseId: storeSettings.salesWarehouseId,
@@ -501,7 +505,7 @@ export class StoreAdminService {
           'STORE_PRODUCT',
           created.id,
           null,
-          created,
+          this.productAudit(created),
         );
         return created;
       }),
@@ -535,8 +539,8 @@ export class StoreAdminService {
           'PRODUCT_UPDATED',
           'STORE_PRODUCT',
           id,
-          before,
-          after,
+          this.productAudit(before),
+          this.productAudit(after, before),
         );
       }),
     );
@@ -729,6 +733,10 @@ export class StoreAdminService {
     const now = new Date().toISOString();
     await this.mapDatabaseError(
       this.databaseService.db.transaction(async (tx) => {
+        // Same for the first mapping of this variant in this farm.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${`store_variant_items:${variantId}:${farmId}`}))`,
+        );
         const [before] = await tx
           .select({ itemId: storeVariantItems.itemId })
           .from(storeVariantItems)
@@ -1093,6 +1101,29 @@ export class StoreAdminService {
       oldData: before,
       newData: after,
     });
+  }
+
+  /**
+   * Product audit data without its free text: a pasted link may carry a token,
+   * so the description is only flagged as changed, never copied.
+   */
+  private productAudit(
+    product: typeof storeProducts.$inferSelect,
+    before?: typeof storeProducts.$inferSelect,
+  ) {
+    const fields = {
+      id: product.id,
+      categoryId: product.categoryId,
+      name: product.name,
+      slug: product.slug,
+      status: product.status,
+    };
+    return before
+      ? {
+          ...fields,
+          descriptionChanged: product.description !== before.description,
+        }
+      : { ...fields, hasDescription: Boolean(product.description) };
   }
 
   /** Image audit data without the file URL or storage id. */

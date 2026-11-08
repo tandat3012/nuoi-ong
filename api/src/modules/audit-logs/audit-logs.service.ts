@@ -20,6 +20,7 @@ import {
   assetTransferRequests,
   auditLogs,
   farmMembers,
+  farms,
   inventoryLots,
   items,
   locations,
@@ -29,6 +30,9 @@ import {
   stockIssues,
   stockReceipts,
   stockTransfers,
+  storeCategories,
+  storeProductVariants,
+  storeProducts,
   suppliers,
   users,
   warehouses,
@@ -285,6 +289,30 @@ export class AuditLogsService {
             inArray(assetTransferRequests.id, ids),
           ),
         ),
+      // NV10: the shared catalog is public; sales settings are named by this farm.
+      db
+        .select({ id: storeProducts.id, label: storeProducts.name })
+        .from(storeProducts)
+        .where(inArray(storeProducts.id, ids)),
+      db
+        .select({
+          id: storeProductVariants.id,
+          label: sql<string>`${storeProducts.name} || ' — ' || ${storeProductVariants.name}`,
+        })
+        .from(storeProductVariants)
+        .innerJoin(
+          storeProducts,
+          eq(storeProducts.id, storeProductVariants.productId),
+        )
+        .where(inArray(storeProductVariants.id, ids)),
+      db
+        .select({ id: storeCategories.id, label: storeCategories.name })
+        .from(storeCategories)
+        .where(inArray(storeCategories.id, ids)),
+      db
+        .select({ id: farms.id, label: farms.name })
+        .from(farms)
+        .where(and(eq(farms.id, farmId), inArray(farms.id, ids))),
     ]);
     return Object.fromEntries(
       groups
