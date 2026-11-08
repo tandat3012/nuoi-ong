@@ -17,18 +17,25 @@ const id = "12345678-1234-4123-8123-123456789abc";
 
 test("only approvers review pending requests; reviewed requests have no actions", () => {
   for (const roles of [[], ["GUEST"], ["EMPLOYEE"], ["ADMIN"], ["FARM_OWNER"], ["EMPLOYEE", "ADMIN"]]) {
-    for (const status of ["PENDING_APPROVAL", "IN_TRANSIT", "CONFIRMED", "REJECTED"]) {
+    for (const status of ["PENDING_APPROVAL", "IN_TRANSIT", "DISCREPANCY", "CONFIRMED", "REJECTED"]) {
       const approver = roles.some((role) => ["ADMIN", "FARM_OWNER"].includes(role));
       const allowed = status === "PENDING_APPROVAL" && approver;
       assert.deepEqual(
         requestActions(roles, status),
-        { approve: allowed, reject: allowed, receive: status === "IN_TRANSIT" && approver },
+        {
+          approve: allowed,
+          reject: allowed,
+          receive: status === "IN_TRANSIT" && approver,
+          resolve: status === "DISCREPANCY" && approver,
+        },
         `${roles}: ${status}`,
       );
     }
   }
   // Maintenance requests never travel.
   assert.equal(requestActions(["ADMIN"], "IN_TRANSIT", true).receive, false);
+  // A warehouse manager receives, but only the owner/admin settles a damaged arrival.
+  assert.equal(requestActions(["WAREHOUSE_MANAGER"], "DISCREPANCY").resolve, false);
 });
 
 test("only employee non-approvers create; transfers require an AVAILABLE asset", () => {

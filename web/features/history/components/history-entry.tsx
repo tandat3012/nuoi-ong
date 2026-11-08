@@ -27,7 +27,7 @@ export function HistoryEntry({ log, references, showEntity }: {
     ? { ...ASSET_STATUS_LABELS, ...ASSET_HISTORY_STATUS_LABELS }
     : log.entityType.endsWith("_REQUEST")
       ? REQUEST_STATUS_LABELS
-      : { ...RECEIPT_STATUS_LABELS, COUNTING: "Đang kiểm", IN_TRANSIT: "Đang chuyển" };
+      : { ...RECEIPT_STATUS_LABELS, COUNTING: "Đang kiểm", IN_TRANSIT: "Đang chuyển", DISCREPANCY: "Chờ xử lý sai lệch" };
   const valueLabels: Record<string, Record<string, string>> = {
     status: statusLabels,
     membershipStatus: { ACTIVE: "Đang hoạt động", INACTIVE: "Ngừng hoạt động" },

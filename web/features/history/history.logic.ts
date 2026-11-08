@@ -23,6 +23,7 @@ export const HISTORY_ACTION_LABELS: Record<string, string> = {
   REJECT: "Từ chối",
   DISPATCH: "Xuất hàng đi",
   RECEIVE: "Nhận hàng",
+  RESOLVE: "Xử lý sai lệch",
   ACKNOWLEDGE: "Người nhận xác nhận đã nhận",
   ASSET_CREATED: "Tạo tài sản",
   ASSET_METADATA_UPDATED: "Cập nhật thông tin tài sản",
