@@ -268,6 +268,7 @@ export function ReceiptDraftForm({
                   ? documentCodeLabel(
                       initial.detail.receipt.receiptCode,
                       initial.detail.receipt.id,
+                      "PN",
                     )
                   : DOCUMENT_CODE_HINT}
               </p>

@@ -81,6 +81,8 @@ const LINE_FIELDS = [
   'supplierLotNumber',
   'assetId',
   'assetCode',
+  'receivedQuantity',
+  'discrepancyReason',
 ];
 
 function pick(source: object, keys: string[]) {

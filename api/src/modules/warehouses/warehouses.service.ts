@@ -251,6 +251,7 @@ export class WarehousesService {
       farmId,
       clerkUserId,
     );
+
     return {
       memberId: hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ? null : memberId,
       viewerId: memberId,

@@ -175,9 +175,15 @@ export function stockDocumentHref(
 export const DOCUMENT_CODE_HINT =
   "Mã phiếu được cấp tự động khi phiếu được xác nhận.";
 
-/** Drafts have no permanent code until confirmation; name them by a short id. */
-export function documentCodeLabel(code: string | null | undefined, id: string) {
-  return code ?? `Nháp #${id.slice(0, 8)}`;
+export type DocumentCodePrefix = "PN" | "PX" | "KK" | "CK" | "MNT" | "ATR" | "BT";
+
+/** Documents without a confirmed code yet use their document prefix and short id. */
+export function documentCodeLabel(
+  code: string | null | undefined,
+  id: string,
+  prefix: DocumentCodePrefix,
+) {
+  return code ?? `${prefix}-${id.slice(0, 8)}`;
 }
 
 /** Only the farm owner may set document numbering options; the API enforces it too. */

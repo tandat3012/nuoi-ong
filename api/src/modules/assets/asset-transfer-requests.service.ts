@@ -31,6 +31,7 @@ import {
   pendingMaintenanceRequest,
 } from '../maintenance/maintenance-requests.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
+
 import {
   assertInScope,
   scopeCondition,
@@ -428,6 +429,7 @@ export class AssetTransferRequestsService {
       clerkUserId,
     );
     const conditions = [eq(assetTransferRequests.farmId, farmId)];
+
     if (memberId)
       conditions.push(eq(assetTransferRequests.requestedByMemberId, memberId));
     if (scope)

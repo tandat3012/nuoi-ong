@@ -478,10 +478,10 @@ function FarmTransfersScreen() {
       )}
       {receiving && (
         <TransferReceivePanel
-          key={receiving.id}
+          key={`receive-${receiving.id}`}
           farmId={selectedFarmId}
           id={receiving.id}
-          code={documentCodeLabel(receiving.transferCode, receiving.id)}
+          code={documentCodeLabel(receiving.transferCode, receiving.id, "CK")}
           lock={lock}
           onReceived={() => {
             setReceiving(null);
@@ -495,7 +495,7 @@ function FarmTransfersScreen() {
           key={resolving.id}
           farmId={selectedFarmId}
           id={resolving.id}
-          code={documentCodeLabel(resolving.transferCode, resolving.id)}
+          code={documentCodeLabel(resolving.transferCode, resolving.id, "CK")}
           lock={lock}
           onResolved={() => {
             setResolving(null);
@@ -506,7 +506,7 @@ function FarmTransfersScreen() {
       )}
       {openId && (
         <StockDocumentLines
-          key={openId}
+          key={`lines-${openId}`}
           revision={revision}
           kind="stock-transfers"
           farmId={selectedFarmId}
@@ -562,7 +562,7 @@ function FarmTransfersScreen() {
                 >
                   <div>
                     <p className="font-semibold">
-                      {documentCodeLabel(transfer.transferCode, transfer.id)}
+                      {documentCodeLabel(transfer.transferCode, transfer.id, "CK")}
                     </p>
                     {transfer.externalReference && (
                       <p className="text-xs text-muted-foreground">
@@ -594,7 +594,7 @@ function FarmTransfersScreen() {
                       variant="outline"
                       disabled={lock.locked}
                       onClick={() => {
-                        if (!lock.locked) setOpenId(transfer.id);
+                        if (!lock.locked) { setReceiving(null); setOpenId(transfer.id); }
                       }}
                     >
                       Xem dòng hàng
@@ -612,7 +612,10 @@ function FarmTransfersScreen() {
                     {canReceiveTransfer(viewer.roles, transfer) && (
                       <Button
                         disabled={lock.locked}
-                        onClick={() => setReceiving(transfer)}
+                        onClick={() => {
+                          setOpenId(null);
+                          setReceiving(transfer);
+                        }}
                       >
                         Nhận hàng
                       </Button>
@@ -642,7 +645,7 @@ function FarmTransfersScreen() {
                       id={transfer.id}
                       code={documentCodeLabel(
                         transfer.transferCode,
-                        transfer.id,
+                        transfer.id, "CK",
                       )}
                       canSubmit={actions.submit}
                       canReject={actions.reject}

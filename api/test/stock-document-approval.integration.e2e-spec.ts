@@ -815,6 +815,16 @@ describe('Stock document approval rules', () => {
       });
       expect(creatorView.data.map((row) => row.entityId)).toEqual([own]);
       expect(creatorView.scope).toBe('PERFORMED_BY_ME');
+      // A warehouse manager never reads the whole farm's history, only their own actions.
+      const managerView = await auditLogs.list({
+        ...page,
+        farmId: farm,
+        clerkUserId: clerk('manager'),
+      });
+      expect(managerView.scope).toBe('PERFORMED_BY_ME');
+      expect(managerView.data.map((row) => row.entityId)).not.toEqual(
+        expect.arrayContaining([own]),
+      );
       expect(creatorView.data[0].actor).toMatchObject({
         email: `${clerk('creator')}@example.local`,
       });

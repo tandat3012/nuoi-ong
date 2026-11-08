@@ -123,6 +123,7 @@ export class AuditLogsService {
   }
 
   /** Admins and owners read farm history; other staff read only actions they performed. */
+
   private async scope(
     farmId: string,
     clerkUserId: string,
@@ -215,19 +216,28 @@ export class AuditLogsService {
           and(eq(farmMembers.farmId, farmId), inArray(farmMembers.id, ids)),
         ),
       db
-        .select({ id: stockReceipts.id, label: stockReceipts.receiptCode })
+        .select({
+          id: stockReceipts.id,
+          label: sql<string>`coalesce(${stockReceipts.receiptCode}, 'PN-' || left(${stockReceipts.id}::text, 8))`,
+        })
         .from(stockReceipts)
         .where(
           and(eq(stockReceipts.farmId, farmId), inArray(stockReceipts.id, ids)),
         ),
       db
-        .select({ id: stockIssues.id, label: stockIssues.issueCode })
+        .select({
+          id: stockIssues.id,
+          label: sql<string>`coalesce(${stockIssues.issueCode}, 'PX-' || left(${stockIssues.id}::text, 8))`,
+        })
         .from(stockIssues)
         .where(
           and(eq(stockIssues.farmId, farmId), inArray(stockIssues.id, ids)),
         ),
       db
-        .select({ id: stockTransfers.id, label: stockTransfers.transferCode })
+        .select({
+          id: stockTransfers.id,
+          label: sql<string>`coalesce(${stockTransfers.transferCode}, 'CK-' || left(${stockTransfers.id}::text, 8))`,
+        })
         .from(stockTransfers)
         .where(
           and(
@@ -236,7 +246,10 @@ export class AuditLogsService {
           ),
         ),
       db
-        .select({ id: stockCounts.id, label: stockCounts.countCode })
+        .select({
+          id: stockCounts.id,
+          label: sql<string>`coalesce(${stockCounts.countCode}, 'KK-' || left(${stockCounts.id}::text, 8))`,
+        })
         .from(stockCounts)
         .where(
           and(eq(stockCounts.farmId, farmId), inArray(stockCounts.id, ids)),

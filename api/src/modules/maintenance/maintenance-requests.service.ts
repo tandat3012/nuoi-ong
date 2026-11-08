@@ -25,6 +25,7 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { WarehousesService } from '../warehouses/warehouses.service';
+
 import { assetInScope, assetWarehouseId } from '../assets/asset-warehouse';
 import { FARM_ADMIN_ROLES } from '../auth/farm-access/farm-role-groups';
 import { CreateMaintenanceRequestDto } from './dto/maintenance-request.dto';
@@ -362,6 +363,7 @@ export class MaintenanceRequestsService {
       clerkUserId,
     );
     const conditions = [eq(maintenanceRequests.farmId, farmId)];
+
     if (memberId)
       conditions.push(eq(maintenanceRequests.requestedByMemberId, memberId));
     const scoped = assetInScope(maintenanceRequests.assetId, scope);

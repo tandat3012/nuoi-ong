@@ -286,7 +286,7 @@ export function StoreOrderDetail({
                       className="text-primary underline"
                       href={`/issues/${encodeURIComponent(detail.stockIssue.id)}`}
                     >
-                      {documentCodeLabel(detail.stockIssue.issueCode, detail.stockIssue.id)} · {detail.stockIssue.status}
+                      {documentCodeLabel(detail.stockIssue.issueCode, detail.stockIssue.id, "PX")} · {detail.stockIssue.status}
                     </Link>
                   </p>
                 ) : (
@@ -315,6 +315,7 @@ export function StoreOrderDetail({
                             {documentCodeLabel(
                               transfer.transferCode,
                               transfer.id,
+                              "CK",
                             )}
                           </Link>{" "}
                           · từ {transfer.fromWarehouseName} · {transfer.status}

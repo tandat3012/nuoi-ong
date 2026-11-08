@@ -7,7 +7,7 @@ import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { apiRequest, MobileApiError } from '@/src/shared/api/client';
-import { balanceMatchesTrackingMode, filterAvailableAssetsForScope, filterPositiveBalancesForScope, listAvailableAssets, listBalances, listItems } from '@/src/features/inventory/api';
+import { balanceMatchesTrackingMode, filterAvailableAssetsForScope, filterPositiveBalancesForScope, listAvailableAssets, listBalances, listItems, listWarehouses } from '@/src/features/inventory/api';
 
 type ItemQrResponse = { data: { itemId: string; itemCode: string; itemName: string; itemImageUrl: string | null; qrUrl: string; format: string } };
 
@@ -20,6 +20,7 @@ export default function ItemQrResultScreen() {
   const [loading, setLoading] = useState(true);
   const [hasPositiveStockInScope, setHasPositiveStockInScope] = useState(false);
   const [isAsset, setIsAsset] = useState(false);
+  const [resolvedWarehouseId, setResolvedWarehouseId] = useState<string | undefined>(warehouseId);
   const farmName = data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.farm.name
     ?? (data?.memberships.length === 1 ? data.memberships[0]?.farm.name : undefined)
     ?? 'Chưa chọn trang trại';
@@ -44,35 +45,39 @@ export default function ItemQrResultScreen() {
           token,
           params: { farmId: currentFarmId },
         }).then(async (qrResponse) => {
-          if (!warehouseId) return { qrResponse, hasPositiveStock: false };
+          const targetWarehouseId = warehouseId || (await listWarehouses(token, currentFarmId)).data.find((entry) => entry.farmId === currentFarmId)?.id;
+          if (!targetWarehouseId) return { qrResponse, hasPositiveStock: false, targetWarehouseId: undefined };
           const [balanceResponse, itemResponse] = await Promise.all([
-            listBalances(token, currentFarmId, warehouseId, true, true),
+            listBalances(token, currentFarmId, targetWarehouseId, true, true),
             listItems(token, currentFarmId),
           ]);
           const item = itemResponse.data.find((entry) => entry.id === itemId && entry.farmId === currentFarmId);
-          if (!item) return { qrResponse, hasPositiveStock: false };
+          if (!item) return { qrResponse, hasPositiveStock: false, targetWarehouseId };
           if (item.trackingMode === 'ASSET') {
-            const availableAssets = await listAvailableAssets(token, currentFarmId, warehouseId);
+            const availableAssets = await listAvailableAssets(token, currentFarmId, targetWarehouseId);
             return {
               qrResponse,
               isAsset: true,
-              hasPositiveStock: filterAvailableAssetsForScope(availableAssets, currentFarmId, warehouseId)
+              targetWarehouseId,
+              hasPositiveStock: filterAvailableAssetsForScope(availableAssets, currentFarmId, targetWarehouseId)
                 .some(({ asset }) => asset.itemId === itemId),
             };
           }
           return {
             qrResponse,
-            hasPositiveStock: filterPositiveBalancesForScope(balanceResponse.data, currentFarmId, warehouseId)
+            targetWarehouseId,
+            hasPositiveStock: filterPositiveBalancesForScope(balanceResponse.data, currentFarmId, targetWarehouseId)
               .some(({ balance, trackingMode }) => balance.itemId === itemId
                 && balanceMatchesTrackingMode(balance, item.trackingMode)
                 && trackingMode === item.trackingMode),
           };
         });
       })
-      .then(({ qrResponse, hasPositiveStock, isAsset }) => {
+      .then(({ qrResponse, hasPositiveStock, isAsset, targetWarehouseId }) => {
         if (!cancelled) {
           setResult(qrResponse.data);
           setIsAsset(Boolean(isAsset));
+          setResolvedWarehouseId(targetWarehouseId);
           setHasPositiveStockInScope(hasPositiveStock);
           setError(null);
         }
@@ -93,24 +98,25 @@ export default function ItemQrResultScreen() {
   }
 
   return <AppShell active="scan">
-    <PageHeader title={farmName} subtitle="● Kết quả QR vật tư • Dữ liệu từ API" onBack={startNewScan} action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={startNewScan} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}><Icon name="qr-code-scanner" color={colors.primary} /></Pressable></View>} />
+    <PageHeader title={farmName} subtitle="Kết quả quét mã vật tư" onBack={startNewScan} action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={startNewScan} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}><Icon name="qr-code-scanner" color={colors.primary} /></Pressable></View>} />
     {loading ? <Card style={styles.messageCard}><Icon name="sync" color={colors.primary} /><Text style={styles.message}>Đang xác thực mã vật tư...</Text></Card> : error ? <Card style={styles.errorCard}><Icon name="error-outline" color={colors.error} /><View style={styles.copy}><Text style={styles.errorTitle}>QR vật tư không hợp lệ</Text><Text style={styles.errorText}>{error}</Text></View><Pressable onPress={startNewScan} style={({ pressed }) => [styles.errorAction, pressed && styles.pressed]}><Text style={styles.errorActionText}>Quét lại</Text></Pressable></Card> : result ? <>
-      <Card style={styles.successCard}><View style={styles.successIcon}><Icon name="check-circle" size={28} color={colors.statusSuccessStrong} /></View><View style={styles.copy}><Text style={styles.eyebrow}>KẾT QUẢ QUÉT QR</Text><Text style={styles.title}>Mã vật tư hợp lệ</Text><Text style={styles.subtitle}>Đây là mã của danh mục vật tư, không gắn riêng với kho hoặc lô.</Text></View><Pill tone="success"><Text style={styles.successLabel}>API OK</Text></Pill></Card>
+
+      <Card style={styles.successCard}><View style={styles.successIcon}><Icon name="check-circle" size={28} color={colors.statusSuccessStrong} /></View><View style={styles.copy}><Text style={styles.eyebrow}>KẾT QUẢ QUÉT QR</Text><Text style={styles.title}>Mã vật tư hợp lệ</Text><Text style={styles.subtitle}>Đây là mã của danh mục vật tư, không gắn riêng với kho hoặc lô.</Text></View><Pill tone="success"><Text style={styles.successLabel}>ĐÃ XÁC NHẬN</Text></Pill></Card>
       <Card style={styles.detailCard}><View style={styles.iconBox}>{result.itemImageUrl ? <Image source={{ uri: result.itemImageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name="inventory-2" size={32} color={colors.primary} />}</View><Text style={styles.itemName}>{result.itemName}</Text><View style={styles.codeBox}><Text style={styles.codeLabel}>Mã vật tư</Text><Text style={styles.codeValue}>{result.itemCode}</Text></View><Info label="Loại mã" value="ITEM MASTER" /><Info label="QR URL" value={result.qrUrl} /></Card>
       <View style={styles.actions}>
-        <PrimaryButton label="Mở tồn kho vật tư" icon="inventory-2" onPress={() => router.push(`/inventory-detail?itemId=${encodeURIComponent(result.itemId)}${warehouseId ? `&warehouseId=${encodeURIComponent(warehouseId)}` : ''}` as never)} />
+        <PrimaryButton label="Mở tồn kho vật tư" icon="inventory-2" onPress={() => router.push(`/inventory-detail?itemId=${encodeURIComponent(result.itemId)}${resolvedWarehouseId ? `&warehouseId=${encodeURIComponent(resolvedWarehouseId)}` : ''}` as never)} />
         <View style={styles.actionRow}>
-          <Pressable onPress={() => router.push(`/receipts/new?type=receipt&itemId=${encodeURIComponent(result.itemId)}${warehouseId ? `&warehouseId=${encodeURIComponent(warehouseId)}` : ''}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
+          <Pressable onPress={() => router.push(`/receipts/new?type=receipt&itemId=${encodeURIComponent(result.itemId)}${resolvedWarehouseId ? `&warehouseId=${encodeURIComponent(resolvedWarehouseId)}` : ''}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
             <Icon name="input" color={colors.primary} /><Text style={styles.operationText}>Tạo phiếu nhập</Text>
           </Pressable>
-          {hasPositiveStockInScope ? <Pressable onPress={() => router.push(`/receipts/new?type=issue&itemId=${encodeURIComponent(result.itemId)}&warehouseId=${encodeURIComponent(warehouseId!)}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
+          {hasPositiveStockInScope && resolvedWarehouseId ? <Pressable onPress={() => router.push(`/receipts/new?type=issue&itemId=${encodeURIComponent(result.itemId)}&warehouseId=${encodeURIComponent(resolvedWarehouseId)}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
             <Icon name="output" color={colors.primary} /><Text style={styles.operationText}>Tạo phiếu xuất</Text>
           </Pressable> : null}
         </View>
-        {hasPositiveStockInScope && warehouseId && !isAsset ? <Pressable onPress={() => router.push(`/transfers/new?itemId=${encodeURIComponent(result.itemId)}&sourceWarehouseId=${encodeURIComponent(warehouseId)}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
+        {hasPositiveStockInScope && resolvedWarehouseId && !isAsset ? <Pressable onPress={() => router.push(`/transfers/new?itemId=${encodeURIComponent(result.itemId)}&sourceWarehouseId=${encodeURIComponent(resolvedWarehouseId)}` as never)} style={({ pressed }) => [styles.operationAction, pressed && styles.pressed]}>
           <Icon name="swap-horiz" color={colors.primary} /><Text style={styles.operationText}>Tạo phiếu điều chuyển</Text>
         </Pressable> : null}
-        {warehouseId && !hasPositiveStockInScope ? <Text style={styles.noStockNotice}>Kho đang chọn chưa có tồn dương của vật tư này; chỉ có thể tạo phiếu nhập.</Text> : null}
+        {resolvedWarehouseId && !hasPositiveStockInScope ? <Text style={styles.noStockNotice}>Kho đang chọn chưa có tồn dương của vật tư này; chỉ có thể tạo phiếu nhập.</Text> : null}
         <Pressable onPress={startNewScan} style={({ pressed }) => [styles.secondaryAction, pressed && styles.pressed]}><Icon name="qr-code-scanner" color={colors.deepAmber} /><Text style={styles.secondaryText}>Quét mã tiếp theo</Text></Pressable>
       </View>
     </> : null}

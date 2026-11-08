@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import type { AuditLog } from './api';
-import { entityLabel, formatValue, getStatus, recordLabel, relatedRecordRoute, snapshotChanges, snapshotEntries } from './model';
+import { actionLabel, entityLabel, formatValue, getStatus, recordLabel, relatedRecordRoute, snapshotChanges, snapshotEntries } from './model';
 
 const log: AuditLog = {
   id: 'log-1', farmId: 'farm-1', userId: null, actor: null, createdAt: '2026-10-14T09:00:00Z',
@@ -57,5 +57,16 @@ describe('Audit history presentation', () => {
   it('uses the farm name only when the snapshot matches the selected farm', () => {
     expect(formatValue('farm-1', 'farmId', { id: 'farm-1', name: 'Trại A' })).toBe('Trại A');
     expect(formatValue('farm-2', 'farmId', { id: 'farm-1', name: 'Trại A' })).toBe('farm-2');
+    expect(entityLabel('STORE_ORDER')).toBe('Đơn hàng');
+    expect(entityLabel('STORE_SHIPPING_FEES')).toBe('Phí giao hàng');
+    expect(actionLabel('DELIVERY_CLAIM')).toBe('Nhận giao đơn');
+    expect(actionLabel('DELIVERY_RETURN')).toBe('Trả đơn giao');
+    expect(actionLabel('DELIVERY_COMPLETE')).toBe('Giao xong đơn');
+    expect(actionLabel('SHIPPING_FEES_UPDATED')).toBe('Sửa phí giao hàng');
+    expect(recordLabel({ ...log, entityType: 'STORE_ORDER', newData: { code: 'DH000123' } })).toBe('DH000123');
+    expect(recordLabel({ ...log, entityType: 'STORE_SHIPPING_FEES', entityId: null })).toBe('Phí giao hàng');
+    expect(snapshotChanges({ NORTH: '40000', CENTRAL: '20000', SOUTH: '30000' }, { NORTH: '45000', CENTRAL: '20000', SOUTH: '30000' })).toEqual([
+      { path: 'NORTH', label: 'Phí miền Bắc', before: '40000', after: '45000' },
+    ]);
   });
 });
