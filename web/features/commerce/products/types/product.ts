@@ -25,6 +25,8 @@ export type StorefrontProduct = {
   name: string;
   category: StorefrontProductCategory;
   price: number;
+  maxPrice?: number;
+  variantCount?: number;
   originalPrice?: number;
   badge?: string;
   rating?: StorefrontProductRating;

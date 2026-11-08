@@ -118,19 +118,33 @@ export function ProductsMobileFilter({
                     )}
                     onClick={() => setOpen(false)}
                     className={cn(
-                      'flex items-center justify-between rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
+                      'flex items-center justify-between gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
                       isSelected
                         ? 'bg-store-category-selected text-store-category-selected-foreground font-semibold shadow-2xs'
                         : 'text-foreground hover:bg-[#faf4ea] dark:hover:bg-muted',
                     )}
                   >
                     <span className="min-w-0 break-words">{cat.name}</span>
-                    {isSelected && (
-                      <Check
-                        className="size-4 shrink-0 text-amber-400"
-                        aria-hidden="true"
-                      />
-                    )}
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {typeof cat.productCount === 'number' && (
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-[0.6875rem] font-medium tabular-nums',
+                            isSelected
+                              ? 'bg-background/20 text-store-category-selected-foreground'
+                              : 'bg-muted text-muted-foreground',
+                          )}
+                        >
+                          {cat.productCount}
+                        </span>
+                      )}
+                      {isSelected && (
+                        <Check
+                          className="size-4 shrink-0 text-amber-400"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </span>
                   </Link>
                 );
               })}

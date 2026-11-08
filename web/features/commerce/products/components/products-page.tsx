@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
   AlertCircle,
+  Check,
   ChevronLeft,
   ChevronRight,
   RotateCcw,
@@ -9,6 +10,7 @@ import {
 } from 'lucide-react';
 import { getProductsStore } from '../api/product.api';
 import { getStoreRegion } from '../../region/region.server';
+import { storeRegionLabels } from '../../region/region.logic';
 import { getAllCategoriesStore } from '../../categories/api/category.api';
 import { ProductCard } from './product-card';
 import { ProductsSidebar } from './products-sidebar';
@@ -34,14 +36,15 @@ export async function ProductsPage({
   criteria,
   validationError,
 }: ProductsPageProps) {
-  const { category, q, sort } = criteria;
+  const { category, q, sort, inStock } = criteria;
   const page = criteria.page ?? 1;
+  const currentRegion = await getStoreRegion();
 
   const [categoriesResult, productsResult] = await Promise.allSettled([
     getAllCategoriesStore(),
     validationError
       ? Promise.resolve(null)
-      : getProductsStore({ ...criteria, region: await getStoreRegion() }),
+      : getProductsStore({ ...criteria, region: currentRegion }),
   ]);
   const categories =
     categoriesResult.status === 'fulfilled' ? categoriesResult.value : [];
@@ -323,6 +326,28 @@ export async function ProductsPage({
             </p>
 
             <div className="flex max-w-full flex-wrap items-center gap-2 sm:gap-3">
+              {/* Toggle lọc nhanh còn hàng tại khu vực */}
+              <Link
+                href={buildProductsHref(
+                  { ...criteria, page: 1 },
+                  { inStock: inStock ? undefined : true },
+                )}
+                aria-pressed={Boolean(inStock)}
+                className={cn(
+                  'inline-flex min-h-9 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs sm:text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-primary',
+                  inStock
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 font-semibold'
+                    : 'border-border bg-card text-foreground hover:bg-muted',
+                )}
+              >
+                {inStock && <Check className="size-3.5 shrink-0" aria-hidden="true" />}
+                <span>
+                  {currentRegion
+                    ? `Còn hàng tại ${storeRegionLabels[currentRegion]}`
+                    : 'Chỉ hiện hàng còn sẵn'}
+                </span>
+              </Link>
+
               {/* Tùy chọn sắp xếp giá */}
               <ProductsSortSelect currentSort={sort} />
 

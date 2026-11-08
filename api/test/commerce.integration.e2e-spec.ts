@@ -193,6 +193,8 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     expect(result.data[0]).toMatchObject({
       id: product.id,
       price: 100000,
+      maxPrice: 200000,
+      variantCount: 2,
       inStock: true,
       category: { id: ids.storeCategory, slug: ids.storeCategory },
       image: { src: '/cover.jpg', alt: 'Cover' },
@@ -551,8 +553,49 @@ describe('Commerce products (migrated PostgreSQL)', () => {
       offset: 0,
     });
     expect(result.data).toHaveLength(1);
-    expect(Object.keys(result.data[0]).sort()).toEqual(['id', 'name', 'slug']);
+    expect(Object.keys(result.data[0]).sort()).toEqual([
+      'id',
+      'name',
+      'productCount',
+      'slug',
+    ]);
+    expect(typeof result.data[0].productCount).toBe('number');
     expect(result.page.totalItems).toBe(total.value);
+  });
+
+  it('filters products by inStock globally and within a delivery region', async () => {
+    const stockedNorth = await createProduct('Stocked North', '120000');
+    await createProduct('Out of Stock', '150000');
+    await db
+      .update(schema.storeSettings)
+      .set({ regions: ['NORTH'] })
+      .where(eq(schema.storeSettings.farmId, ids.farm));
+    await db.insert(schema.inventoryBalances).values({
+      farmId: ids.farm,
+      warehouseId: ids.warehouse,
+      itemId: stockedNorth.itemId,
+      quantityOnHand: '3',
+    });
+
+    const all = await service.listProducts(pagination);
+    expect(all.page.totalItems).toBe(2);
+
+    const inStockAnywhere = await service.listProducts(pagination, {
+      inStock: true,
+    });
+    expect(inStockAnywhere.data.map((p) => p.id)).toEqual([stockedNorth.id]);
+
+    const inStockNorth = await service.listProducts(pagination, {
+      region: 'NORTH',
+      inStock: true,
+    });
+    expect(inStockNorth.data.map((p) => p.id)).toEqual([stockedNorth.id]);
+
+    const inStockSouth = await service.listProducts(pagination, {
+      region: 'SOUTH',
+      inStock: true,
+    });
+    expect(inStockSouth.data).toEqual([]);
   });
 
   it('resolves variant item metadata from the farm serving the delivery region and stock', async () => {

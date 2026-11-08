@@ -19,6 +19,9 @@ import {
   orderErrorMessage,
   parseOrderAttemptPayload,
   updateOrderAttempt,
+  filterOrdersByLookupQuery,
+  normalizeOrderLookupQuery,
+  resolveOrderProgressStep,
 } from "./order.logic.ts";
 
 function memoryStorage() {
@@ -290,4 +293,33 @@ test("tells staff to transfer stock into the sales warehouse when confirming fal
     confirmErrorMessage({ status: 409, details: { code: "ORDER_CANCEL_NOT_ALLOWED" } }),
     "Đơn hàng không còn ở trạng thái được phép hủy.",
   );
+});
+
+test("filters orders by code, recipient or phone and resolves 4-step tracking progress", () => {
+  const sampleOrders = [
+    {
+      id: "ord-1",
+      code: "DH000012",
+      recipientName: "Nguyễn Văn An",
+      phone: "0912345678",
+    },
+    {
+      id: "ord-2",
+      code: "DH000015",
+      recipientName: "Trần Thị Bình",
+      phone: "0988777666",
+    },
+  ];
+  assert.equal(normalizeOrderLookupQuery("  #DH000012 "), "dh000012");
+  assert.deepEqual(
+    filterOrdersByLookupQuery(sampleOrders, "#DH000012").map((o) => o.id),
+    ["ord-1"],
+  );
+  assert.deepEqual(
+    filterOrdersByLookupQuery(sampleOrders, "0988").map((o) => o.id),
+    ["ord-2"],
+  );
+  assert.equal(resolveOrderProgressStep("CONFIRMED").activeStep, 2);
+  assert.equal(resolveOrderProgressStep("COMPLETED").activeStep, 4);
+  assert.equal(resolveOrderProgressStep("CANCELLED").isTerminalAlert, true);
 });

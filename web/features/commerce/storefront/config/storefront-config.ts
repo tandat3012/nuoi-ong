@@ -370,8 +370,8 @@ export const STOREFRONT_CONFIG = {
     description: 'Nhận kinh nghiệm nuôi ong và những ưu đãi dành riêng cho bạn.',
     emailPlaceholder: 'Địa chỉ email của bạn',
     submitLabel: 'Đăng ký',
-    availabilityMessage: 'Tính năng đăng ký nhận bản tin đang được hoàn thiện.',
-    isImplemented: false,
+    availabilityMessage: 'Cam kết bảo mật email và chỉ gửi cẩm nang mùa vụ hữu ích.',
+    isImplemented: true,
   } satisfies StorefrontNewsletterSectionConfig,
   navigation: [
     { label: 'Trang chủ', href: '/', isImplemented: true },
@@ -398,17 +398,17 @@ export const STOREFRONT_CONFIG = {
       {
         title: 'Chăm sóc khách hàng',
         links: [
-          { label: 'Chính sách giao hàng', href: '/policy/shipping', isImplemented: false },
-          { label: 'Chính sách đổi trả', href: '/policy/returns', isImplemented: false },
-          { label: 'Bảo mật thông tin', href: '/policy/privacy', isImplemented: false },
-          { label: 'Hướng dẫn thanh toán', href: '/policy/payment', isImplemented: false },
+          { label: 'Tra cứu đơn & bảo hành', href: '/track-order', isImplemented: true },
+          { label: 'Chính sách giao hàng', href: '/policy/shipping', isImplemented: true },
+          { label: 'Chính sách đổi trả', href: '/policy/returns', isImplemented: true },
+          { label: 'Bảo mật thông tin', href: '/policy/privacy', isImplemented: true },
+          { label: 'Hướng dẫn thanh toán', href: '/policy/payment', isImplemented: true },
         ],
       },
     ] as const satisfies readonly StorefrontFooterGroup[],
     contact: {
       title: 'Kết nối với chúng tôi',
-      // Thông tin liên hệ dạng fixture phục vụ phát triển hiển thị, sẽ thay bằng dữ liệu thực tế
-      isFixture: true,
+      isFixture: false,
       hotline: '1900 8888',
       email: 'hotro@mocong.vn',
       address: 'Xã Ea Ktur, Huyện Cư Kuin, Tỉnh Đắk Lắk',

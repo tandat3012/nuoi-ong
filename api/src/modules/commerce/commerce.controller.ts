@@ -100,6 +100,12 @@ export class CommerceController {
     enum: ['price_asc', 'price_desc'],
     description: 'Sắp xếp giá; giá bằng nhau theo id tăng dần.',
   })
+  @ApiQuery({
+    name: 'inStock',
+    required: false,
+    enum: ['true', 'false'],
+    description: 'Chỉ lấy sản phẩm đang còn hàng (theo miền nếu có chọn region).',
+  })
   @ApiQuery(REGION_QUERY)
   @ApiOkResponse({
     description:
@@ -116,6 +122,7 @@ export class CommerceController {
     @Query('minPrice') minPriceValue?: string,
     @Query('maxPrice') maxPriceValue?: string,
     @Query('sort') sort?: string,
+    @Query('inStock') inStockValue?: unknown,
     @Query('region') region?: unknown,
   ) {
     if (
@@ -137,6 +144,13 @@ export class CommerceController {
         'sort must be one of: price_asc, price_desc',
       );
     }
+    if (
+      inStockValue !== undefined &&
+      inStockValue !== 'true' &&
+      inStockValue !== 'false'
+    ) {
+      throw new BadRequestException('inStock must be true or false');
+    }
 
     const minPrice = parsePrice(minPriceValue, 'minPrice');
     const maxPrice = parsePrice(maxPriceValue, 'maxPrice');
@@ -155,6 +169,7 @@ export class CommerceController {
       minPrice,
       maxPrice,
       sort,
+      ...(inStockValue === 'true' ? { inStock: true } : {}),
     });
   }
 
