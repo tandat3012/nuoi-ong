@@ -33,6 +33,7 @@ export const HISTORY_ACTION_LABELS: Record<string, string> = {
   ASSET_TRANSFERRED: "Điều chuyển tài sản",
   ASSET_TRANSFER_DISPATCHED: "Kho nguồn xuất chuyển tài sản",
   ASSET_TRANSFER_RECEIVED: "Kho đích nhận tài sản điều chuyển",
+  ASSET_COUNTED: "Kiểm kê tài sản",
   ASSET_RETIRED: "Ngừng sử dụng tài sản",
   ASSET_INCIDENT_REPORTED: "Ghi nhận sự cố tài sản",
   ASSET_INCIDENT_STATUS: "Cập nhật xử lý sự cố",
