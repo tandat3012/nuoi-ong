@@ -1,5 +1,5 @@
 {
-  "id": "8724fd0b-b781-4456-9958-7c0d1875af96",
+  "id": "f0e2a3a7-3d3c-499c-861e-b41fb57d7188",
   "prevId": "5e8e2982-15d8-4306-b318-00284a97b2ea",
   "version": "7",
   "dialect": "postgresql",
@@ -4667,6 +4667,12 @@
         "found_location_id": {
           "name": "found_location_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "asset_version": {
+          "name": "asset_version",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

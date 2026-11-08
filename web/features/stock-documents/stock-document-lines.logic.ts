@@ -26,7 +26,11 @@ export function validateDocumentLines(
     if (!line.itemId) return `${row}: chưa chọn vật tư.`;
     if (line.trackingMode === "ASSET" && (kind !== "stock-counts" || !line.assetId))
       return `${row}: tài sản được xử lý từ hồ sơ tài sản, không qua phiếu này.`;
-    if (line.trackingMode === "ASSET" && !["0", "1"].includes(line.quantity.trim()))
+    // The API returns "1.000"/"0.000"; compare the value.
+    if (
+      line.trackingMode === "ASSET" &&
+      !(QUANTITY.test(line.quantity.trim()) && [0, 1].includes(Number(line.quantity)))
+    )
       return `${row}: tài sản kiểm kê ghi 1 (có) hoặc 0 (thiếu).`;
     if (line.trackingMode === "LOT" && !line.lotId) return `${row}: chưa chọn lô.`;
     const quantity = line.quantity.trim();
@@ -46,7 +50,7 @@ export function documentLinesPayload(
   lines: EditableLine[],
 ) {
   return lines.map((line) => {
-    const found = line.quantity.trim() !== "0";
+    const found = Number(line.quantity) !== 0;
     return {
       itemId: line.itemId,
       lotId: line.trackingMode === "LOT" ? line.lotId : undefined,

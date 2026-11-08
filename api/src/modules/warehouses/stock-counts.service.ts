@@ -27,6 +27,7 @@ import {
   inventoryTransactions,
   items,
   locations,
+  maintenanceRecords,
   stockCountItems,
   stockCounts,
   units,
@@ -50,6 +51,7 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 
 type Filters = {
   farmId: string;
@@ -68,6 +70,7 @@ type SnapshotLine = {
   note?: string | null;
   assetCondition?: 'GOOD' | 'DAMAGED' | null;
   foundLocationId?: string | null;
+  assetVersion?: string | null;
 };
 type CountLine = typeof stockCountItems.$inferSelect;
 type Tx = Parameters<Parameters<DatabaseService['db']['transaction']>[0]>[0];
@@ -626,7 +629,13 @@ export class StockCountsService {
     warehouseId: string,
     line: CreateStockCountDto['items'][number],
   ): Promise<SnapshotLine> {
-    await this.countedAsset(tx, farmId, warehouseId, line, BadRequestException);
+    const asset = await this.countedAsset(
+      tx,
+      farmId,
+      warehouseId,
+      line,
+      BadRequestException,
+    );
     const found = Number(line.actualQuantity);
     if (found !== 0 && found !== 1)
       throw new BadRequestException(
@@ -636,6 +645,14 @@ export class StockCountsService {
       throw new BadRequestException(
         'A missing asset has no condition or found location',
       );
+    // Explicit, so a client that drops the field fails instead of resetting a damage note to GOOD.
+    if (found && !line.assetCondition)
+      throw new BadRequestException('A found asset needs its assetCondition');
+    // As with a loss report: a damaged asset that is gone is retired, never recovered as usable.
+    if (!found && asset.status === 'DAMAGED')
+      throw new BadRequestException(
+        'A missing damaged asset is retired, not counted as lost',
+      );
     if (line.foundLocationId)
       await this.countLocation(tx, farmId, warehouseId, line.foundLocationId);
     return {
@@ -644,8 +661,9 @@ export class StockCountsService {
       systemQuantity: '1',
       actualQuantity: String(found),
       note: line.note,
-      assetCondition: found ? (line.assetCondition ?? 'GOOD') : null,
+      assetCondition: found ? line.assetCondition : null,
       foundLocationId: line.foundLocationId ?? null,
+      assetVersion: asset.updatedAt,
     };
   }
 
@@ -664,6 +682,7 @@ export class StockCountsService {
         assetCode: assets.assetCode,
         status: assets.status,
         currentLocationId: assets.currentLocationId,
+        updatedAt: assets.updatedAt,
         warehouseId: locations.warehouseId,
       })
       .from(assets)
@@ -746,12 +765,31 @@ export class StockCountsService {
       ConflictException,
       true,
     );
+    // Moved, handed out and back, damaged or repaired since it was counted: count again.
+    if (asset.updatedAt !== line.assetVersion)
+      throw new ConflictException('STOCK_COUNT_STALE');
     const now = new Date().toISOString();
     const userId = sql`(SELECT user_id FROM farm_members WHERE id = ${member})`;
     const reason = `Kiểm kê ${count.countCode ?? count.id.slice(0, 8)}`;
     if (Number(line.actualQuantity) === 0) {
       if (!balance || Number(balance.quantityOnHand) < 1)
         throw new ConflictException('STOCK_COUNT_STALE');
+      // Recovery refuses an asset with open maintenance, so settle that first.
+      const [maintenance] = await tx
+        .select({ id: maintenanceRecords.id })
+        .from(maintenanceRecords)
+        .where(
+          and(
+            eq(maintenanceRecords.farmId, farmId),
+            eq(maintenanceRecords.assetId, asset.id),
+            activeMaintenanceCondition,
+          ),
+        )
+        .limit(1);
+      if (maintenance)
+        throw new ConflictException(
+          'Asset has active maintenance; finish or cancel it before recording it missing',
+        );
       await tx
         .update(inventoryBalances)
         .set({

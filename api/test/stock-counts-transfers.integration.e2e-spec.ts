@@ -583,7 +583,12 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
 
     it('records found, damaged, misplaced and missing assets and settles them on approval', async () => {
       const response = await countAssets([
-        { itemId: assetItem, assetId: good, actualQuantity: '1' },
+        {
+          itemId: assetItem,
+          assetId: good,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+        },
         {
           itemId: assetItem,
           assetId: damaged,
@@ -595,6 +600,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
           itemId: assetItem,
           assetId: moved,
           actualQuantity: '1',
+          assetCondition: 'GOOD',
           foundLocationId: otherShelf,
         },
         { itemId: assetItem, assetId: missing, actualQuantity: '0' },
@@ -662,7 +668,12 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
 
     it('lets the counter confirm alone when every asset is found where recorded', async () => {
       const response = await countAssets([
-        { itemId: assetItem, assetId: good, actualQuantity: '1' },
+        {
+          itemId: assetItem,
+          assetId: good,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+        },
       ]).expect(201);
       approveOwn = true;
       await confirm(
@@ -676,11 +687,16 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       // Damaged or misplaced leaves the quantity equal but still needs another approver.
       for (const line of [
         { assetId: damaged, actualQuantity: '1', assetCondition: 'DAMAGED' },
-        { assetId: moved, actualQuantity: '1', foundLocationId: otherShelf },
+        {
+          assetId: moved,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+          foundLocationId: otherShelf,
+        },
       ]) {
-        const draft = await countAssets([{ itemId: assetItem, ...line }]).expect(
-          201,
-        );
+        const draft = await countAssets([
+          { itemId: assetItem, ...line },
+        ]).expect(201);
         await confirm(
           'counts',
           (draft.body as { data: { count: { id: string } } }).data.count.id,
@@ -695,7 +711,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     it.each([
       [
         'an asset of another warehouse',
-        { assetId: away, actualQuantity: '1' },
+        { assetId: away, actualQuantity: '1', assetCondition: 'GOOD' },
         400,
       ],
       [
@@ -703,7 +719,11 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         { assetId: good, actualQuantity: '1', _status: 'ASSIGNED' },
         400,
       ],
-      ['an unknown asset', { assetId: randomUUID(), actualQuantity: '1' }, 404],
+      [
+        'an unknown asset',
+        { assetId: randomUUID(), actualQuantity: '1', assetCondition: 'GOOD' },
+        404,
+      ],
       [
         'a quantity other than 0 or 1',
         { assetId: good, actualQuantity: '2' },
@@ -719,6 +739,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         {
           assetId: good,
           actualQuantity: '1',
+          assetCondition: 'GOOD',
           foundLocationId: destinationShelf,
         },
         409,
@@ -738,9 +759,63 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       expect(counts.rows).toEqual([]);
     });
 
-    it('refuses the same asset twice and goes stale when the asset moves before approval', async () => {
+    it('goes stale when the asset changed after counting, and refuses unsafe missing reports', async () => {
+      const draft = await countAssets([
+        { itemId: assetItem, assetId: missing, actualQuantity: '0' },
+      ]).expect(201);
+      // Moved within the warehouse after the count: still eligible, but the count is stale.
+      await pool.query(
+        "UPDATE assets SET current_location_id=$2, updated_at=now() + interval '1 second' WHERE id=$1",
+        [missing, otherShelf],
+      );
+      await confirm(
+        'counts',
+        (draft.body as { data: { count: { id: string } } }).data.count.id,
+      ).expect(409);
+      expect(await assetState(missing)).toMatchObject({ status: 'AVAILABLE' });
+      expect(await assetBalance()).toBe('4.000');
+
+      // A damaged asset that is gone is retired, as with a loss report.
+      await pool.query("UPDATE assets SET status='DAMAGED' WHERE id=$1", [
+        damaged,
+      ]);
+      await countAssets([
+        { itemId: assetItem, assetId: damaged, actualQuantity: '0' },
+      ]).expect(400);
+      // A found asset must say its condition.
       await countAssets([
         { itemId: assetItem, assetId: good, actualQuantity: '1' },
+      ]).expect(400);
+
+      // Open maintenance must be settled before the asset is recorded missing.
+      const pending = await countAssets([
+        { itemId: assetItem, assetId: good, actualQuantity: '0' },
+      ]).expect(201);
+      await pool.query(
+        "INSERT INTO maintenance_records (farm_id, asset_id, maintenance_type, status) VALUES ($1, $2, 'INSPECTION', 'SCHEDULED')",
+        [farm, good],
+      );
+      try {
+        await confirm(
+          'counts',
+          (pending.body as { data: { count: { id: string } } }).data.count.id,
+        ).expect(409);
+        expect(await assetState(good)).toMatchObject({ status: 'AVAILABLE' });
+      } finally {
+        await pool.query('DELETE FROM maintenance_records WHERE asset_id=$1', [
+          good,
+        ]);
+      }
+    });
+
+    it('refuses the same asset twice and goes stale when the asset moves before approval', async () => {
+      await countAssets([
+        {
+          itemId: assetItem,
+          assetId: good,
+          actualQuantity: '1',
+          assetCondition: 'GOOD',
+        },
         { itemId: assetItem, assetId: good, actualQuantity: '0' },
       ]).expect(400);
       const response = await countAssets([

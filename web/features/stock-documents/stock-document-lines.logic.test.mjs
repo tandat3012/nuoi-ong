@@ -59,6 +59,13 @@ test("counts take one asset per line, found 1 or missing 0; transfers still refu
     validateDocumentLines("stock-counts", [asset({ quantity: "1" }), asset({ quantity: "0" })]),
     /đã có trong phiếu/,
   );
+  // Lines loaded from the API carry decimal strings.
+  assert.equal(validateDocumentLines("stock-counts", [asset({ quantity: "1.000" })]), null);
+  assert.equal(validateDocumentLines("stock-counts", [asset({ quantity: "0.000" })]), null);
+  assert.deepEqual(
+    documentLinesPayload("stock-counts", [asset({ quantity: "0.000", assetCondition: "GOOD" })])[0].assetCondition,
+    undefined,
+  );
   // Turning a found line into missing drops its condition and found location.
   assert.deepEqual(
     documentLinesPayload("stock-counts", [

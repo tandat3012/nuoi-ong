@@ -366,12 +366,12 @@ export function StockDocumentLines({
                       <td className="px-3 py-2">
                         {line.assetId
                           ? `${line.assetCode ?? "Tài sản"} · ${
-                              line.quantity.trim() === "0"
+                              Number(line.quantity) === 0
                                 ? "Thiếu"
                                 : line.assetCondition === "DAMAGED"
                                   ? "Có, hỏng"
                                   : "Có, tốt"
-                            }${line.foundLocationCode && line.quantity.trim() !== "0" ? ` · thấy ở ${line.foundLocationCode}` : ""}`
+                            }${line.foundLocationCode && Number(line.quantity) !== 0 ? ` · thấy ở ${line.foundLocationCode}` : ""}`
                           : line.lotCode
                           ? `${line.lotCode}${line.lotExpiryDate ? ` · HSD ${date(line.lotExpiryDate)}` : ""}`
                           : line.lotId

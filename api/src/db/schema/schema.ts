@@ -1670,6 +1670,11 @@ export const stockCountItems = pgTable(
     // P1-12 asset lines: condition when found (null = missing) and where it was found, if not its recorded place.
     assetCondition: varchar('asset_condition', { length: 10 }),
     foundLocationId: uuid('found_location_id'),
+    // The asset's updated_at when counted: any later change makes the count stale.
+    assetVersion: timestamp('asset_version', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),

@@ -28,7 +28,7 @@ export class StockCountItemDto {
   @ApiPropertyOptional({
     enum: ['GOOD', 'DAMAGED'],
     description:
-      'Dòng ASSET (actualQuantity 1 = có, 0 = thiếu): tình trạng khi thấy, mặc định GOOD.',
+      'Dòng ASSET (actualQuantity 1 = có, 0 = thiếu): bắt buộc khi có, không gửi khi thiếu.',
   })
   @IsOptional()
   @IsIn(['GOOD', 'DAMAGED'])
