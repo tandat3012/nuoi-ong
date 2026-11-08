@@ -10,10 +10,31 @@ export function canCustomerCancel(order: CustomerOrder) {
   return order.status === "PENDING" && order.paymentStatus === "UNPAID";
 }
 
+/** Staff may cancel before the goods leave; a paid order also needs a refund. */
 export function canStaffCancel(order: Order) {
+  return ["PENDING", "PREPARING", "CONFIRMED"].includes(order.status);
+}
+
+/** Paid and not refunded yet: cancelling or closing a return records a refund (D11). */
+export function needsRefund(order: Order) {
+  return order.paymentStatus === "PAID" && !order.refundedAt;
+}
+
+/** A bank transfer staff can still reconcile by hand (D10). */
+export function canMarkPaid(order: Order) {
   return (
-    ["PENDING", "PREPARING", "CONFIRMED"].includes(order.status) &&
-    order.paymentStatus === "UNPAID"
+    order.paymentMethod === "BANK_TRANSFER" &&
+    order.paymentStatus === "UNPAID" &&
+    ["PENDING", "PREPARING", "CONFIRMED", "SHIPPING"].includes(order.status)
+  );
+}
+
+/** Delivered COD whose cash no manager has received from the shipper yet. */
+export function canRemitCod(order: Order) {
+  return (
+    order.paymentMethod === "COD" &&
+    order.status === "COMPLETED" &&
+    !order.codRemittedAt
   );
 }
 
@@ -24,14 +45,14 @@ export function canStaffCancelDetail(detail: OrderDetail) {
   );
 }
 
-/** Top-up transfers still waiting for warehouse approval. */
+/** Top-up transfers not yet received by the sales warehouse. */
 export function pendingReplenishments(detail: OrderDetail) {
   return detail.replenishments.filter((row) =>
-    ["DRAFT", "PENDING_APPROVAL"].includes(row.status),
+    ["DRAFT", "PENDING_APPROVAL", "IN_TRANSIT"].includes(row.status),
   );
 }
 
-/** PENDING, or PREPARING whose transfers arrived but stock ran short again. */
+/** PENDING, or a legacy PREPARING order whose transfers are all settled. */
 export function canConfirmOrder(detail: OrderDetail) {
   return (
     detail.order.status === "PENDING" ||
@@ -43,12 +64,11 @@ export function canConfirmOrder(detail: OrderDetail) {
 export function canShipOrder(detail: OrderDetail) {
   return (
     detail.order.status === "CONFIRMED" &&
-    detail.stockIssue?.status === "CONFIRMED"
+    detail.stockIssue?.status === "CONFIRMED" &&
+    // An unpaid bank transfer cannot go out (AC18).
+    (detail.order.paymentMethod === "COD" ||
+      detail.order.paymentStatus === "PAID")
   );
-}
-
-export function canEditShippingFee(order: Order) {
-  return order.status === "PENDING" && order.paymentStatus === "UNPAID";
 }
 
 export function canCompleteOrder(detail: OrderDetail) {
@@ -73,6 +93,7 @@ export function canonicalOrderPayload(
     region: input.region,
     note: input.note?.trim() || undefined,
     paymentMethod: input.paymentMethod,
+    expectedShippingFee: input.expectedShippingFee,
     items: [...input.items]
       .map(({ variantId, quantity, expectedUnitPrice }) => ({
         variantId,
@@ -107,6 +128,9 @@ export function parseOrderAttemptPayload(
       (input.note !== undefined && typeof input.note !== "string") ||
       (input.paymentMethod !== "COD" &&
         input.paymentMethod !== "BANK_TRANSFER") ||
+      (input.expectedShippingFee !== undefined &&
+        !(typeof input.expectedShippingFee === "string" &&
+          /^(?:0|[1-9]\d*)$/.test(input.expectedShippingFee))) ||
       !Array.isArray(input.items) ||
       input.items.length === 0 ||
       !input.items.every(
@@ -248,7 +272,7 @@ const FIELD_ERRORS: [field: string, message: string][] = [
     "Giỏ hàng có dòng không hợp lệ (mỗi dòng 1–10.000, tối đa 100 sản phẩm). Hãy cập nhật giỏ rồi thử lại.",
   ],
   ["Duplicate variant", "Giỏ hàng có sản phẩm bị lặp. Hãy cập nhật giỏ rồi thử lại."],
-  ["shippingFee", "Phí giao hàng phải là số tiền VNĐ nguyên, không âm."],
+  ["expectedShippingFee", "Phí giao hàng không hợp lệ. Hãy tải lại trang thanh toán."],
   ["reason", "Lý do hủy cần từ 1 đến 1.000 ký tự."],
 ];
 
@@ -266,6 +290,16 @@ export function validationMessage(details: unknown) {
   return matched.length ? matched.join(" ") : null;
 }
 
+/** Staff confirming an order its sales warehouse no longer covers (D03). */
+export function confirmErrorMessage(error: unknown) {
+  const details = (error as { details?: { code?: string; message?: unknown } } | null)
+    ?.details;
+  if (details?.code !== "INSUFFICIENT_STOCK") return orderErrorMessage(error);
+  const reason =
+    typeof details.message === "string" ? details.message : "Kho bán không đủ hàng.";
+  return `${reason} Đơn chưa giữ hàng; hãy chuyển kho sang kho bán rồi xác nhận lại.`;
+}
+
 export function orderErrorMessage(error: unknown) {
   const failure = error as {
     status?: number;
@@ -276,6 +310,8 @@ export function orderErrorMessage(error: unknown) {
   const messages: Record<string, string> = {
     PRICE_CHANGED:
       "Giá sản phẩm đã thay đổi. Hãy kiểm tra giá mới rồi xác nhận lại.",
+    SHIPPING_FEE_CHANGED:
+      "Phí giao hàng vừa được cập nhật. Hãy kiểm tra tổng tiền mới rồi đặt hàng lại.",
     INSUFFICIENT_STOCK:
       "Tồn kho không đủ cho một hoặc nhiều sản phẩm trong giỏ.",
     VARIANT_UNAVAILABLE: "Sản phẩm hoặc quy cách không còn bán.",
@@ -283,8 +319,14 @@ export function orderErrorMessage(error: unknown) {
     CART_NOT_FULFILLABLE:
       "Chưa có kho nào giao đủ toàn bộ giỏ hàng. Hãy tách thành nhiều đơn.",
     ORDER_CANCEL_NOT_ALLOWED: "Đơn hàng không còn ở trạng thái được phép hủy.",
+    ALREADY_PAID: "Đơn đã được ghi nhận thanh toán.",
+    PAYMENT_REFERENCE_USED:
+      "Mã giao dịch này đã được dùng để đối soát một đơn khác.",
+    COD_ALREADY_REMITTED: "Tiền COD của đơn này đã được xác nhận nhận.",
+    REPLENISHMENT_PENDING:
+      "Đơn đang chờ kho duyệt phiếu chuyển bổ sung đã tạo trước đây.",
     PAYMENT_REQUIRED:
-      "Đơn chuyển khoản phải được ghi nhận thanh toán trước khi hoàn tất.",
+      "Đơn chuyển khoản phải được ghi nhận thanh toán trước khi giao.",
   };
   if (code && messages[code]) return messages[code];
   const serverMessages: Record<string, string> = {
@@ -304,11 +346,16 @@ export function orderErrorMessage(error: unknown) {
       "Chỉ đơn đang giao mới có thể hoàn tất.",
     "Record the bank transfer before completing the order":
       "Hãy ghi nhận chuyển khoản trước khi hoàn tất đơn.",
+    "COD is collected on delivery":
+      "Đơn COD được ghi đã thu khi giao xong, không đối soát chuyển khoản.",
+    "Returned orders cannot be paid": "Đơn đã trả về kho không thể ghi nhận thanh toán.",
+    "Only completed COD orders hand over cash":
+      "Chỉ đơn COD đã giao xong mới xác nhận nhận tiền.",
+    "Refund amount must be positive and at most the order total":
+      "Số tiền hoàn phải lớn hơn 0 và không vượt tổng đơn.",
     "Cancelled orders cannot be paid":
       "Đơn đã hủy không thể ghi nhận thanh toán.",
     "Order warehouse is not active": "Kho gắn với đơn đã ngừng hoạt động.",
-    "Shipping fee can only change on PENDING, UNPAID orders":
-      "Chỉ có thể cập nhật phí giao hàng cho đơn chờ xác nhận và chưa thanh toán.",
     "Store belongs to another farm":
       "Cửa hàng không thuộc trại đang chọn. Hãy chuyển sang trại sở hữu cửa hàng.",
     "Order item no longer exists in the farm":

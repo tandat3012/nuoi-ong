@@ -1090,6 +1090,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
             itemId: assetItemId,
             quantity: '1',
             assetCode: `${tag}-ASSET-1`,
+            locationId: locationA,
           },
         ],
       }),
@@ -1113,6 +1114,7 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
             quantity: '1',
             assetCode: `${tag}-ASSET-2`,
             serialNumber: `${tag}-SERIAL-1`,
+            locationId: locationA,
           },
         ],
       }),
@@ -1121,6 +1123,34 @@ describe('Stock receipts HTTP contract with local PostgreSQL', () => {
       .post(`/api/v1/stock-receipts/${duplicateSerialDraft.receipt.id}/confirm`)
       .query({ farmId: farmA })
       .expect(409);
+  });
+
+  it('refuses to confirm an ASSET receipt line without a location', async () => {
+    const draft = await createReceipt(
+      farmA,
+      receiptInput(`${tag}-ASSET-NO-LOCATION`, {
+        items: [
+          {
+            itemId: assetItemId,
+            quantity: '1',
+            assetCode: `${tag}-ASSET-NO-LOCATION`,
+          },
+        ],
+      }),
+    );
+    const response = await post()
+      .post(`/api/v1/stock-receipts/${draft.receipt.id}/confirm`)
+      .query({ farmId: farmA })
+      .expect(400);
+    expect((response.body as { message: string }).message).toBe(
+      'ASSET receipt lines require a location',
+    );
+    const effects = await client!.query<{ moves: number; assets: number }>(
+      `SELECT (SELECT count(*)::int FROM inventory_transactions WHERE source_id=$1) AS moves,
+              (SELECT count(*)::int FROM assets WHERE farm_id=$2 AND asset_code=$3) AS assets`,
+      [draft.receipt.id, farmA, `${tag}-ASSET-NO-LOCATION`],
+    );
+    expect(effects.rows[0]).toEqual({ moves: 0, assets: 0 });
   });
 
   it('rejects zero quantities and still accepts the smallest positive precision', async () => {

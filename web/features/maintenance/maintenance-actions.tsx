@@ -23,12 +23,14 @@ type Record = {
   expectedReturnAt?: string | null;
   returnStatus: string | null;
   receivedAt?: string | null;
+  returnWarehouseInScope?: boolean;
 };
 
 type Lookup = { id: string; name: string; warehouseId?: string | null };
 
 const LABELS: { [key: string]: string } = {
-  start: "Gửi bảo trì bên ngoài",
+  prepare: "Chuẩn bị gửi sửa",
+  start: "Xác nhận xuất đi sửa",
   receive: "Nhận lại thiết bị",
   complete: "Nghiệm thu",
   cancel: "Hủy lịch",
@@ -62,7 +64,7 @@ export function MaintenanceActions({
   const [costs, setCosts] = useState<{ [key: string]: string }>({});
 
   useEffect(() => {
-    if (action !== "start" && action !== "return-receipt") return;
+    if (action !== "prepare" && action !== "return-receipt") return;
     let alive = true;
     const all = async (path: string) => {
       const rows: Lookup[] = [];
@@ -131,7 +133,11 @@ export function MaintenanceActions({
       {action && (
         <AssetMutationDialog
           title={LABELS[action]}
-          description="Ghi nhận bàn giao, kết quả và phiếu nhập lại của đúng thiết bị. Tồn kho chỉ cập nhật khi duyệt nhập."
+          description={
+            action === "start"
+              ? "Xác nhận thiết bị đã bàn giao thực tế cho đơn vị sửa. Thiết bị đang ở kho sẽ giảm tồn 1; chỉ xác nhận được một lần."
+              : "Ghi nhận bàn giao, kết quả và phiếu nhập lại của đúng thiết bị. Tồn kho chỉ cập nhật khi kho xác nhận."
+          }
           error={error}
           onError={setError}
           onReload={onSaved}
@@ -149,8 +155,8 @@ export function MaintenanceActions({
           }
           perform={async (data) => {
             let body: { [key: string]: unknown } = {};
-            if (action === "start") {
-              await request(`/maintenance-records/${record.id}`, {
+            if (action === "prepare")
+              return request(`/maintenance-records/${record.id}`, {
                 method: "PATCH",
                 params: { farmId },
                 data: {
@@ -160,7 +166,6 @@ export function MaintenanceActions({
                   ).toISOString(),
                 },
               });
-            }
             if (action === "receive")
               body = {
                 receivedAt: new Date(
@@ -195,7 +200,7 @@ export function MaintenanceActions({
           }}
         >
           {lookupError && <p role="alert">{lookupError}</p>}
-          {action === "start" && (
+          {action === "prepare" && (
             <>
               <label className="block">
                 Đơn vị bảo trì

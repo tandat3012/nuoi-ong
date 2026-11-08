@@ -27,7 +27,7 @@ export function HistoryEntry({ log, references, showEntity }: {
     ? { ...ASSET_STATUS_LABELS, ...ASSET_HISTORY_STATUS_LABELS }
     : log.entityType.endsWith("_REQUEST")
       ? REQUEST_STATUS_LABELS
-      : { ...RECEIPT_STATUS_LABELS, COUNTING: "Đang kiểm" };
+      : { ...RECEIPT_STATUS_LABELS, COUNTING: "Đang kiểm", IN_TRANSIT: "Đang chuyển" };
   const valueLabels: Record<string, Record<string, string>> = {
     status: statusLabels,
     membershipStatus: { ACTIVE: "Đang hoạt động", INACTIVE: "Ngừng hoạt động" },
@@ -44,7 +44,10 @@ export function HistoryEntry({ log, references, showEntity }: {
           ? formatInventoryQuantity(value)
           : value,
   });
-  const entityName = references[log.entityId] ?? "Không xác định";
+  // Store-wide rows (shipping fees) have no entity id; name them by type.
+  const entityName = log.entityId
+    ? references[log.entityId] ?? "Không xác định"
+    : label(HISTORY_ENTITY_LABELS, log.entityType);
   const initial = !log.oldData || log.action === "CREATE" || log.action === "ASSET_CREATED";
 
   return (

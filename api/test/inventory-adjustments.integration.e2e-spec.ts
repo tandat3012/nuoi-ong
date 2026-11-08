@@ -289,6 +289,11 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
         'ACTIVE',
       ],
     );
+    // The employee works in the active warehouse.
+    await pool.query(
+      'INSERT INTO farm_member_warehouses (farm_member_id,warehouse_id) VALUES ($1,$2)',
+      [employeeMemberId, warehouseId],
+    );
     await insertItem(quantityItemId, `${tag}-QTY`, 'QUANTITY');
     await insertItem(maximumItemId, `${tag}-MAX`, 'QUANTITY');
     await insertItem(receiptIssueItemId, `${tag}-FLOW`, 'QUANTITY');

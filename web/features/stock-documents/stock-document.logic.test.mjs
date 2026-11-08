@@ -77,6 +77,10 @@ test("API rejections become specific messages and decide whether to reload", () 
   );
   assert.match(stockDocumentErrorMessage(403, "Forbidden"), /không có quyền/);
   assert.match(
+    stockDocumentErrorMessage(409, "STOCK_COUNT_STALE"),
+    /Tồn kho đã thay đổi/,
+  );
+  assert.match(
     stockDocumentErrorMessage(409, "Only DRAFT receipts can be submitted"),
     /không gửi duyệt được/,
   );
@@ -171,7 +175,7 @@ test("labels an uncoded draft by its short id and keeps a permanent code", async
   const { documentCodeLabel } = await import("./stock-document.logic.ts");
   assert.equal(
     documentCodeLabel(null, "1a2b3c4d-0000-4000-8000-000000000000"),
-    "Nháp #1a2b3c4d",
+    "PN-1a2b3c4d",
   );
   assert.equal(
     documentCodeLabel("PN-2026-000001", "1a2b3c4d"),

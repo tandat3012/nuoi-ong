@@ -27,7 +27,7 @@ import { apiRequest, MobileApiError } from '@/src/shared/api/client';
 import { formatQuantity } from '@/src/shared/format-quantity';
 import { formatApiDateTime, formatVietnamDateOnly } from '@/src/shared/format-date-time';
 import { quantityInputNumber, validateQuantityInput } from '@/src/shared/quantity-input';
-import { balanceMatchesTrackingMode, documentCodeLabel, filterPositiveBalancesForScope, findInventoryLotsBySupplierNumber, listAvailableAssets, listBalances, listInventoryLots, listItems, listWarehouses, unwrap, type AvailableAsset, type InventoryBalance, type InventoryLot, type Item, type StockIssueDetail, type StockReceiptDetail } from '@/src/features/inventory/api';
+import { balanceMatchesTrackingMode, documentCodeLabel, filterPositiveBalancesForScope, findInventoryLotsBySupplierNumber, listActiveLocations, listAvailableAssets, listBalances, listInventoryLots, listItems, listWarehouses, unwrap, type AvailableAsset, type InventoryBalance, type InventoryLot, type Item, type StockIssueDetail, type StockReceiptDetail, type WarehouseLocation } from '@/src/features/inventory/api';
 import { receiptItemsPayload } from '@/src/features/inventory/receipt-payload';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
@@ -59,6 +59,9 @@ type ReceiptItem = {
   manufacturedDate?: string;
   assetCode?: string;
   serialNumber?: string;
+  locationId?: string | null;
+  locationCode?: string;
+  locationName?: string;
 };
 
 type LotDateField = 'manufacturedDate' | 'expiryDate';
@@ -85,6 +88,7 @@ function dateOnlyParts(value?: string | null) {
 function formatDateOnly(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
+
 
 
 function formatDisplayDate(dateStr?: string | null): string {
@@ -268,9 +272,14 @@ export default function ReceiptDetailScreen() {
   const [issueInventoryError, setIssueInventoryError] = useState<string | null>(null);
   const issueRequestId = useRef(0);
   const newReceiptLineId = useRef(0);
+
   const submittingDocument = useRef(false);
   const [warehousePickerOpen, setWarehousePickerOpen] = useState(false);
   const [warehouses, setWarehouses] = useState<Awaited<ReturnType<typeof listWarehouses>>['data']>([]);
+  const [locations, setLocations] = useState<WarehouseLocation[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
+  const [locationsError, setLocationsError] = useState<string | null>(null);
+  const [locationPickerItemId, setLocationPickerItemId] = useState<string | null>(null);
   const [createdDocumentId, setCreatedDocumentId] = useState<string | null>(null);
   const [exitPromptOpen, setExitPromptOpen] = useState(false);
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
@@ -374,6 +383,36 @@ export default function ReceiptDetailScreen() {
   }, [routeType]);
 
   useEffect(() => {
+    if (documentType !== 'receipt' || !currentFarmId || !warehouseId) {
+      setLocations([]);
+      setLocationsLoading(false);
+      setLocationsError(null);
+      return;
+    }
+    let cancelled = false;
+    setLocationsLoading(true);
+    setLocationsError(null);
+    void getAccessToken()
+      .then((token) => {
+        if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
+        return listActiveLocations(token, currentFarmId, warehouseId);
+      })
+      .then((rows) => {
+        if (!cancelled) setLocations(rows);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setLocations([]);
+          setLocationsError(cause instanceof Error ? cause.message : 'Không thể tải vị trí trong kho.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLocationsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [currentFarmId, documentType, getAccessToken, warehouseId]);
+
+  useEffect(() => {
     if (!params.id || !currentFarmId) {
       setLoading(false);
       return;
@@ -425,8 +464,12 @@ export default function ReceiptDetailScreen() {
           legacyLotNumber: line.legacyLotNumber ?? line.lotLegacyLotNumber ?? undefined,
           manufacturedDate: line.lotManufacturedDate ?? line.manufacturedDate ?? undefined,
           expiryDate: line.lotExpiryDate ?? line.expiryDate ?? undefined,
+
           assetCode: line.assetCode ?? line.assetCodeFromAsset ?? (item?.trackingMode === 'ASSET' ? suggestAssetCode(item.code) : undefined),
           serialNumber: line.serialNumber ?? line.assetSerialNumber ?? undefined,
+          locationId: line.locationId ?? null,
+          locationCode: line.locationCode ?? undefined,
+          locationName: line.locationName ?? undefined,
         };
       }));
       setDocumentError(null);
@@ -570,7 +613,7 @@ export default function ReceiptDetailScreen() {
   const actionLabel = documentType === 'receipt' ? 'Gửi duyệt Nhập kho' : 'Gửi duyệt Xuất kho';
   const canEditDocument = !params.id ? true : !loading && documentStatus === 'DRAFT';
   const title = documentNote || (documentType === 'receipt' ? 'Phiếu nhập kho' : 'Phiếu xuất kho');
-  const documentCode = params.id ? documentCodeLabel(savedCode, params.id) : 'Cấp khi xác nhận';
+  const documentCode = params.id ? documentCodeLabel(savedCode, params.id, documentType === 'receipt' ? 'PN' : 'PX') : 'Cấp khi xác nhận';
   const currentFarmName = data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.farm.name ?? (data?.memberships.length === 1 ? data.memberships[0]?.farm.name : undefined) ?? 'Chưa chọn trang trại';
   const selectedWarehouse = warehouses.find((warehouse) => warehouse.id === warehouseId);
   const warehouseInheritedFromInventory = !params.id && Boolean(params.warehouseId);
@@ -589,6 +632,7 @@ export default function ReceiptDetailScreen() {
     return day > 0 && day <= new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate() ? day : null;
   });
   const totalUnits = useMemo(() => documentItems.reduce((total, item) => total + item.quantity, 0), [documentItems]);
+
   const summaryItems = useMemo(() => {
     const groups = new Map<string, { name: string; quantity: number; unit: string }>();
     for (const item of documentItems) {
@@ -628,6 +672,7 @@ export default function ReceiptDetailScreen() {
     : data?.user.fullName || data?.user.email || 'Tài khoản hiện tại';
 
   function changeQuantity(id: string, change: number) {
+
     const selected = items.find((item) => item.id === id);
     if (!selected || selected.metadata === 'ASSET') return;
     const entered = selected.quantityInput ?? String(selected.quantity);
@@ -653,6 +698,7 @@ export default function ReceiptDetailScreen() {
     }));
   }
 
+
   function newAssetLine(item: ReceiptItem): ReceiptItem {
     return {
       ...item,
@@ -662,6 +708,9 @@ export default function ReceiptDetailScreen() {
       quantityInput: undefined,
       assetCode: suggestAssetCode(item.code),
       serialNumber: '',
+      locationId: item.locationId ?? null,
+      locationCode: item.locationCode,
+      locationName: item.locationName,
     };
   }
 
@@ -791,6 +840,7 @@ export default function ReceiptDetailScreen() {
       setPickerNotice(`${item.name} không có số dư tồn phù hợp tại kho đang chọn nên không thể thêm vào phiếu xuất.`);
       return;
     }
+
     const itemId = item.itemId ?? item.id;
     if (documentType === 'receipt' && item.metadata === 'ASSET') {
       const count = items.filter((line) => line.metadata === 'ASSET' && (line.itemId ?? line.id) === itemId).length;
@@ -968,6 +1018,10 @@ export default function ReceiptDetailScreen() {
       Alert.alert('Số lượng không hợp lệ', quantityError);
       return;
     }
+    if (quantityError) {
+      Alert.alert('Số lượng không hợp lệ', quantityError);
+      return;
+    }
     if (documentType === 'issue') {
       try {
         const token = await getAccessToken();
@@ -1010,6 +1064,11 @@ export default function ReceiptDetailScreen() {
       Alert.alert('Thiếu thông tin tài sản', `Tài sản “${missingAsset.name}” cần mã tài sản và số lượng bằng 1.`);
       return;
     }
+    const missingAssetLocation = documentType === 'receipt' && documentItems.find((item) => item.metadata === 'ASSET' && !item.locationId?.trim());
+    if (missingAssetLocation) {
+      Alert.alert('Thiếu vị trí', `Tài sản “${missingAssetLocation.name}” cần chọn vị trí trong kho.`);
+      return;
+    }
     if (documentType === 'receipt') {
       const assetCodes = new Set<string>();
       const serialNumbers = new Set<string>();
@@ -1044,13 +1103,14 @@ export default function ReceiptDetailScreen() {
         const createdDocument = documentType === 'receipt' ? (createdData as StockReceiptDetail).receipt : (createdData as StockIssueDetail).issue;
         id = createdDocument.id;
         setCreatedDocumentId(id);
+
         setSavedCode(documentType === 'receipt'
           ? (createdDocument as StockReceiptDetail['receipt']).receiptCode ?? null
           : (createdDocument as StockIssueDetail['issue']).issueCode ?? null);
         setDocumentDate(createdDocument.createdAt ?? null);
         setDocumentBusinessDate(documentType === 'receipt' ? (createdDocument as StockReceiptDetail['receipt']).receiptDate ?? businessDate : (createdDocument as StockIssueDetail['issue']).issueDate ?? businessDate);
         setCreatorMemberId(createdDocument.createdByMemberId ?? currentMemberId ?? null);
-      } else if (!params.id) {
+      } else if (canEditDocument) {
         await apiRequest(`/${base}/${id}`, { method: 'PATCH', token, params: { farmId: currentFarmId }, body });
       }
       await apiRequest(`/${base}/${id}/submit`, { method: 'POST', token, params: { farmId: currentFarmId } });
@@ -1134,7 +1194,7 @@ export default function ReceiptDetailScreen() {
               </View>
             </View>
 
-            <View style={detailView ? styles.detailSectionCard : undefined}>
+            <View style={[detailView && styles.detailSectionCard]} collapsable={false}>
             <View style={styles.sectionHeading}>
               <Text style={styles.sectionTitle}>Danh mục vật tư & mật</Text>
               <View style={styles.headingActions}>
@@ -1148,28 +1208,46 @@ export default function ReceiptDetailScreen() {
 
             {documentType === 'issue' && issueInventoryLoading ? <Text style={styles.documentMessage}>Đang xác thực tồn tại kho trước khi hiển thị vật phẩm xuất...</Text> : null}
             {documentType === 'issue' && issueInventoryError ? <Text style={styles.documentError}>{issueInventoryError}</Text> : null}
+
             {!params.id && !loading && !documentError && !issueInventoryLoading && documentItems.length === 0 ? <Pressable onPress={openItemPicker} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.emptyItems, pressed && styles.pressed]}><Icon name="add-circle-outline" size={24} color={colors.primary} /><Text style={styles.emptyItemsTitle}>Chưa có vật tư trong phiếu</Text><Text style={styles.emptyItemsText}>{documentType === 'issue' ? 'Chỉ vật phẩm có tồn tại kho đang chọn mới được thêm vào phiếu xuất.' : 'Chọn “Thêm mục” để thêm vật tư vào phiếu trước khi gửi duyệt.'}</Text></Pressable> : null}
-            {documentItems.map((item, index) => {
+            {documentItems.map((item) => {
               const itemId = item.itemId ?? item.id;
               const assetLines = documentType === 'receipt' && item.metadata === 'ASSET'
                 ? documentItems.filter((line) => line.metadata === 'ASSET' && (line.itemId ?? line.id) === itemId)
                 : [];
-              const firstAssetLine = assetLines.length > 0 && documentItems.findIndex((line) => line.id === assetLines[0].id) === index;
-              return <View key={item.id}>
-                {firstAssetLine && canEditDocument ? <AssetCountControl
-                  name={item.name}
-                  count={assetLines.length}
-                  input={assetCountDrafts[itemId] ?? String(assetLines.length)}
-                  onChangeText={(value) => setAssetCountDrafts((current) => ({ ...current, [itemId]: value }))}
-                  onCommit={() => commitAssetCount(item)}
-                  onAdjust={(change) => adjustAssetCount(item, change)}
-                /> : null}
-                <ItemCard item={item} documentType={documentType} editable={canEditDocument} detailView={detailView} onChangeQuantity={changeQuantity} onChangeQuantityInput={changeQuantityInput} onChangeField={updateItemField} onGenerateAssetCode={() => updateItemField(item.id, 'assetCode', suggestAssetCode(item.code))} onChooseExistingLot={() => void openLotPicker(item)} onSelectSuggestedLot={(lot) => chooseLot(lot, item)} onCreateNewLot={() => switchToNewLot(item)} onAddNewLot={() => addNewLotLine(item)} onPickDate={(field, value) => openCalendar(item.id, field, value)} onRemove={() => setItems((current) => current.filter((currentItem) => currentItem.id !== item.id))} onOpenDetail={() => openItemDetails(item)} />
-              </View>;
+              const assetIndex = assetLines.findIndex((line) => line.id === item.id);
+              return (
+                <ItemCard
+                  key={item.id}
+                  item={item}
+                  documentType={documentType}
+                  editable={canEditDocument}
+                  detailView={detailView}
+                  assetCount={assetLines.length}
+                  assetIndex={assetIndex >= 0 ? assetIndex + 1 : undefined}
+                  assetCountInput={assetCountDrafts[itemId] ?? String(assetLines.length)}
+                  onChangeAssetCountText={(value) => setAssetCountDrafts((current) => ({ ...current, [itemId]: value }))}
+                  onCommitAssetCount={() => commitAssetCount(item)}
+                  onAdjustAssetCount={(change) => adjustAssetCount(item, change)}
+                  locationLabel={(() => { const loc = locations.find((entry) => entry.id === item.locationId); const code = loc?.code ?? item.locationCode; const name = loc?.name ?? item.locationName; return code && name ? `${code} · ${name}` : code || name || undefined; })()}
+                  onChooseLocation={() => setLocationPickerItemId(item.id)}
+                  onChangeQuantity={changeQuantity}
+                  onChangeQuantityInput={changeQuantityInput}
+                  onChangeField={updateItemField}
+                  onGenerateAssetCode={() => updateItemField(item.id, 'assetCode', suggestAssetCode(item.code))}
+                  onChooseExistingLot={() => void openLotPicker(item)}
+                  onSelectSuggestedLot={(lot) => chooseLot(lot, item)}
+                  onCreateNewLot={() => switchToNewLot(item)}
+                  onAddNewLot={() => addNewLotLine(item)}
+                  onPickDate={(field, value) => openCalendar(item.id, field, value)}
+                  onRemove={() => setItems((current) => current.filter((currentItem) => currentItem.id !== item.id))}
+                  onOpenDetail={() => openItemDetails(item)}
+                />
+              );
             })}
             </View>
 
-            <View style={detailView ? styles.detailSectionCard : undefined}>
+            <View style={[detailView && styles.detailSectionCard]} collapsable={false}>
             <View style={[styles.summaryCard, shadows.surface, detailView && styles.detailCardContent]}>
               <View style={styles.summaryIcon}><Icon name="summarize" size={23} color={colors.primary} /></View>
               <View style={styles.summaryMain}>
@@ -1235,6 +1313,7 @@ export default function ReceiptDetailScreen() {
             {documentType === 'receipt' ? <Text style={styles.pickerHint}>Mã mặt hàng được lấy từ danh mục. Mặt hàng chưa có cần được quản lý tạo trên web.</Text> : null}
             <ScrollView contentContainerStyle={styles.pickerList} showsVerticalScrollIndicator={false}>
               {pickerItems.map((item) => {
+
                 const selectedLines = items.filter((selectedItem) => (selectedItem.itemId ?? selectedItem.id) === (item.itemId ?? item.id)
                   && (documentType === 'receipt' && item.metadata === 'LOT' || (selectedItem.lotId ?? null) === (item.lotId ?? null))
                   && (documentType !== 'issue' || (selectedItem.assetId ?? null) === (item.assetId ?? null)));
@@ -1250,6 +1329,7 @@ export default function ReceiptDetailScreen() {
                     </View>
                     <View style={styles.pickerItemCopy}>
                       <Text style={styles.pickerItemName} numberOfLines={2}>{item.name}</Text>
+
                       <Text style={styles.pickerItemMeta} numberOfLines={2}>{item.metadata === 'LOT' && documentType === 'issue' ? `Lô ${item.lotCode ?? item.code} • Còn ${formatQuantity(item.availableQuantity ?? 0)} ${item.unit}` : `${item.code} • ${item.metadata === 'ASSET' ? 'Tài sản' : item.metadata === 'LOT' ? 'Theo lô' : 'Theo số lượng'}`}</Text>
                       {lotStatus ? <Text style={[styles.lotStatus, lotStatus.expired && styles.lotExpired, lotStatus.warning && !lotStatus.expired && styles.lotExpiring]}>{lotStatus.label}{item.expiryDate ? ` · HSD ${item.expiryDate}` : ''}{lotStatus.expired ? ' · Cần xác nhận khi chọn' : ''}</Text> : null}
                     </View>
@@ -1315,12 +1395,55 @@ export default function ReceiptDetailScreen() {
               <Pressable onPress={() => setWarehousePickerOpen(false)} style={styles.pickerClose} accessibilityLabel="Đóng danh sách kho"><Icon name="close" size={20} color={colors.onSurfaceVariant} /></Pressable>
             </View>
             <ScrollView contentContainerStyle={styles.pickerList}>
-              {warehouses.map((warehouse) => <Pressable key={warehouse.id} onPress={() => { setWarehouseId(warehouse.id); setWarehousePickerOpen(false); }} style={({ pressed }) => [styles.pickerItem, warehouse.id === warehouseId && styles.pickerItemActive, pressed && styles.pressed]}>
+              {warehouses.map((warehouse) => <Pressable key={warehouse.id} onPress={() => { if (warehouse.id !== warehouseId) { setItems((current) => current.map((entry) => ({ ...entry, locationId: null, locationCode: undefined, locationName: undefined }))); } setWarehouseId(warehouse.id); setWarehousePickerOpen(false); }} style={({ pressed }) => [styles.pickerItem, warehouse.id === warehouseId && styles.pickerItemActive, pressed && styles.pressed]}>
                 <View style={styles.pickerItemIcon}><Icon name="warehouse" size={20} color={colors.primary} /></View>
                 <View style={styles.pickerItemCopy}><Text style={styles.pickerItemName}>{warehouse.name}</Text><Text style={styles.pickerItemMeta}>{warehouse.code}</Text></View>
                 {warehouse.id === warehouseId ? <Icon name="check-circle" color={colors.statusSuccess} /> : <Icon name="radio-button-unchecked" color={colors.outline} />}
               </Pressable>)}
               {warehouses.length === 0 ? <Text style={styles.emptyItemsText}>Farm chưa có kho đang hoạt động.</Text> : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={Boolean(locationPickerItemId)} transparent animationType="slide" onRequestClose={() => setLocationPickerItemId(null)}>
+        <View style={styles.pickerBackdrop}>
+          <View style={styles.pickerSheet}>
+            <View style={styles.pickerHeader}>
+              <View style={styles.pickerHeaderCopy}>
+                <Text style={styles.pickerEyebrow}>VỊ TRÍ LƯU KHO</Text>
+                <Text style={styles.pickerTitle}>Chọn vị trí cho tài sản</Text>
+                <Text style={styles.pickerItemMeta}>{selectedWarehouse?.name ?? 'Kho đang chọn'}</Text>
+              </View>
+              <Pressable onPress={() => setLocationPickerItemId(null)} style={styles.pickerClose} accessibilityLabel="Đóng danh sách vị trí"><Icon name="close" size={20} color={colors.onSurfaceVariant} /></Pressable>
+            </View>
+            {locationsLoading ? <Text style={styles.documentMessage}>Đang tải vị trí lưu kho...</Text> : null}
+            {locationsError ? <Text style={styles.documentError}>{locationsError}</Text> : null}
+            <ScrollView contentContainerStyle={styles.pickerList}>
+              {locations.map((loc) => {
+                const targetItem = items.find((entry) => entry.id === locationPickerItemId);
+                const selected = targetItem?.locationId === loc.id;
+                return (
+                  <Pressable
+                    key={loc.id}
+                    onPress={() => {
+                      if (locationPickerItemId) {
+                        setItems((current) => current.map((entry) => entry.id === locationPickerItemId ? { ...entry, locationId: loc.id, locationCode: loc.code, locationName: loc.name } : entry));
+                      }
+                      setLocationPickerItemId(null);
+                    }}
+                    style={({ pressed }) => [styles.pickerItem, selected && styles.pickerItemActive, pressed && styles.pressed]}
+                  >
+                    <View style={styles.pickerItemIcon}><Icon name="place" size={20} color={colors.primary} /></View>
+                    <View style={styles.pickerItemCopy}>
+                      <Text style={styles.pickerItemName}>{loc.name}</Text>
+                      <Text style={styles.pickerItemMeta}>{loc.code}</Text>
+                    </View>
+                    {selected ? <Icon name="check-circle" color={colors.statusSuccess} /> : <Icon name="radio-button-unchecked" color={colors.outline} />}
+                  </Pressable>
+                );
+              })}
+              {!locationsLoading && !locationsError && locations.length === 0 ? <Text style={styles.emptyItemsText}>Kho này chưa có vị trí đang hoạt động. Vui lòng tạo vị trí lưu kho trước khi nhập tài sản.</Text> : null}
             </ScrollView>
           </View>
         </View>
@@ -1360,7 +1483,7 @@ export default function ReceiptDetailScreen() {
         visible={successDialogOpen}
         title={`Phiếu ${documentType === 'receipt' ? 'nhập' : 'xuất'} đã gửi duyệt`}
         details={[
-          { label: 'Mã phiếu', value: savedCode ?? (createdDocumentId ? `#${createdDocumentId.slice(0, 8)}` : (params.id ? `#${params.id.slice(0, 8)}` : '—')) },
+          { label: 'Mã phiếu', value: savedCode ?? (createdDocumentId ? documentCodeLabel(null, createdDocumentId, documentType === 'receipt' ? 'PN' : 'PX') : (params.id ? documentCodeLabel(null, params.id, documentType === 'receipt' ? 'PN' : 'PX') : '—')) },
           { label: 'Kho', value: selectedWarehouse?.name ?? '—' },
           { label: 'Ngày phiếu', value: documentBusinessDate ? formatDisplayDate(documentBusinessDate) : '—' },
         ]}
@@ -1384,50 +1507,11 @@ function InfoBlock({ label, icon, children }: { label: string; icon: IconName; c
   );
 }
 
-function AssetCountControl({ name, count, input, onChangeText, onCommit, onAdjust }: { name: string; count: number; input: string; onChangeText: (value: string) => void; onCommit: () => void; onAdjust: (change: number) => void }) {
-  const minusDisabled = count <= 1;
-  const plusDisabled = count >= MAX_ASSETS_PER_ITEM;
-  return <View style={styles.assetCountCard}>
-    <Text style={styles.assetCountTitle}>Số tài sản: {name}</Text>
-    <View style={styles.assetCountRow}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Giảm số tài sản ${name}`}
-        disabled={minusDisabled}
-        onPress={() => onAdjust(-1)}
-        android_ripple={{ color: colors.primaryFixed, borderless: false }}
-        style={({ pressed }) => [styles.assetStepBtn, minusDisabled && styles.assetStepBtnDisabled, pressed && !minusDisabled && styles.pressed]}
-      >
-        <Text style={[styles.assetStepBtnText, minusDisabled && styles.assetStepBtnTextDisabled]}>−</Text>
-      </Pressable>
-      <TextInput
-        accessibilityLabel={`Nhập số tài sản ${name}`}
-        value={input}
-        onChangeText={onChangeText}
-        onBlur={onCommit}
-        onSubmitEditing={onCommit}
-        selectTextOnFocus
-        keyboardType="number-pad"
-        maxLength={3}
-        style={styles.assetCountInput}
-      />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Tăng số tài sản ${name}`}
-        disabled={plusDisabled}
-        onPress={() => onAdjust(1)}
-        android_ripple={{ color: colors.primaryFixed, borderless: false }}
-        style={({ pressed }) => [styles.assetStepBtn, plusDisabled && styles.assetStepBtnDisabled, pressed && !plusDisabled && styles.pressed]}
-      >
-        <Text style={[styles.assetStepBtnText, plusDisabled && styles.assetStepBtnTextDisabled]}>+</Text>
-      </Pressable>
-      <Text style={styles.assetCountUnit}>cá thể</Text>
-    </View>
-    <Text style={styles.assetCountHint}>Mỗi tài sản có mã riêng. Nhập từ 1 đến {MAX_ASSETS_PER_ITEM} tài sản mỗi loại trên phiếu.</Text>
-  </View>;
-}
 
-function ItemCard({ item, documentType, editable, detailView, onChangeQuantity, onChangeQuantityInput, onChangeField, onGenerateAssetCode, onChooseExistingLot, onSelectSuggestedLot, onCreateNewLot, onAddNewLot, onPickDate, onRemove, onOpenDetail }: { item: ReceiptItem; documentType: DocumentType; editable: boolean; detailView: boolean; onChangeQuantity: (id: string, change: number) => void; onChangeQuantityInput: (id: string, value: string) => void; onChangeField: (id: string, field: 'supplierLotNumber' | 'manufacturedDate' | 'expiryDate' | 'assetCode' | 'serialNumber', value: string) => void; onGenerateAssetCode: () => void; onChooseExistingLot: () => void; onSelectSuggestedLot: (lot: InventoryLot) => void; onCreateNewLot: () => void; onAddNewLot: () => void; onPickDate: (field: LotDateField, value?: string) => void; onRemove: () => void; onOpenDetail: () => void }) {
+function ItemCard({ item, documentType, editable, detailView, assetCount = 1, assetIndex, assetCountInput, onChangeAssetCountText, onCommitAssetCount, onAdjustAssetCount, locationLabel, onChooseLocation, onChangeQuantity, onChangeQuantityInput, onChangeField, onGenerateAssetCode, onChooseExistingLot, onSelectSuggestedLot, onCreateNewLot, onAddNewLot, onPickDate, onRemove, onOpenDetail }: { item: ReceiptItem; documentType: DocumentType; editable: boolean; detailView: boolean; assetCount?: number; assetIndex?: number; assetCountInput?: string; onChangeAssetCountText?: (value: string) => void; onCommitAssetCount?: () => void; onAdjustAssetCount?: (change: number) => void; locationLabel?: string; onChooseLocation: () => void; onChangeQuantity: (id: string, change: number) => void; onChangeQuantityInput: (id: string, value: string) => void; onChangeField: (id: string, field: 'supplierLotNumber' | 'manufacturedDate' | 'expiryDate' | 'assetCode' | 'serialNumber', value: string) => void; onGenerateAssetCode: () => void; onChooseExistingLot: () => void; onSelectSuggestedLot: (lot: InventoryLot) => void; onCreateNewLot: () => void; onAddNewLot: () => void; onPickDate: (field: LotDateField, value?: string) => void; onRemove: () => void; onOpenDetail: () => void }) {
+  const isReceiptAsset = documentType === 'receipt' && item.metadata === 'ASSET';
+  const assetMinusDisabled = assetCount <= 1;
+  const assetPlusDisabled = assetCount >= MAX_ASSETS_PER_ITEM;
   const badgeStyle = item.badgeTone === 'green' ? styles.badgeGreen : item.badgeTone === 'amber' ? styles.badgeAmber : styles.badgeCream;
   const quantityError = editable && item.metadata !== 'ASSET'
     ? validateQuantityInput(item.quantityInput ?? String(item.quantity), { max: documentType === 'issue' ? item.availableQuantity : undefined })
@@ -1462,14 +1546,46 @@ function ItemCard({ item, documentType, editable, detailView, onChangeQuantity, 
         </View>
       </View>
       <View style={styles.quantityBox}>
-        <Text style={styles.quantityLabel}>{documentType === 'receipt' && item.metadata === 'ASSET' ? 'Mỗi tài sản' : 'Số lượng'}</Text>
+        <Text style={styles.quantityLabel}>{isReceiptAsset ? `Số tài sản (${assetCount > 1 && assetIndex ? `Cá thể ${assetIndex}/${assetCount} · ` : ''}1–${MAX_ASSETS_PER_ITEM} cá thể)` : 'Số lượng'}</Text>
         <View style={styles.quantityControls}>
-          {editable && item.metadata !== 'ASSET' ? <Pressable onPress={() => onChangeQuantity(item.id, -1)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.quantityButton, pressed && styles.pressed]} accessibilityLabel={`Giảm ${item.name}`}><Text style={styles.quantityButtonText}>−</Text></Pressable> : null}
-          {editable && item.metadata !== 'ASSET'
-            ? <TextInput value={item.quantityInput ?? formatQuantity(item.quantity)} onChangeText={(value) => onChangeQuantityInput(item.id, value)} keyboardType="decimal-pad" selectTextOnFocus accessibilityLabel={`Số lượng ${item.name}`} style={[styles.quantityInput, quantityError && styles.quantityInputError]} />
-            : <Text style={styles.quantityValue}>{formatQuantity(item.quantity)}</Text>}
-          {editable && item.metadata !== 'ASSET' ? <Pressable onPress={() => onChangeQuantity(item.id, 1)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.quantityButton, pressed && styles.pressed]} accessibilityLabel={`Tăng ${item.name}`}><Text style={styles.quantityButtonText}>+</Text></Pressable> : null}
-          <Text style={styles.unitText}>{item.unit}</Text>
+          {editable ? (
+            <Pressable
+              disabled={isReceiptAsset && assetMinusDisabled}
+              onPress={() => isReceiptAsset ? onAdjustAssetCount?.(-1) : onChangeQuantity(item.id, -1)}
+              android_ripple={{ color: colors.primaryFixed }}
+              style={({ pressed }) => [styles.quantityButton, isReceiptAsset && assetMinusDisabled && styles.assetStepBtnDisabled, pressed && styles.pressed]}
+              accessibilityLabel={`Giảm ${item.name}`}
+            >
+              <Text style={styles.quantityButtonText}>−</Text>
+            </Pressable>
+          ) : null}
+          {editable
+            ? (
+              <TextInput
+                value={isReceiptAsset ? (assetCountInput ?? String(assetCount)) : (item.quantityInput ?? formatQuantity(item.quantity))}
+                onChangeText={(value) => isReceiptAsset ? onChangeAssetCountText?.(value) : onChangeQuantityInput(item.id, value)}
+                onBlur={isReceiptAsset ? onCommitAssetCount : undefined}
+                onSubmitEditing={isReceiptAsset ? onCommitAssetCount : undefined}
+                keyboardType={isReceiptAsset ? 'number-pad' : 'decimal-pad'}
+                maxLength={isReceiptAsset ? 3 : undefined}
+                selectTextOnFocus
+                accessibilityLabel={`Số lượng ${item.name}`}
+                style={[styles.quantityInput, quantityError && styles.quantityInputError]}
+              />
+            )
+            : <Text style={styles.quantityValue}>{formatQuantity(isReceiptAsset ? 1 : item.quantity)}</Text>}
+          {editable ? (
+            <Pressable
+              disabled={isReceiptAsset && assetPlusDisabled}
+              onPress={() => isReceiptAsset ? onAdjustAssetCount?.(1) : onChangeQuantity(item.id, 1)}
+              android_ripple={{ color: colors.primaryFixed }}
+              style={({ pressed }) => [styles.quantityButton, isReceiptAsset && assetPlusDisabled && styles.assetStepBtnDisabled, pressed && styles.pressed]}
+              accessibilityLabel={`Tăng ${item.name}`}
+            >
+              <Text style={styles.quantityButtonText}>+</Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.unitText}>{isReceiptAsset ? `cá thể (${item.unit})` : item.unit}</Text>
         </View>
       </View>
       {quantityError ? <Text style={styles.quantityError}>{quantityError}</Text> : null}
@@ -1503,6 +1619,10 @@ function ItemCard({ item, documentType, editable, detailView, onChangeQuantity, 
           {editable ? <Pressable accessibilityRole="button" accessibilityLabel={`Tạo mã tài sản khác cho ${item.name}`} onPress={onGenerateAssetCode} style={styles.generateCodeButton}><Icon name="autorenew" size={19} color={colors.primary} /></Pressable> : null}
         </View>
         <TextInput value={item.serialNumber ?? ''} onChangeText={(value) => onChangeField(item.id, 'serialNumber', value)} editable={editable} placeholder="Số serial (không bắt buộc)" placeholderTextColor={colors.onSurfaceVariant} style={[styles.trackingInput, !editable && styles.readOnlyControl]} />
+        <Pressable disabled={!editable} onPress={onChooseLocation} accessibilityRole="button" accessibilityLabel={`Chọn vị trí lưu kho cho ${item.name}`} style={[styles.datePickerButton, !editable && styles.readOnlyControl]}>
+          <Icon name="place" size={17} color={colors.primary} />
+          <Text style={styles.datePickerText}>{locationLabel ? `Vị trí: ${locationLabel}` : (editable ? 'Chọn vị trí lưu kho *' : 'Chưa gắn vị trí lưu kho')}</Text>
+        </Pressable>
       </View> : null}
       {item.note.trim() ? <View style={styles.itemNote}><Icon name="info-outline" size={16} color={colors.tertiary} /><Text style={styles.noteText}>{item.note}</Text></View> : null}
       <View style={styles.itemFooter}>
@@ -1634,6 +1754,7 @@ const styles = StyleSheet.create({
   quantityInputError: { borderColor: colors.error },
   quantityError: { ...typography.bodySm, color: colors.error, marginTop: 4 },
   unitText: { ...typography.bodySm, color: colors.onSurfaceVariant, flexShrink: 1 },
+
   assetCountCard: { marginBottom: spacing.spaceSm, padding: spacing.spaceMd, borderRadius: radius.default, borderWidth: 1, borderColor: colors.outlineVariant, backgroundColor: colors.parchment, gap: spacing.spaceSm },
   assetCountTitle: { ...typography.labelLg, color: colors.deepAmberStrong },
   assetCountRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceMd },

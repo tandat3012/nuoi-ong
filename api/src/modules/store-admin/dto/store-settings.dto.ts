@@ -1,13 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
-  ArrayUnique,
   IsArray,
   IsBoolean,
   IsIn,
   IsOptional,
   IsUUID,
 } from 'class-validator';
+import { IsVndAmount } from '../../../common/money';
 import { storeRegion } from '../../../db/schema';
 
 type StoreRegion = (typeof storeRegion.enumValues)[number];
@@ -32,19 +32,6 @@ export class UpdateStoreSettingsDto {
   @ArrayMaxSize(storeRegion.enumValues.length)
   @IsIn(storeRegion.enumValues, { each: true })
   regions!: StoreRegion[];
-
-  @ApiPropertyOptional({
-    format: 'uuid',
-    isArray: true,
-    description:
-      'Kho làm việc của trại bù hàng cho kho bán; thay toàn bộ danh sách. Bỏ trống thì giữ nguyên.',
-  })
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(50)
-  @ArrayUnique()
-  @IsUUID('all', { each: true })
-  sourceWarehouseIds?: string[];
 }
 
 export class SetStoreVariantItemDto {
@@ -54,4 +41,19 @@ export class SetStoreVariantItemDto {
   })
   @IsUUID()
   itemId!: string;
+}
+
+/** All three regions at once, so a region can never be left without a fee. */
+export class UpdateStoreShippingFeesDto implements Record<StoreRegion, string> {
+  @ApiProperty({ example: '40000', description: 'Phí giao miền Bắc (VNĐ).' })
+  @IsVndAmount()
+  NORTH!: string;
+
+  @ApiProperty({ example: '20000', description: 'Phí giao miền Trung (VNĐ).' })
+  @IsVndAmount()
+  CENTRAL!: string;
+
+  @ApiProperty({ example: '30000', description: 'Phí giao miền Nam (VNĐ).' })
+  @IsVndAmount()
+  SOUTH!: string;
 }

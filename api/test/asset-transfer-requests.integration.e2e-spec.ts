@@ -159,6 +159,15 @@ describe('Asset transfer requests', () => {
         { id: source, farmId: farm, code: 'SOURCE', name: tag },
         { id: target, farmId: farm, code: 'TARGET', name: tag },
       ]);
+      // Employees work in both warehouses.
+      await tx.insert(schema.farmMemberWarehouses).values(
+        [actors.creator, actors.peer].flatMap((actor) =>
+          [source, target].map((warehouseId) => ({
+            farmMemberId: actor.member,
+            warehouseId,
+          })),
+        ),
+      );
       await tx.insert(schema.locations).values([
         {
           id: sourceShelf,
@@ -207,6 +216,10 @@ describe('Asset transfer requests', () => {
         await cleanRequests();
         await pool.query('DELETE FROM assets WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM locations WHERE farm_id=$1', [farm]);
+        await pool.query(
+          'DELETE FROM farm_member_warehouses WHERE farm_member_id=ANY($1::uuid[])',
+          [memberIds],
+        );
         await pool.query('DELETE FROM warehouses WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM items WHERE id=$1', [item]);
         await pool.query('DELETE FROM categories WHERE id=$1', [category]);
@@ -424,7 +437,9 @@ describe('Asset transfer requests', () => {
       ...page,
     });
     expect(reviewerHistory.data.map((log) => log.action).sort()).toEqual([
-      'CREATE', 'REJECT',
+
+      'CREATE',
+      'REJECT',
     ]);
   });
 

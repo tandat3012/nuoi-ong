@@ -176,7 +176,8 @@ This addendum supersedes conflicting proposals, open questions, and acceptance c
 | --- | --- |
 | `WAREHOUSE_MANAGER` | Manages all warehouses in the farm, materials, equipment, assets, and maintenance. Can manage and approve all stock documents, adjust inventory, maintain warehouse master data, assign/return/transfer assets, manage asset lifecycle operations, schedule and record maintenance including costs/results, and approve maintenance and asset transfer requests, subject to existing business validations. Has no internal store management access unless another assigned role grants it. |
 | `STORE_MANAGER` | Fully manages store products, prices, images, orders, and sales/revenue reports. Cannot access warehouse, asset, or maintenance modules or their general read APIs unless another role grants access. A restricted store-owned material lookup is allowed as described below. |
-| `EMPLOYEE` | Loses order management access. Retains existing employee workflows: creating/submitting their own stock documents, requesting maintenance and asset transfers, viewing the warehouse portion of the dashboard, and viewing their own audit activity. Existing employee ownership and approval restrictions remain in place. |
+| `DELIVERY_STAFF` | Delivers storefront orders only: sees `/deliveries`, takes a confirmed order whose stock issue is approved (becomes its shipper), marks it delivered (COD cash counted as collected by them) or returns it to the queue with a reason. Cannot confirm, cancel or view the order list, products or reports. |
+| `EMPLOYEE` | Loses order management access but may deliver orders like `DELIVERY_STAFF`. Retains existing employee workflows: creating/submitting their own stock documents, requesting maintenance and asset transfers, viewing the warehouse portion of the dashboard, and viewing their own audit activity. Existing employee ownership and approval restrictions remain in place. |
 | `FARM_OWNER` | Retains full operational access within the farm and can assign the two new operational roles without requiring `ADMIN`. Existing personnel and owner safeguards remain unchanged. |
 
 Warehouse managers may process stock documents containing `ASSET` lines, including the resulting creation or update of asset records. This is explicitly within their responsibility.
@@ -198,6 +199,7 @@ FARM_ADMIN_ROLES = ['ADMIN', 'FARM_OWNER'];
 WAREHOUSE_MANAGE_ROLES = [...FARM_ADMIN_ROLES, 'WAREHOUSE_MANAGER'];
 STOCK_WRITE_ROLES = [...WAREHOUSE_MANAGE_ROLES, 'EMPLOYEE'];
 STORE_MANAGE_ROLES = [...FARM_ADMIN_ROLES, 'STORE_MANAGER'];
+STORE_DELIVERY_ROLES = [...STORE_MANAGE_ROLES, 'EMPLOYEE', 'DELIVERY_STAFF'];
 FARM_AREA_ROLES = [...STOCK_WRITE_ROLES, 'GUEST'];
 ```
 

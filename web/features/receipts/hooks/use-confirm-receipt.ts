@@ -5,6 +5,7 @@ import { useAuthenticatedRequest } from "@/features/auth/hooks/use-authenticated
 import { ApiError } from "@/shared/api/client";
 import { shouldReloadAfterFailure } from "@/features/stock-documents/stock-document.logic";
 import { confirmReceipt } from "../api/receipts.api";
+import { knownReceiptError } from "../components/receipt-draft.logic";
 
 export function useConfirmReceipt(
   farmId: string,
@@ -45,7 +46,8 @@ export function useConfirmReceipt(
               : failure instanceof ApiError && failure.status === 409
                 ? `Không thể xác nhận phiếu nhập: ${failure.message}`
                 : failure instanceof ApiError && failure.status === 400
-                  ? `Phiếu nhập chưa hợp lệ: ${failure.message}`
+                  ? (knownReceiptError(failure.message) ??
+                    `Phiếu nhập chưa hợp lệ: ${failure.message}`)
                   : "Chưa xác nhận được kết quả xác nhận. Hãy tải lại chi tiết trước khi thử lại.";
       setError(message);
       if (

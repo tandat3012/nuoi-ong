@@ -18,7 +18,17 @@ export type MaintenanceWorkflow = {
   status: string;
   returnStatus: string | null;
   receivedAt?: string | null;
+  supplierId?: string | null;
+  expectedReturnAt?: string | null;
+  /** False when the asset returns to a warehouse the viewer is not assigned to; that warehouse reviews it. */
+  returnWarehouseInScope?: boolean;
 };
+
+const readyToSend = (record: MaintenanceWorkflow) =>
+  !!record.supplierId && !!record.expectedReturnAt;
+/** A warehouse manager of the receiving warehouse reviews the return. */
+const reviewsReturn = (record: MaintenanceWorkflow, roles: readonly string[]) =>
+  hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES) && record.returnWarehouseInScope !== false;
 export const MAINTENANCE_STATUSES: Record<string, string> = {
   SCHEDULED: "Đã lên lịch",
   IN_PROGRESS: "Đang bảo trì bên ngoài",
@@ -44,10 +54,13 @@ export function maintenanceActions(
   const worker = hasAnyRole(roles, MAINTENANCE_WORK_ROLES);
   const manager = hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES);
   if (record.returnStatus === "PENDING_APPROVAL")
-    return manager ? ["return-receipt/approve", "return-receipt/reject"] : [];
+    return reviewsReturn(record, roles) ? ["return-receipt/approve", "return-receipt/reject"] : [];
+  // The coordinator picks partner and return date; only the warehouse confirms the
+  // physical hand-over, which moves stock (AC10).
   if (record.status === "SCHEDULED")
     return [
-      ...(worker ? ["start"] : []),
+      ...(worker && !readyToSend(record) ? ["prepare"] : []),
+      ...(manager && readyToSend(record) ? ["start"] : []),
       ...(worker || manager ? ["cancel"] : []),
     ];
   if (!worker) return [];
@@ -67,19 +80,25 @@ export function maintenanceNextStep(
   roles: readonly string[],
 ): string {
   if (record.returnStatus === "PENDING_APPROVAL")
-    return hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES)
+    return reviewsReturn(record, roles)
       ? "Kiểm tra kết quả và duyệt nhập lại kho."
-      : "Chờ quản lý kho duyệt phiếu nhập lại.";
+      : hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES)
+        ? "Thiết bị trả về kho khác · Chờ quản lý kho đó duyệt nhập lại."
+        : "Chờ quản lý kho duyệt phiếu nhập lại.";
   if (record.returnStatus === "CONFIRMED")
     return record.status === "FAILED"
       ? "Đã nhập kho · Thiết bị chưa được phép sử dụng."
       : "Đã nhập kho · Thiết bị sẵn sàng sử dụng.";
   if (record.returnStatus === "REJECTED")
     return "Nhân viên bảo trì cần chỉnh phiếu và gửi lại.";
-  if (record.status === "SCHEDULED")
+  if (record.status === "SCHEDULED" && !readyToSend(record))
     return hasAnyRole(roles, MAINTENANCE_WORK_ROLES)
-      ? "Chọn đơn vị và ngày hẹn trả để gửi thiết bị."
-      : "Chờ nhân viên bảo trì gửi thiết bị.";
+      ? "Chọn đơn vị và ngày hẹn trả để chuẩn bị gửi thiết bị."
+      : "Chờ nhân viên bảo trì chọn đơn vị và ngày hẹn trả.";
+  if (record.status === "SCHEDULED")
+    return hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES)
+      ? "Kiểm tra thiết bị và xác nhận xuất đi sửa."
+      : "Chờ quản lý kho xác nhận xuất thiết bị đi sửa.";
   if (record.status === "IN_PROGRESS")
     return "Nhân viên bảo trì xác nhận khi nhận lại thiết bị.";
   if (record.status === "RECEIVED")

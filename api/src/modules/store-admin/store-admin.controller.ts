@@ -40,6 +40,7 @@ import {
   ApiUuidQuery,
 } from '../../common/swagger-docs';
 import { storeProductStatus } from '../../db/schema';
+import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import {
@@ -70,9 +71,10 @@ import {
 import {
   SetStoreVariantItemDto,
   UpdateStoreSettingsDto,
+  UpdateStoreShippingFeesDto,
 } from './dto/store-settings.dto';
 
-// The catalog is shared by every farm, so only system admins edit it.
+// The catalog and delivery fees are shared by every farm, so only ADMIN edits them.
 const CATALOG_ROLE = 'ADMIN';
 
 @Controller('store-admin')
@@ -83,7 +85,7 @@ const CATALOG_ROLE = 'ADMIN';
 @ApiFarmIdQuery()
 @ApiForbiddenResponse({
   description:
-    'Xem catalog: quản trị viên, chủ trại, quản lý cửa hàng. Sửa catalog chung: chỉ ADMIN. Cấu hình bán của trại: ADMIN hoặc chủ trại.',
+    'Xem catalog: quản trị viên, chủ trại, quản lý cửa hàng. Sửa catalog và phí giao hàng chung: chỉ ADMIN. Cấu hình bán của trại: ADMIN hoặc chủ trại.',
 })
 export class StoreAdminController {
   constructor(private readonly storeAdminService: StoreAdminService) {}
@@ -322,6 +324,27 @@ export class StoreAdminController {
     return {
       data: await this.storeAdminService.getSettings(
         requireUuid(farmId, 'farmId'),
+      ),
+    };
+  }
+
+  @Put('shipping-fees')
+  @FarmRoles(CATALOG_ROLE)
+  @ApiOperation({
+    summary: 'Sửa phí giao hàng theo miền (dùng chung mọi trại)',
+    description:
+      'Chỉ ADMIN. Áp dụng cho đơn đặt sau khi lưu; đơn đã đặt giữ phí cũ. Mỗi lần lưu ghi một dòng lịch sử (SHIPPING_FEES_UPDATED) vào trại đang thao tác. Đọc phí hiện tại qua GET /store/shipping-fees.',
+  })
+  async updateShippingFees(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Body() input: UpdateStoreShippingFeesDto,
+  ) {
+    return {
+      data: await this.storeAdminService.updateShippingFees(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input,
       ),
     };
   }

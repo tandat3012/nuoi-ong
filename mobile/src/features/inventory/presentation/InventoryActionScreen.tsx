@@ -27,7 +27,7 @@ async function listMaintenanceAssets(token: string, farmId: string) {
 
 const screenCopy: Record<InventoryActionMode, { title: string; subtitle: string; eyebrow: string; icon: 'build' | 'swap-horiz'; action: string }> = {
   maintenance: { title: 'Báo sự cố tài sản', subtitle: 'Gửi yêu cầu sửa chữa để quản lý xử lý trên web', eyebrow: 'BẢO TRÌ TÀI SẢN', icon: 'build', action: 'Gửi yêu cầu bảo trì' },
-  transfer: { title: 'Tạo phiếu điều chuyển', subtitle: 'Chuyển vật tư hoặc lô giữa các kho', eyebrow: 'STOCK TRANSFER', icon: 'swap-horiz', action: 'Lưu phiếu điều chuyển' },
+  transfer: { title: 'Tạo phiếu điều chuyển', subtitle: 'Chuyển vật tư hoặc lô giữa các kho', eyebrow: 'STOCK TRANSFER', icon: 'swap-horiz', action: 'Gửi duyệt điều chuyển' },
 };
 
 export default function InventoryActionScreen({ mode }: { mode: InventoryActionMode }) {
@@ -36,6 +36,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
   const { currentFarmId, getAccessToken } = useAuthContext();
   const copy = screenCopy[mode];
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [destinationWarehouses, setDestinationWarehouses] = useState<Warehouse[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [assets, setAssets] = useState<Array<{ id: string; label: string }>>([]);
   const [transferOptions, setTransferOptions] = useState<TransferOption[]>([]);
@@ -66,19 +67,22 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
       return Promise.all([
         listWarehouses(token, currentFarmId),
+        listWarehouses(token, currentFarmId, true),
         listItems(token, currentFarmId),
         listMaintenanceAssets(token, currentFarmId),
       ]);
-    }).then(([warehouseResponse, itemResponse, assetRows]) => {
+    }).then(([warehouseResponse, destinationWarehouseResponse, itemResponse, assetRows]) => {
       if (cancelled) return;
       setWarehouses(warehouseResponse.data);
+      const allDestinations = destinationWarehouseResponse.data.length > 0 ? destinationWarehouseResponse.data : warehouseResponse.data;
+      setDestinationWarehouses(allDestinations);
       setItems(itemResponse.data);
       setAssets(assetRows.filter(({ asset }) => !['LOST', 'RETIRED', 'MAINTENANCE'].includes(asset.status)).map(({ asset, itemName }) => ({ id: asset.id, label: `${itemName} · ${asset.assetCode}` })));
       const requestedSource = params.sourceWarehouseId && warehouseResponse.data.some((warehouse) => warehouse.id === params.sourceWarehouseId)
         ? params.sourceWarehouseId
         : '';
       const sourceWarehouse = params.itemId ? requestedSource : requestedSource || warehouseResponse.data[0]?.id || '';
-      const suggestedDestination = warehouseResponse.data.find((warehouse) => warehouse.id !== sourceWarehouse)?.id ?? '';
+      const suggestedDestination = allDestinations.find((warehouse) => warehouse.id !== sourceWarehouse)?.id ?? '';
       setForm((current) => ({
         ...current,
         sourceWarehouse,
@@ -144,9 +148,9 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     tracking: ['SỐ LƯỢNG', 'THEO LÔ'],
     asset: assets.map((asset) => asset.label),
     sourceWarehouse: warehouses.map((warehouse) => `${warehouse.id} • ${warehouse.code} • ${warehouse.name}`),
-    destinationWarehouse: warehouses.map((warehouse) => `${warehouse.id} • ${warehouse.code} • ${warehouse.name}`),
+    destinationWarehouse: destinationWarehouses.filter((warehouse) => warehouse.id !== form.sourceWarehouse).map((warehouse) => `${warehouse.id} • ${warehouse.code} • ${warehouse.name}`),
     item: transferOptions.filter((option) => option.trackingMode === (form.tracking === 'THEO LÔ' ? 'LOT' : 'QUANTITY')).map((option) => option.label),
-  }), [assets, form.tracking, transferOptions, warehouses]);
+  }), [assets, destinationWarehouses, form.sourceWarehouse, form.tracking, transferOptions, warehouses]);
   const selectedTransferOption = transferOptions.find((option) => option.id === form.item);
   const transferQuantityError = mode === 'transfer'
     ? validateQuantityInput(form.quantity, { max: selectedTransferOption?.quantity })
@@ -166,7 +170,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
       setForm((current) => ({ ...current, tracking: value, item: firstMatching?.id ?? '' }));
     } else if (picker === 'sourceWarehouse' && mode === 'transfer') {
       const sourceId = value.split(' • ')[0];
-      const suggestedDestination = warehouses.find((warehouse) => warehouse.id !== sourceId)?.id ?? '';
+      const suggestedDestination = destinationWarehouses.find((warehouse) => warehouse.id !== sourceId)?.id ?? '';
       setForm((current) => ({
         ...current,
         sourceWarehouse: sourceId,
@@ -210,6 +214,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
       const selectedDestination = form.destinationWarehouse.split(' • ')[0];
       const selectedAsset = form.asset.split(' • ')[0];
       let createdTransferId: string | null = null;
+      let createdMaintenanceId: string | null = null;
       if (mode === 'transfer') {
         const selected = transferOptions.find((option) => option.id === form.item);
         if (!selected) throw new Error('Vật phẩm không còn trong danh sách tồn của kho nguồn.');
@@ -220,6 +225,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
           .reduce((sum, { balance }) => sum + Number(balance.quantityOnHand), 0);
         const quantityError = validateQuantityInput(quantity, { max: available });
         if (quantityError) throw new Error(`${selected.label}: “${quantity || 'trống'}”. ${quantityError}`);
+
         const response = await apiRequest<{ data: { transfer: { id: string } } | { id: string } }>('/stock-transfers', {
           method: 'POST',
           token,
@@ -233,18 +239,26 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
         });
         const transferObj = unwrap(response);
         createdTransferId = (transferObj as { transfer?: { id?: string } })?.transfer?.id ?? (transferObj as { id?: string })?.id ?? null;
+        if (createdTransferId) {
+          await apiRequest(`/stock-transfers/${encodeURIComponent(createdTransferId)}/submit`, {
+            method: 'POST',
+            token,
+            params: { farmId: currentFarmId },
+          });
+        }
       } else {
-        await apiRequest('/maintenance-requests', { method: 'POST', token, params: { farmId: currentFarmId }, body: { assetId: selectedAsset, maintenanceType: 'CORRECTIVE', description: form.title } });
+        const response = await apiRequest<{ data: { id: string } } | { id: string }>('/maintenance-requests', { method: 'POST', token, params: { farmId: currentFarmId }, body: { assetId: selectedAsset, maintenanceType: 'CORRECTIVE', description: form.title } });
+        createdMaintenanceId = (unwrap(response) as { id?: string })?.id ?? null;
       }
 
       if (mode === 'transfer') {
         const sourceName = warehouses.find((w) => w.id === selectedWarehouse)?.name ?? form.sourceWarehouse;
-        const destName = warehouses.find((w) => w.id === selectedDestination)?.name ?? form.destinationWarehouse;
+        const destName = destinationWarehouses.find((w) => w.id === selectedDestination)?.name ?? warehouses.find((w) => w.id === selectedDestination)?.name ?? form.destinationWarehouse;
         const selected = transferOptions.find((option) => option.id === form.item);
         setSuccessResult({
-          title: 'Đã lưu phiếu điều chuyển',
+          title: 'Đã gửi duyệt phiếu điều chuyển',
           details: [
-            { label: 'Mã phiếu', value: createdTransferId ? `#${createdTransferId.slice(0, 8)}` : '—' },
+            { label: 'Mã phiếu', value: createdTransferId ? `CK-${createdTransferId.slice(0, 8)}` : '—' },
             { label: 'Kho nguồn', value: sourceName },
             { label: 'Kho đích', value: destName },
           ],
@@ -255,6 +269,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
         setSuccessResult({
           title: 'Đã gửi yêu cầu bảo trì',
           details: [
+            { label: 'Mã phiếu', value: createdMaintenanceId ? `MNT-${createdMaintenanceId.slice(0, 8)}` : '—' },
             { label: 'Vật phẩm', value: selectedAssetObj?.label ?? 'Thiết bị' },
             { label: 'Mô tả sự cố', value: form.title },
           ],
@@ -268,14 +283,14 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
   return <>
   <AppShell active="inventory">
     <PageHeader title={copy.title} subtitle={`● ${copy.subtitle}`} onBack={() => router.back()} action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><View style={styles.headerIcon}><Icon name={copy.icon} color={colors.primary} /></View></View>} />
-    <View style={styles.intro}><View style={styles.introCopy}><Text style={styles.eyebrow}>{copy.eyebrow}</Text><Text style={styles.title} numberOfLines={2}>{copy.title}</Text><Text style={styles.subtitle} numberOfLines={2}>{copy.subtitle}</Text></View><Pill tone="amber"><Text style={styles.draft}>{mode === 'maintenance' ? 'GỬI DUYỆT' : 'DRAFT'}</Text></Pill></View>
+    <View style={styles.intro}><View style={styles.introCopy}><Text style={styles.eyebrow}>{copy.eyebrow}</Text><Text style={styles.title} numberOfLines={2}>{copy.title}</Text><Text style={styles.subtitle} numberOfLines={2}>{copy.subtitle}</Text></View><Pill tone="amber"><Text style={styles.draft}>GỬI DUYỆT</Text></Pill></View>
     {loadError ? <Text style={styles.loadError}>{loadError}</Text> : null}
 
     {mode === 'maintenance' ? <Card style={styles.formCard}><SectionTitle title="Báo sự cố cần bảo trì" count="Bắt buộc" /><PickerField label="Vật phẩm" value={assets.find((asset) => asset.id === form.asset)?.label ?? 'Chọn vật phẩm'} onPress={() => setPicker('asset')} /><Field label="Mô tả sự cố *" value={form.title} placeholder="VD: Máy quay phát tiếng kêu bất thường" onChangeText={(value) => update('title', value)} /><Field label="Thông tin bổ sung" value={form.note} placeholder="Mô tả thêm tình trạng thiết bị" onChangeText={(value) => update('note', value)} multiline /></Card> : null}
 
-    {mode === 'transfer' ? <Card style={styles.formCard}><SectionTitle title="Thông tin điều chuyển" count="Bắt buộc" /><PickerField label="Kho nguồn" value={warehouses.find((warehouse) => warehouse.id === form.sourceWarehouse)?.name ?? 'Chọn kho nguồn'} onPress={() => setPicker('sourceWarehouse')} /><PickerField label="Kho đích" value={warehouses.find((warehouse) => warehouse.id === form.destinationWarehouse)?.name ?? 'Chọn kho đích'} onPress={() => setPicker('destinationWarehouse')} /><PickerField label="Cách theo dõi" value={form.tracking} onPress={() => setPicker('tracking')} /><PickerField label="Vật tư / lô trong kho nguồn" value={transferOptions.find((option) => option.id === form.item)?.label ?? (transferLoading ? 'Đang tải tồn kho...' : 'Chọn vật tư có tồn')} onPress={() => setPicker('item')} /><Field label={`Số lượng chuyển (tối đa ${formatQuantity(transferOptions.find((option) => option.id === form.item)?.quantity ?? 0)})`} value={form.quantity} placeholder="0" onChangeText={(value) => update('quantity', value)} keyboardType="decimal-pad" error={transferQuantityError} /><Field label="Lý do điều chuyển" value={form.note} placeholder="Nhập lý do" onChangeText={(value) => update('note', value)} multiline /></Card> : null}
+    {mode === 'transfer' ? <Card style={styles.formCard}><SectionTitle title="Thông tin điều chuyển" count="Bắt buộc" /><PickerField label="Kho nguồn" value={warehouses.find((warehouse) => warehouse.id === form.sourceWarehouse)?.name ?? 'Chọn kho nguồn'} onPress={() => setPicker('sourceWarehouse')} /><PickerField label="Kho đích" value={destinationWarehouses.find((warehouse) => warehouse.id === form.destinationWarehouse)?.name ?? warehouses.find((warehouse) => warehouse.id === form.destinationWarehouse)?.name ?? 'Chọn kho đích'} onPress={() => setPicker('destinationWarehouse')} /><PickerField label="Cách theo dõi" value={form.tracking} onPress={() => setPicker('tracking')} /><PickerField label="Vật tư / lô trong kho nguồn" value={transferOptions.find((option) => option.id === form.item)?.label ?? (transferLoading ? 'Đang tải tồn kho...' : 'Chọn vật tư có tồn')} onPress={() => setPicker('item')} /><Field label={`Số lượng chuyển (tối đa ${formatQuantity(transferOptions.find((option) => option.id === form.item)?.quantity ?? 0)})`} value={form.quantity} placeholder="0" onChangeText={(value) => update('quantity', value)} keyboardType="decimal-pad" error={transferQuantityError} /><Field label="Lý do điều chuyển" value={form.note} placeholder="Nhập lý do" onChangeText={(value) => update('note', value)} multiline /></Card> : null}
 
-    <Card style={styles.notice}><Icon name="info-outline" color={colors.primary} /><View style={styles.noticeCopy}><Text style={styles.noticeTitle}>{mode === 'maintenance' ? 'Quy trình duyệt sự cố' : 'Quy trình duyệt'}</Text><Text style={styles.noticeText}>{mode === 'maintenance' ? 'Yêu cầu sẽ được gửi người có quyền duyệt trong trại. Chỉ sau khi duyệt, hệ thống mới tạo lịch bảo trì; kết quả gửi lại tài khoản của bạn.' : 'Biểu mẫu được lưu ở DRAFT. Tồn kho chỉ thay đổi sau khi người có quyền xác nhận.'}</Text></View></Card>
+    <Card style={styles.notice}><Icon name="info-outline" color={colors.primary} /><View style={styles.noticeCopy}><Text style={styles.noticeTitle}>{mode === 'maintenance' ? 'Quy trình duyệt sự cố' : 'Quy trình duyệt điều chuyển'}</Text><Text style={styles.noticeText}>{mode === 'maintenance' ? 'Yêu cầu sẽ được gửi người có quyền duyệt trong trại. Chỉ sau khi duyệt, hệ thống mới tạo lịch bảo trì; kết quả gửi lại tài khoản của bạn.' : 'Phiếu sẽ được gửi duyệt tới quản lý kho nguồn để xuất hàng, sau đó quản lý kho đích xác nhận nhận hàng.'}</Text></View></Card>
     <View style={styles.actions}><Pressable onPress={() => router.back()} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}><Text style={styles.cancelText}>Hủy</Text></Pressable><View style={styles.submit}><PrimaryButton label={copy.action} icon="save" onPress={submit} /></View></View>
 
     <Modal visible={picker !== null} transparent animationType="slide" onRequestClose={() => setPicker(null)}>

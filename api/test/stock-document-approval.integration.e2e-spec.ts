@@ -36,6 +36,17 @@ describe('Stock document approval rules', () => {
   const actors = {
     owner: { id: randomUUID(), member: randomUUID(), role: 'FARM_OWNER' },
     admin: { id: randomUUID(), member: randomUUID(), role: 'ADMIN' },
+    manager: {
+      id: randomUUID(),
+      member: randomUUID(),
+      role: 'WAREHOUSE_MANAGER',
+    },
+    // A warehouse manager assigned to no warehouse of this farm.
+    outsider: {
+      id: randomUUID(),
+      member: randomUUID(),
+      role: 'WAREHOUSE_MANAGER',
+    },
     creator: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     peer: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     guest: { id: randomUUID(), member: randomUUID(), role: 'GUEST' },
@@ -67,8 +78,16 @@ describe('Stock document approval rules', () => {
           })
         ).receipt.id,
       list: (actor: Actor) =>
-        receipts.listReceipts({ farmId: farm, clerkUserId: clerk(actor), page: 1, pageSize: 20, offset: 0 }),
-      get: (id: string, actor: Actor) => receipts.getReceipt(id, farm, clerk(actor)),
+
+        receipts.listReceipts({
+          farmId: farm,
+          clerkUserId: clerk(actor),
+          page: 1,
+          pageSize: 20,
+          offset: 0,
+        }),
+      get: (id: string, actor: Actor) =>
+        receipts.getReceipt(id, farm, clerk(actor)),
       update: (id: string, actor: Actor) =>
         receipts.updateReceipt(id, farm, clerk(actor), { note: tag }),
       edit: (id: string, actor: Actor, body: NumberingOptionsInput) =>
@@ -96,7 +115,14 @@ describe('Stock document approval rules', () => {
           })
         ).issue.id,
       list: (actor: Actor) =>
-        issues.list({ farmId: farm, clerkUserId: clerk(actor), page: 1, pageSize: 20, offset: 0 }),
+
+        issues.list({
+          farmId: farm,
+          clerkUserId: clerk(actor),
+          page: 1,
+          pageSize: 20,
+          offset: 0,
+        }),
       get: (id: string, actor: Actor) => issues.get(id, farm, clerk(actor)),
       update: (id: string, actor: Actor) =>
         issues.update(id, farm, clerk(actor), { note: tag }),
@@ -126,7 +152,14 @@ describe('Stock document approval rules', () => {
           })
         ).transfer.id,
       list: (actor: Actor) =>
-        transfers.list({ farmId: farm, clerkUserId: clerk(actor), page: 1, pageSize: 20, offset: 0 }),
+
+        transfers.list({
+          farmId: farm,
+          clerkUserId: clerk(actor),
+          page: 1,
+          pageSize: 20,
+          offset: 0,
+        }),
       get: (id: string, actor: Actor) => transfers.get(id, farm, clerk(actor)),
       update: (id: string, actor: Actor) =>
         transfers.update(id, farm, clerk(actor), { note: tag }),
@@ -136,8 +169,11 @@ describe('Stock document approval rules', () => {
         transfers.cancel(id, farm, clerk(actor)),
       submit: (id: string, actor: Actor) =>
         transfers.submit(id, farm, clerk(actor)),
-      confirm: (id: string, actor: Actor) =>
-        transfers.confirm(id, farm, clerk(actor)),
+      // Two steps: the source dispatches, then the destination receives.
+      confirm: async (id: string, actor: Actor) => {
+        await transfers.confirm(id, farm, clerk(actor));
+        return transfers.receive(id, farm, clerk(actor));
+      },
       reject: (id: string, actor: Actor, reason = 'Sai số lượng') =>
         transfers.reject(id, farm, clerk(actor), reason),
       sourceAfterConfirm: '19.000',
@@ -155,7 +191,14 @@ describe('Stock document approval rules', () => {
           })
         ).count.id,
       list: (actor: Actor) =>
-        counts.list({ farmId: farm, clerkUserId: clerk(actor), page: 1, pageSize: 20, offset: 0 }),
+
+        counts.list({
+          farmId: farm,
+          clerkUserId: clerk(actor),
+          page: 1,
+          pageSize: 20,
+          offset: 0,
+        }),
       get: (id: string, actor: Actor) => counts.get(id, farm, clerk(actor)),
       update: (id: string, actor: Actor) =>
         counts.update(id, farm, clerk(actor), { note: tag }),
@@ -241,6 +284,17 @@ describe('Stock document approval rules', () => {
         { id: warehouse, farmId: farm, code: 'SOURCE', name: tag },
         { id: target, farmId: farm, code: 'TARGET', name: tag },
       ]);
+      // Everyone works in both warehouses except the outsider.
+      await tx.insert(schema.farmMemberWarehouses).values(
+        Object.entries(actors)
+          .filter(([name]) => name !== 'outsider')
+          .flatMap(([, actor]) =>
+            [warehouse, target].map((warehouseId) => ({
+              farmMemberId: actor.member,
+              warehouseId,
+            })),
+          ),
+      );
     });
     fixturesCreated = true;
   });
@@ -277,6 +331,10 @@ describe('Stock document approval rules', () => {
           farm,
         ]);
         await pool.query('DELETE FROM items WHERE id=$1', [item]);
+        await pool.query(
+          'DELETE FROM farm_member_warehouses WHERE farm_member_id=ANY($1::uuid[])',
+          [memberIds],
+        );
         await pool.query('DELETE FROM warehouses WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM categories WHERE id=$1', [category]);
         await pool.query('DELETE FROM units WHERE id=$1', [unit]);
@@ -300,17 +358,33 @@ describe('Stock document approval rules', () => {
   });
 
   describe.each(cases)('$type', (document) => {
-    it('shows employees only their own documents in lists and detail', async () => {
+
+    it('shows employees only their own documents; approvers see all', async () => {
       const own = await document.create('creator');
       const others = await document.create('peer');
       const creatorView = await document.list('creator');
-      expect(creatorView.data.map((row) => row.id)).toEqual([own]);
+      expect(creatorView.data.map((row: { id: string }) => row.id)).toEqual([
+        own,
+      ]);
       expect(creatorView.page.totalItems).toBe(1);
       await expect(document.get(own, 'creator')).resolves.toBeDefined();
-      await expect(document.get(others, 'creator')).rejects.toThrow('not found');
+      await expect(document.get(others, 'creator')).rejects.toThrow(
+        'not found',
+      );
       expect((await document.list('owner')).page.totalItems).toBe(2);
       expect((await document.list('admin')).page.totalItems).toBe(2);
+      // Warehouse managers approve other members' documents, so they must see them.
+      expect((await document.list('manager')).page.totalItems).toBe(2);
       await expect(document.get(others, 'owner')).resolves.toBeDefined();
+      await expect(document.get(others, 'manager')).resolves.toBeDefined();
+      // Not assigned to the warehouse: sees nothing, approves nothing.
+      expect((await document.list('outsider')).page.totalItems).toBe(0);
+      await expect(document.get(others, 'outsider')).rejects.toThrow(
+        'not found',
+      );
+      await expect(document.confirm(others, 'outsider')).rejects.toThrow(
+        'assigned warehouses',
+      );
     });
 
     it('lets an approver confirm a draft directly', async () => {
@@ -392,17 +466,30 @@ describe('Stock document approval rules', () => {
       await document.submit(submitted, 'creator');
       await document.confirm(submitted, 'owner');
       const rows = await notified(submitted);
-      expect(rows).toHaveLength(3);
+      // A dispatched transfer also asks the destination's managers to count it
+      // in; the creator hears once, when it arrives.
+      const arrival =
+        document.type === 'transfer'
+          ? [
+              [actors.admin.id, 'TRANSIT'],
+              [actors.manager.id, 'TRANSIT'],
+            ]
+          : [];
+      expect(rows).toHaveLength(4 + arrival.length);
       expect(rows).toEqual(
         expect.arrayContaining([
           [actors.owner.id, 'APPROVAL'],
           [actors.admin.id, 'APPROVAL'],
+          [actors.manager.id, 'APPROVAL'],
           [actors.creator.id, 'CONFIRMED'],
+          ...arrival,
         ]),
       );
       const direct = await document.create('owner');
       await document.confirm(direct, 'owner');
-      expect(await notified(direct)).toEqual([]);
+      expect(await notified(direct)).toEqual(
+        document.type === 'transfer' ? arrival : [],
+      );
     });
 
     it('audits every change with its actor, states and lines, inside the same transaction', async () => {
@@ -457,8 +544,36 @@ describe('Stock document approval rules', () => {
         'SELECT action FROM audit_logs WHERE entity_id=$1 ORDER BY created_at',
         [id],
       );
-      expect(rows.map((row) => row.action)).toEqual(['CREATE', 'CONFIRM']);
+      expect(rows.map((row) => row.action)).toEqual(
+        document.type === 'transfer'
+          ? ['CREATE', 'DISPATCH', 'RECEIVE']
+          : ['CREATE', 'CONFIRM'],
+      );
     });
+  });
+
+  it('lets only managers of the destination receive a dispatched transfer (TRF-08)', async () => {
+    const transfer = cases.find((c) => c.type === 'transfer')!;
+    const id = await transfer.create('owner');
+    // The manager now works only in the source warehouse.
+    await pool.query(
+      'DELETE FROM farm_member_warehouses WHERE farm_member_id=$1 AND warehouse_id=$2',
+      [actors.manager.member, target],
+    );
+    try {
+      await transfers.confirm(id, farm, clerk('manager'));
+      await expect(
+        transfers.receive(id, farm, clerk('manager')),
+      ).rejects.toThrow('assigned warehouses');
+      expect((await statusOf('stock_transfers', id)).status).toBe('IN_TRANSIT');
+      await transfers.receive(id, farm, clerk('owner'));
+      expect((await statusOf('stock_transfers', id)).status).toBe('CONFIRMED');
+    } finally {
+      await pool.query(
+        'INSERT INTO farm_member_warehouses (farm_member_id, warehouse_id) VALUES ($1, $2)',
+        [actors.manager.member, target],
+      );
+    }
   });
 
   describe('audit history access', () => {
@@ -597,7 +712,8 @@ describe('Stock document approval rules', () => {
         user_id: string;
         new_data: Record<string, unknown>;
       }>(
-        `SELECT user_id, new_data FROM audit_logs WHERE entity_id=$1 AND action='CONFIRM'`,
+        // A transfer gets its code when the source dispatches it.
+        `SELECT user_id, new_data FROM audit_logs WHERE entity_id=$1 AND action IN ('CONFIRM', 'DISPATCH')`,
         [id],
       );
       expect(audit.rows).toEqual([

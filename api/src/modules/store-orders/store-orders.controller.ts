@@ -4,12 +4,11 @@ import {
   Controller,
   Get,
   Param,
-  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   normalizeSearch,
   parseOptionalEnum,
@@ -22,12 +21,17 @@ import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import {
-  CancelStoreOrderDto,
-  StoreOrderShippingFeeDto,
+  MarkStoreOrderPaidDto,
+  RefundStoreOrderDto,
+  StaffCancelStoreOrderDto,
+  ReturnStoreOrderDeliveryDto,
 } from './dto/store-order.dto';
 import { orderDateRange } from './store-order.query';
 import { StoreOrdersService } from './store-orders.service';
-import { STORE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  STORE_DELIVERY_ROLES,
+  STORE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 @Controller('store-orders')
 @UseGuards(FarmAccessGuard)
@@ -49,6 +53,7 @@ export class StoreOrdersController {
     @Query('to') to?: string,
     @Query('q') q?: string,
     @Query('customerId') customerId?: string,
+    @Query('codPending') codPending?: string,
   ) {
     if (q !== undefined && typeof q !== 'string')
       throw new BadRequestException('q must be a string');
@@ -65,6 +70,7 @@ export class StoreOrdersController {
       customerId: customerId
         ? requireUuid(customerId, 'customerId')
         : undefined,
+      codPending: codPending === 'true',
     });
   }
 
@@ -95,29 +101,32 @@ export class StoreOrdersController {
     };
   }
 
+  @Get('deliveries')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary: 'Đơn chờ giao (available) hoặc đơn mình đang giao (mine)',
+  })
+  async deliveries(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Query('scope') scope?: string,
+  ) {
+    return {
+      data: await this.orders.deliveries(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        parseOptionalEnum(scope, ['available', 'mine'] as const, 'scope') ??
+          'available',
+      ),
+    };
+  }
+
   @Get(':id')
   async get(@Query('farmId') farmId: string, @Param('id') id: string) {
     return {
       data: await this.orders.staffGet(
         requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
-      ),
-    };
-  }
-
-  @Patch(':id/shipping-fee')
-  async shippingFee(
-    @CurrentAuth() auth: { clerkUserId: string },
-    @Query('farmId') farmId: string,
-    @Param('id') id: string,
-    @Body() input: StoreOrderShippingFeeDto,
-  ) {
-    return {
-      data: await this.orders.shippingFee(
-        requireUuid(farmId, 'farmId'),
-        auth.clerkUserId,
-        requireUuid(id, 'id'),
-        input.shippingFee,
       ),
     };
   }
@@ -138,6 +147,8 @@ export class StoreOrdersController {
   }
 
   @Post(':id/ship')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({ summary: 'Nhận giao đơn; người bấm thành người giao' })
   async ship(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
@@ -153,6 +164,10 @@ export class StoreOrdersController {
   }
 
   @Post(':id/complete')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary: 'Đã giao xong (người giao hoặc quản lý cửa hàng)',
+  })
   async complete(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
@@ -167,15 +182,19 @@ export class StoreOrdersController {
     };
   }
 
-  @Post(':id/cancel')
-  async cancel(
+  @Post(':id/return-delivery')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary: 'Trả đơn đang giao về chờ giao, kèm lý do',
+  })
+  async returnDelivery(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
     @Param('id') id: string,
-    @Body() input: CancelStoreOrderDto,
+    @Body() input: ReturnStoreOrderDeliveryDto,
   ) {
     return {
-      data: await this.orders.staffCancel(
+      data: await this.orders.returnDelivery(
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         requireUuid(id, 'id'),
@@ -184,14 +203,100 @@ export class StoreOrdersController {
     };
   }
 
+  @Post(':id/return-to-warehouse')
+  @FarmRoles(...STORE_DELIVERY_ROLES)
+  @ApiOperation({
+    summary:
+      'Không giao được: trả hàng về kho bán; kho kiểm nhận phiếu nhập mới tăng tồn',
+  })
+  async returnToWarehouse(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: ReturnStoreOrderDeliveryDto,
+  ) {
+    return {
+      data: await this.orders.returnToWarehouse(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        input.reason,
+      ),
+    };
+  }
+
+  @Post(':id/refund')
+  @ApiOperation({ summary: 'Ghi hoàn tiền thủ công cho đơn đã trả về kho' })
+  async refund(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: RefundStoreOrderDto,
+  ) {
+    return {
+      data: await this.orders.refundReturned(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        { amount: input.refundAmount, reference: input.refundReference },
+      ),
+    };
+  }
+
+  @Post(':id/cancel')
+  async cancel(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: StaffCancelStoreOrderDto,
+  ) {
+    const { refundAmount, refundReference } = input;
+    if ((refundAmount === undefined) !== (refundReference === undefined))
+      throw new BadRequestException(
+        'refundAmount and refundReference go together',
+      );
+    return {
+      data: await this.orders.staffCancel(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        input.reason,
+        refundAmount === undefined
+          ? undefined
+          : { amount: refundAmount, reference: refundReference! },
+      ),
+    };
+  }
+
   @Post(':id/mark-paid')
+  @ApiOperation({
+    summary: 'Đối soát tay một chuyển khoản đã nhận (mã giao dịch ngân hàng)',
+  })
   async markPaid(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string,
+    @Param('id') id: string,
+    @Body() input: MarkStoreOrderPaidDto,
+  ) {
+    return {
+      data: await this.orders.markPaid(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(id, 'id'),
+        input,
+      ),
+    };
+  }
+
+  @Post(':id/cod-remit')
+  @ApiOperation({ summary: 'Quản lý xác nhận đã nhận tiền COD từ người giao' })
+  async remitCod(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId: string,
     @Param('id') id: string,
   ) {
     return {
-      data: await this.orders.markPaid(
+      data: await this.orders.remitCod(
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         requireUuid(id, 'id'),

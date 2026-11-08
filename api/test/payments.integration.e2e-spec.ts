@@ -131,7 +131,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       const { order } = await transferOrder(ctx);
       const controller = new PaymentWebhooksController(ctx.payments);
       await expect(
-        controller.sepay('Apikey wrong', sepayBody(order.code, 555000)),
+        controller.sepay('Apikey wrong', sepayBody(order.code, 585000)),
       ).rejects.toThrow('Invalid webhook API key');
       expect(
         (
@@ -145,7 +145,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       expect(
         await controller.sepay(
           `Apikey ${API_KEY}`,
-          sepayBody(`CT ${order.code} mat ong`, 555000, 9001),
+          sepayBody(`CT ${order.code} mat ong`, 585000, 9001),
         ),
       ).toEqual({ success: true });
       const paid = await ctx.service.staffGet(ctx.ids.farm, order.id);
@@ -156,7 +156,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       });
       expect(paid.order.paymentTransactionId).toBe(paid.payments[0].id);
       expect(paid.payments).toMatchObject([
-        { provider: 'SEPAY', result: 'MATCHED', amount: '555000' },
+        { provider: 'SEPAY', result: 'MATCHED', amount: '585000' },
       ]);
       const audits = await tx
         .select()
@@ -175,7 +175,7 @@ describe('Payments (migrated PostgreSQL)', () => {
     inRollback(async (ctx, tx) => {
       const { order } = await transferOrder(ctx);
       await ctx.payments.sepay({
-        ...sepayBody(order.code, 555000),
+        ...sepayBody(order.code, 585000),
         transferType: 'out',
       });
       expect(
@@ -211,11 +211,11 @@ describe('Payments (migrated PostgreSQL)', () => {
       const results = [
         await simulate(order.code, '555001'),
         await simulate(order.code, '554999'),
-        await simulate('chuyen tien mat ong', '555000'),
-        await simulate('DH999999', '555000'),
-        await simulate(order.code, '555000', '999999999'),
-        await simulate(cancelled.order.code, '555000'),
-        await simulate(cod.order.code, '555000'),
+        await simulate('chuyen tien mat ong', '585000'),
+        await simulate('DH999999', '585000'),
+        await simulate(order.code, '585000', '999999999'),
+        await simulate(cancelled.order.code, '585000'),
+        await simulate(cod.order.code, '585000'),
       ];
       expect(results.map((r) => r.transaction.result)).toEqual([
         'AMOUNT_MISMATCH',
@@ -267,7 +267,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       const { order } = await transferOrder(ctx);
       const first = await ctx.payments.simulate(ctx.ids.farm, ctx.ids.staff, {
         content: order.code,
-        amount: '555000',
+        amount: '585000',
       });
       expect(first).toMatchObject({
         duplicate: false,
@@ -284,7 +284,7 @@ describe('Payments (migrated PostgreSQL)', () => {
       });
       const second = await ctx.payments.simulate(ctx.ids.farm, ctx.ids.staff, {
         content: order.code,
-        amount: '555000',
+        amount: '585000',
       });
       expect(second.transaction.result).toBe('ALREADY_PAID');
       const paid = await ctx.service.staffGet(ctx.ids.farm, order.id);
@@ -302,11 +302,12 @@ describe('Payments (migrated PostgreSQL)', () => {
             )
         )[0].value,
       ).toBe(1);
-      // Manual flows still work on an auto-paid order.
-      expect(
-        (await ctx.service.markPaid(ctx.ids.farm, ctx.ids.staff, order.id))
-          .order.paidAt,
-      ).toBe(paid.order.paidAt);
+      // A manual reconcile cannot pay an auto-paid order a second time.
+      await expect(
+        ctx.service.markPaid(ctx.ids.farm, ctx.ids.staff, order.id, {
+          reference: 'FT-LATE',
+        }),
+      ).rejects.toMatchObject({ response: { code: 'ALREADY_PAID' } });
       await expect(
         ctx.service.customerCancel(ctx.ids.customer, order.id, 'Không mua'),
       ).rejects.toThrow('refund');
@@ -315,7 +316,7 @@ describe('Payments (migrated PostgreSQL)', () => {
   it('limits the simulator to enabled environments and store staff', () =>
     inRollback(async (ctx) => {
       const { order } = await transferOrder(ctx);
-      const input = { content: order.code, amount: '555000' };
+      const input = { content: order.code, amount: '585000' };
       await expect(
         ctx.payments.simulate(ctx.ids.otherFarm, ctx.ids.staff, input),
       ).rejects.toThrow('Active farm membership');
@@ -368,7 +369,7 @@ describe('Payments on concurrent PostgreSQL connections', () => {
   const transfer = (code: string, providerTxId: string) => ({
     providerTxId,
     accountNumber: ACCOUNT,
-    amount: '555000',
+    amount: '585000',
     content: code,
     transactionAt: new Date().toISOString(),
     rawPayload: {},

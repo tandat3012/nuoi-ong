@@ -39,8 +39,6 @@ export type StoreSettings = {
     name: string;
     status: string;
   } | null;
-  /** Working warehouses whose stock tops up the sales warehouse by transfer. */
-  sourceWarehouses: { id: string; code: string; name: string; status: string }[];
 };
 
 export type StoreSalesStockRow = {
@@ -55,8 +53,6 @@ export type StoreSalesStockRow = {
   onHand: string;
   held: string;
   available: string;
-  /** Stock in the farm's source warehouses, moved in by transfer on confirmation. */
-  sourceOnHand: string;
   saleable: boolean;
 };
 
@@ -66,7 +62,6 @@ export type StoreSettingsInput = {
   salesWarehouseId?: string;
   salesEnabled: boolean;
   regions: StoreRegion[];
-  sourceWarehouseIds?: string[];
 };
 
 export type StoreImage = {

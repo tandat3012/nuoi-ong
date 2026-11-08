@@ -10,7 +10,9 @@ export type StockDocumentStatus =
   | "PENDING_APPROVAL"
   | "CONFIRMED"
   | "REJECTED"
-  | "CANCELLED";
+  | "CANCELLED"
+  // Transfers only: dispatched by the source, not yet received.
+  | "IN_TRANSIT";
 
 export type StockDocumentKind =
   "stock-receipts" | "stock-issues" | "stock-transfers" | "stock-counts";
@@ -87,7 +89,12 @@ const CONFLICTS: [RegExp, string][] = [
   ],
   [/can be rejected/, "Phiếu không còn chờ duyệt nên không từ chối được."],
   [/can be confirmed/, "Phiếu không còn chờ xác nhận."],
+  [/can be received/, "Phiếu không còn ở trạng thái đang chuyển."],
   [/can be cancelled/, "Phiếu không còn ở trạng thái nháp nên không hủy được."],
+  [
+    /STOCK_COUNT_STALE/,
+    "Tồn kho đã thay đổi từ lúc lập phiếu kiểm kê (có phiếu nhập/xuất/chuyển mới). Hãy kiểm lại và lập phiếu mới.",
+  ],
 ];
 
 /** Vietnamese message for a failed submit/reject; `null` status means no response. */
@@ -152,9 +159,15 @@ export function stockDocumentHref(
 export const DOCUMENT_CODE_HINT =
   "Mã phiếu được cấp tự động khi phiếu được xác nhận.";
 
-/** Drafts have no permanent code until confirmation; name them by a short id. */
-export function documentCodeLabel(code: string | null | undefined, id: string) {
-  return code ?? `Nháp #${id.slice(0, 8)}`;
+export type DocumentCodePrefix = "PN" | "PX" | "KK" | "CK" | "MNT" | "ATR" | "BT";
+
+/** Documents without a confirmed code yet use their document prefix and short id. */
+export function documentCodeLabel(
+  code: string | null | undefined,
+  id: string,
+  prefix: DocumentCodePrefix = "PN",
+) {
+  return code ?? `${prefix}-${id.slice(0, 8)}`;
 }
 
 /** Only the farm owner may set document numbering options; the API enforces it too. */

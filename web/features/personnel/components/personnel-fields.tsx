@@ -11,6 +11,7 @@ const OPERATIONAL_ROLES = [
   "MAINTENANCE_STAFF",
   "WAREHOUSE_MANAGER",
   "STORE_MANAGER",
+  "DELIVERY_STAFF",
   "EMPLOYEE",
   "GUEST",
 ];
@@ -112,6 +113,9 @@ export function WorkplaceFields({
   return (
     <fieldset className="space-y-2">
       <legend className="text-sm font-medium">Nơi làm việc</legend>
+      <p className="text-xs text-muted-foreground">
+        Quản lý kho và nhân viên chỉ xem và làm việc với các kho được gán.
+      </p>
       <AssetLookup
         farmId={farmId}
         kind="warehouse"

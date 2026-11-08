@@ -1,16 +1,22 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlertCircle,
   ArrowRight,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   Clock3,
+  ExternalLink,
   PackageCheck,
   Wrench,
 } from "lucide-react";
 import { Badge, type BadgeProps } from "@/shared/components/ui/badge";
+import { Button } from "@/shared/components/ui/button";
 import { formatAssetPrice } from "@/features/assets/asset.logic";
+import { HistoryPanel } from "@/features/history";
 import {
   MAINTENANCE_STATUSES,
   MAINTENANCE_TYPES,
@@ -25,13 +31,29 @@ export type MaintenanceRecord = MaintenanceWorkflow & {
   id: string;
   assetId: string;
   assetCode: string | null;
+  serialNumber?: string | null;
+  itemName?: string | null;
+  assetWarehouseName?: string | null;
+  assetLocationName?: string | null;
   maintenanceType: string;
   scheduledAt: string | null;
+  completedAt?: string | null;
+  intervalMonths?: number | null;
   description: string | null;
+  laborCost?: string | null;
+  materialCost?: string | null;
+  otherCost?: string | null;
   totalCost: string | null;
   supplierId: string | null;
+  supplierName?: string | null;
   expectedReturnAt: string | null;
   receivedAt: string | null;
+  startedAt: string | null;
+  performedByName?: string | null;
+  issuedByMemberId: string | null;
+  issuedByName: string | null;
+  receivedByName?: string | null;
+  inspectedByName?: string | null;
   returnWarehouseName: string | null;
   returnLocationName: string | null;
   resultNote: string | null;
@@ -40,6 +62,7 @@ export type MaintenanceRecord = MaintenanceWorkflow & {
   alert: string | null;
   returnCode: string;
 };
+
 const tones: Record<string, BadgeProps["variant"]> = {
   SCHEDULED: "outline",
   IN_PROGRESS: "info",
@@ -48,18 +71,32 @@ const tones: Record<string, BadgeProps["variant"]> = {
   FAILED: "destructive",
   CANCELLED: "secondary",
 };
+
+function cleanPrice(value: string | null | undefined) {
+  return formatAssetPrice(value?.replace(/\.0+$/, "") ?? null);
+}
+
 export function MaintenanceRecordCard({
   record,
+  farmId,
   roles,
   now,
+  defaultExpanded = false,
   actions,
 }: {
   record: MaintenanceRecord;
+  farmId?: string;
   roles: readonly string[];
   now: number;
+  defaultExpanded?: boolean;
   actions?: ReactNode;
 }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const terminal = ["COMPLETED", "FAILED", "CANCELLED"].includes(record.status);
+  const currentLocation = [record.assetWarehouseName, record.assetLocationName]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <article
       aria-labelledby={`maintenance-${record.id}`}
@@ -81,11 +118,22 @@ export function MaintenanceRecordCard({
                   href={`/assets/${encodeURIComponent(record.assetId)}`}
                 >
                   {record.assetCode || "Tài sản chưa có mã"}
+                  {record.itemName ? ` — ${record.itemName}` : ""}
                 </Link>
               </h2>
-              <p className="text-sm text-muted-foreground">
-                {MAINTENANCE_TYPES[record.maintenanceType] ??
-                  record.maintenanceType}
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
+                <span>
+                  {MAINTENANCE_TYPES[record.maintenanceType] ??
+                    record.maintenanceType}
+                </span>
+                <span>·</span>
+                <span className="font-mono text-xs">{record.returnCode}</span>
+                {record.serialNumber && (
+                  <>
+                    <span>·</span>
+                    <span>SN: {record.serialNumber}</span>
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -122,6 +170,22 @@ export function MaintenanceRecordCard({
               {maintenanceDate(record.scheduledAt)}
             </dd>
           </div>
+          {record.supplierName && (
+            <div>
+              <dt className="text-xs text-muted-foreground">Đơn vị bảo trì</dt>
+              <dd className="mt-1.5 break-words font-medium">
+                {record.supplierName}
+              </dd>
+            </div>
+          )}
+          {currentLocation && (
+            <div>
+              <dt className="text-xs text-muted-foreground">Vị trí thiết bị</dt>
+              <dd className="mt-1.5 break-words font-medium">
+                {currentLocation}
+              </dd>
+            </div>
+          )}
           {record.expectedReturnAt && (
             <div>
               <dt className="text-xs text-muted-foreground">
@@ -129,6 +193,18 @@ export function MaintenanceRecordCard({
               </dt>
               <dd className="mt-1.5 font-medium tabular-nums">
                 {maintenanceDate(record.expectedReturnAt)}
+              </dd>
+            </div>
+          )}
+          {record.startedAt && (
+            <div>
+              <dt className="text-xs text-muted-foreground">
+                {/* Records started before T05 have no warehouse confirmation. */}
+                {record.issuedByMemberId ? "Kho xác nhận xuất" : "Gửi sửa"}
+              </dt>
+              <dd className="mt-1.5 font-medium tabular-nums">
+                {maintenanceDate(record.startedAt)}
+                {record.issuedByName && ` · ${record.issuedByName}`}
               </dd>
             </div>
           )}
@@ -142,10 +218,10 @@ export function MaintenanceRecordCard({
               </dd>
             </div>
           )}
-          <div className="sm:col-start-2 lg:col-start-4">
+          <div>
             <dt className="text-xs text-muted-foreground">Tổng chi phí</dt>
             <dd className="mt-1.5 break-words font-semibold tabular-nums">
-              {formatAssetPrice(record.totalCost?.replace(/\.0+$/, "") ?? null)}
+              {cleanPrice(record.totalCost)}
             </dd>
           </div>
         </dl>
@@ -217,6 +293,128 @@ export function MaintenanceRecordCard({
             )}
           </div>
         )}
+        {expanded && (
+          <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+              <h3 className="text-sm font-semibold">Chi tiết hồ sơ bảo trì</h3>
+              <Link
+                href={`/assets/${encodeURIComponent(record.assetId)}`}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+              >
+                Mở chi tiết thiết bị
+                <ExternalLink className="size-3.5" aria-hidden="true" />
+              </Link>
+            </div>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <dt className="text-xs text-muted-foreground">Mã hồ sơ</dt>
+                <dd className="mt-1 font-mono text-xs font-medium">
+                  {record.returnCode}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Thiết bị</dt>
+                <dd className="mt-1 break-words font-medium">
+                  {[record.assetCode, record.itemName]
+                    .filter(Boolean)
+                    .join(" — ") || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Số serial</dt>
+                <dd className="mt-1 break-words font-medium">
+                  {record.serialNumber || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Kho / vị trí hiện tại
+                </dt>
+                <dd className="mt-1 break-words font-medium">
+                  {currentLocation || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Đơn vị bảo trì
+                </dt>
+                <dd className="mt-1 break-words font-medium">
+                  {record.supplierName || "Chưa chọn đơn vị"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Chu kỳ định kỳ
+                </dt>
+                <dd className="mt-1 font-medium">
+                  {record.intervalMonths
+                    ? `${record.intervalMonths} tháng`
+                    : "Không lặp lại"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Nhân sự phụ trách
+                </dt>
+                <dd className="mt-1 break-words font-medium">
+                  {record.performedByName || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Người xác nhận xuất kho
+                </dt>
+                <dd className="mt-1 break-words font-medium">
+                  {record.issuedByName || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Người nhận lại / nghiệm thu
+                </dt>
+                <dd className="mt-1 break-words font-medium">
+                  {[record.receivedByName, record.inspectedByName]
+                    .filter(
+                      (name, index, arr) =>
+                        Boolean(name) && arr.indexOf(name) === index,
+                    )
+                    .join(" · ") || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Tiền công sửa chữa
+                </dt>
+                <dd className="mt-1 font-medium tabular-nums">
+                  {cleanPrice(record.laborCost)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Tiền linh kiện / vật tư
+                </dt>
+                <dd className="mt-1 font-medium tabular-nums">
+                  {cleanPrice(record.materialCost)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Chi phí khác</dt>
+                <dd className="mt-1 font-medium tabular-nums">
+                  {cleanPrice(record.otherCost)}
+                </dd>
+              </div>
+            </dl>
+            {farmId && (
+              <HistoryPanel
+                key={`${farmId}:MAINTENANCE_RECORD:${record.id}`}
+                farmId={farmId}
+                entityType="MAINTENANCE_RECORD"
+                entityId={record.id}
+                revision={now}
+              />
+            )}
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <p className="flex min-w-0 items-start gap-2 text-xs leading-relaxed text-muted-foreground">
@@ -233,7 +431,20 @@ export function MaintenanceRecordCard({
           )}
           <span>{maintenanceNextStep(record, roles)}</span>
         </p>
-        {actions}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? "Ẩn chi tiết" : "Xem chi tiết"}
+            <ChevronDown
+              className={`size-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+              aria-hidden="true"
+            />
+          </Button>
+          {actions}
+        </div>
       </div>
     </article>
   );

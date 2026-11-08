@@ -56,6 +56,7 @@ const recordSchema = {
     id: { type: 'string', format: 'uuid' },
     farmId: { type: 'string', format: 'uuid' },
     assetId: { type: 'string', format: 'uuid' },
+    issuedByMemberId: { type: 'string', format: 'uuid', nullable: true },
     incidentId: { type: 'string', format: 'uuid', nullable: true },
     maintenanceType: {
       type: 'string',
@@ -72,6 +73,11 @@ const recordSchema = {
       nullable: true,
     },
     returnWarehouseId: { type: 'string', format: 'uuid', nullable: true },
+    returnWarehouseInScope: {
+      type: 'boolean',
+      description:
+        'Kho nhận lại thuộc các kho người gọi được phân (chỉ kho nhận duyệt nhập lại).',
+    },
     returnLocationId: { type: 'string', format: 'uuid', nullable: true },
     returnRejectionReason: { type: 'string', nullable: true },
     startedAt: { type: 'string', format: 'date-time', nullable: true },
@@ -360,7 +366,11 @@ export class MaintenanceController {
   }
 
   @Post(':id/start')
-  @ApiOperation({ summary: 'Bắt đầu bảo trì' })
+  @ApiOperation({
+    summary: 'Kho xác nhận xuất thiết bị đi sửa',
+    description:
+      'Chỉ vai trò kho (ADMIN, FARM_OWNER, WAREHOUSE_MANAGER) trong phạm vi kho của tài sản. Cần đã chọn đơn vị sửa và ngày hẹn trả. Trừ tồn một lần nếu thiết bị đang ở kho; lưu issuedByMemberId và startedAt.',
+  })
   @ApiUuidParam('id', 'ID hồ sơ cần bắt đầu.')
   @ApiFarmIdQuery()
   @ApiCreatedResponse({
@@ -376,7 +386,7 @@ export class MaintenanceController {
     description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
   })
   @ApiForbiddenResponse({
-    description: 'Chỉ nhân viên bảo trì được xác nhận gửi đi.',
+    description: 'Chỉ vai trò kho được xác nhận xuất đi sửa.',
   })
   async start(
     @CurrentAuth() auth: { clerkUserId: string },

@@ -14,6 +14,8 @@ type MaintenanceRecord = {
   maintenanceType: string;
   scheduledAt: string | null;
   startedAt: string | null;
+  issuedByMemberId: string | null;
+  issuedByName: string | null;
   completedAt: string | null;
   status: string;
   description: string | null;
@@ -107,7 +109,7 @@ export default function MaintenanceHistoryScreen() {
       {record.description ? <Detail label="Nội dung" value={record.description} /> : null}
       <View style={styles.dateGrid}>
         <DateCell label="Dự kiến" value={record.scheduledAt} />
-        <DateCell label="Bắt đầu" value={record.startedAt} />
+        {record.startedAt ? <DateCell label={record.issuedByMemberId ? 'Kho xác nhận xuất' : 'Gửi sửa'} value={record.startedAt} suffix={record.issuedByMemberId && record.issuedByName ? record.issuedByName : null} /> : null}
         <DateCell label="Hoàn tất" value={record.completedAt} />
       </View>
       {record.resultNote ? <Detail label="Kết quả / ghi chú" value={record.resultNote} /> : null}
@@ -132,8 +134,8 @@ function Detail({ label, value }: { label: string; value: string }) {
   return <View style={styles.detail}><Text style={styles.detailLabel}>{label}</Text><Text style={styles.detailValue}>{value}</Text></View>;
 }
 
-function DateCell({ label, value }: { label: string; value: string | null }) {
-  return <View style={styles.dateCell}><Text style={styles.detailLabel}>{label}</Text><Text style={styles.dateValue}>{value ? formatDate(value) : '—'}</Text></View>;
+function DateCell({ label, value, suffix }: { label: string; value: string | null; suffix?: string | null }) {
+  return <View style={styles.dateCell}><Text style={styles.detailLabel}>{label}</Text><Text style={styles.dateValue}>{value ? `${formatDate(value)}${suffix ? ` · ${suffix}` : ''}` : '—'}</Text></View>;
 }
 
 function maintenanceTypeLabel(value: string) {

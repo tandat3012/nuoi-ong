@@ -71,7 +71,7 @@ pnpm db:studio           # Inspect the configured database
 pnpm db:seed             # Write core demo data
 pnpm db:seed:storefront  # Write storefront demo data after core seed
 pnpm db:seed:demo-inventory --farm FARM-DEMO      # Optional: DEMO-KHO warehouse stocked through the real services
-pnpm db:seed:store-demo  # Optional: FARM-DEMO/FARM-COFFEE sales, source and working warehouses with SD- products for every availability case
+pnpm db:seed:store-demo  # Optional: FARM-DEMO/FARM-COFFEE sales and working warehouses with SD- products for every availability case
 ```
 
 Seeds change data; check the target database and the storefront seed requirements before running them. The core seed is idempotent and writes the `FARM-DEMO` farm with ADMIN, FARM_OWNER, EMPLOYEE and GUEST members. Its users have placeholder Clerk IDs (`seed_admin`, …), so they cannot sign in; add your own Clerk account to the farm to browse the data. Besides confirmed documents it seeds approval work from the employee: a pending receipt (`RCV-DEMO-PENDING`) and issue (`ISS-DEMO-PENDING`), a rejected issue (`ISS-DEMO-REJECTED`), a pending maintenance request for `AST-SMOKER-001`, a pending transfer request that holds `AST-EXTRACTOR-001` in `TRANSFER_PENDING`, and matching notifications for every active farm approver.
@@ -110,9 +110,16 @@ DRAFT ──submit──▶ PENDING_APPROVAL ──confirm──▶ CONFIRMED
 - EMPLOYEE creates drafts and edits, cancels or submits only their own; they cannot confirm.
 - GUEST cannot create documents.
 - A submitted document cannot be withdrawn by its creator. REJECTED is final.
-- Submit notifies the farm's approvers; confirm and reject notify the creator.
+- Submit notifies the farm's approvers (warehouse managers only when assigned to the document's warehouse); confirm and reject notify the creator.
 
-Every create, edit, submit, confirm, reject and cancel writes an audit log in the same transaction. `GET /audit-logs` returns all entries to ADMIN and FARM_OWNER, and only actions performed by the signed-in user to other permitted staff (GUEST: 403). Stock document lists and details show employees only documents they created; ADMIN and FARM_OWNER see the farm's documents. Its `references` map ids to codes and names.
+
+**Transfers take two steps (T04).** `POST /stock-transfers/:id/confirm` is the source warehouse's approval and dispatch: it debits the source (`TRANSFER_OUT`), assigns the code and moves the transfer to `IN_TRANSIT`; nothing is credited yet. A manager of the destination warehouse calls `POST /stock-transfers/:id/receive` with the counted quantity of each short line (`items: [{ id, receivedQuantity, discrepancyReason }]`; omitted lines arrived in full). Only arrived quantity is credited (`TRANSFER_IN`), never more than dispatched; short lines require a reason. Retrying either call does not move stock twice. Dispatch notifies destination approvers; receipt notifies the creator. Existing transfers confirmed before T04 remain `CONFIRMED`. Carrier/waybill fields, return shipments and cross-farm transfers are not implemented.
+
+**Phạm vi dữ liệu.** Every create, edit, submit, confirm, reject and cancel writes an audit log in the same transaction. `GET /audit-logs` returns all farm entries to ADMIN and FARM_OWNER; other permitted staff see only actions they performed (GUEST: 403). ADMIN and FARM_OWNER see farm stock documents. WAREHOUSE_MANAGER sees documents touching assigned warehouses, including transfers at either endpoint; EMPLOYEE sees only documents they created. Direct detail lookups follow the same scope. `references` maps IDs to codes and names.
+
+**Warehouse scope.** WAREHOUSE_MANAGER and EMPLOYEE members work only in warehouses assigned through `farm_member_warehouses`; ADMIN and FARM_OWNER see every warehouse. With no assignment, a warehouse-scoped member sees none. Scope applies to warehouse lists, stock documents, stock and ledger, adjustments, assets (current location, else latest stock move), asset transfer and maintenance requests, maintenance records, approval notifications, dashboard and reports.
+
+
 
 ## Requests from employees
 
@@ -135,7 +142,7 @@ Stock issues accept ASSET lines only for `CONSUMPTION`, `OTHER`, and `DISPOSAL`.
 
 Direct stock issues and completed/cancelled repairs can leave an asset `IN_USE` without a holder. Maintenance supports this state without another inventory debit or a fabricated assignment. Completion does not receive stock; an explicit return to a valid warehouse/location does.
 
-The asset lifecycle covers assignment/handover/start/return, dedicated physical transfers, incidents/loss, recovery and retirement. General stock transfers and stock counts reject ASSET lines; use `/assets/:id/transfer` (or a transfer request) to preserve physical location and stock consistency. Count and transfer lines for LOT items must carry a `lotId` of the same item. `SALE` issues are created only by store orders. Receipt lines for LOT items may reference an existing lot with `lotId` (`GET /lots`) instead of creating one. Resolving or cancelling a loss report does not receive inventory; `/assets/:id/recover` records physical recovery into a valid warehouse/location.
+The asset lifecycle covers assignment/handover/start/return, dedicated physical transfers, incidents/loss, recovery and retirement. General stock transfers and stock counts reject ASSET lines; use `/assets/:id/transfer` (or a transfer request) to preserve physical location and stock consistency. Count and transfer lines for LOT items must carry a `lotId` of the same item. `SALE` issues are created only by store orders. Receipt lines for LOT items may reference an existing lot with `lotId` (`GET /lots`) instead of creating one. Receipt lines for ASSET items need a `locationId` in the receiving warehouse before the receipt can be confirmed; `scripts/list-assets-without-location.sql` lists older in-stock assets without one (read-only). Resolving or cancelling a loss report does not receive inventory; `/assets/:id/recover` records physical recovery into a valid warehouse/location.
 
 ## API documentation
 

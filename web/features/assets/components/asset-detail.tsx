@@ -331,6 +331,19 @@ export function AssetDetail({
                     Lập lịch bảo trì lại
                   </Button>
                 )}
+                {/* Received back after a failed repair: retire straight from here (AC28). */}
+                {view.maintenanceRetryEligible && writable && (
+                  <Button
+                    variant="outline"
+                    className="ml-2"
+                    onClick={(event) => {
+                      operationTrigger.current = event.currentTarget;
+                      setAction("retire");
+                    }}
+                  >
+                    Ngừng sử dụng
+                  </Button>
+                )}
               </div>
             )}
             <dl className="grid min-w-0 gap-x-8 gap-y-5 rounded-xl border bg-card p-5 sm:grid-cols-2 xl:grid-cols-3">

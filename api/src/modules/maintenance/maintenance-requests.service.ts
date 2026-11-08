@@ -25,7 +25,9 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { FARM_ADMIN_ROLES, WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+
+import { assetInScope, assetWarehouseId } from '../assets/asset-warehouse';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { CreateMaintenanceRequestDto } from './dto/maintenance-request.dto';
 import { MaintenanceService } from './maintenance.service';
 
@@ -190,6 +192,10 @@ export class MaintenanceRequestsService {
       throw new ForbiddenException(
         'Only farm employees can request maintenance',
       );
+    const requesterScope = await this.warehousesService.warehouseScope(
+      farmId,
+      clerkUserId,
+    );
     const description = input.description.trim();
     if (description.length < 3)
       throw new BadRequestException(
@@ -205,6 +211,15 @@ export class MaintenanceRequestsService {
           .for('update')
           .limit(1);
         if (!asset) throw new NotFoundException('Asset not found');
+        await this.maintenanceService.assertAssetInScope(
+          tx,
+          input.assetId,
+          requesterScope,
+        );
+        const [assetWarehouse] = await tx
+          .select({ warehouseId: assetWarehouseId })
+          .from(assets)
+          .where(eq(assets.id, input.assetId));
         if (
           ['LOST', 'RETIRED', 'MAINTENANCE', 'TRANSFER_PENDING'].includes(
             asset.status,
@@ -232,6 +247,7 @@ export class MaintenanceRequestsService {
           tx,
           this.notification(request, asset.assetCode, 'PENDING_APPROVAL'),
           memberId,
+          assetWarehouse?.warehouseId,
         );
         return request;
       })
@@ -258,6 +274,11 @@ export class MaintenanceRequestsService {
     const reviewer = await this.reviewer(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
       const { request, assetCode } = await this.lockPending(tx, id, farmId);
+      await this.maintenanceService.assertAssetInScope(
+        tx,
+        request.assetId,
+        reviewer.scope,
+      );
       const maintenanceRecord = await this.maintenanceService.schedule(
         tx,
         farmId,
@@ -305,6 +326,11 @@ export class MaintenanceRequestsService {
       );
     return this.databaseService.db.transaction(async (tx) => {
       const { request, assetCode } = await this.lockPending(tx, id, farmId);
+      await this.maintenanceService.assertAssetInScope(
+        tx,
+        request.assetId,
+        reviewer.scope,
+      );
       const now = new Date().toISOString();
       const [updated] = await tx
         .update(maintenanceRequests)
@@ -330,18 +356,24 @@ export class MaintenanceRequestsService {
     });
   }
 
-  /** Only admins and farm owners see every request; other members see their own. */
+
+  /** Approvers see every request of the farm; anyone else only their own; both only for assets of their warehouses. */
   private async scope(farmId: string, clerkUserId: string) {
-    const { memberId, roleCodes } =
-      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    const { memberId, scope } = await this.warehousesService.documentReadScope(
+      farmId,
+      clerkUserId,
+    );
     const conditions = [eq(maintenanceRequests.farmId, farmId)];
-    if (!roleCodes.some((code) => FARM_ADMIN_ROLES.includes(code)))
+
+    if (memberId)
       conditions.push(eq(maintenanceRequests.requestedByMemberId, memberId));
+    const scoped = assetInScope(maintenanceRequests.assetId, scope);
+    if (scoped) conditions.push(scoped);
     return conditions;
   }
 
   private async reviewer(farmId: string, clerkUserId: string) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -352,7 +384,7 @@ export class MaintenanceRequestsService {
       .from(farmMembers)
       .where(eq(farmMembers.id, memberId))
       .limit(1);
-    return { memberId, userId: member.userId };
+    return { memberId, userId: member.userId, scope };
   }
 
   private async lockPending(tx: Transaction, id: string, farmId: string) {
@@ -411,7 +443,7 @@ export class MaintenanceRequestsService {
       farmId: request.farmId,
       entityType: 'MAINTENANCE_REQUEST',
       entityId: request.id,
-      documentCode: assetCode,
+      documentCode: `MNT-${request.id.slice(0, 8)}`,
       documentKind: 'Yêu cầu bảo trì tài sản',
       status,
       title: NOTIFICATION_TITLES[status],

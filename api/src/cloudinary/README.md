@@ -8,6 +8,13 @@ inject `CloudinaryService`.
 Configure `CLOUDINARY_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in
 `api/.env`, or use `CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>`.
 Individual non-empty environment variables take precedence over the URL.
+`CLOUDINARY_CLOUD_NAME` is also accepted when `CLOUDINARY_NAME` is empty.
+
+On Render, set these variables in the API service's **Environment** settings
+and redeploy. Local `api/.env` values are not included in the runtime Docker image.
+Use either a complete `CLOUDINARY_URL` or the cloud name, API key, and API secret
+from the same Cloudinary product environment. Remove stale individual values
+when switching to `CLOUDINARY_URL`, since they override its credentials.
 
 ```ts
 const uploaded = await cloudinaryService.uploadFile(file.buffer, {
@@ -36,6 +43,8 @@ including `not found` when the asset was already deleted.
 
 Empty files and public IDs produce HTTP 400 errors. Cloudinary API failures
 produce HTTP 502 errors with the original error retained as the exception cause.
+Upload failures also log the error message on the server; inspect Render logs
+at the failed request's timestamp for the Cloudinary rejection or network error.
 File size/type validation and authorization belong in the calling feature.
 
 SDK references: [uploads](https://cloudinary.com/documentation/node_image_and_video_upload)

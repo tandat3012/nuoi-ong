@@ -208,6 +208,7 @@ export class AssetsController {
     description: 'Người dùng không có quyền truy cập trang trại.',
   })
   listAssets(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmIdValue?: string,
     @Query('page') pageValue?: string,
     @Query('pageSize') pageSizeValue?: string,
@@ -219,6 +220,7 @@ export class AssetsController {
   ) {
     return this.assetsService.listAssets({
       farmId: requireUuid(farmIdValue, 'farmId'),
+      clerkUserId: auth.clerkUserId,
       ...parsePagination(pageValue, pageSizeValue),
       search: normalizeSearch(searchValue),
       status: parseOptionalEnum(statusValue, assetStatus.enumValues, 'status'),
@@ -260,6 +262,7 @@ export class AssetsController {
     description: 'Người dùng không có quyền truy cập trang trại.',
   })
   async getAssetByCode(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('assetCode') assetCode: string,
     @Query('farmId') farmIdValue?: string,
   ) {
@@ -271,6 +274,7 @@ export class AssetsController {
       data: await this.assetsService.getAssetByCode(
         assetCode,
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
       ),
     };
   }
@@ -296,6 +300,7 @@ export class AssetsController {
     description: 'Người dùng không có quyền truy cập trang trại.',
   })
   async getAssetByQr(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('qrToken') qrTokenValue: string,
     @Query('farmId') farmIdValue?: string,
   ) {
@@ -303,6 +308,7 @@ export class AssetsController {
       data: await this.assetsService.getAssetByQr(
         requireUuid(qrTokenValue, 'qrToken'),
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
       ),
     };
   }
@@ -315,15 +321,12 @@ export class AssetsController {
     description: 'Thông tin bàn giao đang hoạt động hoặc null.',
   })
   async getHolder(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
   ) {
-    return {
-      data: await this.historyService.holder(
-        requireUuid(idValue, 'id'),
-        requireUuid(farmIdValue, 'farmId'),
-      ),
-    };
+    const { id, farmId } = await this.visibleAsset(auth, idValue, farmIdValue);
+    return { data: await this.historyService.holder(id, farmId) };
   }
 
   @Get(':id/history')
@@ -334,18 +337,22 @@ export class AssetsController {
   @ApiEnumQuery('kind', assetHistoryKinds, 'Loại lịch sử; mặc định movements.')
   @ApiOkResponse({ description: 'Lịch sử tài sản đã chuẩn hóa theo trang.' })
   async getHistory(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
     @Query('kind') kindValue?: string,
     @Query('page') pageValue?: string,
     @Query('pageSize') pageSizeValue?: string,
   ) {
+    const kind =
+      parseOptionalEnum(kindValue, assetHistoryKinds, 'kind') ?? 'movements';
+    const pagination = parsePagination(pageValue, pageSizeValue);
+    const { id, farmId } = await this.visibleAsset(auth, idValue, farmIdValue);
     return this.historyService.history({
-      assetId: requireUuid(idValue, 'id'),
-      farmId: requireUuid(farmIdValue, 'farmId'),
-      kind:
-        parseOptionalEnum(kindValue, assetHistoryKinds, 'kind') ?? 'movements',
-      ...parsePagination(pageValue, pageSizeValue),
+      assetId: id,
+      farmId,
+      kind,
+      ...pagination,
     });
   }
 
@@ -358,15 +365,24 @@ export class AssetsController {
       'Mã tài sản và QR SVG; QR chứa URL `{WEB_APP_URL}/scan/{assetCode}`.',
   })
   async getLabel(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
   ) {
-    return {
-      data: await this.historyService.label(
-        requireUuid(idValue, 'id'),
-        requireUuid(farmIdValue, 'farmId'),
-      ),
-    };
+    const { id, farmId } = await this.visibleAsset(auth, idValue, farmIdValue);
+    return { data: await this.historyService.label(id, farmId) };
+  }
+
+  /** 404 unless the asset belongs to one of the caller's warehouses. */
+  private async visibleAsset(
+    auth: { clerkUserId: string },
+    idValue: string,
+    farmIdValue?: string,
+  ) {
+    const id = requireUuid(idValue, 'id');
+    const farmId = requireUuid(farmIdValue, 'farmId');
+    await this.assetsService.getAsset(id, farmId, auth.clerkUserId);
+    return { id, farmId };
   }
 
   @Patch(':id')
@@ -474,7 +490,11 @@ export class AssetsController {
   }
 
   @Post(':id/retire')
-  @ApiOperation({ summary: 'Ngừng sử dụng tài sản đang có trong kho' })
+  @ApiOperation({
+    summary: 'Ngừng sử dụng tài sản đang có trong kho',
+    description:
+      'Tài sản AVAILABLE, hoặc tài sản sửa không đạt (FAILED) mà kho đã xác nhận nhận lại; trừ tồn và ghi sổ một lần.',
+  })
   @ApiUuidParam('id', 'ID tài sản.')
   @ApiFarmIdQuery()
   @ApiBody({ type: RetireAssetDto })
@@ -483,7 +503,7 @@ export class AssetsController {
   })
   @ApiConflictResponse({
     description:
-      'Chỉ tài sản AVAILABLE không có bảo trì đang mở mới có thể ngừng.',
+      'Tài sản không AVAILABLE/không phải sửa hỏng đã nhận về, hoặc còn bảo trì đang mở.',
   })
   async retireAsset(
     @CurrentAuth() auth: { clerkUserId: string },
@@ -602,6 +622,7 @@ export class AssetsController {
     description: 'Người dùng không có quyền truy cập trang trại.',
   })
   async getAsset(
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') idValue: string,
     @Query('farmId') farmIdValue?: string,
   ) {
@@ -609,6 +630,7 @@ export class AssetsController {
       data: await this.assetsService.getAsset(
         requireUuid(idValue, 'id'),
         requireUuid(farmIdValue, 'farmId'),
+        auth.clerkUserId,
       ),
     };
   }

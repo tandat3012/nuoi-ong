@@ -89,6 +89,15 @@ export class CreateStoreOrderDto {
   @IsIn(['COD', 'BANK_TRANSFER'])
   paymentMethod!: 'COD' | 'BANK_TRANSFER';
 
+  @ApiPropertyOptional({
+    example: '30000',
+    description:
+      'Phí giao hàng khách đã xem; phí của miền đã đổi trả 409 SHIPPING_FEE_CHANGED.',
+  })
+  @IsOptional()
+  @IsVndAmount()
+  expectedShippingFee?: string;
+
   @ApiProperty({ type: [StoreOrderLineDto], minItems: 1, maxItems: 100 })
   @IsArray()
   @ArrayMinSize(1)
@@ -103,19 +112,74 @@ export class CreateStoreOrderDto {
   items!: StoreOrderLineDto[];
 }
 
-export class StoreOrderShippingFeeDto {
-  @ApiProperty({
-    example: '30000',
-    description: 'Chỉ sửa khi đơn PENDING và UNPAID.',
-  })
-  @IsVndAmount()
-  shippingFee!: string;
-}
-
 export class CancelStoreOrderDto {
   @ApiProperty({ maxLength: 1000 })
   @Transform(trimText)
   @IsString()
   @Length(1, 1000)
   reason!: string;
+}
+
+export class ReturnStoreOrderDeliveryDto {
+  @ApiProperty({
+    maxLength: 1000,
+    description: 'Lý do không giao được hoặc nhận nhầm.',
+  })
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 1000)
+  reason!: string;
+}
+
+export class StaffCancelStoreOrderDto extends CancelStoreOrderDto {
+  @ApiPropertyOptional({
+    example: '585000',
+    description: 'Bắt buộc khi đơn đã thanh toán: số tiền đã hoàn thủ công.',
+  })
+  @IsOptional()
+  @IsVndAmount()
+  refundAmount?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 1000,
+    description: 'Mã giao dịch hoàn tiền hoặc chứng cứ khác.',
+  })
+  @IsOptional()
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 1000)
+  refundReference?: string;
+}
+
+export class MarkStoreOrderPaidDto {
+  @ApiProperty({
+    maxLength: 100,
+    description: 'Mã giao dịch ngân hàng đã đối chiếu với sao kê.',
+  })
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 100)
+  reference!: string;
+
+  @ApiPropertyOptional({ maxLength: 1000 })
+  @IsOptional()
+  @Transform(trimText)
+  @IsString()
+  @Length(0, 1000)
+  note?: string;
+}
+
+export class RefundStoreOrderDto {
+  @ApiProperty({ example: '585000', description: 'Số tiền đã hoàn thủ công.' })
+  @IsVndAmount()
+  refundAmount!: string;
+
+  @ApiProperty({
+    maxLength: 1000,
+    description: 'Mã giao dịch hoàn tiền hoặc chứng cứ khác.',
+  })
+  @Transform(trimText)
+  @IsString()
+  @Length(1, 1000)
+  refundReference!: string;
 }

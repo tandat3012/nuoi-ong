@@ -19,7 +19,7 @@ import { StockIssuesService } from '../src/modules/warehouses/stock-issues.servi
 import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
 import { StockCountsService } from '../src/modules/warehouses/stock-counts.service';
 import { InventoryAdjustmentsService } from '../src/modules/inventory/inventory-adjustments.service';
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { and } from 'drizzle-orm';
 
@@ -98,6 +98,13 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     await db
       .insert(schema.warehouses)
       .values({ id: warehouse, farmId: farm, code: warehouse, name: 'test' });
+    // The warehouse manager and employee work in this warehouse.
+    await db.insert(schema.farmMemberWarehouses).values(
+      [actors.WAREHOUSE_MANAGER, actors.EMPLOYEE].map((actor) => ({
+        farmMemberId: actor.member,
+        warehouseId: warehouse,
+      })),
+    );
     await db.insert(schema.locations).values({
       id: location,
       farmId: farm,
@@ -149,6 +156,10 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     );
   });
   afterAll(async () => {
+    await pool.query(
+      'DELETE FROM farm_member_warehouses WHERE warehouse_id=$1',
+      [warehouse],
+    );
     for (const table of [
       'notifications',
       'inventory_transactions',
@@ -247,7 +258,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     );
   async function inspect(outcome: 'PASSED' | 'FAILED') {
     const r = await schedule();
-    await service.start(r.id, farm, worker);
+    await service.start(r.id, farm, manager);
     const receivedAt = new Date().toISOString();
     await service.receive(r.id, farm, worker, receivedAt);
     return service.complete(r.id, farm, worker, {
@@ -282,6 +293,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       .where(eq(schema.assets.id, asset));
     const choices = await assetsService.listAssets({
       farmId: farm,
+      clerkUserId: manager,
       warehouseId: warehouse,
       itemId: item,
       search: serialNumber,
@@ -355,7 +367,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     expect(quarantined.selectedAsset?.status).toBe('MAINTENANCE');
     const retry = await schedule();
     expect((await inventory.listBalances(filters)).data).toHaveLength(1);
-    await service.start(retry.id, farm, worker);
+    await service.start(retry.id, farm, manager);
     expect((await inventory.listBalances(filters)).data).toHaveLength(0);
   });
   it('filters scheduled dates by inclusive Vietnam calendar days before pagination', async () => {
@@ -427,7 +439,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     'blocks loss and recovery while %s maintenance has no confirmed return',
     async (stage) => {
       const r = await schedule();
-      await service.start(r.id, farm, worker);
+      await service.start(r.id, farm, manager);
       await service.receive(r.id, farm, worker, new Date().toISOString());
       if (stage !== 'RECEIVED')
         await service.complete(r.id, farm, worker, {
@@ -485,18 +497,21 @@ describe('External maintenance, inspection and warehouse receipt', () => {
       locationId: location,
     });
     expect(
-      (await assetsService.getAsset(asset, farm)).maintenanceRetryEligible,
+      (await assetsService.getAsset(asset, farm, manager))
+        .maintenanceRetryEligible,
     ).toBe(false);
     await service.reviewReturn(failed.id, farm, manager, true);
     expect(
-      (await assetsService.getAsset(asset, farm)).maintenanceRetryEligible,
+      (await assetsService.getAsset(asset, farm, manager))
+        .maintenanceRetryEligible,
     ).toBe(true);
     const retry = await schedule();
     expect(
-      (await assetsService.getAsset(asset, farm)).maintenanceRetryEligible,
+      (await assetsService.getAsset(asset, farm, manager))
+        .maintenanceRetryEligible,
     ).toBe(false);
     await service.cancel(retry.id, farm, manager);
-    expect(await assetsService.getAsset(asset, farm)).toMatchObject({
+    expect(await assetsService.getAsset(asset, farm, manager)).toMatchObject({
       latestMaintenanceStatus: 'CANCELLED',
       maintenanceRetryEligible: true,
     });
@@ -531,7 +546,8 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     });
     await service.reviewReturn(passed.id, farm, manager, true);
     expect(
-      (await assetsService.getAsset(asset, farm)).maintenanceRetryEligible,
+      (await assetsService.getAsset(asset, farm, manager))
+        .maintenanceRetryEligible,
     ).toBe(false);
     await lifecycle.reportIncident(asset, farm, manager, {
       incidentType: 'LOSS',
@@ -551,7 +567,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     'closes legacy assignments on %s receipt approval',
     async (outcome) => {
       const r = await schedule();
-      await service.start(r.id, farm, worker);
+      await service.start(r.id, farm, manager);
       const [assignment] = await db
         .insert(schema.assetAssignments)
         .values({
@@ -682,7 +698,8 @@ describe('External maintenance, inspection and warehouse receipt', () => {
   it('enforces duties, keeps original asset, adds stock once under concurrent approval', async () => {
     const original = await balance();
     const r = await schedule();
-    await expect(service.start(r.id, farm, manager)).rejects.toThrow(
+    // AC10: the maintenance coordinator cannot confirm the warehouse issue.
+    await expect(service.start(r.id, farm, worker)).rejects.toThrow(
       'permission',
     );
     await expect(
@@ -691,8 +708,32 @@ describe('External maintenance, inspection and warehouse receipt', () => {
         maintenanceType: 'CORRECTIVE',
       }),
     ).rejects.toThrow('permission');
-    await service.start(r.id, farm, worker);
+    const started = await service.start(r.id, farm, manager);
+    expect(started).toMatchObject({
+      status: 'IN_PROGRESS',
+      issuedByMemberId: actors.WAREHOUSE_MANAGER.member,
+    });
+    expect(started.startedAt).toBeTruthy();
     expect(await balance()).toBe(original - 1);
+    // Confirmed once: a resent or concurrent confirm does not debit again.
+    const again = await Promise.allSettled([
+      service.start(r.id, farm, manager),
+      service.start(r.id, farm, manager),
+    ]);
+    expect(again.map((result) => result.status)).toEqual([
+      'rejected',
+      'rejected',
+    ]);
+    expect(await balance()).toBe(original - 1);
+    const issues = await pool.query<{ performed_by_member_id: string }>(
+      `SELECT performed_by_member_id FROM inventory_transactions
+       WHERE source_id=$1 AND transaction_type='MAINTENANCE_ISSUE'`,
+      [r.id],
+    );
+    expect(issues.rows).toEqual([
+      { performed_by_member_id: actors.WAREHOUSE_MANAGER.member },
+    ]);
+    expect((await service.get(r.id, farm, manager)).issuedByName).toBeTruthy();
     await expect(
       service.complete(r.id, farm, worker, {
         outcome: 'PASSED',
@@ -765,8 +806,245 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     expect(await balance()).toBe(original);
     expect((await assetRow()).status).toBe('MAINTENANCE');
     const next = await schedule();
-    await service.start(next.id, farm, worker);
+    await service.start(next.id, farm, manager);
     expect(await balance()).toBe(original - 1);
+  });
+  it('lets only one of two concurrent warehouse confirmations issue the asset (AC10)', async () => {
+    const original = await balance();
+    const r = await schedule();
+    const results = await Promise.allSettled([
+      service.start(r.id, farm, manager),
+      service.start(r.id, farm, manager),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    expect(await balance()).toBe(original - 1);
+    const issues = await pool.query(
+      `SELECT 1 FROM inventory_transactions WHERE source_id=$1 AND transaction_type='MAINTENANCE_ISSUE'`,
+      [r.id],
+    );
+    expect(issues.rowCount).toBe(1);
+  });
+  it('has the source warehouse confirm a field asset without a second debit (AC10)', async () => {
+    await lifecycle.assign(asset, farm, manager, {
+      assignedToMemberId: actors.EMPLOYEE.member,
+      locationId: location,
+    });
+    expect((await assetRow()).status).toBe('ASSIGNED');
+    const afterAssign = await balance();
+    // A warehouse manager scoped to another warehouse cannot confirm it.
+    const other = {
+      warehouse: randomUUID(),
+      user: randomUUID(),
+      member: randomUUID(),
+      clerk: randomUUID(),
+    };
+    await db.insert(schema.warehouses).values({
+      id: other.warehouse,
+      farmId: farm,
+      code: other.warehouse,
+      name: 'other',
+    });
+    await db.insert(schema.users).values({
+      id: other.user,
+      email: other.clerk + '@example.local',
+      authProviderUserId: other.clerk,
+    });
+    await db
+      .insert(schema.farmMembers)
+      .values({ id: other.member, userId: other.user, farmId: farm });
+    const [role] = await db
+      .select()
+      .from(schema.roles)
+      .where(eq(schema.roles.code, 'WAREHOUSE_MANAGER'));
+    await db
+      .insert(schema.farmMemberRoles)
+      .values({ farmMemberId: other.member, roleId: role.id });
+    await db
+      .insert(schema.farmMemberWarehouses)
+      .values({ farmMemberId: other.member, warehouseId: other.warehouse });
+    try {
+      const r = await schedule();
+      await expect(
+        service.start(r.id, farm, other.clerk),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      const started = await service.start(r.id, farm, manager);
+      expect(started).toMatchObject({
+        issuedByMemberId: actors.WAREHOUSE_MANAGER.member,
+      });
+      expect(started.startedAt).toBeTruthy();
+      expect((await assetRow()).status).toBe('MAINTENANCE');
+      expect(await balance()).toBe(afterAssign);
+    } finally {
+      await pool.query(
+        'DELETE FROM farm_member_warehouses WHERE farm_member_id=$1',
+        [other.member],
+      );
+      await pool.query(
+        'DELETE FROM farm_member_roles WHERE farm_member_id=$1',
+        [other.member],
+      );
+      await pool.query('DELETE FROM farm_members WHERE id=$1', [other.member]);
+      await pool.query('DELETE FROM users WHERE id=$1', [other.user]);
+      await pool.query('DELETE FROM warehouses WHERE id=$1', [other.warehouse]);
+    }
+  });
+  it('lets a coordinator who also holds a warehouse role confirm the issue', async () => {
+    const [role] = await db
+      .select()
+      .from(schema.roles)
+      .where(eq(schema.roles.code, 'WAREHOUSE_MANAGER'));
+    await db.insert(schema.farmMemberRoles).values({
+      farmMemberId: actors.MAINTENANCE_STAFF.member,
+      roleId: role.id,
+    });
+    await db.insert(schema.farmMemberWarehouses).values({
+      farmMemberId: actors.MAINTENANCE_STAFF.member,
+      warehouseId: warehouse,
+    });
+    try {
+      const r = await schedule();
+      await expect(service.start(r.id, farm, worker)).resolves.toMatchObject({
+        issuedByMemberId: actors.MAINTENANCE_STAFF.member,
+      });
+    } finally {
+      await pool.query(
+        'DELETE FROM farm_member_roles WHERE farm_member_id=$1 AND role_id=$2',
+        [actors.MAINTENANCE_STAFF.member, role.id],
+      );
+      await pool.query(
+        'DELETE FROM farm_member_warehouses WHERE farm_member_id=$1',
+        [actors.MAINTENANCE_STAFF.member],
+      );
+    }
+  });
+  it('retires a failed repair received back exactly once, never via AVAILABLE (AC12, AC28)', async () => {
+    const original = await balance();
+    const note = { note: 'Hỏng không sửa được' };
+    const failed = await inspect('FAILED');
+    // Out for repair, then waiting for the warehouse: the asset has no location yet.
+    await expect(lifecycle.retire(asset, farm, manager, note)).rejects.toThrow(
+      'no warehouse location',
+    );
+    await service.submitReturn(failed.id, farm, worker, {
+      warehouseId: warehouse,
+      locationId: location,
+    });
+    await expect(lifecycle.retire(asset, farm, manager, note)).rejects.toThrow(
+      'no warehouse location',
+    );
+    await service.reviewReturn(failed.id, farm, manager, true);
+    expect(await assetRow()).toMatchObject({
+      status: 'MAINTENANCE',
+      currentLocationId: location,
+    });
+    expect(await balance()).toBe(original);
+    await expect(
+      lifecycle.retire(asset, farm, worker, note),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // A scheduled retry blocks retirement until it is cancelled.
+    const retry = await schedule();
+    await expect(lifecycle.retire(asset, farm, manager, note)).rejects.toThrow(
+      'active maintenance',
+    );
+    await service.cancel(retry.id, farm, manager);
+
+    const results = await Promise.allSettled([
+      lifecycle.retire(asset, farm, manager, note),
+      lifecycle.retire(asset, farm, manager, note),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    expect(
+      results.find((result) => result.status === 'rejected')?.reason,
+    ).toBeInstanceOf(ConflictException);
+    await expect(lifecycle.retire(asset, farm, manager, note)).rejects.toThrow(
+      'Return assigned',
+    );
+    expect((await assetRow()).status).toBe('RETIRED');
+    expect(await balance()).toBe(original - 1);
+    const moves = await pool.query<{ source_type: string; reason: string }>(
+      `SELECT source_type, reason FROM inventory_transactions
+       WHERE asset_id=$1 AND source_type='ASSET_RETIRE'`,
+      [asset],
+    );
+    expect(moves.rows).toEqual([
+      { source_type: 'ASSET_RETIRE', reason: 'Hỏng không sửa được' },
+    ]);
+    const audits = await pool.query<{ old: string; ref: string }>(
+      `SELECT old_data->>'status' AS old, new_data->>'referenceId' AS ref
+       FROM audit_logs WHERE entity_id=$1 AND action='ASSET_RETIRED'`,
+      [asset],
+    );
+    expect(audits.rows).toEqual([{ old: 'MAINTENANCE', ref: failed.id }]);
+  });
+  it('lets an older received failure authorise retirement only while no retry is open', async () => {
+    const note = { note: 'Hỏng không sửa được' };
+    const receive = async (id: string) => {
+      await service.submitReturn(id, farm, worker, {
+        warehouseId: warehouse,
+        locationId: location,
+      });
+      await service.reviewReturn(id, farm, manager, true);
+    };
+    await receive((await inspect('FAILED')).id);
+    const original = await balance();
+    // Retry passed, return waiting for the warehouse, then rejected: still blocked.
+    const passed = await inspect('PASSED');
+    await service.submitReturn(passed.id, farm, worker, {
+      warehouseId: warehouse,
+      locationId: location,
+    });
+    await expect(
+      lifecycle.retire(asset, farm, manager, note),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await service.reviewReturn(passed.id, farm, manager, false, 'Sai vị trí');
+    await expect(
+      lifecycle.retire(asset, farm, manager, note),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(await balance()).toBe(original - 1);
+    expect((await assetRow()).status).toBe('MAINTENANCE');
+  });
+  it('serializes retirement against scheduling a retry: exactly one wins', async () => {
+    const failed = await inspect('FAILED');
+    await service.submitReturn(failed.id, farm, worker, {
+      warehouseId: warehouse,
+      locationId: location,
+    });
+    await service.reviewReturn(failed.id, farm, manager, true);
+    const original = await balance();
+    const [retired, scheduled] = await Promise.allSettled([
+      lifecycle.retire(asset, farm, manager, { note: 'Ngừng' }),
+      schedule(),
+    ]);
+    expect([retired.status, scheduled.status].sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const row = await assetRow();
+    if (retired.status === 'fulfilled') {
+      expect(row.status).toBe('RETIRED');
+      expect(await balance()).toBe(original - 1);
+    } else {
+      expect(retired.reason).toBeInstanceOf(ConflictException);
+      expect(row.status).toBe('MAINTENANCE');
+      expect(await balance()).toBe(original);
+    }
+  });
+  it('does not retire a maintenance asset without a received failed repair', async () => {
+    await db
+      .update(schema.assets)
+      .set({ status: 'MAINTENANCE' })
+      .where(eq(schema.assets.id, asset));
+    const original = await balance();
+    await expect(
+      lifecycle.retire(asset, farm, manager, { note: 'Thử ngừng' }),
+    ).rejects.toThrow('failed repair received back');
+    expect(await balance()).toBe(original);
   });
   it('rejects invalid destination, allows rejection/resubmission and audits both decisions', async () => {
     const original = await balance(),
@@ -850,7 +1128,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
   it('disallows cancellation outside the farm or after sending; validates reception and inspection', async () => {
     const r = await schedule();
     await expect(service.cancel(r.id, randomUUID(), worker)).rejects.toThrow();
-    await service.start(r.id, farm, worker);
+    await service.start(r.id, farm, manager);
     await expect(service.cancel(r.id, farm, manager)).rejects.toThrow();
     await expect(service.receive(r.id, farm, worker, future())).rejects.toThrow(
       'Invalid',
@@ -926,7 +1204,7 @@ describe('External maintenance, inspection and warehouse receipt', () => {
         ),
       );
     expect(stale).toHaveLength(0);
-    await service.start(r.id, farm, worker);
+    await service.start(r.id, farm, manager);
     await db
       .update(schema.maintenanceRecords)
       .set({ expectedReturnAt: before() })

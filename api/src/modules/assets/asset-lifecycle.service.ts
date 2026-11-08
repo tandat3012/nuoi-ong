@@ -24,6 +24,11 @@ import {
   warehouses,
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import {
+  assertInScope,
+  type WarehouseScope,
+} from '../warehouses/warehouse-scope';
+import { assetWarehouseId } from './asset-warehouse';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 import {
@@ -40,7 +45,12 @@ import {
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 type AssetStatus = (typeof assetStatus.enumValues)[number];
-export type Actor = { memberId: string; userId: string };
+/** `scope` limits the warehouses the actor may act in; null or absent = all. */
+export type Actor = {
+  memberId: string;
+  userId: string;
+  scope?: WarehouseScope;
+};
 
 export const TRANSFER_PENDING_CONFLICT =
   'Asset has a pending transfer request; approve or reject it first';
@@ -60,6 +70,7 @@ export class AssetLifecycleService {
 
   async create(farmId: string, clerkUserId: string, input: CreateAssetDto) {
     const actor = await this.actor(farmId, clerkUserId);
+    assertInScope(actor.scope ?? null, input.warehouseId);
     try {
       return await this.databaseService.db.transaction(async (tx) => {
         await this.activeItem(tx, farmId, input.itemId);
@@ -157,7 +168,7 @@ export class AssetLifecycleService {
       throw new BadRequestException('At least one metadata field is required');
     try {
       return await this.databaseService.db.transaction(async (tx) => {
-        const asset = await this.getAsset(tx, id, farmId, true);
+        const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
         if (asset.updatedAt !== input.updatedAt)
           throw new ConflictException(
             'Asset changed since it was loaded; reload before editing',
@@ -234,7 +245,13 @@ export class AssetLifecycleService {
   ) {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
-      const preliminary = await this.getAsset(tx, id, farmId);
+      const preliminary = await this.getAsset(
+        tx,
+        id,
+        farmId,
+        false,
+        actor.scope,
+      );
       if (!['AVAILABLE', 'ASSIGNED', 'IN_USE'].includes(preliminary.status))
         throw new ConflictException(
           'Only AVAILABLE, ASSIGNED, or IN_USE assets can be assigned',
@@ -263,7 +280,7 @@ export class AssetLifecycleService {
         );
       }
 
-      const asset = await this.getAsset(tx, id, farmId, true);
+      const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
       if (
         asset.status !== preliminary.status ||
         asset.currentLocationId !== preliminary.currentLocationId ||
@@ -379,7 +396,7 @@ export class AssetLifecycleService {
   async startUse(id: string, farmId: string, clerkUserId: string) {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
-      const asset = await this.getAsset(tx, id, farmId, true);
+      const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
       if (asset.status !== 'ASSIGNED')
         throw new ConflictException('Only ASSIGNED assets can start use');
       await this.assertNoActiveMaintenance(tx, farmId, id);
@@ -440,7 +457,7 @@ export class AssetLifecycleService {
     input: TransferAssetDto,
     fromStatus: 'AVAILABLE' | 'TRANSFER_PENDING' = 'AVAILABLE',
   ) {
-    const preliminary = await this.getAsset(tx, id, farmId);
+    const preliminary = await this.getAsset(tx, id, farmId, false, actor.scope);
     if (preliminary.status !== fromStatus)
       throw new ConflictException('Only AVAILABLE assets can be transferred');
     if (!preliminary.currentLocationId)
@@ -500,7 +517,7 @@ export class AssetLifecycleService {
       balances.set(warehouseId, balance.id);
     }
 
-    const asset = await this.getAsset(tx, id, farmId, true);
+    const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
     if (
       asset.status !== fromStatus ||
       asset.itemId !== preliminary.itemId ||
@@ -606,13 +623,23 @@ export class AssetLifecycleService {
   ) {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
-      const preliminary = await this.getAsset(tx, id, farmId);
-      if (preliminary.status !== 'AVAILABLE')
+      const preliminary = await this.getAsset(
+        tx,
+        id,
+        farmId,
+        false,
+        actor.scope,
+      );
+      // A failed repair received back stays MAINTENANCE (not sellable); it retires
+      // from there instead of passing through AVAILABLE (AC28).
+      if (!['AVAILABLE', 'MAINTENANCE'].includes(preliminary.status))
         throw new ConflictException(
           'Return assigned or in-use assets before retiring them',
         );
       if (!preliminary.currentLocationId)
-        throw new ConflictException('Available asset has no source location');
+        throw new ConflictException(
+          'Asset has no warehouse location to retire from',
+        );
       const locationPreview = await this.locationWithWarehouse(
         tx,
         farmId,
@@ -629,9 +656,9 @@ export class AssetLifecycleService {
         locationPreview.warehouseId,
         preliminary.itemId,
       );
-      const asset = await this.getAsset(tx, id, farmId, true);
+      const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
       if (
-        asset.status !== 'AVAILABLE' ||
+        asset.status !== preliminary.status ||
         asset.itemId !== preliminary.itemId ||
         asset.currentLocationId !== preliminary.currentLocationId
       )
@@ -639,6 +666,10 @@ export class AssetLifecycleService {
           'Asset changed during retirement; reload before retrying',
         );
       await this.assertNoActiveMaintenance(tx, farmId, id);
+      const failedRepairId =
+        asset.status === 'MAINTENANCE'
+          ? await this.receivedFailedRepair(tx, farmId, id)
+          : undefined;
       await this.activeLocation(
         tx,
         farmId,
@@ -671,7 +702,11 @@ export class AssetLifecycleService {
         'ASSET_RETIRED',
         id,
         { status: asset.status },
-        { status: 'RETIRED', summary: `Ngừng sử dụng: ${input.note}` },
+        {
+          status: 'RETIRED',
+          ...(failedRepairId && { referenceId: failedRepairId }),
+          summary: `Ngừng sử dụng${failedRepairId ? ' (sửa không đạt)' : ''}: ${input.note}`,
+        },
       );
       return updated;
     });
@@ -685,7 +720,13 @@ export class AssetLifecycleService {
   ) {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
-      const preliminary = await this.getAsset(tx, id, farmId);
+      const preliminary = await this.getAsset(
+        tx,
+        id,
+        farmId,
+        false,
+        actor.scope,
+      );
       if (['LOST', 'RETIRED'].includes(preliminary.status))
         throw new ConflictException(
           'Terminal assets cannot receive new incidents',
@@ -715,7 +756,7 @@ export class AssetLifecycleService {
           preliminary.itemId,
         );
       }
-      const asset = await this.getAsset(tx, id, farmId, true);
+      const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
       if (
         asset.status !== preliminary.status ||
         asset.itemId !== preliminary.itemId ||
@@ -817,7 +858,7 @@ export class AssetLifecycleService {
   ) {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
-      const asset = await this.getAsset(tx, id, farmId, true);
+      const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
       const [incident] = await tx
         .select()
         .from(assetIncidents)
@@ -880,8 +921,15 @@ export class AssetLifecycleService {
     input: RecoverAssetDto,
   ) {
     const actor = await this.actor(farmId, clerkUserId);
+    assertInScope(actor.scope ?? null, input.warehouseId);
     return this.databaseService.db.transaction(async (tx) => {
-      const preliminary = await this.getAsset(tx, id, farmId);
+      const preliminary = await this.getAsset(
+        tx,
+        id,
+        farmId,
+        false,
+        actor.scope,
+      );
       if (preliminary.status !== 'LOST')
         throw new ConflictException('Only LOST assets can be recovered');
       await this.activeWarehouse(tx, farmId, input.warehouseId);
@@ -903,7 +951,7 @@ export class AssetLifecycleService {
         input.warehouseId,
         preliminary.itemId,
       );
-      const asset = await this.getAsset(tx, id, farmId, true);
+      const asset = await this.getAsset(tx, id, farmId, true, actor.scope);
       if (asset.status !== 'LOST' || asset.itemId !== preliminary.itemId)
         throw new ConflictException(
           'Asset changed during recovery; reload before retrying',
@@ -964,7 +1012,7 @@ export class AssetLifecycleService {
   }
 
   private async actor(farmId: string, clerkUserId: string): Promise<Actor> {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -986,7 +1034,7 @@ export class AssetLifecycleService {
       .limit(1);
     if (!actor)
       throw new ForbiddenException('Active farm membership is required');
-    return { memberId, userId: actor.userId };
+    return { memberId, userId: actor.userId, scope };
   }
 
   private async activeMember(
@@ -1246,6 +1294,32 @@ export class AssetLifecycleService {
       throw new ConflictException('Asset has active maintenance');
   }
 
+  /** The FAILED repair whose return the warehouse confirmed; 409 if there is none. */
+  private async receivedFailedRepair(
+    tx: Transaction,
+    farmId: string,
+    assetId: string,
+  ) {
+    const [repair] = await tx
+      .select({ id: maintenanceRecords.id })
+      .from(maintenanceRecords)
+      .where(
+        and(
+          eq(maintenanceRecords.farmId, farmId),
+          eq(maintenanceRecords.assetId, assetId),
+          eq(maintenanceRecords.status, 'FAILED'),
+          eq(maintenanceRecords.returnStatus, 'CONFIRMED'),
+        ),
+      )
+      .orderBy(desc(maintenanceRecords.returnReviewedAt))
+      .limit(1);
+    if (!repair)
+      throw new ConflictException(
+        'Only a failed repair received back in the warehouse can be retired from maintenance',
+      );
+    return repair.id;
+  }
+
   private async assertNoFailedMaintenance(
     tx: Transaction,
     farmId: string,
@@ -1273,11 +1347,13 @@ export class AssetLifecycleService {
       );
   }
 
+  /** Loads the asset; with a `scope`, 403 when it belongs to another warehouse. */
   private async getAsset(
     tx: Transaction,
     id: string,
     farmId: string,
     forUpdate = false,
+    scope?: WarehouseScope,
   ) {
     const query = tx
       .select()
@@ -1286,6 +1362,13 @@ export class AssetLifecycleService {
       .limit(1);
     const [asset] = forUpdate ? await query.for('update') : await query;
     if (!asset) throw new NotFoundException('Asset not found');
+    if (scope) {
+      const [row] = await tx
+        .select({ warehouseId: assetWarehouseId })
+        .from(assets)
+        .where(eq(assets.id, id));
+      assertInScope(scope, row?.warehouseId);
+    }
     return asset;
   }
 

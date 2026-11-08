@@ -9,12 +9,12 @@ import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.s
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 
 /**
- * Storefront demo for delivery regions, sales/source/working warehouses and
- * split orders (see docs in the PR / CLAUDE.md "Storefront model").
+ * Storefront demo for delivery regions, sales/working warehouses and split
+ * orders (see docs in the PR / CLAUDE.md "Storefront model"). Only the sales
+ * warehouse ever sells (D03).
  *
- * FARM-DEMO   sells NORTH + SOUTH from WH-MAIN; WH-BEE is a source, WH-FIELD a
- *             plain working warehouse.
- * FARM-COFFEE sells SOUTH + CENTRAL from CF-BAN; CF-KHO is a source.
+ * FARM-DEMO   sells NORTH + SOUTH from WH-MAIN; WH-BEE, WH-FIELD are working.
+ * FARM-COFFEE sells SOUTH + CENTRAL from CF-BAN; CF-KHO is working.
  *
  * Idempotent: products, items and receipts use fixed SD- codes, so a re-run
  * only re-applies the settings. Stock is received through the real receipt
@@ -35,21 +35,21 @@ const FARMS: Record<
   {
     regions: Region[];
     sales: { code: string; name: string };
-    sources: { code: string; name: string }[];
     working: { code: string; name: string }[];
   }
 > = {
   'FARM-DEMO': {
     regions: ['NORTH', 'SOUTH'],
     sales: { code: 'WH-MAIN', name: 'Kho chính' },
-    sources: [{ code: 'WH-BEE', name: 'Kho ong' }],
-    working: [{ code: 'WH-FIELD', name: 'Kho ngoài trại' }],
+    working: [
+      { code: 'WH-BEE', name: 'Kho ong' },
+      { code: 'WH-FIELD', name: 'Kho ngoài trại' },
+    ],
   },
   'FARM-COFFEE': {
     regions: ['SOUTH', 'CENTRAL'],
     sales: { code: 'CF-BAN', name: 'Kho bán Hoa Cà Phê' },
-    sources: [{ code: 'CF-KHO', name: 'Kho làm việc Hoa Cà Phê' }],
-    working: [],
+    working: [{ code: 'CF-KHO', name: 'Kho làm việc Hoa Cà Phê' }],
   },
 };
 
@@ -96,10 +96,10 @@ const PRODUCTS: {
   },
   {
     slug: 'sd-bu-tu-kho-nguon',
-    name: 'DEMO Sữa ong chúa (bù từ kho nguồn)',
+    name: 'DEMO Sữa ong chúa (kho bán còn ít)',
     price: '300000',
     description:
-      'Kho bán còn 2, kho nguồn WH-BEE còn 20: đặt 10 vẫn giao được, xác nhận đơn tạo phiếu chuyển.',
+      'Kho bán còn 2, WH-BEE còn 20: đặt 10 báo không đủ hàng; chuyển kho sang WH-MAIN trước mới bán được.',
     stock: { 'FARM-DEMO': { 'WH-MAIN': '2', 'WH-BEE': '20' } },
   },
   {
@@ -107,7 +107,7 @@ const PRODUCTS: {
     name: 'DEMO Hộp quà (chỉ có ở kho làm việc)',
     price: '90000',
     description:
-      'Hàng chỉ nằm ở WH-FIELD (không phải kho nguồn): cửa hàng báo hết hàng.',
+      'Hàng chỉ nằm ở WH-FIELD (kho làm việc): cửa hàng báo hết hàng.',
     stock: { 'FARM-DEMO': { 'WH-FIELD': '50' } },
   },
   {
@@ -209,11 +209,7 @@ async function seed(db: Db) {
   for (const [code, config] of Object.entries(FARMS)) {
     const { farmId, owner } = await farmContext(db, code);
     const warehouseIds: Record<string, string> = {};
-    for (const warehouse of [
-      config.sales,
-      ...config.sources,
-      ...config.working,
-    ])
+    for (const warehouse of [config.sales, ...config.working])
       warehouseIds[warehouse.code] = await ensureWarehouse(
         db,
         warehouses,
@@ -234,19 +230,9 @@ async function seed(db: Db) {
         target: schema.storeSettings.farmId,
         set: settings,
       });
-    await db
-      .delete(schema.storeSourceWarehouses)
-      .where(eq(schema.storeSourceWarehouses.farmId, farmId));
-    if (config.sources.length > 0)
-      await db.insert(schema.storeSourceWarehouses).values(
-        config.sources.map((source) => ({
-          farmId,
-          warehouseId: warehouseIds[source.code],
-        })),
-      );
     contexts.set(code, { farmId, owner, warehouseIds });
     console.info(
-      `${code}: sales ${config.sales.code} → ${config.regions.join(', ')}; sources ${config.sources.map((s) => s.code).join(', ') || '-'}`,
+      `${code}: sales ${config.sales.code} → ${config.regions.join(', ')}`,
     );
   }
 

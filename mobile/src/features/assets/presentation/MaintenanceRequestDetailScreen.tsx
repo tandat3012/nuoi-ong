@@ -81,6 +81,7 @@ export default function MaintenanceRequestDetailScreen() {
     {loading ? <Card><Text style={styles.muted}>Đang tải yêu cầu…</Text></Card> : error ? <Card><Text style={styles.error}>{error}</Text></Card> : request ? <>
       <Card style={styles.card}>
         <View style={styles.row}><Text style={styles.asset}>{request.itemName}</Text><Pill tone={request.status === 'CONFIRMED' ? 'success' : request.status === 'REJECTED' ? 'danger' : 'amber'}><Text style={styles.status}>{statusLabel(request.status)}</Text></Pill></View>
+        <Text style={styles.code}>Mã phiếu: MNT-{request.id.slice(0, 8)}</Text>
         <Text style={styles.code}>Mã tài sản: {request.assetCode}</Text>
         <Text style={styles.label}>Loại yêu cầu</Text><Text style={styles.value}>{request.maintenanceType === 'CORRECTIVE' ? 'Sửa chữa đột xuất' : request.maintenanceType === 'INSPECTION' ? 'Kiểm tra thiết bị' : request.maintenanceType}</Text>
         <Text style={styles.label}>Mô tả sự cố</Text><Text style={styles.value}>{request.description}</Text>

@@ -20,6 +20,7 @@ export function AssetLookup({
   selected,
   warehouseId,
   activeOnly = false,
+  destination = false,
   disabled = false,
   onSelect,
 }: {
@@ -28,6 +29,8 @@ export function AssetLookup({
   selected: AssetChoice | null;
   warehouseId?: string;
   activeOnly?: boolean;
+  /** Warehouses: offer every warehouse of the farm as a transfer destination. */
+  destination?: boolean;
   disabled?: boolean;
   onSelect: (choice: AssetChoice | null) => void;
 }) {
@@ -38,7 +41,7 @@ export function AssetLookup({
   const searchInput = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState({ search: "", page: 1 });
-  const scope = `${farmId}:${kind}:${warehouseId ?? ""}:${activeOnly}`;
+  const scope = `${farmId}:${kind}:${warehouseId ?? ""}:${activeOnly}:${destination}`;
   const [result, setResult] = useState<{
     scope: string;
     query: typeof query;
@@ -61,6 +64,7 @@ export function AssetLookup({
       ...query,
       warehouseId,
       activeOnly,
+      destination,
     })
       .then((response) => {
         if (cancelled) return;
@@ -86,6 +90,7 @@ export function AssetLookup({
     scope,
     warehouseId,
     activeOnly,
+    destination,
     open,
     disabled,
   ]);

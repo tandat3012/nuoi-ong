@@ -4,7 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, count, eq, ilike, notInArray, or, SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  eq,
+  ilike,
+  inArray,
+  notInArray,
+  or,
+  sql,
+  SQL,
+} from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { qrSvg, scanUrl } from '../../common/qr';
 import { DatabaseService } from '../../db/database.service';
@@ -20,6 +31,11 @@ import {
   units,
   warehouses,
 } from '../../db/schema';
+import {
+  equipmentItemTypes,
+  type CreateEquipmentItemDto,
+  type UpdateEquipmentItemDto,
+} from './dto/catalog.dto';
 import type {
   CreateCategoryDto,
   CreateLocationDto,
@@ -38,7 +54,7 @@ type RecordStatus = (typeof recordStatus.enumValues)[number];
 export interface ItemListFilters extends PaginationParams {
   farmId: string;
   search?: string;
-  itemType?: ItemType;
+  itemTypes?: ItemType[];
   trackingMode?: TrackingMode;
   status?: RecordStatus;
 }
@@ -83,8 +99,8 @@ export class CatalogService {
         )!,
       );
     }
-    if (filters.itemType) {
-      predicates.push(eq(items.itemType, filters.itemType));
+    if (filters.itemTypes?.length) {
+      predicates.push(inArray(items.itemType, filters.itemTypes));
     }
     if (filters.trackingMode) {
       predicates.push(eq(items.trackingMode, filters.trackingMode));
@@ -387,6 +403,97 @@ export class CatalogService {
     );
   }
 
+  // A template holds no stock: units arrive through receipts (NV01) or recorded assets.
+  async createItem(farmId: string, input: CreateEquipmentItemDto) {
+    await this.assertActiveReferences(input.categoryId, input.unitId);
+    return this.unique('Item code already exists', async () => {
+      const [row] = await this.databaseService.db
+        .insert(items)
+        .values({ ...input, farmId })
+        .returning();
+      return row;
+    });
+  }
+
+  async updateItem(id: string, farmId: string, input: UpdateEquipmentItemDto) {
+    this.assertChanges(input);
+    return this.unique('Item code already exists', () =>
+      this.databaseService.db.transaction(async (tx) => {
+        const where = and(
+          eq(items.id, id),
+          eq(items.farmId, farmId),
+          inArray(items.itemType, [...equipmentItemTypes]),
+        );
+        // FOR UPDATE waits for writers that FK key-share lock the item (lines, balances, assets).
+        const [current] = await tx
+          .select({
+            categoryId: items.categoryId,
+            unitId: items.unitId,
+            trackingMode: items.trackingMode,
+          })
+          .from(items)
+          .where(where)
+          .for('update');
+        if (!current)
+          throw new NotFoundException('Equipment or tool item not found');
+        await this.assertActiveReferences(
+          input.categoryId === current.categoryId
+            ? undefined
+            : input.categoryId,
+          input.unitId === current.unitId ? undefined : input.unitId,
+        );
+        if (input.trackingMode && input.trackingMode !== current.trackingMode) {
+          // Document lines count too: a confirm reads the tracking mode unlocked, but
+          // its lines were committed earlier, so they are visible here.
+          const used = await tx.execute(
+            sql`SELECT 1 FROM inventory_balances WHERE item_id = ${id}
+                UNION ALL SELECT 1 FROM assets WHERE item_id = ${id}
+                UNION ALL SELECT 1 FROM inventory_transactions WHERE item_id = ${id}
+                UNION ALL SELECT 1 FROM inventory_adjustments WHERE item_id = ${id}
+                UNION ALL SELECT 1 FROM stock_receipt_items WHERE item_id = ${id}
+                UNION ALL SELECT 1 FROM stock_issue_items WHERE item_id = ${id}
+                UNION ALL SELECT 1 FROM stock_transfer_items WHERE item_id = ${id}
+                UNION ALL SELECT 1 FROM stock_count_items WHERE item_id = ${id}
+                LIMIT 1`,
+          );
+          if (used.rows.length)
+            throw new ConflictException(
+              'Tracking mode cannot change after inventory data or stock documents exist',
+            );
+        }
+        const [row] = await tx
+          .update(items)
+          .set({ ...input, updatedAt: new Date().toISOString() })
+          .where(where)
+          .returning();
+        return row;
+      }),
+    );
+  }
+
+  private async assertActiveReferences(
+    categoryId?: string | null,
+    unitId?: string | null,
+  ) {
+    const db = this.databaseService.db;
+    const active = async (
+      table: typeof categories | typeof units,
+      value?: string | null,
+    ) =>
+      !value ||
+      (
+        await db
+          .select({ id: table.id })
+          .from(table)
+          .where(and(eq(table.id, value), eq(table.status, 'ACTIVE')))
+          .limit(1)
+      ).length > 0;
+    if (!(await active(categories, categoryId)))
+      throw new BadRequestException('Category does not exist or is inactive');
+    if (!(await active(units, unitId)))
+      throw new BadRequestException('Unit does not exist or is inactive');
+  }
+
   private assertChanges(input: object) {
     if (!Object.values(input).some((value) => value !== undefined))
       throw new BadRequestException('At least one field must be provided');
@@ -415,12 +522,20 @@ export class CatalogService {
     try {
       return await write();
     } catch (error) {
-      const failure = error as { code?: string; cause?: { code?: string } };
+      const failure = error as {
+        code?: string;
+        cause?: { code?: string; message?: string };
+      };
       const code = failure.code ?? failure.cause?.code;
       if (code === '23505') throw new ConflictException(message);
       // PATCH DTOs accept null for every field; required columns reject it here.
       if (code === '23502')
         throw new BadRequestException('Required fields cannot be empty');
+      // Business checks/triggers, e.g. a storefront variant pinning the item's unit.
+      if (code === '23514' || code === 'P0001')
+        throw new BadRequestException(
+          failure.cause?.message ?? 'Data violates a business rule',
+        );
       throw error;
     }
   }

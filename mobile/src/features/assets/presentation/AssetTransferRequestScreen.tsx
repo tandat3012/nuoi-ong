@@ -25,7 +25,7 @@ async function activeWarehouses(token: string, farmId: string) {
   let totalPages = 1;
   do {
     const response = await apiRequest<Paginated<Warehouse>>('/warehouses', {
-      token, params: { farmId, status: 'ACTIVE', page, pageSize: 100 }, skipCache: true,
+      token, params: { farmId, status: 'ACTIVE', destination: 'true', page, pageSize: 100 }, skipCache: true,
     });
     warehouses.push(...response.data.filter((row) => row.farmId === farmId && row.status === 'ACTIVE'));
     totalPages = response.page.totalPages;
@@ -184,7 +184,7 @@ export default function AssetTransferRequestScreen() {
       visible={Boolean(createdId)}
       title="Đã gửi yêu cầu chuyển tài sản"
       details={[
-        { label: 'Mã yêu cầu', value: createdId ? `#${createdId.slice(0, 8)}` : '—' },
+        { label: 'Mã yêu cầu', value: createdId ? `ATR-${createdId.slice(0, 8)}` : '—' },
         { label: 'Mã tài sản', value: assetCode || '—' },
         { label: 'Kho đích', value: warehouses.find((w) => w.id === warehouseId)?.name ?? '—' },
         { label: 'Vị trí đích', value: locations.find((l) => l.id === locationId)?.name ?? '—' },

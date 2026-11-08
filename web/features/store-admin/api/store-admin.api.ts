@@ -9,6 +9,7 @@ import type {
   StoreProductInput,
   StoreProductRow,
   StoreProductStatus,
+  StoreRegion,
   StoreSalesStock,
   StoreSettings,
   StoreSettingsInput,
@@ -143,6 +144,17 @@ export function saveStoreSettings(
     params: { farmId },
     data: input,
   });
+}
+
+export function saveStoreShippingFees(
+  request: AuthenticatedRequest,
+  farmId: string,
+  fees: Record<StoreRegion, string>,
+) {
+  return request<{ data: Record<StoreRegion, string> }>(
+    "/store-admin/shipping-fees",
+    { method: "PUT", params: { farmId }, data: fees },
+  );
 }
 
 export function uploadStoreImage(

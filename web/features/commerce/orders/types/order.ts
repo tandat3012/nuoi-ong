@@ -4,7 +4,9 @@ export type OrderStatus =
   | "CONFIRMED"
   | "SHIPPING"
   | "COMPLETED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "RETURNING"
+  | "RETURNED";
 export type PaymentMethod = "COD" | "BANK_TRANSFER";
 export type PaymentStatus = "UNPAID" | "PAID";
 
@@ -15,6 +17,8 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   SHIPPING: "Đang giao",
   COMPLETED: "Hoàn tất",
   CANCELLED: "Đã hủy",
+  RETURNING: "Đang trả về kho",
+  RETURNED: "Đã trả về kho",
 };
 
 export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
@@ -51,6 +55,18 @@ export interface Order {
   paidByMemberId: string | null;
   paymentTransactionId: string | null;
   handledByMemberId: string | null;
+  /** Who took the order out for delivery; cleared when the delivery is returned. */
+  shipperMemberId: string | null;
+  /** A store manager received the COD cash from the shipper. */
+  codRemittedAt: string | null;
+  codRemittedByMemberId: string | null;
+  /** Manual refund of a paid order that was cancelled or returned. */
+  refundAmount: string | null;
+  refundReference: string | null;
+  refundedAt: string | null;
+  refundedByMemberId: string | null;
+  /** Stock receipt bringing a failed delivery back into the sales warehouse. */
+  returnReceiptId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,6 +83,8 @@ export interface OrderItem {
   quantity: number;
   stockQuantity: string;
   lineTotal: string;
+  /** Equipment/tool warranty when sold (0 = none); null for materials and pre-warranty orders. */
+  warrantyMonths?: number | null;
 }
 
 /** Fields only staff endpoints return. */
@@ -76,7 +94,11 @@ type StaffOrderField =
   | "stockIssueId"
   | "paidByMemberId"
   | "paymentTransactionId"
-  | "handledByMemberId";
+  | "handledByMemberId"
+  | "shipperMemberId"
+  | "codRemittedByMemberId"
+  | "refundedByMemberId"
+  | "returnReceiptId";
 export type CustomerOrder = Omit<Order, StaffOrderField>;
 export type CustomerOrderItem = Omit<OrderItem, "itemId">;
 
@@ -86,7 +108,7 @@ export interface OrderCustomer {
   email: string;
 }
 
-export type PaymentProvider = "SEPAY" | "SIMULATOR";
+export type PaymentProvider = "SEPAY" | "SIMULATOR" | "MANUAL";
 export type PaymentResult =
   | "MATCHED"
   | "AMOUNT_MISMATCH"
@@ -107,6 +129,7 @@ export const PAYMENT_RESULT_LABELS: Record<PaymentResult, string> = {
 export const PAYMENT_PROVIDER_LABELS: Record<PaymentProvider, string> = {
   SEPAY: "SePay",
   SIMULATOR: "Giả lập",
+  MANUAL: "Đối soát tay",
 };
 
 /** A bank transfer reported to the store, matched to an order or not. */
@@ -155,6 +178,32 @@ export interface OrderDetail {
   payments: OrderPaymentTransaction[];
   /** Top-up transfers from source warehouses into the sales warehouse. */
   replenishments: OrderReplenishment[];
+  shipper: { memberId: string; fullName: string } | null;
+  /** Take, return and delivered steps, oldest first. */
+  deliveryLog: OrderDeliveryLogEntry[];
+}
+
+export type DeliveryAction =
+  | "DELIVERY_CLAIM"
+  | "DELIVERY_RETURN"
+  | "DELIVERY_COMPLETE"
+  | "PAYMENT_RECONCILE"
+  | "COD_REMIT"
+  | "REFUND"
+  | "RETURN_TO_WAREHOUSE"
+  | "RETURN_RECEIVED"
+  | "RETURN_REJECTED";
+
+export interface OrderDeliveryLogEntry {
+  action: DeliveryAction;
+  actorName: string | null;
+  data: {
+    reason?: string;
+    collectedCod?: boolean;
+    reference?: string;
+    amount?: string;
+  } | null;
+  createdAt: string;
 }
 
 export interface OrderReplenishment {
@@ -169,6 +218,23 @@ export interface CustomerOrderDetail {
   items: CustomerOrderItem[];
   customer: OrderCustomer;
   payment: OrderTransferInstructions | null;
+  /** After-sales requests staff recorded for this order (read only). */
+  warranties?: CustomerWarranty[];
+}
+
+export interface CustomerWarranty {
+  id: string;
+  code: string;
+  productName: string;
+  variantName: string;
+  quantity: number;
+  kind: "WARRANTY" | "PAID_REPAIR";
+  status: string;
+  result: string | null;
+  quoteAmount: string | null;
+  resolution: "RETURN" | "EXCHANGE" | null;
+  receivedAt: string;
+  closedAt: string | null;
 }
 
 export type StoreRegion = "NORTH" | "CENTRAL" | "SOUTH";
@@ -181,6 +247,8 @@ export interface CreateOrderInput {
   region: StoreRegion;
   note?: string;
   paymentMethod: PaymentMethod;
+  /** The fee shown at checkout; the API rejects the order if the region's fee changed. */
+  expectedShippingFee?: string;
   items: { variantId: string; quantity: number; expectedUnitPrice?: string }[];
 }
 
@@ -193,6 +261,8 @@ export interface StoreOrderFilters {
   to?: string;
   q?: string;
   customerId?: string;
+  /** Delivered COD orders whose cash no manager has received yet. */
+  codPending?: boolean;
 }
 
 export interface StoreOrderCustomerProfile {

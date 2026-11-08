@@ -48,6 +48,11 @@ import {
   orderErrorMessage,
   storeRegionLabels,
 } from "../order.logic";
+import {
+  WARRANTY_KIND_LABELS,
+  WARRANTY_STATUS_LABELS,
+  type WarrantyStatus,
+} from "@/features/store-warranties/warranty.logic";
 import type { CustomerOrder, CustomerOrderDetail as CustomerOrderDetailType } from "../types/order";
 import {
   OrderStatusBadge,
@@ -698,6 +703,32 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                 </div>
               </div>
 
+              {detail.warranties && detail.warranties.length > 0 && (
+                <div className="rounded-xl border bg-card p-5 shadow-xs space-y-3">
+                  <h2 className="font-semibold text-sm sm:text-base text-foreground">
+                    Bảo hành và sửa chữa
+                  </h2>
+                  <ul className="divide-y text-sm">
+                    {detail.warranties.map((warranty) => (
+                      <li key={warranty.id} className="py-2 space-y-0.5">
+                        <p className="font-medium">
+                          {warranty.code} · {warranty.productName} — {warranty.variantName} × {warranty.quantity}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {WARRANTY_KIND_LABELS[warranty.kind]} ·{" "}
+                          {WARRANTY_STATUS_LABELS[warranty.status as WarrantyStatus] ?? warranty.status}
+                          {warranty.quoteAmount && ` · Báo giá ${formatOrderMoney(warranty.quoteAmount)}`}
+                        </p>
+                        {warranty.result && <p>Kết quả: {warranty.result}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-muted-foreground">
+                    Cửa hàng sẽ liên hệ khi cần bạn đồng ý chi phí sửa chữa.
+                  </p>
+                </div>
+              )}
+
               {/* Recipient & Shipping Details Card */}
               <div className="rounded-xl border bg-card p-5 shadow-xs space-y-4">
                 <div className="flex items-center gap-2 border-b pb-3">
@@ -781,18 +812,9 @@ export function CustomerOrderDetail({ id }: { id: string }) {
                     <div className="flex justify-between items-center text-muted-foreground">
                       <dt>Phí giao hàng</dt>
                       <dd className="font-mono text-foreground font-medium">
-                        {detail.order.status === "PENDING" &&
-                        detail.order.shippingFee === "0"
-                          ? "0 ₫ (Chờ xác nhận)"
-                          : formatOrderMoney(detail.order.shippingFee)}
+                        {formatOrderMoney(detail.order.shippingFee)}
                       </dd>
                     </div>
-                    {detail.order.status === "PENDING" &&
-                      detail.order.shippingFee === "0" && (
-                        <p className="text-[11px] text-muted-foreground bg-muted/40 p-2 rounded-md leading-normal">
-                          Cửa hàng sẽ liên hệ xác nhận phí giao hàng theo địa chỉ của bạn trước khi gửi hàng.
-                        </p>
-                      )}
                   </div>
 
                   <div className="flex justify-between items-center text-muted-foreground text-xs pt-1">

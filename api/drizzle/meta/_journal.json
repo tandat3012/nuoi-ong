@@ -239,6 +239,48 @@
       "when": 1793538859863,
       "tag": "0033_maintenance-returns",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793681422077,
+      "tag": "0034_store-shipping-fees",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793682900983,
+      "tag": "0035_order-delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793943787341,
+      "tag": "0036_maintenance-issued-by",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793964180012,
+      "tag": "0037_order-payments-returns",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793966673918,
+      "tag": "0038_two-step-transfers",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793969037430,
+      "tag": "0039_store-warranty",
+      "breakpoints": true
     }
   ]
 }

@@ -74,6 +74,7 @@ export async function getAssetChoices(
     search: string;
     warehouseId?: string;
     activeOnly?: boolean;
+    destination?: boolean;
   },
 ): Promise<PaginatedResponse<AssetChoice>> {
   const params = {
@@ -83,7 +84,11 @@ export async function getAssetChoices(
     status: filters.activeOnly ? ("ACTIVE" as const) : undefined,
   };
   if (kind === "warehouse") {
-    const response = await getWarehouses(request, { ...params, farmId });
+    const response = await getWarehouses(request, {
+      ...params,
+      farmId,
+      destination: filters.destination || undefined,
+    });
     return {
       ...response,
       data: response.data.map((row) => ({

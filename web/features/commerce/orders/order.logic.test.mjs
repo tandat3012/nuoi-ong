@@ -5,10 +5,13 @@ import {
   canCompleteOrder,
   canConfirmOrder,
   canCustomerCancel,
-  canEditShippingFee,
   canShipOrder,
   canStaffCancel,
+  canMarkPaid,
+  canRemitCod,
+  needsRefund,
   canStaffCancelDetail,
+  confirmErrorMessage,
   isDefiniteOrderFailure,
   canonicalOrderPayload,
   formatOrderMoney,
@@ -34,15 +37,34 @@ const order = (patch = {}) => ({
   ...patch,
 });
 
-test("order cancellation and shipping fee rules match V1 transitions", () => {
+test("order cancellation rules match V1 transitions", () => {
   assert.equal(canCustomerCancel(order()), true);
   assert.equal(canCustomerCancel(order({ status: "CONFIRMED" })), false);
   assert.equal(canCustomerCancel(order({ paymentStatus: "PAID" })), false);
   assert.equal(canStaffCancel(order({ status: "CONFIRMED" })), true);
   assert.equal(canStaffCancel(order({ status: "SHIPPING" })), false);
-  assert.equal(canStaffCancel(order({ paymentStatus: "PAID" })), false);
-  assert.equal(canEditShippingFee(order()), true);
-  assert.equal(canEditShippingFee(order({ status: "CONFIRMED" })), false);
+  // Staff cancel a paid order too, recording the manual refund.
+  assert.equal(canStaffCancel(order({ paymentStatus: "PAID" })), true);
+  assert.equal(needsRefund(order({ paymentStatus: "PAID", refundedAt: null })), true);
+  assert.equal(needsRefund(order()), false);
+});
+
+test("reconcile only unpaid bank transfers and receive COD cash once", () => {
+  assert.equal(canMarkPaid(order({ paymentMethod: "BANK_TRANSFER" })), true);
+  assert.equal(canMarkPaid(order()), false);
+  assert.equal(
+    canMarkPaid(order({ paymentMethod: "BANK_TRANSFER", status: "CANCELLED" })),
+    false,
+  );
+  assert.equal(canRemitCod(order({ status: "COMPLETED", codRemittedAt: null })), true);
+  assert.equal(
+    canRemitCod(order({ status: "COMPLETED", codRemittedAt: "2026-11-06T00:00:00Z" })),
+    false,
+  );
+  assert.equal(
+    canRemitCod(order({ status: "COMPLETED", paymentMethod: "BANK_TRANSFER" })),
+    false,
+  );
 });
 
 test("only paid bank transfers can complete; COD completion remains available", () => {
@@ -69,6 +91,13 @@ test("shipping and staff cancellation wait for linked issue state", () => {
   });
   assert.equal(canShipOrder(detail("DRAFT")), false);
   assert.equal(canShipOrder(detail("CONFIRMED")), true);
+  assert.equal(
+    canShipOrder({
+      ...detail("CONFIRMED"),
+      order: order({ status: "CONFIRMED", paymentMethod: "BANK_TRANSFER" }),
+    }),
+    false,
+  );
   assert.equal(canStaffCancelDetail(detail("CONFIRMED")), false);
   assert.equal(canStaffCancelDetail(detail("DRAFT")), true);
 });
@@ -126,6 +155,20 @@ test("saved payloads are validated before restoring or retrying", () => {
   // Attempts saved before checkout asked for a region cannot be retried as-is.
   assert.equal(
     parseOrderAttemptPayload(payload.replace('"region":"SOUTH",', "")),
+    null,
+  );
+  const withFee = canonicalOrderPayload({
+    recipientName: "Mai",
+    phone: "0912",
+    address: "A",
+    region: "SOUTH",
+    paymentMethod: "COD",
+    expectedShippingFee: "30000",
+    items: [{ variantId: "variant", quantity: 1, expectedUnitPrice: "0" }],
+  });
+  assert.equal(parseOrderAttemptPayload(withFee)?.expectedShippingFee, "30000");
+  assert.equal(
+    parseOrderAttemptPayload(withFee.replace('"30000"', '"-1"')),
     null,
   );
 });
@@ -205,6 +248,8 @@ test("lets staff re-confirm a PREPARING order only once its transfers are settle
     canConfirmOrder(detail("PREPARING", ["CONFIRMED", "PENDING_APPROVAL"])),
     false,
   );
+  // Dispatched but not yet received by the sales warehouse.
+  assert.equal(canConfirmOrder(detail("PREPARING", ["IN_TRANSIT"])), false);
   assert.equal(canConfirmOrder(detail("PREPARING", ["CONFIRMED"])), true);
   assert.equal(canConfirmOrder(detail("CONFIRMED", [])), false);
   assert.equal(canStaffCancel({ status: "PREPARING", paymentStatus: "UNPAID" }), true);
@@ -221,5 +266,28 @@ test("tells farm staff why they cannot check out", () => {
   assert.match(
     orderErrorMessage({ status: 403, message: "Forbidden resource" }),
     /không có quyền/,
+  );
+});
+
+test("tells staff to transfer stock into the sales warehouse when confirming falls short", () => {
+  const short = {
+    status: 409,
+    message: "Không đủ hàng cho Mật ong — Chai.",
+    details: { code: "INSUFFICIENT_STOCK", message: "Không đủ hàng cho Mật ong — Chai." },
+  };
+  assert.match(confirmErrorMessage(short), /^Không đủ hàng cho Mật ong — Chai\. .*chuyển kho sang kho bán/);
+  // A body without a message never shows axios' English fallback.
+  assert.match(
+    confirmErrorMessage({
+      status: 409,
+      message: "Request failed with status code 409",
+      details: { code: "INSUFFICIENT_STOCK" },
+    }),
+    /^Kho bán không đủ hàng\. /,
+  );
+  // Other failures keep the shared order messages.
+  assert.equal(
+    confirmErrorMessage({ status: 409, details: { code: "ORDER_CANCEL_NOT_ALLOWED" } }),
+    "Đơn hàng không còn ở trạng thái được phép hủy.",
   );
 });

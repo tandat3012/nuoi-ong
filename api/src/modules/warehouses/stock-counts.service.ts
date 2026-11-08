@@ -29,6 +29,7 @@ import {
   CreateStockCountDto,
   UpdateStockCountDto,
 } from './dto/stock-count.dto';
+import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
@@ -68,11 +69,12 @@ export class StockCountsService {
   ) {}
 
   async list(f: Filters) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      f.farmId,
-      f.clerkUserId,
-    );
+
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(f.farmId, f.clerkUserId);
     const conditions: SQL[] = [eq(stockCounts.farmId, f.farmId)];
+    const scoped = scopeCondition(stockCounts.warehouseId, scope);
+    if (scoped) conditions.push(scoped);
     if (readMemberId)
       conditions.push(eq(stockCounts.createdByMemberId, readMemberId));
     if (f.status) conditions.push(eq(stockCounts.status, f.status));
@@ -103,12 +105,14 @@ export class StockCountsService {
   }
 
   async get(id: string, farmId: string, user: string) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      farmId,
-      user,
-    );
+
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(farmId, user);
     const result = await this.withItems(id, farmId);
-    if (readMemberId && result.count.createdByMemberId !== readMemberId)
+    if (
+      (readMemberId && result.count.createdByMemberId !== readMemberId) ||
+      !inScope(scope, result.count.warehouseId)
+    )
       throw new NotFoundException('Stock count not found');
     return result;
   }
@@ -118,6 +122,7 @@ export class StockCountsService {
       farmId,
       user,
     );
+    assertInScope(writer.scope, input.warehouseId);
     const member = writer.memberId;
     const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
@@ -177,7 +182,7 @@ export class StockCountsService {
     const numbering = numberingOptionChanges(input, writer);
     await this.dbService.db.transaction(async (tx) => {
       const current = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, current.createdByMemberId);
+      assertOwnDocument(writer, current.createdByMemberId, current.warehouseId);
       if (!['DRAFT', 'COUNTING'].includes(current.status))
         throw new ConflictException('Only active counts can be edited');
       let lines: { before?: object[]; after?: object[] } = {};
@@ -243,7 +248,7 @@ export class StockCountsService {
     );
     await this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, row.createdByMemberId);
+      assertOwnDocument(writer, row.createdByMemberId, row.warehouseId);
       if (!['DRAFT', 'COUNTING'].includes(row.status))
         throw new ConflictException('Only active counts can be cancelled');
       await tx
@@ -272,7 +277,7 @@ export class StockCountsService {
     );
     await this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
-      assertOwnDocument(writer, row.createdByMemberId);
+      assertOwnDocument(writer, row.createdByMemberId, row.warehouseId);
       if (!['DRAFT', 'COUNTING'].includes(row.status))
         throw new ConflictException('Only active counts can be submitted');
       const [line] = await tx
@@ -304,6 +309,7 @@ export class StockCountsService {
         tx,
         this.notification(row, 'PENDING_APPROVAL'),
         writer.memberId,
+        row.warehouseId,
       );
     });
     return this.withItems(id, farmId);
@@ -315,16 +321,18 @@ export class StockCountsService {
     user: string,
     rejectionReason: string,
   ) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-      WAREHOUSE_MANAGE_ROLES,
-    );
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
     await this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
+      assertInScope(scope, row.warehouseId);
       if (row.status !== 'PENDING_APPROVAL')
         throw new ConflictException(
           'Only PENDING_APPROVAL counts can be rejected',
@@ -356,34 +364,46 @@ export class StockCountsService {
   }
 
   async confirm(id: string, farmId: string, user: string) {
-    const member = await this.warehousesService.assertFarmAccess(
-      farmId,
-      user,
-      true,
-      WAREHOUSE_MANAGE_ROLES,
-    );
+    const { memberId: member, scope } =
+      await this.warehousesService.assertScopedAccess(
+        farmId,
+        user,
+        true,
+        WAREHOUSE_MANAGE_ROLES,
+      );
     const confirmation = this.dbService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
+      assertInScope(scope, row.warehouseId);
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'COUNTING', 'PENDING_APPROVAL'].includes(row.status))
         throw new ConflictException('Only active counts can be confirmed');
+      // Same lock order as stock issue confirmation, so the two cannot deadlock.
       const lines = await tx
         .select()
         .from(stockCountItems)
-        .where(eq(stockCountItems.stockCountId, id));
+        .where(eq(stockCountItems.stockCountId, id))
+        .orderBy(
+          asc(stockCountItems.itemId),
+          asc(stockCountItems.lotId),
+          asc(stockCountItems.assetId),
+        );
       if (!lines.length)
         throw new BadRequestException('Count must contain at least one item');
       for (const line of lines) {
         await this.assertLine(tx, farmId, line, true);
+        // Row lock: a concurrent issue/receipt/transfer either commits first
+        // (and the count turns stale) or waits until the count is written.
         const [balance] = await this.findBalance(
           tx,
           farmId,
           row.warehouseId,
           line.itemId,
           line.lotId,
+          true,
         );
-        const current = balance?.quantityOnHand ?? '0';
-        if (current !== line.systemQuantity)
+        // Both are numeric(18,3) strings; compare exactly, since Number() loses
+        // the last digits of large quantities. A missing balance reads '0.000'.
+        if ((balance?.quantityOnHand ?? '0.000') !== line.systemQuantity)
           throw new ConflictException('STOCK_COUNT_STALE');
         const difference = line.difference;
         if (!difference || Number(difference) === 0) continue;
@@ -395,14 +415,21 @@ export class StockCountsService {
               updatedAt: new Date().toISOString(),
             })
             .where(eq(inventoryBalances.id, balance.id));
-        else
-          await tx.insert(inventoryBalances).values({
-            farmId,
-            warehouseId: row.warehouseId,
-            itemId: line.itemId,
-            lotId: line.lotId,
-            quantityOnHand: line.actualQuantity,
-          });
+        else {
+          // No row to lock: a receipt that created it meanwhile makes the count stale.
+          const [inserted] = await tx
+            .insert(inventoryBalances)
+            .values({
+              farmId,
+              warehouseId: row.warehouseId,
+              itemId: line.itemId,
+              lotId: line.lotId,
+              quantityOnHand: line.actualQuantity,
+            })
+            .onConflictDoNothing()
+            .returning({ id: inventoryBalances.id });
+          if (!inserted) throw new ConflictException('STOCK_COUNT_STALE');
+        }
         await tx.insert(inventoryTransactions).values({
           farmId,
           warehouseId: row.warehouseId,
@@ -459,7 +486,15 @@ export class StockCountsService {
           row.createdByMemberId,
         );
     });
-    await confirmation.catch(rethrowCodeConflict);
+    await confirmation.catch((error: unknown) => {
+      // Writers lock balances in different orders, so PostgreSQL may abort the
+      // count as a deadlock victim; the competing move went through, so the
+      // snapshot is stale either way.
+      const failure = error as { code?: string; cause?: { code?: string } };
+      if ((failure.cause?.code ?? failure.code) === '40P01')
+        throw new ConflictException('STOCK_COUNT_STALE');
+      rethrowCodeConflict(error);
+    });
     return this.withItems(id, farmId);
   }
 
@@ -567,7 +602,7 @@ export class StockCountsService {
     if (item.trackingMode !== 'LOT' && line.lotId)
       throw new Invalid('Only LOT items accept a lotId');
     if (!line.lotId) return;
-    const [lot] = await db
+    const query = db
       .select({ id: inventoryLots.id })
       .from(inventoryLots)
       .where(
@@ -577,6 +612,9 @@ export class StockCountsService {
           eq(inventoryLots.itemId, line.itemId),
         ),
       );
+    // Lot before balance, as receipts into an existing lot do; the count's
+    // ledger row needs this key-share lock on the lot anyway.
+    const [lot] = confirming ? await query.for('key share') : await query;
     if (!lot) throw new NotFoundException('LOT not found');
   }
   private findBalance(
@@ -585,8 +623,9 @@ export class StockCountsService {
     warehouseId: string,
     itemId: string,
     lotId?: string | null,
+    forUpdate = false,
   ) {
-    return db
+    const query = db
       .select()
       .from(inventoryBalances)
       .where(
@@ -600,5 +639,6 @@ export class StockCountsService {
         ),
       )
       .limit(1);
+    return forUpdate ? query.for('update') : query;
   }
 }

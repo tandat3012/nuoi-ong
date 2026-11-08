@@ -16,7 +16,7 @@ describe('Dashboard summary (migrated PostgreSQL)', () => {
   const isoDay = (offset: number) =>
     new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 
-  it('computes stock value from the latest priced receipt and counts alerts', async () => {
+  it('computes stock value at the moving average from the ledger and counts alerts', async () => {
     try {
       await db.transaction(async (tx) => {
         const scoped = tx as unknown as OrderTestDb;
@@ -52,54 +52,42 @@ describe('Dashboard summary (migrated PostgreSQL)', () => {
           itemId: unpriced,
           quantityOnHand: '2',
         });
-
-        // Two older confirmed receipts for ids.item (10 on hand), superseded below.
-        for (const [day, price] of [
-          ['2026-01-01T00:00:00Z', '1000'],
-          ['2026-02-01T00:00:00Z', '1500'],
-        ]) {
-          const receipt = randomUUID();
-          await tx.insert(schema.stockReceipts).values({
-            id: receipt,
+        // Stock value comes from the ledger (AC27), not from balances.
+        const ledger = (
+          itemId: string,
+          transactionType: 'RECEIPT' | 'ADJUSTMENT_IN',
+          quantityChange: string,
+          sourceType: string,
+          sourceId: string = randomUUID(),
+        ) =>
+          tx.insert(schema.inventoryTransactions).values({
             farmId: ids.farm,
             warehouseId: ids.warehouse,
-            receiptCode: receipt.slice(0, 20),
-            createdByMemberId: ids.member,
+            itemId,
+            transactionType,
+            quantityChange,
+            sourceType,
+            sourceId,
           });
-          await tx.insert(schema.stockReceiptItems).values({
-            stockReceiptId: receipt,
-            itemId: ids.item,
-            quantity: '1',
-            unitPrice: price,
-          });
-          await tx
-            .update(schema.stockReceipts)
-            .set({
-              status: 'CONFIRMED',
-              confirmedByMemberId: ids.member,
-              confirmedAt: day,
-            })
-            .where(eq(schema.stockReceipts.id, receipt));
-        }
 
-        // The newest receipt has two priced lines (1 × 1000, 3 × 2000): weighted 1750.
-        const latest = randomUUID();
+        // One receipt with two priced lines (1 × 1000, 3 × 2000): weighted 1750 for ids.item's 10.
+        const receipt = randomUUID();
         await tx.insert(schema.stockReceipts).values({
-          id: latest,
+          id: receipt,
           farmId: ids.farm,
           warehouseId: ids.warehouse,
-          receiptCode: latest.slice(0, 20),
+          receiptCode: receipt.slice(0, 20),
           createdByMemberId: ids.member,
         });
         await tx.insert(schema.stockReceiptItems).values([
           {
-            stockReceiptId: latest,
+            stockReceiptId: receipt,
             itemId: ids.item,
             quantity: '1',
             unitPrice: '1000',
           },
           {
-            stockReceiptId: latest,
+            stockReceiptId: receipt,
             itemId: ids.item,
             quantity: '3',
             unitPrice: '2000',
@@ -112,7 +100,10 @@ describe('Dashboard summary (migrated PostgreSQL)', () => {
             confirmedByMemberId: ids.member,
             confirmedAt: '2026-03-01T00:00:00Z',
           })
-          .where(eq(schema.stockReceipts.id, latest));
+          .where(eq(schema.stockReceipts.id, receipt));
+        await ledger(ids.item, 'RECEIPT', '10', 'STOCK_RECEIPT', receipt);
+        // Stock without any price: counted as unpriced, worth 0 VND.
+        await ledger(unpriced, 'ADJUSTMENT_IN', '2', 'INVENTORY_ADJUSTMENT');
 
         const lots = [
           [isoDay(10), '1'],
@@ -149,7 +140,7 @@ describe('Dashboard summary (migrated PostgreSQL)', () => {
         const dashboard = new DashboardService({ db: tx } as never);
         expect(await dashboard.summary(ids.farm, ['FARM_OWNER'])).toEqual({
           stockValue: '17500',
-          unpricedItems: 2,
+          unpricedItems: 1,
           belowMinimum: 1,
           expiringLots: 1,
           expiredLots: 1,

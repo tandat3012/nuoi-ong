@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   and,
@@ -31,6 +32,8 @@ import {
 } from '../../db/schema';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
+import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
+import { StockReceiptHooks } from './stock-transfer-hooks';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
 import { auditStockDocument } from './stock-document-audit';
 import {
@@ -59,14 +62,20 @@ export class StockReceiptsService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly warehousesService: WarehousesService,
+    @Optional()
+    private readonly hooks: StockReceiptHooks = new StockReceiptHooks(),
   ) {}
 
   async listReceipts(filters: StockReceiptListFilters) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      filters.farmId,
-      filters.clerkUserId,
-    );
+
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(
+        filters.farmId,
+        filters.clerkUserId,
+      );
     const conditions = [eq(stockReceipts.farmId, filters.farmId)];
+    const scoped = scopeCondition(stockReceipts.warehouseId, scope);
+    if (scoped) conditions.push(scoped);
     if (readMemberId)
       conditions.push(eq(stockReceipts.createdByMemberId, readMemberId));
     if (filters.status)
@@ -123,12 +132,14 @@ export class StockReceiptsService {
   }
 
   async getReceipt(id: string, farmId: string, clerkUserId: string) {
-    const readMemberId = await this.warehousesService.documentReadMemberId(
-      farmId,
-      clerkUserId,
-    );
+
+    const { memberId: readMemberId, scope } =
+      await this.warehousesService.documentReadScope(farmId, clerkUserId);
     const result = await this.getReceiptWithItems(id, farmId);
-    if (readMemberId && result.receipt.createdByMemberId !== readMemberId)
+    if (
+      (readMemberId && result.receipt.createdByMemberId !== readMemberId) ||
+      !inScope(scope, result.receipt.warehouseId)
+    )
       throw new NotFoundException('Stock receipt not found');
     return result;
   }
@@ -143,6 +154,7 @@ export class StockReceiptsService {
       clerkUserId,
     );
     const { memberId } = writer;
+    assertInScope(writer.scope, input.warehouseId);
     const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
     const transaction = this.databaseService.db.transaction(async (tx) => {
@@ -215,7 +227,8 @@ export class StockReceiptsService {
     if (input.items) this.validateItems(input.items);
     const transaction = this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
-      assertOwnDocument(writer, receipt.createdByMemberId);
+      assertOwnDocument(writer, receipt.createdByMemberId, receipt.warehouseId);
+      if (input.warehouseId) assertInScope(writer.scope, input.warehouseId);
       if (receipt.status !== 'DRAFT') {
         throw new ConflictException('Only DRAFT receipts can be edited');
       }
@@ -309,8 +322,9 @@ export class StockReceiptsService {
       clerkUserId,
     );
     await this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
-      assertOwnDocument(writer, receipt.createdByMemberId);
+      assertOwnDocument(writer, receipt.createdByMemberId, receipt.warehouseId);
       if (receipt.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT receipts can be cancelled');
       await tx
@@ -332,6 +346,7 @@ export class StockReceiptsService {
           status: 'CANCELLED',
         },
       );
+      await this.hooks.run('rejected', tx, id, writer.memberId);
     });
     return this.getReceiptWithItems(id, farmId);
   }
@@ -343,7 +358,7 @@ export class StockReceiptsService {
     );
     await this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
-      assertOwnDocument(writer, receipt.createdByMemberId);
+      assertOwnDocument(writer, receipt.createdByMemberId, receipt.warehouseId);
       if (receipt.status !== 'DRAFT')
         throw new ConflictException('Only DRAFT receipts can be submitted');
       const [line] = await tx
@@ -375,6 +390,7 @@ export class StockReceiptsService {
         tx,
         this.notification(receipt, 'PENDING_APPROVAL'),
         writer.memberId,
+        receipt.warehouseId,
       );
     });
     return this.getReceiptWithItems(id, farmId);
@@ -386,7 +402,7 @@ export class StockReceiptsService {
     clerkUserId: string,
     rejectionReason: string,
   ) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -395,7 +411,9 @@ export class StockReceiptsService {
     const reason = rejectionReason.trim();
     if (!reason) throw new BadRequestException('Rejection reason is required');
     await this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
+      assertInScope(scope, receipt.warehouseId);
       if (receipt.status !== 'PENDING_APPROVAL')
         throw new ConflictException(
           'Only PENDING_APPROVAL receipts can be rejected',
@@ -423,6 +441,7 @@ export class StockReceiptsService {
           rejectionReason: reason,
         },
       );
+      await this.hooks.run('rejected', tx, id, memberId);
       if (receipt.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,
@@ -437,14 +456,16 @@ export class StockReceiptsService {
   }
 
   async confirmReceipt(id: string, farmId: string, clerkUserId: string) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
       WAREHOUSE_MANAGE_ROLES,
     );
     const confirmation = this.databaseService.db.transaction(async (tx) => {
+      await this.hooks.run('lock', tx, id);
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
+      assertInScope(scope, receipt.warehouseId);
       if (receipt.status === 'CONFIRMED') return;
       if (!['DRAFT', 'PENDING_APPROVAL'].includes(receipt.status))
         throw new ConflictException(
@@ -503,6 +524,11 @@ export class StockReceiptsService {
             'ASSET receipt lines require assetCode and quantity 1',
           );
         }
+        // A received asset becomes AVAILABLE, and handing out or moving it needs its location.
+        if (item.trackingMode === 'ASSET' && !line.locationId)
+          throw new BadRequestException(
+            'ASSET receipt lines require a location',
+          );
         if (
           item.trackingMode === 'ASSET' &&
           (line.supplierLotNumber || line.manufacturedDate || line.expiryDate)
@@ -658,6 +684,7 @@ export class StockReceiptsService {
         receipt,
         confirmed,
       );
+      await this.hooks.run('confirmed', tx, id, memberId);
       if (receipt.createdByMemberId !== memberId)
         await notifyDocumentCreator(
           tx,

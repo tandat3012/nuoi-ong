@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   canManageStore,
+  isVndAmount,
   moveItem,
   slugify,
   storeAdminError,
@@ -33,4 +34,15 @@ test("canManageStore and storeAdminError", () => {
   assert.match(storeAdminError({ status: 409, message: "x" }), /Slug/);
   assert.match(storeAdminError({ status: 400, message: "bad" }), /bad$/);
   assert.match(storeAdminError(new Error("x")), /thử lại/);
+});
+
+test("isVndAmount accepts whole non-negative VND only", () => {
+  assert.equal(isVndAmount("0"), true);
+  assert.equal(isVndAmount("30000"), true);
+  assert.equal(isVndAmount("9007199254740991"), true);
+  assert.equal(isVndAmount("9007199254740992"), false);
+  assert.equal(isVndAmount("030000"), false);
+  assert.equal(isVndAmount("-1"), false);
+  assert.equal(isVndAmount("1.5"), false);
+  assert.equal(isVndAmount(""), false);
 });

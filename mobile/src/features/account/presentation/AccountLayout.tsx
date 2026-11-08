@@ -18,6 +18,8 @@ export const roleLabels: Record<FarmRoleCode, string> = {
   FARM_OWNER: 'Chủ trại',
   WAREHOUSE_MANAGER: 'Quản lý kho',
   STORE_MANAGER: 'Quản lý cửa hàng',
+  DELIVERY_STAFF: 'Nhân viên giao hàng',
+  MAINTENANCE_STAFF: 'Nhân viên bảo trì',
   EMPLOYEE: 'Nhân viên',
   GUEST: 'Khách',
 };

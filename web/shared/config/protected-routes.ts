@@ -1,5 +1,6 @@
 export const backOfficeRoutes = [
   '/dashboard',
+  '/reports',
   '/warehouses',
   '/materials',
   '/catalog',
@@ -17,7 +18,9 @@ export const backOfficeRoutes = [
   '/store-products',
   '/store-stock',
   '/store-orders',
+  '/deliveries',
   '/store-payments',
+  '/store-warranties',
   '/store-reports',
 ] as const;
 

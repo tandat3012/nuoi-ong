@@ -6,7 +6,7 @@ export type AuditLog = {
   userId: string | null;
   action: string;
   entityType: string;
-  entityId: string;
+  entityId: string | null;
   oldData: Record<string, unknown> | null;
   newData: Record<string, unknown> | null;
   createdAt: string;

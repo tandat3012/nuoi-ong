@@ -39,6 +39,7 @@ import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { RejectStockDocumentDto } from './dto/reject-stock-document.dto';
 import {
   CreateStockTransferDto,
+  ReceiveStockTransferDto,
   UpdateStockTransferDto,
 } from './dto/stock-transfer.dto';
 import { StockTransfersService } from './stock-transfers.service';
@@ -57,7 +58,7 @@ const transferSchema = {
       type: 'string',
       nullable: true,
       example: 'CK-2026-000001',
-      description: 'Null on drafts; assigned on confirmation.',
+      description: 'Null on drafts; assigned when the source dispatches.',
     },
     transferDate: { type: 'string', format: 'date' },
     status: { type: 'string', enum: [...documentStatus.enumValues] },
@@ -66,7 +67,19 @@ const transferSchema = {
     rejectedAt: { type: 'string', format: 'date-time', nullable: true },
     note: { type: 'string', nullable: true },
     createdByMemberId: { type: 'string', format: 'uuid' },
-    confirmedByMemberId: { type: 'string', format: 'uuid', nullable: true },
+    dispatchedByMemberId: { type: 'string', format: 'uuid', nullable: true },
+    dispatchedAt: {
+      type: 'string',
+      format: 'date-time',
+      nullable: true,
+      description: 'Source dispatch; null on transfers confirmed in one step.',
+    },
+    confirmedByMemberId: {
+      type: 'string',
+      format: 'uuid',
+      nullable: true,
+      description: 'Who received it at the destination.',
+    },
     confirmedAt: { type: 'string', format: 'date-time', nullable: true },
     cancelledAt: { type: 'string', format: 'date-time', nullable: true },
     createdAt: { type: 'string', format: 'date-time' },
@@ -83,6 +96,12 @@ const transferItemSchema = {
     lotId: { type: 'string', format: 'uuid', nullable: true },
     assetId: { type: 'string', format: 'uuid', nullable: true },
     quantity: OPENAPI_DECIMAL_STRING,
+    receivedQuantity: {
+      ...OPENAPI_DECIMAL_STRING,
+      nullable: true,
+      description: 'Counted in by the destination; null until received.',
+    },
+    discrepancyReason: { type: 'string', nullable: true },
     note: { type: 'string', nullable: true },
     createdAt: { type: 'string', format: 'date-time' },
   },
@@ -287,11 +306,14 @@ export class StockTransfersController {
   }
 
   @Post(':id/confirm')
-  @ApiOperation({ summary: 'Xác nhận điều chuyển và chuyển tồn giữa các kho' })
+  @ApiOperation({
+    summary: 'Kho nguồn duyệt và xuất hàng; phiếu sang IN_TRANSIT',
+  })
   @ApiUuidParam('id', 'ID phiếu điều chuyển.')
   @ApiFarmIdQuery()
   @ApiCreatedResponse({
-    description: 'Phiếu được xác nhận và tạo các giao dịch ra/vào kho.',
+    description:
+      'Trừ tồn kho nguồn (TRANSFER_OUT); kho đích chưa được cộng. Gọi lại khi đã xuất không trừ lần nữa.',
     schema: { type: 'object', properties: { data: transferDetailSchema } },
   })
   @ApiBadRequestResponse({ description: 'Phiếu phải có ít nhất một dòng.' })
@@ -318,6 +340,46 @@ export class StockTransfersController {
         requireUuid(id, 'id'),
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
+      ),
+    };
+  }
+
+  @Post(':id/receive')
+  @ApiOperation({
+    summary: 'Kho đích xác nhận số thực nhận; phiếu sang CONFIRMED',
+  })
+  @ApiUuidParam('id', 'ID phiếu điều chuyển.')
+  @ApiFarmIdQuery()
+  @ApiBody({ type: ReceiveStockTransferDto, required: false })
+  @ApiCreatedResponse({
+    description:
+      'Cộng tồn kho đích theo số thực nhận (TRANSFER_IN). Gọi lại khi đã nhận không cộng lần nữa.',
+    schema: { type: 'object', properties: { data: transferDetailSchema } },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Số nhận vượt số đã xuất, nhận thiếu không có lý do, hoặc dòng không thuộc phiếu.',
+  })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu.' })
+  @ApiConflictResponse({ description: 'Phiếu không ở trạng thái IN_TRANSIT.' })
+  @ApiUnauthorizedResponse({
+    description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Chỉ quản lý của kho đích được xác nhận nhận hàng.',
+  })
+  async receive(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: ReceiveStockTransferDto,
+  ) {
+    return {
+      data: await this.service.receive(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input?.items,
       ),
     };
   }

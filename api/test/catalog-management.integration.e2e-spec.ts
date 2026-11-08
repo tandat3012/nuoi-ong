@@ -26,6 +26,11 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
     admin: { user: randomUUID(), member: randomUUID(), role: 'ADMIN' },
     owner: { user: randomUUID(), member: randomUUID(), role: 'FARM_OWNER' },
     employee: { user: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
+    manager: {
+      user: randomUUID(),
+      member: randomUUID(),
+      role: 'WAREHOUSE_MANAGER',
+    },
   } as const;
   const createdCategories: string[] = [];
   const createdUnits: string[] = [];
@@ -41,13 +46,14 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
       `INSERT INTO roles (code, name, scope) VALUES
          ('ADMIN','Quản trị viên','SYSTEM'),
          ('FARM_OWNER','Chủ trại','FARM'),
-         ('EMPLOYEE','Nhân viên','FARM')
+         ('EMPLOYEE','Nhân viên','FARM'),
+         ('WAREHOUSE_MANAGER','Quản lý kho','FARM')
        ON CONFLICT (code) DO NOTHING`,
     );
     const roleIds = Object.fromEntries(
       (
         await pool.query<{ id: string; code: string }>(
-          `SELECT id, code FROM roles WHERE code IN ('ADMIN','FARM_OWNER','EMPLOYEE')`,
+          `SELECT id, code FROM roles WHERE code IN ('ADMIN','FARM_OWNER','EMPLOYEE','WAREHOUSE_MANAGER')`,
         )
       ).rows.map((row) => [row.code, row.id]),
     );
@@ -110,7 +116,13 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
   afterAll(async () => {
     await app?.close();
     try {
+      await pool.query(
+        'DELETE FROM stock_receipt_items WHERE stock_receipt_id IN (SELECT id FROM stock_receipts WHERE farm_id = ANY($1))',
+        [[farm, otherFarm]],
+      );
       for (const table of [
+        'stock_receipts',
+        'inventory_balances',
         'assets',
         'items',
         'locations',
@@ -312,6 +324,171 @@ describe('Catalog management (migrated PostgreSQL, real farm guard)', () => {
     ).resolves.toMatchObject({
       data: { warehouseId: secondWarehouse, status: 'INACTIVE' },
     });
+  });
+
+  it('lets warehouse managers create and edit equipment/tool templates without stock (AC25)', async () => {
+    const category = randomUUID(),
+      unit = randomUUID(),
+      material = randomUUID(),
+      foreign = randomUUID();
+    createdCategories.push(category);
+    createdUnits.push(unit);
+    await pool.query(
+      `INSERT INTO categories (id, code, name) VALUES ($1, $2, 'Thiết bị')`,
+      [category, `${tag}-EC`],
+    );
+    await pool.query(
+      `INSERT INTO units (id, code, name) VALUES ($1, $2, 'Cái')`,
+      [unit, `${tag}-EU`.slice(0, 30)],
+    );
+    await pool.query(
+      `INSERT INTO items (id, farm_id, category_id, unit_id, code, name, item_type, tracking_mode)
+       VALUES ($1, $2, $3, $4, 'MAT-1', 'Đường', 'MATERIAL', 'QUANTITY'),
+              ($5, $6, $3, $4, 'EQ-F', 'Foreign', 'EQUIPMENT', 'ASSET')`,
+      [material, farm, category, unit, foreign, otherFarm],
+    );
+    const template = {
+      categoryId: category,
+      unitId: unit,
+      code: ' eq-smoker ',
+      name: ' Bình phun khói ',
+      itemType: 'EQUIPMENT',
+      trackingMode: 'ASSET',
+      maintenanceIntervalDays: 90,
+    };
+    const post = (who: keyof typeof people, body: object) =>
+      as(who).post('/api/v1/items').query({ farmId: farm }).send(body);
+    const created = await post('manager', template).expect(201);
+    const item = (created.body as { data: { id: string } }).data;
+    expect(created.body).toMatchObject({
+      data: {
+        code: 'EQ-SMOKER',
+        name: 'Bình phun khói',
+        farmId: farm,
+        minStockLevel: '0.000',
+        maintenanceIntervalDays: 90,
+      },
+    });
+    const stock = await pool.query(
+      `SELECT (SELECT count(*) FROM inventory_balances WHERE item_id = $1)::int AS balances,
+              (SELECT count(*) FROM inventory_transactions WHERE item_id = $1)::int AS moves,
+              (SELECT count(*) FROM assets WHERE item_id = $1)::int AS assets`,
+      [item.id],
+    );
+    expect(stock.rows[0]).toEqual({ balances: 0, moves: 0, assets: 0 });
+
+    await post('owner', template).expect(409);
+    await post('employee', { ...template, code: 'EQ-2' }).expect(403);
+    for (const invalid of [
+      { itemType: 'MATERIAL' },
+      { trackingMode: 'LOT' },
+      { maintenanceIntervalDays: 0 },
+      { categoryId: randomUUID() },
+    ])
+      await post('owner', { ...template, code: 'EQ-3', ...invalid }).expect(
+        400,
+      );
+
+    const listed = await as('employee')
+      .get('/api/v1/items')
+      .query({ farmId: farm, itemType: 'EQUIPMENT,TOOL' })
+      .expect(200);
+    const types = (
+      listed.body as { data: { item: { id: string; itemType: string } }[] }
+    ).data.map((row) => row.item);
+    expect(types).toContainEqual(expect.objectContaining({ id: item.id }));
+    expect(types.every((row) => row.itemType !== 'MATERIAL')).toBe(true);
+
+    const patch = (id: string, body: object) =>
+      as('owner')
+        .patch(`/api/v1/items/${id}`)
+        .query({ farmId: farm })
+        .send(body);
+    await patch(item.id, { itemType: 'TOOL', trackingMode: 'QUANTITY' }).expect(
+      200,
+    );
+    await patch(item.id, { trackingMode: 'ASSET' }).expect(200);
+    await patch(material, { name: 'Không sửa vật tư ở đây' }).expect(404);
+    await patch(foreign, { name: 'Hijacked' }).expect(404);
+    await patch(item.id, { itemType: 'MATERIAL' }).expect(400);
+    await patch(item.id, { minStockLevel: null }).expect(400);
+
+    await pool.query(
+      `INSERT INTO assets (id, farm_id, item_id, asset_code) VALUES ($1, $2, $3, $4)`,
+      [randomUUID(), farm, item.id, `${tag}-T1`],
+    );
+    await patch(item.id, { trackingMode: 'QUANTITY' }).expect(409);
+    // Inactive references can be kept but not newly chosen.
+    const retired = randomUUID();
+    createdCategories.push(retired);
+    await pool.query(
+      `INSERT INTO categories (id, code, name, status) VALUES ($1, $2, 'Cũ', 'INACTIVE')`,
+      [retired, `${tag}-EX`],
+    );
+    await post('manager', {
+      ...template,
+      code: 'EQ-4',
+      categoryId: retired,
+    }).expect(400);
+    await patch(item.id, { categoryId: retired }).expect(400);
+    await pool.query(`UPDATE items SET category_id = $1 WHERE id = $2`, [
+      retired,
+      item.id,
+    ]);
+    await patch(item.id, { categoryId: retired, name: 'Giữ nhóm' }).expect(200);
+    await expect(
+      patch(item.id, { name: 'Bình khói', status: 'INACTIVE' })
+        .expect(200)
+        .then((response) => response.body as unknown),
+    ).resolves.toMatchObject({
+      data: { name: 'Bình khói', status: 'INACTIVE', trackingMode: 'ASSET' },
+    });
+  });
+
+  it('locks the tracking mode once a balance or a stock document line exists', async () => {
+    const category = randomUUID(),
+      unit = randomUUID(),
+      counted = randomUUID(),
+      drafted = randomUUID(),
+      receipt = randomUUID();
+    createdCategories.push(category);
+    createdUnits.push(unit);
+    await pool.query(
+      `INSERT INTO categories (id, code, name) VALUES ($1, $2, 'Dụng cụ')`,
+      [category, `${tag}-TC`],
+    );
+    await pool.query(
+      `INSERT INTO units (id, code, name) VALUES ($1, $2, 'Cái')`,
+      [unit, `${tag}-TU`.slice(0, 30)],
+    );
+    await pool.query(
+      `INSERT INTO items (id, farm_id, category_id, unit_id, code, name, item_type, tracking_mode)
+       VALUES ($1, $3, $4, $5, 'TL-1', 'Kéo', 'TOOL', 'QUANTITY'),
+              ($2, $3, $4, $5, 'TL-2', 'Dao', 'TOOL', 'QUANTITY')`,
+      [counted, drafted, farm, category, unit],
+    );
+    // A zero balance still means the item has stock history.
+    await pool.query(
+      `INSERT INTO inventory_balances (farm_id, warehouse_id, item_id, quantity_on_hand)
+       VALUES ($1, $2, $3, 0)`,
+      [farm, warehouse, counted],
+    );
+    await pool.query(
+      `INSERT INTO stock_receipts (id, farm_id, warehouse_id, receipt_code, receipt_date, created_by_member_id)
+       VALUES ($1, $2, $3, $4, CURRENT_DATE, $5)`,
+      [receipt, farm, warehouse, `${tag}-R1`, people.manager.member],
+    );
+    await pool.query(
+      `INSERT INTO stock_receipt_items (stock_receipt_id, item_id, quantity)
+       VALUES ($1, $2, 1)`,
+      [receipt, drafted],
+    );
+    for (const id of [counted, drafted])
+      await as('manager')
+        .patch(`/api/v1/items/${id}`)
+        .query({ farmId: farm })
+        .send({ trackingMode: 'ASSET' })
+        .expect(409);
   });
 
   it('restricts shared categories and units to ADMIN', async () => {

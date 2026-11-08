@@ -8,7 +8,11 @@ import { StoreOrdersService } from '../src/modules/store-orders/store-orders.ser
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
 import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
-import { StockTransferHooks } from '../src/modules/warehouses/stock-transfer-hooks';
+import {
+  StockReceiptHooks,
+  StockTransferHooks,
+} from '../src/modules/warehouses/stock-transfer-hooks';
+import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.service';
 
 export type OrderTestDb = NodePgDatabase<typeof schema>;
 
@@ -89,6 +93,10 @@ export async function seedOrders(db: OrderTestDb) {
     { farmMemberId: ids.member, roleId: employeeRole.id },
     { farmMemberId: ids.adminMember, roleId: adminRole.id },
   ]);
+  // Staff works in the sales warehouse.
+  await db
+    .insert(schema.farmMemberWarehouses)
+    .values({ farmMemberId: ids.member, warehouseId: ids.warehouse });
   await db
     .insert(schema.categories)
     .values({ id: ids.category, code: ids.category, name: 'Internal' });
@@ -144,11 +152,18 @@ export async function seedOrders(db: OrderTestDb) {
   const warehouseService = new WarehousesService(database);
   const commerce = new CommerceService(database);
   const hooks = new StockTransferHooks();
+  const receiptHooks = new StockReceiptHooks();
   const service = new StoreOrdersService(
     database,
     commerce,
     warehouseService,
     hooks,
+    receiptHooks,
+  );
+  const receipts = new StockReceiptsService(
+    database,
+    warehouseService,
+    receiptHooks,
   );
   const issues = new StockIssuesService(database, warehouseService);
   const transfers = new StockTransfersService(
@@ -156,6 +171,18 @@ export async function seedOrders(db: OrderTestDb) {
     warehouseService,
     hooks,
   );
+  // Fixed fees so totals do not depend on what an admin saved in this database.
+  await db
+    .insert(schema.storeShippingFees)
+    .values([
+      { region: 'NORTH', fee: '40000' },
+      { region: 'CENTRAL', fee: '20000' },
+      { region: 'SOUTH', fee: '30000' },
+    ])
+    .onConflictDoUpdate({
+      target: schema.storeShippingFees.region,
+      set: { fee: sql`excluded.fee` },
+    });
   const input = (quantity = 3) => ({
     idempotencyKey: randomUUID(),
     recipientName: 'Khách mua hàng',
@@ -165,7 +192,16 @@ export async function seedOrders(db: OrderTestDb) {
     paymentMethod: 'COD' as const,
     items: [{ variantId: ids.variant, quantity }],
   });
-  return { ids, database, service, issues, transfers, commerce, input };
+  return {
+    ids,
+    database,
+    service,
+    issues,
+    transfers,
+    receipts,
+    commerce,
+    input,
+  };
 }
 
 export const testBankAccount = {
@@ -245,6 +281,9 @@ export async function cleanupOrders(
   await db
     .delete(schema.locations)
     .where(eq(schema.locations.id, ids.location));
+  await db
+    .delete(schema.farmMemberWarehouses)
+    .where(eq(schema.farmMemberWarehouses.farmMemberId, ids.member));
   await db
     .delete(schema.warehouses)
     .where(eq(schema.warehouses.farmId, ids.farm));

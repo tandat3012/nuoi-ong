@@ -6,7 +6,7 @@ import { colors, dimensions, radius, spacing, typography } from '@/src/core/them
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { MobileApiError } from '@/src/shared/api/client';
 import { AppShell, Card, Icon, PageHeader, Pill, SectionTitle } from '@/src/shared/ui/MobileShell';
-import { listNotifications, markAllNotificationsRead, markNotificationRead, notificationRoute, type AppNotification } from '../api';
+import { listNotifications, markAllNotificationsRead, markNotificationRead, notificationBodyText, notificationDocumentCode, notificationRoute, type AppNotification } from '../api';
 
 type Filter = 'all' | 'unread';
 
@@ -171,7 +171,8 @@ export default function NotificationCenterScreen() {
 
 function NotificationCard({ notification, onPress }: { notification: AppNotification; onPress: () => void }) {
   const status = notification.data?.status;
-  const tone = status === 'CONFIRMED' ? 'success' : status === 'REJECTED' ? 'danger' : status === 'PENDING_APPROVAL' ? 'amber' : 'neutral';
+  const entityType = notification.data?.documentType ?? notification.entityType;
+  const tone = status === 'CONFIRMED' ? 'success' : status === 'REJECTED' ? 'danger' : status === 'PENDING_APPROVAL' || status === 'IN_TRANSIT' ? 'amber' : 'neutral';
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`Mở thông báo: ${notification.title}`} onPress={onPress} style={({ pressed }) => [pressed && styles.pressed]}>
       <Card style={[styles.notificationCard, !notification.readAt && styles.unreadCard]}>
@@ -181,12 +182,12 @@ function NotificationCard({ notification, onPress }: { notification: AppNotifica
             <Text style={styles.notificationTitle}>{notification.title}</Text>
             {!notification.readAt ? <View style={styles.unreadDot} /> : null}
           </View>
-          <Text style={styles.notificationBody}>{notification.body}</Text>
+          <Text style={styles.notificationBody}>{notificationBodyText(notification)}</Text>
           <View style={styles.notificationMeta}>
             <Text style={styles.time}>{new Date(notification.createdAt).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
-            {status ? <Pill tone={tone}><Text style={styles.status}>{statusLabel(status)}</Text></Pill> : null}
+            {status ? <Pill tone={tone}><Text style={styles.status}>{statusLabel(status, entityType)}</Text></Pill> : null}
           </View>
-          {notification.data?.documentCode ? <Text style={styles.documentCode}>{notification.data.documentCode}</Text> : null}
+          {notificationDocumentCode(notification) ? <Text style={styles.documentCode}>{notificationDocumentCode(notification)}</Text> : null}
         </View>
         <Icon name="chevron-right" color={colors.outline} size={20} />
       </Card>
@@ -203,10 +204,11 @@ function iconForNotification(notification: AppNotification): 'build' | 'inventor
   return 'notifications-none';
 }
 
-function statusLabel(status: string) {
+function statusLabel(status: string, entityType?: string | null) {
   switch (status) {
     case 'PENDING_APPROVAL': return 'Chờ duyệt';
-    case 'CONFIRMED': return 'Đã duyệt';
+    case 'IN_TRANSIT': return 'Đang chuyển';
+    case 'CONFIRMED': return entityType === 'STOCK_TRANSFER' ? 'Đã nhận' : 'Đã duyệt';
     case 'REJECTED': return 'Từ chối';
     default: return status;
   }

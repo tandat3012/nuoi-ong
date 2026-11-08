@@ -22,23 +22,30 @@ import { PaginationParams } from '../../common/query-params';
 import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 import { DatabaseService } from '../../db/database.service';
 import {
+  auditLogs,
   inventoryBalances,
   items,
   stockIssueItems,
   stockIssues,
+  stockTransferItems,
+  stockTransfers,
   storeCategories,
   storeProductImages,
   storeProducts,
   storeProductStatus,
   storeProductVariants,
   storeOrders,
+  storeRegion,
   storeSettings,
-  storeSourceWarehouses,
+  storeShippingFees,
   storeVariantItems,
   units,
   warehouses,
 } from '../../db/schema';
-import { UpdateStoreSettingsDto } from './dto/store-settings.dto';
+import {
+  UpdateStoreSettingsDto,
+  UpdateStoreShippingFeesDto,
+} from './dto/store-settings.dto';
 import {
   CreateStoreCategoryDto,
   UpdateStoreCategoryDto,
@@ -62,6 +69,16 @@ export interface StoreProductListFilters extends PaginationParams {
 
 export const STORE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 export const STORE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+/** True when the bytes are a JPEG, PNG or WebP file, whatever MIME type the client sent. */
+export function isStoreImage(file: Buffer) {
+  const head = file.toString('latin1', 0, 12);
+  return (
+    head.startsWith('\xff\xd8\xff') ||
+    head.startsWith('\x89PNG\r\n\x1a\n') ||
+    (head.startsWith('RIFF') && head.slice(8) === 'WEBP')
+  );
+}
 
 const imageColumns = {
   id: storeProductImages.id,
@@ -88,6 +105,63 @@ export class StoreAdminService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
+  /**
+   * Replaces the store-wide delivery fees; placed orders keep the fee they were
+   * created with. The change is audited on the farm the admin acted from.
+   */
+  async updateShippingFees(
+    farmId: string,
+    clerkUserId: string,
+    input: UpdateStoreShippingFeesDto,
+  ) {
+    return this.databaseService.db.transaction(async (tx) => {
+      const fees = (rows: { region: string; fee: string }[]) =>
+        Object.fromEntries(rows.map(({ region, fee }) => [region, fee]));
+      // Row locks miss regions without a row yet; a table lock serialises saves
+      // (checkout's plain reads still go through) so the audit's old fees are right.
+      await tx.execute(
+        sql`LOCK TABLE ${storeShippingFees} IN SHARE ROW EXCLUSIVE MODE`,
+      );
+      const before = fees(
+        await tx
+          .select({
+            region: storeShippingFees.region,
+            fee: storeShippingFees.fee,
+          })
+          .from(storeShippingFees),
+      );
+      const updatedAt = new Date().toISOString();
+      const after = fees(
+        await tx
+          .insert(storeShippingFees)
+          .values(
+            storeRegion.enumValues.map((region) => ({
+              region,
+              fee: input[region],
+              updatedAt,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: storeShippingFees.region,
+            set: { fee: sql`excluded.fee`, updatedAt },
+          })
+          .returning({
+            region: storeShippingFees.region,
+            fee: storeShippingFees.fee,
+          }),
+      );
+      await tx.insert(auditLogs).values({
+        farmId,
+        userId: sql`(SELECT id FROM users WHERE auth_provider_user_id = ${clerkUserId})`,
+        action: 'SHIPPING_FEES_UPDATED',
+        entityType: 'STORE_SHIPPING_FEES',
+        oldData: before,
+        newData: after,
+      });
+      return after;
+    });
+  }
+
   /** Online sales settings of one farm; null fields until the owner sets them up. */
   async getSettings(farmId: string) {
     const [settings] = await this.databaseService.db
@@ -105,28 +179,13 @@ export class StoreAdminService {
       .leftJoin(warehouses, eq(warehouses.id, storeSettings.salesWarehouseId))
       .where(eq(storeSettings.farmId, farmId))
       .limit(1);
-    const sourceWarehouses = await this.databaseService.db
-      .select({
-        id: warehouses.id,
-        code: warehouses.code,
-        name: warehouses.name,
-        status: warehouses.status,
-      })
-      .from(storeSourceWarehouses)
-      .innerJoin(
-        warehouses,
-        eq(warehouses.id, storeSourceWarehouses.warehouseId),
-      )
-      .where(eq(storeSourceWarehouses.farmId, farmId))
-      .orderBy(asc(warehouses.code));
-    return {
-      ...(settings ?? {
+    return (
+      settings ?? {
         salesEnabled: false,
         regions: [],
         salesWarehouse: null,
-      }),
-      sourceWarehouses,
-    };
+      }
+    );
   }
 
   /**
@@ -145,26 +204,22 @@ export class StoreAdminService {
       WHERE ${inventoryBalances.itemId} = ${items.id}
         AND ${inventoryBalances.warehouseId} = ${warehouseId}
     )`;
-    // Shown to staff only; source stock reaches customers by transfer.
-    const sourceOnHand = sql<string>`(
-      SELECT COALESCE(SUM(${inventoryBalances.quantityOnHand}), 0)
-      FROM ${inventoryBalances}
-      JOIN ${storeSourceWarehouses}
-        ON ${storeSourceWarehouses.warehouseId} = ${inventoryBalances.warehouseId}
-      JOIN ${warehouses} sw ON sw.id = ${inventoryBalances.warehouseId}
-      WHERE ${inventoryBalances.itemId} = ${items.id}
-        AND ${storeSourceWarehouses.farmId} = ${farmId}
-        AND sw.status = 'ACTIVE'
-        AND ${inventoryBalances.warehouseId} <> ${warehouseId}
-    )`;
-    const held = sql<string>`(
+    // Unapproved issues and outgoing transfers, as order confirmation counts them.
+    const held = sql<string>`((
       SELECT COALESCE(SUM(${stockIssueItems.quantity}), 0)
       FROM ${stockIssueItems}
       JOIN ${stockIssues} ON ${stockIssues.id} = ${stockIssueItems.stockIssueId}
       WHERE ${stockIssueItems.itemId} = ${items.id}
         AND ${stockIssues.warehouseId} = ${warehouseId}
         AND ${stockIssues.status} IN ('DRAFT', 'PENDING_APPROVAL')
-    )`;
+    ) + (
+      SELECT COALESCE(SUM(${stockTransferItems.quantity}), 0)
+      FROM ${stockTransferItems}
+      JOIN ${stockTransfers} ON ${stockTransfers.id} = ${stockTransferItems.stockTransferId}
+      WHERE ${stockTransferItems.itemId} = ${items.id}
+        AND ${stockTransfers.fromWarehouseId} = ${warehouseId}
+        AND ${stockTransfers.status} IN ('DRAFT', 'PENDING_APPROVAL')
+    ))`;
     const rows = await this.databaseService.db
       .select({
         productId: storeProducts.id,
@@ -182,7 +237,6 @@ export class StoreAdminService {
         onHand: sql<string>`${onHand}::text`,
         held: sql<string>`${held}::text`,
         available: sql<string>`GREATEST(${onHand} - ${held}, 0)::text`,
-        sourceOnHand: sql<string>`${sourceOnHand}::text`,
       })
       .from(storeVariantItems)
       .innerJoin(items, eq(items.id, storeVariantItems.itemId))
@@ -275,40 +329,6 @@ export class StoreAdminService {
           .values({ farmId, ...values })
           .onConflictDoUpdate({ target: storeSettings.farmId, set: values }),
       );
-      // A warehouse that becomes the sales warehouse stops being its own source.
-      if (input.salesWarehouseId)
-        await tx
-          .delete(storeSourceWarehouses)
-          .where(eq(storeSourceWarehouses.warehouseId, input.salesWarehouseId));
-      const sources = input.sourceWarehouseIds;
-      if (!sources) return;
-      if (sources.includes(input.salesWarehouseId ?? ''))
-        throw new BadRequestException(
-          'The sales warehouse cannot also be a source warehouse',
-        );
-      if (sources.length > 0) {
-        const valid = await tx
-          .select({ id: warehouses.id })
-          .from(warehouses)
-          .where(
-            and(
-              inArray(warehouses.id, sources),
-              eq(warehouses.farmId, farmId),
-              eq(warehouses.status, 'ACTIVE'),
-            ),
-          );
-        if (valid.length !== sources.length)
-          throw new BadRequestException(
-            'Source warehouses must be active warehouses of this farm',
-          );
-      }
-      await tx
-        .delete(storeSourceWarehouses)
-        .where(eq(storeSourceWarehouses.farmId, farmId));
-      if (sources.length > 0)
-        await tx
-          .insert(storeSourceWarehouses)
-          .values(sources.map((warehouseId) => ({ warehouseId, farmId })));
     });
     return this.getSettings(farmId);
   }
@@ -640,7 +660,10 @@ export class StoreAdminService {
     alt = '',
   ) {
     if (!file) throw new BadRequestException('file is required');
-    if (!STORE_IMAGE_TYPES.includes(file.mimetype)) {
+    if (
+      !STORE_IMAGE_TYPES.includes(file.mimetype) ||
+      !isStoreImage(file.buffer)
+    ) {
       throw new BadRequestException('file must be a JPEG, PNG or WebP image');
     }
     if (alt.length > 500) {
@@ -648,11 +671,11 @@ export class StoreAdminService {
     }
     await this.requireProduct(productId);
 
-    // Cloudinary re-checks the real content: the client MIME type is untrusted.
     const uploaded = await this.cloudinaryService.uploadFile(file.buffer, {
       folder: 'nuoi-ong/products',
       resource_type: 'image',
-      allowed_formats: ['jpg', 'png', 'webp'],
+      // No allowed_formats: Cloudinary then skips `format` for allowed inputs
+      // and keeps PNGs as PNG. The format is checked above instead.
       // Store a capped WebP instead of the original phone photo.
       transformation: [
         { width: 2000, height: 2000, crop: 'limit', quality: 'auto:good' },

@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, getTableColumns, sql } from 'drizzle-orm';
+import { and, count, desc, eq, getTableColumns, or, sql } from 'drizzle-orm';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 import { alias } from 'drizzle-orm/pg-core';
 import { PaginationParams } from '../../common/query-params';
@@ -31,7 +31,13 @@ import {
   pendingMaintenanceRequest,
 } from '../maintenance/maintenance-requests.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { FARM_ADMIN_ROLES, WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+
+import {
+  assertInScope,
+  scopeCondition,
+  type WarehouseScope,
+} from '../warehouses/warehouse-scope';
+import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { AssetLifecycleService } from './asset-lifecycle.service';
 import { CreateAssetTransferRequestDto } from './dto/asset-lifecycle.dto';
 
@@ -64,6 +70,11 @@ const NOTIFICATION_TITLES = {
  * asset stays TRANSFER_PENDING (no other lifecycle action) until an approver runs
  * the transfer or rejects the request, which makes it AVAILABLE again.
  */
+/** Warehouse of the request's source location. */
+const sourceWarehouseId = sql<
+  string | null
+>`(SELECT l.warehouse_id FROM locations l WHERE l.id = asset_transfer_requests.from_location_id)`;
+
 @Injectable()
 export class AssetTransferRequestsService {
   constructor(
@@ -126,6 +137,10 @@ export class AssetTransferRequestsService {
       throw new ForbiddenException(
         'Only farm employees can request an asset transfer',
       );
+    const requesterScope = await this.warehousesService.warehouseScope(
+      farmId,
+      clerkUserId,
+    );
     return this.databaseService.db
       .transaction(async (tx) => {
         const [asset] = await tx
@@ -145,6 +160,11 @@ export class AssetTransferRequestsService {
           );
         if (!asset.currentLocationId)
           throw new ConflictException('Asset has no recorded source location');
+        const [sourceWarehouse] = await tx
+          .select({ warehouseId: locations.warehouseId })
+          .from(locations)
+          .where(eq(locations.id, asset.currentLocationId));
+        assertInScope(requesterScope, sourceWarehouse?.warehouseId);
         if (asset.currentLocationId === input.locationId)
           throw new ConflictException('Asset is already at this location');
         await this.assertDestination(tx, farmId, input);
@@ -176,6 +196,7 @@ export class AssetTransferRequestsService {
           tx,
           this.notification(request, asset.assetCode, 'PENDING_APPROVAL'),
           memberId,
+          sourceWarehouse?.warehouseId,
         );
         return request;
       })
@@ -198,6 +219,7 @@ export class AssetTransferRequestsService {
     const reviewer = await this.reviewer(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
       const { request, assetCode } = await this.lockPending(tx, id, farmId);
+      await this.assertSourceInScope(tx, request, reviewer.scope);
       const asset = await this.lifecycleService.transferInTransaction(
         tx,
         request.assetId,
@@ -237,6 +259,7 @@ export class AssetTransferRequestsService {
       );
     return this.databaseService.db.transaction(async (tx) => {
       const { request, assetCode } = await this.lockPending(tx, id, farmId);
+      await this.assertSourceInScope(tx, request, reviewer.scope);
       await tx
         .update(assets)
         .set({ status: 'AVAILABLE', updatedAt: new Date().toISOString() })
@@ -308,18 +331,32 @@ export class AssetTransferRequestsService {
       .$dynamic();
   }
 
-  /** Only admins and farm owners see every request; other members see their own. */
+
+  /**
+   * Approvers see every request of the farm; anyone else only their own. Members
+   * limited to warehouses see requests leaving or entering those warehouses.
+   */
   private async scope(farmId: string, clerkUserId: string) {
-    const { memberId, roleCodes } =
-      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    const { memberId, scope } = await this.warehousesService.documentReadScope(
+      farmId,
+      clerkUserId,
+    );
     const conditions = [eq(assetTransferRequests.farmId, farmId)];
-    if (!roleCodes.some((code) => FARM_ADMIN_ROLES.includes(code)))
+
+    if (memberId)
       conditions.push(eq(assetTransferRequests.requestedByMemberId, memberId));
+    if (scope)
+      conditions.push(
+        or(
+          scopeCondition(sourceWarehouseId, scope),
+          scopeCondition(assetTransferRequests.toWarehouseId, scope),
+        )!,
+      );
     return conditions;
   }
 
   private async reviewer(farmId: string, clerkUserId: string) {
-    const memberId = await this.warehousesService.assertFarmAccess(
+    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
@@ -330,7 +367,21 @@ export class AssetTransferRequestsService {
       .from(farmMembers)
       .where(eq(farmMembers.id, memberId))
       .limit(1);
-    return { memberId, userId: member.userId };
+    return { memberId, userId: member.userId, scope };
+  }
+
+  /** The sending warehouse (of the request's source location) approves or rejects. */
+  private async assertSourceInScope(
+    tx: Transaction,
+    request: TransferRequest,
+    scope: WarehouseScope,
+  ) {
+    if (scope === null) return;
+    const [location] = await tx
+      .select({ warehouseId: locations.warehouseId })
+      .from(locations)
+      .where(eq(locations.id, request.fromLocationId));
+    assertInScope(scope, location?.warehouseId);
   }
 
   private async lockPending(tx: Transaction, id: string, farmId: string) {
@@ -435,7 +486,7 @@ export class AssetTransferRequestsService {
       farmId: request.farmId,
       entityType: 'ASSET_TRANSFER_REQUEST',
       entityId: request.id,
-      documentCode: assetCode,
+      documentCode: `ATR-${request.id.slice(0, 8)}`,
       documentKind: 'Yêu cầu chuyển tài sản',
       status,
       title: NOTIFICATION_TITLES[status],

@@ -70,6 +70,9 @@ export function documentPushEligibility() {
         AND (
           (${notifications.type} = ${type + '_PENDING_APPROVAL'}
             AND push_document.status = 'PENDING_APPROVAL' AND ${isApprover})
+          -- Dispatched transfers wait for the destination to count them in.
+          OR (${notifications.type} = ${type + '_IN_TRANSIT'}
+            AND push_document.status::text = 'IN_TRANSIT' AND ${isApprover})
           OR (
             ((${notifications.type} = ${type + '_CONFIRMED'} AND push_document.status = 'CONFIRMED')
               OR (${notifications.type} = ${type + '_REJECTED'} AND push_document.status = 'REJECTED'))

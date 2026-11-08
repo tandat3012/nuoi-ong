@@ -19,6 +19,8 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  PackageCheck,
+  Undo2,
 } from "lucide-react";
 
 const statusVariant = {
@@ -28,6 +30,8 @@ const statusVariant = {
   SHIPPING: "info",
   COMPLETED: "success",
   CANCELLED: "destructive",
+  RETURNING: "warning",
+  RETURNED: "secondary",
 } as const;
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
@@ -38,6 +42,8 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
     SHIPPING: Truck,
     COMPLETED: CheckCircle2,
     CANCELLED: XCircle,
+    RETURNING: Undo2,
+    RETURNED: PackageCheck,
   }[status];
 
   return (
@@ -144,9 +150,7 @@ export function OrderAmounts({ order }: { order: CustomerOrder }) {
         <dd>{formatOrderMoney(order.subtotal)}</dd>
       </div>
       <div className="flex justify-between gap-3">
-        <dt className="text-muted-foreground">
-          Phí giao hàng{order.status === "PENDING" ? " (chờ xác nhận)" : ""}
-        </dt>
+        <dt className="text-muted-foreground">Phí giao hàng</dt>
         <dd>{formatOrderMoney(order.shippingFee)}</dd>
       </div>
       <div className="flex justify-between gap-3 border-t pt-2 text-base font-semibold">
