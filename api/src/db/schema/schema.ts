@@ -2360,6 +2360,14 @@ export const assetTransferRequests = pgTable(
       withTimezone: true,
       mode: 'string',
     }),
+    // P1-02: across warehouses, review = source dispatches (IN_TRANSIT); the destination then receives.
+    receivedByMemberId: uuid('received_by_member_id'),
+    receivedAt: timestamp('received_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    receivedCondition: varchar('received_condition', { length: 10 }),
+    receiveNote: text('receive_note'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -2385,7 +2393,13 @@ export const assetTransferRequests = pgTable(
         table.farmId.asc().nullsLast(),
         table.assetId.asc().nullsLast(),
       )
-      .where(sql`status = 'PENDING_APPROVAL'::document_status`),
+      .where(
+        sql`status IN ('PENDING_APPROVAL'::document_status, 'IN_TRANSIT'::document_status)`,
+      ),
+    check(
+      'ck_asset_transfer_received',
+      sql`(received_at IS NULL AND received_by_member_id IS NULL AND received_condition IS NULL) OR (status = 'CONFIRMED'::document_status AND received_at IS NOT NULL AND received_by_member_id IS NOT NULL AND received_condition IS NOT NULL AND (received_condition = 'GOOD' OR (received_condition = 'DAMAGED' AND coalesce(btrim(receive_note), '') <> '')))`,
+    ),
     foreignKey({
       columns: [table.farmId],
       foreignColumns: [farms.id],
@@ -2407,6 +2421,11 @@ export const assetTransferRequests = pgTable(
       name: 'asset_transfer_requests_reviewed_by_member_id_fkey',
     }),
     foreignKey({
+      columns: [table.receivedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'asset_transfer_requests_received_by_member_id_fkey',
+    }),
+    foreignKey({
       columns: [table.fromLocationId],
       foreignColumns: [locations.id],
       name: 'asset_transfer_requests_from_location_id_fkey',
@@ -2423,7 +2442,7 @@ export const assetTransferRequests = pgTable(
     }),
     check(
       'ck_asset_transfer_request_review_fields',
-      sql`((status IN ('CONFIRMED'::document_status, 'REJECTED'::document_status)) AND reviewed_by_member_id IS NOT NULL AND reviewed_at IS NOT NULL) OR (status NOT IN ('CONFIRMED'::document_status, 'REJECTED'::document_status) AND reviewed_by_member_id IS NULL AND reviewed_at IS NULL)`,
+      sql`((status IN ('IN_TRANSIT'::document_status, 'CONFIRMED'::document_status, 'REJECTED'::document_status)) AND reviewed_by_member_id IS NOT NULL AND reviewed_at IS NOT NULL) OR (status NOT IN ('IN_TRANSIT'::document_status, 'CONFIRMED'::document_status, 'REJECTED'::document_status) AND reviewed_by_member_id IS NULL AND reviewed_at IS NULL)`,
     ),
     check(
       'ck_asset_transfer_request_rejection_reason',

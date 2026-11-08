@@ -23,8 +23,8 @@ import {
 } from '../../db/schema';
 import { ReturnAssetDto } from './dto/return-asset.dto';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { assertInScope, scopeCondition } from '../warehouses/warehouse-scope';
-import { assetWarehouseId } from './asset-warehouse';
+import { assertInScope } from '../warehouses/warehouse-scope';
+import { assetReadableInScope, assetWarehouseId } from './asset-warehouse';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
 
@@ -285,7 +285,8 @@ export class AssetsService {
       filters.farmId,
       filters.clerkUserId,
     );
-    if (scope) predicates.push(scopeCondition(assetWarehouseId, scope)!);
+    if (scope)
+      predicates.push(scope.length ? assetReadableInScope(scope) : sql`false`);
 
     if (filters.search) {
       predicates.push(
@@ -402,7 +403,11 @@ export class AssetsService {
       farmId,
       clerkUserId,
     );
-    let scoped = scopeCondition(assetWarehouseId, scope);
+    let scoped: SQL | undefined = scope
+      ? scope.length
+        ? assetReadableInScope(scope)
+        : sql`false`
+      : undefined;
     if (scoped) {
       // The assignee reads their asset from any warehouse, to confirm receipt (P1-11).
       const { memberId } = await this.warehousesService.getActiveMembership(

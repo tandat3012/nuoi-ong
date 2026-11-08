@@ -5,7 +5,7 @@ export const ASSET_STATUS_LABELS = {
   MAINTENANCE: "Đang bảo trì",
   LOST: "Thất lạc",
   RETIRED: "Ngừng sử dụng",
-  TRANSFER_PENDING: "Chờ chuyển",
+  TRANSFER_PENDING: "Chờ chuyển / đang chuyển",
   DAMAGED: "Hỏng, chờ xử lý",
 } as const;
 
