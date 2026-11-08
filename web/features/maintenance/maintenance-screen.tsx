@@ -31,10 +31,12 @@ import { DateRangeFilter } from "@/shared/components/ui/date-range-filter";
 function MaintenanceList({
   farmId,
   roles,
+  memberId,
   recordId,
 }: {
   farmId: string;
   roles: readonly string[];
+  memberId?: string;
   recordId?: string;
 }) {
   const request = useAuthenticatedRequest();
@@ -239,6 +241,7 @@ function MaintenanceList({
                           record={record}
                           farmId={farmId}
                           roles={roles}
+                          memberId={memberId}
                           onSaved={() => setQuery({ ...query })}
                         />
                       }
@@ -281,6 +284,9 @@ function MaintenanceContent() {
       recordId={recordId}
       roles={
         data?.memberships.find((m) => m.farm.id === selectedFarmId)?.roles ?? []
+      }
+      memberId={
+        data?.memberships.find((m) => m.farm.id === selectedFarmId)?.memberId
       }
     />
   );

@@ -41,13 +41,15 @@ function metrics(summary: DashboardSummary, showOrders: boolean): Metric[] {
 function farmMetrics(summary: FarmSummary): Metric[] {
   return [
     {
-      label: 'Giá trị tồn kho (ước tính)',
+      // NV09-F01: with unpriced stock the figure is only the priced part, never a full total.
+      label: summary.unpricedItems ? 'Giá trị phần tồn đã định giá' : 'Giá trị tồn kho (ước tính)',
       value: formatOrderMoney(summary.stockValue),
       // Same definition as the stock report (AC27); scope = the caller's warehouses.
       note: `Bình quân gia quyền di động, như báo cáo nhập–xuất–tồn; các kho bạn được xem${
-        summary.unpricedItems ? `. ${summary.unpricedItems} mặt hàng có tồn chưa có giá ở ít nhất một kho, phần đó tính 0 đ` : ''
+        summary.unpricedItems ? `. Chưa đầy đủ: ${summary.unpricedItems} mặt hàng có tồn chưa có giá ở ít nhất một kho, phần đó không được tính` : ''
       }`,
       href: '/inventory',
+      alert: summary.unpricedItems > 0,
     },
     { label: 'Dưới mức tồn tối thiểu', value: String(summary.belowMinimum), href: '/materials', alert: summary.belowMinimum > 0 },
     {

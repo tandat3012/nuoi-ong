@@ -55,11 +55,12 @@ export class CreateStockReceiptItemDto {
   @ApiPropertyOptional({
     enum: ['GOOD', 'DAMAGED'],
     description:
-      'Chỉ dòng tài sản của phiếu nhập hàng trả về: kết quả kiểm nhận. DAMAGED nhập kho nhưng tài sản không cấp phát/bán được.',
+      'Chỉ dòng tài sản của phiếu nhập hàng trả về: kết quả kiểm nhận. DAMAGED nhập kho nhưng tài sản không cấp phát/bán được. Khi sửa nháp: bỏ trống trường này giữ kết quả đã lưu; gửi null để xóa.',
+    nullable: true,
   })
   @IsOptional()
   @IsIn(['GOOD', 'DAMAGED'])
-  assetCondition?: 'GOOD' | 'DAMAGED';
+  assetCondition?: 'GOOD' | 'DAMAGED' | null;
 
   @ApiPropertyOptional({
     format: 'uuid',

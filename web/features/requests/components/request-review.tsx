@@ -13,6 +13,7 @@ import {
   approveTransferRequest,
   receiveTransferRequest,
   rejectRequest,
+  resolveTransferRequest,
 } from "../api/requests.api";
 import {
   normalizeRequestReason,
@@ -34,13 +35,14 @@ export function RequestReview({
   onError: (message: string | null) => void;
 }) {
   const request = useAuthenticatedRequest();
-  const [action, setAction] = useState<"approve" | "reject" | "receive" | null>(null);
+  const [action, setAction] = useState<"approve" | "reject" | "receive" | "resolve" | null>(null);
   const maintenance = "maintenanceType" in row;
   const actions = requestActions(roles, row.status, maintenance);
   const type = maintenance ? "maintenance" : "transfer";
-  if (!actions.approve && !actions.reject && !actions.receive) return null;
+  if (!actions.approve && !actions.reject && !actions.receive && !actions.resolve) return null;
   return (
     <>
+      {actions.resolve && <Button onClick={() => setAction("resolve")}>Ghi nhận đã xử lý</Button>}
       {actions.receive && <Button onClick={() => setAction("receive")}>Nhận tài sản</Button>}
       {actions.approve && <Button onClick={() => setAction("approve")}>Duyệt</Button>}
       {actions.reject && (
@@ -50,20 +52,26 @@ export function RequestReview({
       )}
       {action && (
         <FormDialog
-          title={action === "receive" ? "Kho đích nhận tài sản" : action === "reject" ? "Từ chối yêu cầu" : maintenance ? "Duyệt yêu cầu bảo trì" : "Duyệt chuyển tài sản"}
-          description={action === "receive"
+          title={action === "resolve" ? "Xử lý tài sản nhận hỏng" : action === "receive" ? "Kho đích nhận tài sản" : action === "reject" ? "Từ chối yêu cầu" : maintenance ? "Duyệt yêu cầu bảo trì" : "Duyệt chuyển tài sản"}
+          description={action === "resolve"
+            ? `Tài sản ${row.assetCode} đã ở kho đích với trạng thái hỏng. Ghi cách đã xử lý (gửi sửa, thanh lý, khiếu nại…); thao tác này không đổi tồn kho.`
+            : action === "receive"
             ? `Quét hoặc nhập mã tài sản thực nhận${"maintenanceType" in row ? "" : ` tại ${transferDestination(row)}`}. Tồn kho đích chỉ tăng khi xác nhận.`
             : action === "reject"
             ? `Từ chối yêu cầu cho tài sản ${row.assetCode}. Người gửi sẽ nhận được lý do.`
             : maintenance
               ? `Chọn lịch bảo trì cho tài sản ${row.assetCode}.`
               : `Duyệt chuyển tài sản ${row.assetCode} đến ${transferDestination(row)}? Khác kho thì kho nguồn xuất ngay, kho đích xác nhận nhận sau.`}
-          submitLabel={action === "receive" ? "Xác nhận đã nhận" : action === "reject" ? "Từ chối yêu cầu" : "Duyệt yêu cầu"}
+          submitLabel={action === "resolve" ? "Ghi nhận đã xử lý" : action === "receive" ? "Xác nhận đã nhận" : action === "reject" ? "Từ chối yêu cầu" : "Duyệt yêu cầu"}
           onClose={() => setAction(null)}
           errorMessage={requestFormError}
           onSubmit={async (data) => {
             let perform: () => Promise<unknown>;
-            if (action === "receive") {
+            if (action === "resolve") {
+              const note = String(data.get("resolutionNote") ?? "").trim();
+              if (!note) throw new Error("Ghi cách đã xử lý tài sản nhận hỏng.");
+              perform = () => resolveTransferRequest(request, farmId, row.id, note);
+            } else if (action === "receive") {
               const assetCode = String(data.get("assetCode") ?? "").trim();
               const condition = data.get("condition") === "DAMAGED" ? "DAMAGED" : "GOOD";
               const note = String(data.get("note") ?? "").trim() || null;
@@ -87,7 +95,12 @@ export function RequestReview({
             });
           }}
         >
-          {action === "receive" ? (
+          {action === "resolve" ? (
+            <label className="block space-y-2 text-sm font-medium">
+              Cách đã xử lý
+              <Textarea name="resolutionNote" required maxLength={4000} rows={3} />
+            </label>
+          ) : action === "receive" ? (
             <>
               <label className="block space-y-2 text-sm font-medium">
                 Mã tài sản thực nhận

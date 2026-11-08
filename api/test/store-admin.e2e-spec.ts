@@ -28,6 +28,16 @@ describe('Store admin HTTP contract', () => {
         transform: true,
       }),
     );
+    app.useGlobalGuards({
+      canActivate(context) {
+        context
+          .switchToHttp()
+          .getRequest<{ auth: { clerkUserId: string } }>().auth = {
+          clerkUserId: 'clerk-admin',
+        };
+        return true;
+      },
+    });
     await app.init();
   });
 
@@ -53,6 +63,7 @@ describe('Store admin HTTP contract', () => {
       productId,
       expect.objectContaining({ mimetype: 'image/png', size: 3 }),
       'Bìa',
+      { farmId, clerkUserId: 'clerk-admin' },
     );
   });
 

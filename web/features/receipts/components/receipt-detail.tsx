@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useReceiptDetail } from "../hooks/use-receipt-detail";
 import { useCancelReceipt } from "../hooks/use-cancel-receipt";
 import { useConfirmReceipt } from "../hooks/use-confirm-receipt";
@@ -219,11 +220,28 @@ export function ReceiptDetail({
                     : "Phiếu có dòng hàng thiếu thông tin lô hoặc tài sản nên chưa thể xác nhận."}
                 </p>
               )}
-            {actions.edit && !canEdit && (
+            {detail.receipt.sourceIssueId ? (
               <p role="status" className="rounded-xl border p-3 text-sm">
-                Phiếu nháp có dòng hàng không hợp lệ nên chưa thể sửa bằng form
-                hiện tại.
+                Phiếu nhập hoàn trả nội bộ từ{" "}
+                <Link
+                  className="text-primary underline"
+                  href={`/issues/${encodeURIComponent(detail.receipt.sourceIssueId)}`}
+                >
+                  phiếu xuất nguồn
+                </Link>
+                . Chỉ lượng đạt được cộng tồn khi xác nhận; lượng không đạt chỉ
+                ghi nhận.
+                {actions.edit &&
+                  " Muốn đổi số lượng: hủy phiếu này rồi lập lại từ phiếu xuất."}
               </p>
+            ) : (
+              actions.edit &&
+              !canEdit && (
+                <p role="status" className="rounded-xl border p-3 text-sm">
+                  Phiếu nháp có dòng hàng không hợp lệ nên chưa thể sửa bằng
+                  form hiện tại.
+                </p>
+              )
             )}
             {warning && (
               <p role="status" className="rounded-xl border p-3 text-sm">
@@ -326,6 +344,12 @@ export function ReceiptDetail({
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {formatInventoryQuantity(line.quantity)} {line.unitSymbol || line.unitName}
+                            {Number(line.rejectedQuantity ?? 0) > 0 && (
+                              <p className="whitespace-normal text-xs text-destructive">
+                                Không đạt: {formatInventoryQuantity(line.rejectedQuantity!)}
+                                {line.rejectionReason ? ` — ${line.rejectionReason}` : ""}
+                              </p>
+                            )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {line.unitPrice}

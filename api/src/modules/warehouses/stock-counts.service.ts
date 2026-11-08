@@ -377,6 +377,8 @@ export class StockCountsService {
       if (row.status === 'CONFIRMED') return;
       if (!['DRAFT', 'COUNTING', 'PENDING_APPROVAL'].includes(row.status))
         throw new ConflictException('Only active counts can be confirmed');
+      // A count must not credit a warehouse deactivated while it was open.
+      await this.assertWarehouse(tx, farmId, row.warehouseId);
       // Same lock order as stock issue confirmation, so the two cannot deadlock.
       const lines = await tx
         .select()
@@ -893,7 +895,9 @@ export class StockCountsService {
           eq(warehouses.farmId, farmId),
           eq(warehouses.status, 'ACTIVE'),
         ),
-      );
+      )
+      // Shares the row lock deactivation takes, so it waits for this move (NV08).
+      .for('share');
     if (!row) throw new ConflictException('Warehouse must exist and be ACTIVE');
   }
   /** Quantity/LOT lines adjust balances; ASSET lines are counted one asset each (P1-12). */

@@ -210,6 +210,15 @@ export class StartUseAssetDto {
   note?: string | null;
 }
 
+export class ResolveAssetTransferDto {
+  @ApiProperty({
+    description: 'Cách đã xử lý tài sản nhận hỏng (sửa, thanh lý, khiếu nại…).',
+  })
+  @IsString()
+  @Length(1, 4000)
+  note!: string;
+}
+
 export class ReceiveAssetTransferDto {
   @ApiProperty({
     description:

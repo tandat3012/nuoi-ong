@@ -45,11 +45,13 @@ export function MaintenanceActions({
   record,
   farmId,
   roles,
+  memberId,
   onSaved,
 }: {
   record: Record;
   farmId: string;
   roles: readonly string[];
+  memberId?: string;
   onSaved: () => void;
 }) {
   const request = useAuthenticatedRequest();
@@ -99,7 +101,7 @@ export function MaintenanceActions({
     };
   }, [action, farmId, request, lookupRevision]);
 
-  const actions = maintenanceActions(record, roles);
+  const actions = maintenanceActions(record, roles, memberId);
   const receivingLocations = locations.filter(
     (l) => l.warehouseId === warehouseId,
   );

@@ -1328,4 +1328,102 @@ describe('External maintenance, inspection and warehouse receipt', () => {
         ),
     ).toHaveLength(0);
   });
+  it('assigns only maintenance-capable members and keeps staff off jobs of others (P1-05)', async () => {
+    const assign = (performedByMemberId: string) =>
+      service.create(farm, manager, {
+        assetId: asset,
+        maintenanceType: 'PREVENTIVE',
+        scheduledAt: before(),
+        performedByMemberId,
+      });
+    for (const role of ['EMPLOYEE', 'STORE_MANAGER'])
+      await expect(assign(actors[role].member)).rejects.toThrow(
+        'Performer must be a maintenance staff member',
+      );
+    // A warehouse manager assigned to the asset's warehouse may coordinate it.
+    const coordinated = await assign(actors.WAREHOUSE_MANAGER.member);
+    await service.cancel(coordinated.id, farm, manager);
+
+    const record = await assign(actors.MAINTENANCE_STAFF.member);
+    // Staff never reassign a job, not even to themselves.
+    await expect(
+      service.update(record.id, farm, worker, {
+        performedByMemberId: actors.WAREHOUSE_MANAGER.member,
+      }),
+    ).rejects.toThrow('assigns maintenance');
+
+    // Registered with the actors so afterAll removes the extra member and user.
+    const peerClerk = randomUUID();
+    const peer = { user: randomUUID(), member: randomUUID(), clerk: peerClerk };
+    actors.PEER_MAINTENANCE_STAFF = peer;
+    await db.insert(schema.users).values({
+      id: peer.user,
+      email: `${peerClerk}@example.local`,
+      authProviderUserId: peerClerk,
+    });
+    await db
+      .insert(schema.farmMembers)
+      .values({ id: peer.member, userId: peer.user, farmId: farm });
+    const [staffRole] = await db
+      .select()
+      .from(schema.roles)
+      .where(eq(schema.roles.code, 'MAINTENANCE_STAFF'));
+    await db
+      .insert(schema.farmMemberRoles)
+      .values({ farmMemberId: peer.member, roleId: staffRole.id });
+    await expect(
+      service.update(record.id, farm, peerClerk, { resultNote: 'mine' }),
+    ).rejects.toThrow('assigned to another staff member');
+    await expect(service.cancel(record.id, farm, peerClerk)).rejects.toThrow(
+      'assigned to another staff member',
+    );
+    // A manager reassigns; then the new assignee works on it.
+    await service.update(record.id, farm, manager, {
+      performedByMemberId: peer.member,
+    });
+    await service.update(record.id, farm, peerClerk, {
+      supplierId: supplier,
+      expectedReturnAt: future(),
+    });
+    await service.start(record.id, farm, manager);
+    await expect(
+      service.receive(record.id, farm, worker, new Date().toISOString()),
+    ).rejects.toThrow('assigned to another staff member');
+    await service.receive(record.id, farm, peerClerk, new Date().toISOString());
+    // An assignee who left the farm no longer blocks the job.
+    await pool.query("UPDATE farm_members SET status='INACTIVE' WHERE id=$1", [
+      peer.member,
+    ]);
+    await service.complete(record.id, farm, worker, {
+      outcome: 'PASSED',
+      resultNote: 'Done by a colleague',
+      intervalMonths: 3,
+    });
+  });
+
+  it('lets staff schedule only for themselves and keeps scoped managers to their warehouses (P1-05)', async () => {
+    const input = (performedByMemberId: string) => ({
+      assetId: asset,
+      maintenanceType: 'PREVENTIVE' as const,
+      scheduledAt: before(),
+      performedByMemberId,
+    });
+    await expect(
+      service.create(farm, worker, input(actors.WAREHOUSE_MANAGER.member)),
+    ).rejects.toThrow('assigns maintenance');
+    const own = await service.create(
+      farm,
+      worker,
+      input(actors.MAINTENANCE_STAFF.member),
+    );
+    expect(own.performedByMemberId).toBe(actors.MAINTENANCE_STAFF.member);
+    await service.cancel(own.id, farm, worker);
+    // An asset outside any warehouse is out of a scoped manager's reach.
+    await pool.query('UPDATE assets SET current_location_id=NULL WHERE id=$1', [
+      asset,
+    ]);
+    await expect(
+      service.create(farm, owner, input(actors.WAREHOUSE_MANAGER.member)),
+    ).rejects.toThrow("Performer must manage the asset's warehouse");
+  });
 });

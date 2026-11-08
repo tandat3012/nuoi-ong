@@ -27,6 +27,7 @@ type DocumentNotification = {
   status:
     | 'PENDING_APPROVAL'
     | 'IN_TRANSIT'
+    | 'DISCREPANCY'
     | 'SCHEDULED'
     | 'READY_TO_SEND'
     | 'IN_PROGRESS'
@@ -85,6 +86,8 @@ export function formatNotificationBody(
       return `${documentKind} ${code} đang chờ duyệt.`;
     case 'IN_TRANSIT':
       return `${documentKind} ${code} đã xuất, chờ kho nhận xác nhận số thực nhận.`;
+    case 'DISCREPANCY':
+      return `${documentKind} ${code} đã được nhận nhưng có sai lệch (hỏng/thiếu), chờ chủ trại xử lý.`;
     case 'SCHEDULED':
       return `${documentKind} ${code} đã được lên lịch, chờ chọn đơn vị và ngày hẹn trả.`;
     case 'READY_TO_SEND':
@@ -123,6 +126,11 @@ async function insertForUsers(
       type: `${notification.entityType}_IN_TRANSIT`,
       title: 'Hàng đang chuyển đến kho',
       body: `${notification.documentKind} ${code} đã xuất, chờ kho nhận xác nhận số thực nhận.`,
+    },
+    DISCREPANCY: {
+      type: `${notification.entityType}_DISCREPANCY`,
+      title: 'Nhận hàng có sai lệch, cần xử lý',
+      body: `${notification.documentKind} ${code} đã được nhận nhưng có sai lệch (hỏng/thiếu), chờ chủ trại xử lý.`,
     },
     SCHEDULED: {
       type: `${notification.entityType}_SCHEDULED`,

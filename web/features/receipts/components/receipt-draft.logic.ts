@@ -109,8 +109,13 @@ const supportedLines = (detail: ReceiptDetail) =>
   (detail.items.length > 0 || Boolean(detail.orderReturn)) &&
   detail.items.every((line) => supportedLine(line, Boolean(detail.orderReturn)));
 
+// An internal return is not edited: cancel it and record it again from the issue.
 export function supportsQuantityDraftEdit(detail: ReceiptDetail) {
-  return detail.receipt.status === 'DRAFT' && supportedLines(detail);
+  return (
+    detail.receipt.status === 'DRAFT' &&
+    !detail.receipt.sourceIssueId &&
+    supportedLines(detail)
+  );
 }
 
 export function supportsQuantityDraftConfirm(detail: ReceiptDetail) {
@@ -168,6 +173,10 @@ const SAVE_ERRORS: [RegExp, string][] = [
   [
     /return receipt cannot receive more/,
     'Phiếu hàng trả về chỉ nhận tối đa đúng mặt hàng, lô, tài sản và số lượng đơn đã xuất.',
+  ],
+  [
+    /keep the lineId of a shipped asset/,
+    'Phiếu hàng trả chỉ nhận lại đúng các tài sản đơn đã xuất. Tải lại phiếu rồi sửa.',
   ],
   [
     /returned asset needs its inspected condition/,

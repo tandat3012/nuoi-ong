@@ -77,6 +77,12 @@ import {
 // The catalog and delivery fees are shared by every farm, so only ADMIN edits them.
 const CATALOG_ROLE = 'ADMIN';
 
+/** NV10-F01: the farm the admin acts from and who they are, for the audit row. */
+const actorOf = (farmId: string, auth: { clerkUserId: string }) => ({
+  farmId: requireUuid(farmId, 'farmId'),
+  clerkUserId: auth.clerkUserId,
+});
+
 @Controller('store-admin')
 @UseGuards(FarmAccessGuard)
 @FarmRoles(...STORE_MANAGE_ROLES)
@@ -135,12 +141,14 @@ export class StoreAdminController {
   @ApiConflictResponse({ description: 'Slug đã tồn tại.' })
   async createProduct(
     @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Body() input: CreateStoreProductDto,
   ) {
     return {
       data: await this.storeAdminService.createProduct(
         requireUuid(farmId, 'farmId'),
         input,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -152,6 +160,7 @@ export class StoreAdminController {
   @ApiConflictResponse({ description: 'Slug đã tồn tại.' })
   async updateProduct(
     @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Body() input: UpdateStoreProductDto,
   ) {
@@ -160,6 +169,7 @@ export class StoreAdminController {
         requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
         input,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -177,6 +187,7 @@ export class StoreAdminController {
   })
   async updateProductStatus(
     @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Body() input: UpdateStoreProductStatusDto,
   ) {
@@ -185,6 +196,7 @@ export class StoreAdminController {
         requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
         input.status,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -196,6 +208,7 @@ export class StoreAdminController {
   @ApiConflictResponse({ description: 'Item đã thuộc biến thể khác.' })
   async createVariant(
     @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Body() input: CreateStoreVariantDto,
   ) {
@@ -204,6 +217,7 @@ export class StoreAdminController {
         requireUuid(farmId, 'farmId'),
         requireUuid(id, 'id'),
         input,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -214,6 +228,8 @@ export class StoreAdminController {
   @ApiUuidParam('id', 'ID sản phẩm.')
   @ApiUuidParam('variantId', 'ID biến thể.')
   async updateVariant(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Param('variantId') variantId: string,
     @Body() input: UpdateStoreVariantDto,
@@ -223,6 +239,7 @@ export class StoreAdminController {
         requireUuid(id, 'id'),
         requireUuid(variantId, 'variantId'),
         input,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -250,6 +267,8 @@ export class StoreAdminController {
     },
   })
   async addImage(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body('alt') alt?: string,
@@ -259,6 +278,7 @@ export class StoreAdminController {
         requireUuid(id, 'id'),
         file,
         typeof alt === 'string' ? alt : '',
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -268,6 +288,8 @@ export class StoreAdminController {
   @ApiOperation({ summary: 'Sắp xếp lại ảnh; ảnh đầu là ảnh đại diện' })
   @ApiUuidParam('id', 'ID sản phẩm.')
   async reorderImages(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Body() input: ReorderStoreImagesDto,
   ) {
@@ -275,6 +297,7 @@ export class StoreAdminController {
       data: await this.storeAdminService.reorderImages(
         requireUuid(id, 'id'),
         input.imageIds,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -285,6 +308,8 @@ export class StoreAdminController {
   @ApiUuidParam('id', 'ID sản phẩm.')
   @ApiUuidParam('imageId', 'ID ảnh.')
   async updateImage(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Param('imageId') imageId: string,
     @Body() input: UpdateStoreImageDto,
@@ -294,6 +319,7 @@ export class StoreAdminController {
         requireUuid(id, 'id'),
         requireUuid(imageId, 'imageId'),
         input.alt,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -306,12 +332,15 @@ export class StoreAdminController {
   @ApiUuidParam('imageId', 'ID ảnh.')
   @ApiNoContentResponse({ description: 'Đã xóa.' })
   async deleteImage(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Param('imageId') imageId: string,
   ) {
     await this.storeAdminService.deleteImage(
       requireUuid(id, 'id'),
       requireUuid(imageId, 'imageId'),
+      actorOf(farmId, auth),
     );
   }
 
@@ -372,12 +401,14 @@ export class StoreAdminController {
   @ApiConflictResponse({ description: 'Kho bán cũ còn đơn chưa hoàn tất.' })
   async updateSettings(
     @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Body() input: UpdateStoreSettingsDto,
   ) {
     return {
       data: await this.storeAdminService.updateSettings(
         requireUuid(farmId, 'farmId'),
         input,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -393,6 +424,7 @@ export class StoreAdminController {
   @ApiConflictResponse({ description: 'Vật tư đã gắn với quy cách khác.' })
   async setVariantItem(
     @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Param('variantId') variantId: string,
     @Body() input: SetStoreVariantItemDto,
@@ -403,6 +435,7 @@ export class StoreAdminController {
         requireUuid(id, 'id'),
         requireUuid(variantId, 'variantId'),
         input.itemId,
+        actorOf(farmId, auth),
       ),
     };
   }
@@ -416,6 +449,7 @@ export class StoreAdminController {
   @ApiNoContentResponse({ description: 'Đã gỡ.' })
   async removeVariantItem(
     @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Param('variantId') variantId: string,
   ) {
@@ -423,6 +457,7 @@ export class StoreAdminController {
       requireUuid(farmId, 'farmId'),
       requireUuid(id, 'id'),
       requireUuid(variantId, 'variantId'),
+      actorOf(farmId, auth),
     );
   }
 
@@ -451,9 +486,16 @@ export class StoreAdminController {
   @Post('categories')
   @ApiOperation({ summary: 'Tạo danh mục cửa hàng' })
   @ApiConflictResponse({ description: 'Slug đã tồn tại.' })
-  async createCategory(@Body() input: CreateStoreCategoryDto) {
+  async createCategory(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Body() input: CreateStoreCategoryDto,
+  ) {
     return {
-      data: await this.storeAdminService.createCategory(input),
+      data: await this.storeAdminService.createCategory(
+        input,
+        actorOf(farmId, auth),
+      ),
     };
   }
 
@@ -463,6 +505,8 @@ export class StoreAdminController {
   @ApiUuidParam('id', 'ID danh mục.')
   @ApiConflictResponse({ description: 'Slug đã tồn tại.' })
   async updateCategory(
+    @Query('farmId') farmId: string,
+    @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Body() input: UpdateStoreCategoryDto,
   ) {
@@ -470,6 +514,7 @@ export class StoreAdminController {
       data: await this.storeAdminService.updateCategory(
         requireUuid(id, 'id'),
         input,
+        actorOf(farmId, auth),
       ),
     };
   }

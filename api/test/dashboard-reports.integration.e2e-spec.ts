@@ -180,6 +180,30 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
         '2026-10-31',
       );
       expect(farm.granularity).toBe('day');
+      expect(farm.maintenanceScope).toBe('FARM');
+      // NV09-F02: a limited viewer's maintenance costs cover their warehouses' assets.
+      const limited = await dashboard.timeseries(
+        ids.farm,
+        '2026-10-01',
+        '2026-10-31',
+        ids.warehouse,
+        [ids.warehouse],
+      );
+      expect(limited.maintenanceScope).toBe('ASSIGNED_WAREHOUSES');
+      const labor = (series: typeof farm) =>
+        series.periods.find((p) => p.period === '2026-10-25')
+          ?.maintenanceLaborCost;
+      // The repaired asset sits in no warehouse: outside the limited scope.
+      expect(labor(limited)).toBe('0');
+      // A farm-wide viewer keeps it even with one warehouse selected.
+      const selected = await dashboard.timeseries(
+        ids.farm,
+        '2026-10-01',
+        '2026-10-31',
+        ids.warehouse,
+      );
+      expect(selected.maintenanceScope).toBe('FARM');
+      expect(labor(selected)).toBe('100000');
       expect(farm.periods).toHaveLength(31);
       const day = (date: string) =>
         farm.periods.find((period) => period.period === date);
@@ -356,7 +380,7 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
         adjustmentOut: { quantity: '1', value: '1200' },
         transferIn: { quantity: '0', value: '0' },
       });
-      // The unpriced adjustment of the 1st is opening stock worth 0 VND.
+      // The unpriced adjustment of the 1st: opening stock with no known value (not 0 VND), only the priced part is valued.
       expect(other).toMatchObject({
         opening: { quantity: '3', value: '0' },
         closing: { quantity: '5', value: '2400' },
@@ -517,9 +541,10 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
       // Honey 4800 (SALE) + 2400 (OTHER), 1500 for `mixed`, 1000 left on `residual`.
       expect(await closing(yearAgo)).toBe('9700');
       expect(await closing(today)).toBe('9700');
+      // NV09-F01: Honey's 3 unpriced units in OTHER count even though that stock also holds priced value.
       expect(await dashboard.summary(ids.farm, ['FARM_OWNER'])).toMatchObject({
         stockValue: '9700',
-        unpricedItems: 1,
+        unpricedItems: 2,
       });
       expect(await closing(today, ids.warehouse)).toBe('7300');
       expect(
