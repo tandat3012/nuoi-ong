@@ -71,6 +71,8 @@ export interface IssueLine {
   lotExpiryDate: string | null;
   assetCode: string | null;
   serialNumber: string | null;
+  /** NV02: already given back on confirmed internal returns (accepted + rejected). */
+  returnedQuantity?: string;
 }
 
 export interface IssueDetail {

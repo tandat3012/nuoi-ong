@@ -947,6 +947,14 @@ export class StockIssuesService {
         lotExpiryDate: inventoryLots.expiryDate,
         assetCode: assets.assetCode,
         serialNumber: assets.serialNumber,
+        // NV02 internal returns already confirmed against this line (accepted + rejected).
+        returnedQuantity: sql<string>`coalesce((
+          SELECT sum(ri.quantity + ri.rejected_quantity)
+          FROM stock_receipt_items ri
+          JOIN stock_receipts r ON r.id = ri.stock_receipt_id
+          WHERE ri.source_issue_item_id = "stock_issue_items"."id"
+            AND r.status = 'CONFIRMED'
+        ), 0)::text`,
       })
       .from(stockIssueItems)
       .leftJoin(

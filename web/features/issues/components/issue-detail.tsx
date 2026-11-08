@@ -14,6 +14,7 @@ import { supportsIssueDraftEdit } from "./issue-draft.logic";
 import { formatInventoryQuantity } from "@/features/inventory/inventory.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
 import { IssueReceipt } from "./issue-receipt";
+import { IssueReturn } from "./issue-return";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
@@ -283,6 +284,7 @@ export function IssueDetail({
               viewer={viewer}
               onChanged={refresh}
             />
+            <IssueReturn farmId={farmId} detail={detail} roles={viewer.roles} />
             {detail.items.length === 0 ? (
               <p role="status">Phiếu xuất chưa có dòng hàng.</p>
             ) : (
@@ -372,6 +374,11 @@ export function IssueDetail({
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           {formatInventoryQuantity(line.quantity)}
+                          {Number(line.returnedQuantity ?? 0) > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Đã hoàn trả {formatInventoryQuantity(line.returnedQuantity!)}
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           {line.unitSymbol || line.unitName || "—"}
