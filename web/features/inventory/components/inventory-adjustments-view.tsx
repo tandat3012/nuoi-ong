@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ApiError } from "@/shared/api/client";
+import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
 import { useAuthenticatedRequest } from "@/features/auth/hooks/use-authenticated-request";
 import {
   getInventoryAdjustments,
@@ -46,6 +47,8 @@ function loadError(error: unknown) {
 
 function reviewError(error: unknown) {
   if (error instanceof ApiError) {
+    if ((error.details as { code?: string } | undefined)?.code === "SELF_APPROVAL")
+      return "Không tự duyệt đề xuất của chính mình: cần một người duyệt khác.";
     if (error.status === 403)
       return "Chỉ chủ trại hoặc quản trị viên được duyệt đề xuất.";
     if (error.status === 404) return "Không tìm thấy đề xuất này nữa.";
@@ -70,6 +73,8 @@ export function InventoryAdjustmentsView({
 }) {
   const request = useAuthenticatedRequest();
   const references = useInventoryReferences(farmId);
+  // P0-01: an approver never approves their own request.
+  const memberId = useFarmMembership().membership?.memberId;
   const [filters, setFilters] = useState<{
     status: InventoryAdjustmentStatus | "";
     warehouseId: string;
@@ -150,7 +155,7 @@ export function InventoryAdjustmentsView({
         title="Đề xuất điều chỉnh tồn"
         description={
           canApprove
-            ? "Duyệt hoặc từ chối các đề xuất điều chỉnh do nhân viên gửi."
+            ? "Duyệt hoặc từ chối các đề xuất điều chỉnh; đề xuất của chính bạn cần người khác duyệt."
             : "Theo dõi trạng thái các đề xuất điều chỉnh tồn kho."
         }
         actions={
@@ -377,12 +382,18 @@ export function InventoryAdjustmentsView({
                         >
                           Từ chối
                         </Button>
-                        <Button
-                          onClick={() => setApproving(row)}
-                          disabled={busy}
-                        >
-                          Duyệt
-                        </Button>
+                        {row.requester.id === memberId ? (
+                          <span className="text-sm text-muted-foreground">
+                            Chờ người duyệt khác
+                          </span>
+                        ) : (
+                          <Button
+                            onClick={() => setApproving(row)}
+                            disabled={busy}
+                          >
+                            Duyệt
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>

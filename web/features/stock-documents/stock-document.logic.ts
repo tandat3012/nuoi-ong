@@ -121,7 +121,9 @@ export function stockDocumentErrorMessage(
   if (status === 403)
     return /own documents/.test(message)
       ? "Bạn chỉ thao tác được phiếu do chính mình tạo."
-      : "Bạn không có quyền thực hiện thao tác này trong trang trại.";
+      : /other than its author/.test(message)
+        ? "Phiếu có chênh lệch phải do người khác (không phải người lập) duyệt."
+        : "Bạn không có quyền thực hiện thao tác này trong trang trại.";
   if (status === 404)
     return "Phiếu không tồn tại hoặc không thuộc trang trại này.";
   if (status === 409)

@@ -28,7 +28,10 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
   const tag = `WH-FLOW-${randomUUID().replaceAll('-', '').slice(0, 20)}`;
   const farm = randomUUID(),
     user = randomUUID(),
-    member = randomUUID();
+    member = randomUUID(),
+    // Approves what `member` drafted: a count difference needs a second person (P0-01).
+    approverUser = randomUUID(),
+    approver = randomUUID();
   const source = randomUUID(),
     destination = randomUUID(),
     item = randomUUID();
@@ -40,6 +43,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
   const category = randomUUID(),
     unit = randomUUID();
   let canWrite = true;
+  let approveOwn = false;
   let app: INestApplication<App>;
   const http = () => request(app.getHttpServer());
   const create = async (kind: 'counts' | 'transfers', quantity: string) => {
@@ -103,9 +107,16 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
         authProviderUserId: tag,
         email: `${tag}@example.local`,
       });
-      await tx
-        .insert(schema.farmMembers)
-        .values({ id: member, farmId: farm, userId: user });
+      await tx.insert(schema.users).values({
+        id: approverUser,
+        authProvider: 'CLERK',
+        authProviderUserId: `${tag}-approver`,
+        email: `${tag}-approver@example.local`,
+      });
+      await tx.insert(schema.farmMembers).values([
+        { id: member, farmId: farm, userId: user },
+        { id: approver, farmId: farm, userId: approverUser },
+      ]);
       await tx
         .insert(schema.categories)
         .values({ id: category, code: tag, name: tag });
@@ -195,7 +206,10 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
             assertScopedAccess(farmId: string, _user: string, write: boolean) {
               if (farmId !== farm || (write && !canWrite))
                 throw new ForbiddenException();
-              return Promise.resolve({ memberId: member, scope: null });
+              return Promise.resolve({
+                memberId: approveOwn ? member : approver,
+                scope: null,
+              });
             },
             assertDocumentWriter(farmId: string) {
               if (farmId !== farm || !canWrite) throw new ForbiddenException();
@@ -236,6 +250,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
 
   beforeEach(async () => {
     canWrite = true;
+    approveOwn = false;
     for (const table of [
       'inventory_transactions',
       'stock_counts',
@@ -557,6 +572,7 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       for (const [table, id] of [
         ['farms', farm],
         ['users', user],
+        ['users', approverUser],
         ['categories', category],
         ['units', unit],
       ]) {
@@ -932,6 +948,18 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
     expect(await balances()).toEqual([
       { warehouse_id: source, quantity_on_hand: '10.000' },
     ]);
+    expect(await ledger()).toEqual([]);
+  });
+
+  it('refuses a count difference confirmed by its own author (P0-01)', async () => {
+    const id = await create('counts', '7.125');
+    approveOwn = true;
+    const refused = await confirm('counts', id).expect(403);
+    expect(refused.body).toMatchObject({ code: 'SELF_APPROVAL' });
+    expect(await ledger()).toEqual([]);
+    // Without a difference the author completes it alone.
+    const same = await create('counts', '10');
+    await confirm('counts', same).expect(201);
     expect(await ledger()).toEqual([]);
   });
 

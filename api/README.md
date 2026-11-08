@@ -116,6 +116,8 @@ DRAFT ──submit──▶ PENDING_APPROVAL ──confirm──▶ CONFIRMED
 
 Every create, edit, submit, confirm, reject and cancel writes an audit log in the same transaction. `GET /audit-logs` returns all entries to ADMIN and FARM_OWNER, and only actions performed by the signed-in user to other permitted staff (GUEST: 403). Stock document lists and details show employees only documents they created; approvers (ADMIN, FARM_OWNER, WAREHOUSE_MANAGER) see the farm's documents. Its `references` map ids to codes and names.
 
+**Stock differences need a second person (NV03, P0-01).** Confirming a stock count whose lines have a difference, or approving an inventory adjustment, answers 403 `SELF_APPROVAL` when the caller is the count's author or the adjustment's requester; a count without differences can still be completed by its author. Every inventory adjustment, also from ADMIN/FARM_OWNER/WAREHOUSE_MANAGER, is now a `PENDING_APPROVAL` request that another approver confirms.
+
 **Warehouse scope.** WAREHOUSE_MANAGER and EMPLOYEE members work only in the warehouses assigned to them (`farm_member_warehouses`, set on the personnel screen); ADMIN and FARM_OWNER see every warehouse, other roles are not limited. With no assignment they see none. The scope applies to the warehouse list, stock documents (a transfer is visible from either end, approved by the source), stock and ledger, adjustments, assets (current location's warehouse, else the latest stock move), asset transfer and maintenance requests, maintenance records, approval notifications and the dashboard/reports. `WarehousesService.warehouseScope` and `warehouse-scope.ts` hold the rule.
 
 ## Requests from employees
