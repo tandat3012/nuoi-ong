@@ -58,13 +58,7 @@ test("synthesizes specifications, usage guidance and quality badge from ERP item
   );
   assert.ok(specs.some((s) => s.name === "Danh mục" && s.value === "Thiết bị nuôi ong"));
   assert.ok(specs.some((s) => s.name === "Đơn vị tính" && s.value === "Bộ"));
-  assert.ok(
-    specs.some(
-      (s) =>
-        s.name === "Phương thức quản lý & Truy xuất" &&
-        s.value.includes("Mã tài sản / Serial riêng"),
-    ),
-  );
+  assert.ok(!specs.some((s) => s.name === "Phương thức quản lý & Truy xuất"));
   assert.ok(
     specs.some(
       (s) =>
@@ -90,7 +84,7 @@ test("synthesizes specifications, usage guidance and quality badge from ERP item
   );
 });
 
-test("synthesizes FEFO lot quality badge and guidance for LOT-tracked honey/materials", () => {
+test("does not expose internal tracking jargon for LOT-tracked materials", () => {
   const honeyProduct = {
     ...baseProduct,
     name: "Mật ong hoa nhãn nguyên chất",
@@ -104,24 +98,11 @@ test("synthesizes FEFO lot quality badge and guidance for LOT-tracked honey/mate
   };
 
   const snapshot = resolveActiveProductSnapshot(honeyProduct);
-  assert.equal(
-    resolveProductQualityBadge(snapshot),
-    "Kiểm soát chất lượng theo lô (FEFO) · Cam kết lô còn hạn dùng",
-  );
+  assert.equal(resolveProductQualityBadge(snapshot), null);
   const specs = buildProductSpecifications(honeyProduct);
   assert.ok(specs.some((s) => s.name === "Đơn vị tính" && s.value === "Chai (ml)"));
-  assert.ok(
-    specs.some(
-      (s) =>
-        s.value.includes("FEFO") &&
-        s.value.includes("hạn dùng gần nhất còn hiệu lực"),
-    ),
-  );
-  assert.ok(
-    resolveProductUsageGuidance(honeyProduct)?.includes(
-      "hạn sử dụng sớm nhất còn hiệu lực",
-    ),
-  );
+  assert.ok(!specs.some((s) => /FEFO/.test(s.value)));
+  assert.ok(!/FEFO/.test(resolveProductUsageGuidance(honeyProduct) ?? ""));
 });
 
 test("updates specifications per selected variant and preserves explicit null warranty", () => {

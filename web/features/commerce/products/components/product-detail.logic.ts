@@ -200,12 +200,6 @@ const ITEM_TYPE_LABELS: Record<StorefrontItemType, string> = {
   TOOL: 'Dụng cụ & Phụ kiện ngành ong',
 };
 
-const TRACKING_MODE_LABELS: Record<StorefrontTrackingMode, string> = {
-  LOT: 'Quản lý theo lô (FEFO) — Xuất theo thứ tự hạn dùng gần nhất còn hiệu lực, loại trừ lô hết hạn',
-  ASSET: 'Quản lý theo từng cá thể thiết bị (Mã tài sản / Serial riêng)',
-  QUANTITY: 'Kiểm định số lượng & quy cách tại kho bán hàng trước khi đóng gói',
-};
-
 export function resolveProductQualityBadge(
   snapshot: Pick<
     ActiveProductSnapshot,
@@ -217,12 +211,6 @@ export function resolveProductQualityBadge(
     snapshot.warrantyMonths > 0
   ) {
     return `Bảo hành chính hãng ${snapshot.warrantyMonths} tháng`;
-  }
-  if (snapshot.trackingMode === 'LOT') {
-    return 'Kiểm soát chất lượng theo lô (FEFO) · Cam kết lô còn hạn dùng';
-  }
-  if (snapshot.trackingMode === 'ASSET') {
-    return 'Thiết bị định danh mã tài sản & số Serial riêng';
   }
   return null;
 }
@@ -276,12 +264,6 @@ export function buildProductSpecifications(
       value: `${snapshot.unitName}${symbolSuffix}`,
     });
   }
-  if (snapshot.trackingMode && TRACKING_MODE_LABELS[snapshot.trackingMode]) {
-    specs.push({
-      name: 'Phương thức quản lý & Truy xuất',
-      value: TRACKING_MODE_LABELS[snapshot.trackingMode],
-    });
-  }
   if (
     typeof snapshot.warrantyMonths === 'number' &&
     snapshot.warrantyMonths > 0
@@ -298,11 +280,6 @@ export function buildProductSpecifications(
       name: 'Chính sách hậu mãi',
       value: 'Kiểm tra kỹ thuật khi nhận hàng · Hỗ trợ sửa chữa dịch vụ tại trại',
     });
-  } else if (snapshot.trackingMode === 'LOT') {
-    specs.push({
-      name: 'Cam kết chất lượng',
-      value: 'Chỉ xuất bán các lô còn hạn sử dụng · Đổi trả nếu lỗi bao bì vận chuyển',
-    });
   }
   return specs;
 }
@@ -317,7 +294,7 @@ export function resolveProductUsageGuidance(
 
   const snapshot = resolveActiveProductSnapshot(product, selectedVariant);
   if (snapshot.trackingMode === 'LOT') {
-    return 'Bảo quản nơi khô ráo, thoáng mát, tránh ánh nắng trực tiếp. Đậy kín nắp sau mỗi lần sử dụng. Sản phẩm được quản lý và xuất kho theo nguyên tắc FEFO (xuất lô có hạn sử dụng sớm nhất còn hiệu lực trước và tự động loại trừ các lô hết hạn), quý khách vui lòng kiểm tra tem lô và hạn dùng trên bao bì khi nhận hàng.';
+    return 'Bảo quản nơi khô ráo, thoáng mát, tránh ánh nắng trực tiếp. Đậy kín nắp sau mỗi lần sử dụng. Quý khách vui lòng kiểm tra tem lô và hạn dùng trên bao bì khi nhận hàng.';
   }
   if (snapshot.itemType === 'EQUIPMENT' || snapshot.trackingMode === 'ASSET') {
     return 'Vệ sinh sạch thiết bị trước và sau mỗi đợt quay mật hoặc khai thác tại trại. Đặt thiết bị trên bề mặt phẳng, khô ráo và kiểm tra các khớp truyền động định kỳ. Vui lòng lưu giữ mã đơn hàng và mã tài sản / số Serial để được hỗ trợ bảo hành, đổi mới hoặc sửa chữa chính hãng.';
