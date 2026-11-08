@@ -143,11 +143,11 @@ test("updates include added and removed keys while retaining scalar distinctions
 });
 
 test("history filters cover all current document, request, asset, personnel, delivery, shipping fee and warranty writers", () => {
-  assert.equal(Object.keys(HISTORY_ENTITY_LABELS).length, 12);
+  assert.equal(Object.keys(HISTORY_ENTITY_LABELS).length, 15);
   for (const entityType of Object.keys(HISTORY_ENTITY_LABELS)) {
     assert.equal(parseHistoryQuery(new URLSearchParams({ entityType })).entityType, entityType);
   }
-  for (const action of ["CREATE", "UPDATE", "CANCEL", "SUBMIT", "CONFIRM", "REJECT", "ASSET_RETURNED", "ASSET_INCIDENT_STATUS", "ASSET_MAINTENANCE_COMPLETED", "PERSONNEL_STATUS_CHANGED", "DELIVERY_CLAIM", "DELIVERY_RETURN", "DELIVERY_COMPLETE", "SHIPPING_FEES_UPDATED", "DISPATCH", "RECEIVE", "WARRANTY_CREATE", "WARRANTY_START_REPAIR", "WARRANTY_CLOSE", "WAREHOUSE_CREATED", "WAREHOUSE_UPDATED", "WAREHOUSE_DEACTIVATED", "RESOLVE"]) {
+  for (const action of ["CREATE", "UPDATE", "CANCEL", "SUBMIT", "CONFIRM", "REJECT", "ASSET_RETURNED", "ASSET_INCIDENT_STATUS", "ASSET_MAINTENANCE_COMPLETED", "PERSONNEL_STATUS_CHANGED", "DELIVERY_CLAIM", "DELIVERY_RETURN", "DELIVERY_COMPLETE", "SHIPPING_FEES_UPDATED", "DISPATCH", "RECEIVE", "WARRANTY_CREATE", "WARRANTY_START_REPAIR", "WARRANTY_CLOSE", "WAREHOUSE_CREATED", "WAREHOUSE_UPDATED", "WAREHOUSE_DEACTIVATED", "RESOLVE", "PRODUCT_CREATED", "VARIANT_PRICE_CHANGED", "VARIANT_ITEM_SET", "STORE_SETTINGS_UPDATED", "IMAGE_DELETED", "CATEGORY_UPDATED"]) {
     assert.ok(HISTORY_ACTION_LABELS[action]);
     assert.equal(parseHistoryQuery(new URLSearchParams({ action })).action, action);
   }
