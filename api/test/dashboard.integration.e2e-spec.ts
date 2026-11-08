@@ -102,7 +102,7 @@ describe('Dashboard summary (migrated PostgreSQL)', () => {
           })
           .where(eq(schema.stockReceipts.id, receipt));
         await ledger(ids.item, 'RECEIPT', '10', 'STOCK_RECEIPT', receipt);
-        // Stock without any price: counted as unpriced, worth 0 VND.
+        // Stock without any price: counted as unpriced, left out of the value (not 0 VND).
         await ledger(unpriced, 'ADJUSTMENT_IN', '2', 'INVENTORY_ADJUSTMENT');
 
         const lots = [

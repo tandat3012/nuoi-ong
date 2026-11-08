@@ -63,21 +63,107 @@ describe('valueMoves', () => {
       move('assetReturn', 1, { warehouseId: 'C' }),
     ]);
     expect(result).toEqual([
-      { value: 0, unpriced: true },
-      { value: 500, unpriced: false },
+      { value: 0, unpriced: true, unpricedQuantity: 2 },
+      { value: 500, unpriced: false, unpricedQuantity: 0 },
       // No average in C yet: the item's latest price in the farm.
-      { value: 1000, unpriced: false },
-      { value: 800, unpriced: false },
-      { value: -1800, unpriced: false },
+      { value: 1000, unpriced: false, unpricedQuantity: 0 },
+      { value: 800, unpriced: false, unpricedQuantity: 0 },
+      { value: -1800, unpriced: false, unpricedQuantity: 0 },
       // C is empty but keeps its last average.
-      { value: 600, unpriced: false },
+      { value: 600, unpriced: false, unpricedQuantity: 0 },
     ]);
   });
 
   it('flags issues from stock that has no value', () => {
     expect(valueMoves([move('adjustmentIn', 2), move('issue', -1)])).toEqual([
-      { value: 0, unpriced: true },
-      { value: 0, unpriced: true },
+      { value: 0, unpriced: true, unpricedQuantity: 2 },
+      { value: 0, unpriced: true, unpricedQuantity: -1 },
+    ]);
+  });
+
+  // NV09-F01: unknown prices are not 0 VND and never pull the average down.
+  it('keeps unpriced units out of the average of the priced ones', () => {
+    const result = valueMoves([
+      move('adjustmentIn', 10),
+      move('receipt', 10, { ownPrice: 100 }),
+      move('issue', -10),
+      move('receipt', 5, { ownPrice: 100 }),
+      move('issue', -10),
+    ]);
+    expect(result).toEqual([
+      { value: 0, unpriced: true, unpricedQuantity: 10 },
+      { value: 1000, unpriced: false, unpricedQuantity: 0 },
+      // Half of the stock leaves: half its value, half of the unpriced units.
+      { value: -500, unpriced: true, unpricedQuantity: -5 },
+      // The average is still 100 for the priced units.
+      { value: 500, unpriced: false, unpricedQuantity: 0 },
+      { value: -667, unpriced: true, unpricedQuantity: -3.333 },
+    ]);
+  });
+
+  it('prices a move without its own price at the priced average', () => {
+    expect(
+      values([
+        move('adjustmentIn', 10),
+        move('receipt', 10, { ownPrice: 100 }),
+        // Not 50 (1000 VND over 20 units): the 10 unpriced units are unknown, not free.
+        move('adjustmentIn', 1),
+      ]),
+    ).toEqual([0, 1000, 100]);
+  });
+
+  it('values only the priced share of a receipt mixing priced and unpriced lines', () => {
+    expect(
+      valueMoves([
+        move('receipt', 1, { ownPrice: 100, pricedShare: 0.5 }),
+        move('receipt', 1, { ownPrice: 100, pricedShare: 0.5 }),
+      ]),
+    ).toEqual([
+      // The first has nothing to fall back on; the second takes the average for its rest.
+      { value: 50, unpriced: true, unpricedQuantity: 0.5 },
+      { value: 100, unpriced: false, unpricedQuantity: 0 },
+    ]);
+  });
+
+  it('returns a discrepancy to the source with the value and unpriced units left in transit', () => {
+    const transfer = { transferKey: 't1' };
+    const result = valueMoves([
+      move('adjustmentIn', 2),
+      move('receipt', 2, { ownPrice: 100 }),
+      move('transferOut', -4, transfer),
+      move('transferIn', 2, { ...transfer, warehouseId: 'B' }),
+      move('assetReturn', 2, transfer),
+    ]);
+    expect(result.slice(3)).toEqual([
+      { value: 100, unpriced: true, unpricedQuantity: 1 },
+      { value: 100, unpriced: true, unpricedQuantity: 1 },
+    ]);
+    expect(result.reduce((sum, m) => sum + m.value, 0)).toBe(200);
+  });
+
+  it('leaves no value on an unpriced remainder after rounding', () => {
+    const result = valueMoves([
+      move('adjustmentIn', 0.001),
+      move('receipt', 0.001, { ownPrice: 100_000 }),
+      move('issue', -0.001),
+      move('issue', -0.001),
+    ]);
+    expect(result.slice(2).map((m) => m.value)).toEqual([-100, 0]);
+    expect(result[3].unpriced).toBe(true);
+  });
+
+  it('carries the unpriced part through a transfer', () => {
+    const transfer = { transferKey: 't1' };
+    expect(
+      valueMoves([
+        move('adjustmentIn', 2),
+        move('receipt', 2, { ownPrice: 1000 }),
+        move('transferOut', -4, transfer),
+        move('transferIn', 4, { ...transfer, warehouseId: 'B' }),
+      ]).slice(2),
+    ).toEqual([
+      { value: -2000, unpriced: true, unpricedQuantity: -2 },
+      { value: 2000, unpriced: true, unpricedQuantity: 2 },
     ]);
   });
 });

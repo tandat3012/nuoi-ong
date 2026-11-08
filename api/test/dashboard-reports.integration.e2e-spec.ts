@@ -356,7 +356,7 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
         adjustmentOut: { quantity: '1', value: '1200' },
         transferIn: { quantity: '0', value: '0' },
       });
-      // The unpriced adjustment of the 1st is opening stock worth 0 VND.
+      // The unpriced adjustment of the 1st: opening stock with no known value (not 0 VND), only the priced part is valued.
       expect(other).toMatchObject({
         opening: { quantity: '3', value: '0' },
         closing: { quantity: '5', value: '2400' },
@@ -517,9 +517,10 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
       // Honey 4800 (SALE) + 2400 (OTHER), 1500 for `mixed`, 1000 left on `residual`.
       expect(await closing(yearAgo)).toBe('9700');
       expect(await closing(today)).toBe('9700');
+      // NV09-F01: Honey's 3 unpriced units in OTHER count even though that stock also holds priced value.
       expect(await dashboard.summary(ids.farm, ['FARM_OWNER'])).toMatchObject({
         stockValue: '9700',
-        unpricedItems: 1,
+        unpricedItems: 2,
       });
       expect(await closing(today, ids.warehouse)).toBe('7300');
       expect(

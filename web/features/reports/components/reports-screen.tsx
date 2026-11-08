@@ -235,7 +235,7 @@ function StockReports({ farmId, farmName, allLabel }: { farmId: string; farmName
               Nhập gồm phiếu nhập và điều chỉnh tăng; xuất gồm phiếu xuất và điều chỉnh giảm.{" "}
               {warehouseId ? "Đang xem một kho nên tính cả điều chuyển đến/đi." : "Toàn trang trại nên không tính điều chuyển giữa các kho."}{" "}
               Không tính cấp phát, hoàn trả thiết bị. Giá trị theo giá bình quân gia quyền di động của từng kho.
-              {data.unpricedMovements > 0 && ` ${data.unpricedMovements} biến động chưa có giá nhập nên tính 0 đ.`}
+              {data.unpricedMovements > 0 && ` ${data.unpricedMovements} biến động có hàng chưa có giá: giá trị chỉ gồm phần đã định giá, chưa đầy đủ.`}
             </p>
           </section>
 
