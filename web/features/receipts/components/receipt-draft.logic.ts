@@ -175,6 +175,10 @@ const SAVE_ERRORS: [RegExp, string][] = [
     'Phiếu hàng trả về chỉ nhận tối đa đúng mặt hàng, lô, tài sản và số lượng đơn đã xuất.',
   ],
   [
+    /keep the lineId of a shipped asset/,
+    'Phiếu hàng trả chỉ nhận lại đúng các tài sản đơn đã xuất. Tải lại phiếu rồi sửa.',
+  ],
+  [
     /returned asset needs its inspected condition/,
     'Chọn kết quả kiểm nhận (đạt/hỏng) cho từng tài sản trả về.',
   ],
