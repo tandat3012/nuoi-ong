@@ -78,7 +78,6 @@ describe('Stock document approval rules', () => {
           })
         ).receipt.id,
       list: (actor: Actor) =>
-
         receipts.listReceipts({
           farmId: farm,
           clerkUserId: clerk(actor),
@@ -115,7 +114,6 @@ describe('Stock document approval rules', () => {
           })
         ).issue.id,
       list: (actor: Actor) =>
-
         issues.list({
           farmId: farm,
           clerkUserId: clerk(actor),
@@ -152,7 +150,6 @@ describe('Stock document approval rules', () => {
           })
         ).transfer.id,
       list: (actor: Actor) =>
-
         transfers.list({
           farmId: farm,
           clerkUserId: clerk(actor),
@@ -191,7 +188,6 @@ describe('Stock document approval rules', () => {
           })
         ).count.id,
       list: (actor: Actor) =>
-
         counts.list({
           farmId: farm,
           clerkUserId: clerk(actor),
@@ -360,7 +356,6 @@ describe('Stock document approval rules', () => {
   });
 
   describe.each(cases)('$type', (document) => {
-
     it('shows employees only their own documents; approvers see all', async () => {
       const own = await document.create('creator');
       const others = await document.create('peer');
@@ -820,6 +815,16 @@ describe('Stock document approval rules', () => {
       });
       expect(creatorView.data.map((row) => row.entityId)).toEqual([own]);
       expect(creatorView.scope).toBe('PERFORMED_BY_ME');
+      // A warehouse manager never reads the whole farm's history, only their own actions.
+      const managerView = await auditLogs.list({
+        ...page,
+        farmId: farm,
+        clerkUserId: clerk('manager'),
+      });
+      expect(managerView.scope).toBe('PERFORMED_BY_ME');
+      expect(managerView.data.map((row) => row.entityId)).not.toEqual(
+        expect.arrayContaining([own]),
+      );
       expect(creatorView.data[0].actor).toMatchObject({
         email: `${clerk('creator')}@example.local`,
       });

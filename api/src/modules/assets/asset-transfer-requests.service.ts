@@ -419,7 +419,6 @@ export class AssetTransferRequestsService {
       .$dynamic();
   }
 
-
   /**
    * Approvers see every request of the farm; anyone else only their own. Members
    * limited to warehouses see requests leaving or entering those warehouses.
@@ -574,7 +573,7 @@ export class AssetTransferRequestsService {
       farmId: request.farmId,
       entityType: 'ASSET_TRANSFER_REQUEST',
       entityId: request.id,
-      documentCode: `ATR-${request.id.slice(0, 8)}`,
+      documentCode: assetCode,
       documentKind: 'Yêu cầu chuyển tài sản',
       status,
       title: NOTIFICATION_TITLES[status],

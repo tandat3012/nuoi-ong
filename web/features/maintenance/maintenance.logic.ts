@@ -72,7 +72,7 @@ export function maintenanceActions(
   // physical hand-over, which moves stock (AC10).
   if (record.status === "SCHEDULED")
     return [
-      ...(worker && !readyToSend(record) ? ["prepare"] : []),
+      ...(worker ? ["prepare"] : []),
       ...(manager && readyToSend(record) ? ["start"] : []),
       ...(worker || manager ? ["cancel"] : []),
     ];

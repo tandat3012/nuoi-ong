@@ -1,6 +1,5 @@
 # Ảnh đối chiếu mặt hàng
 
-
 File ảnh không được commit vào git (`.gitignore`): 36 MB và phần lớn chưa rõ quyền sử dụng. Ảnh gốc nằm trên nhánh `feature/warehouse` (commit `223d72b`); URL đã tải lên ở `cloudinary-urls.csv`. Script `import-item-images.cjs` cần ảnh nằm sẵn trong thư mục này trên máy chạy.
 
 Nguồn dữ liệu: 166 bản ghi trong bảng `items` của DB Docker `nuoi_ong_local` tại ngày 03/11/2026.

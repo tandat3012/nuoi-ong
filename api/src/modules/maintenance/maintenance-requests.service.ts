@@ -356,7 +356,6 @@ export class MaintenanceRequestsService {
     });
   }
 
-
   /** Approvers see every request of the farm; anyone else only their own; both only for assets of their warehouses. */
   private async scope(farmId: string, clerkUserId: string) {
     const { memberId, scope } = await this.warehousesService.documentReadScope(
@@ -444,7 +443,7 @@ export class MaintenanceRequestsService {
       farmId: request.farmId,
       entityType: 'MAINTENANCE_REQUEST',
       entityId: request.id,
-      documentCode: `MNT-${request.id.slice(0, 8)}`,
+      documentCode: assetCode,
       documentKind: 'Yêu cầu bảo trì tài sản',
       status,
       title: NOTIFICATION_TITLES[status],

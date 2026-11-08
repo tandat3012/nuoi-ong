@@ -31,7 +31,7 @@ test("maintenance controls reflect each role and stage", () => {
   ]);
   assert.match(maintenanceNextStep(scheduled, ["WAREHOUSE_MANAGER"]), /chọn đơn vị/);
   const ready = { ...scheduled, supplierId: "s1", expectedReturnAt: "2026-11-10T00:00:00Z" };
-  assert.deepEqual(maintenanceActions(ready, ["MAINTENANCE_STAFF"]), ["cancel"]);
+  assert.deepEqual(maintenanceActions(ready, ["MAINTENANCE_STAFF"]), ["prepare", "cancel"]);
   assert.deepEqual(maintenanceActions(ready, ["WAREHOUSE_MANAGER"]), ["start", "cancel"]);
   assert.match(maintenanceNextStep(ready, ["WAREHOUSE_MANAGER"]), /xác nhận xuất đi sửa/);
   assert.match(maintenanceNextStep(ready, ["MAINTENANCE_STAFF"]), /Chờ quản lý kho/);

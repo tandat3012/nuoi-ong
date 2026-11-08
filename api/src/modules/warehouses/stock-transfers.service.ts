@@ -82,7 +82,6 @@ export class StockTransfersService {
     private readonly hooks: StockTransferHooks = new StockTransferHooks(),
   ) {}
   async list(f: Filters) {
-
     const { memberId: readMemberId, scope } =
       await this.warehousesService.documentReadScope(f.farmId, f.clerkUserId);
     const c: SQL[] = [eq(stockTransfers.farmId, f.farmId)];
@@ -122,7 +121,6 @@ export class StockTransfersService {
     };
   }
   async get(id: string, farmId: string, user: string) {
-
     const { memberId: readMemberId, scope } =
       await this.warehousesService.documentReadScope(farmId, user);
     const result = await this.withItems(id, farmId);

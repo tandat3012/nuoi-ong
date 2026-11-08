@@ -63,12 +63,14 @@ export function formatNotificationDocumentCode(
   entityId: string | null | undefined,
   documentCode?: string | null,
 ): string {
-  if (entityId) {
-    const shortId = entityId.slice(0, 8);
-    const prefix = entityType ? NOTIFICATION_DOCUMENT_PREFIXES[entityType] : undefined;
-    return prefix ? `${prefix}-${shortId}` : `#${shortId}`;
-  }
-  return documentCode?.trim() ?? '';
+  // The permanent code (or asset code) wins; only uncoded drafts get prefix + short id.
+  const code = documentCode?.trim();
+  if (code || !entityId) return code ?? '';
+  const prefix = entityType
+    ? NOTIFICATION_DOCUMENT_PREFIXES[entityType]
+    : undefined;
+  const shortId = entityId.slice(0, 8);
+  return prefix ? `${prefix}-${shortId}` : `#${shortId}`;
 }
 
 export function formatNotificationBody(

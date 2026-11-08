@@ -39,14 +39,12 @@ export function notificationDocumentCode(notification: {
     (typeof rawData?.documentId === 'string' ? rawData.documentId : null) ??
     notification.entityId ??
     null;
-  if (entityId) {
-    const shortId = entityId.slice(0, 8);
-    const prefix = entityType ? NOTIFICATION_DOCUMENT_PREFIXES[entityType] : undefined;
-    return prefix ? `${prefix}-${shortId}` : `#${shortId}`;
-  }
+  // The permanent code (or asset code) wins; only uncoded drafts get prefix + short id.
   const rawCode =
     typeof rawData?.documentCode === 'string' ? rawData.documentCode.trim() : '';
-  return rawCode || null;
+  if (rawCode || !entityId) return rawCode || null;
+  const prefix = entityType ? NOTIFICATION_DOCUMENT_PREFIXES[entityType] : undefined;
+  return prefix ? `${prefix}-${entityId.slice(0, 8)}` : `#${entityId.slice(0, 8)}`;
 }
 
 export function notificationBodyText(notification: {

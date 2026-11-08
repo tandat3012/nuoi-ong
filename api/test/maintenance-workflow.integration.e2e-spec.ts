@@ -705,6 +705,38 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     await service.reviewReturn(r.id, farm, manager, true);
     expect(await catchUp()).toBe(0);
   });
+  it('notifies maintenance staff and the warehouse at each step and still allows rescheduling', async () => {
+    const sent = async (type: string) =>
+      (
+        await pool.query<{ user_id: string; body: string }>(
+          'SELECT user_id, body FROM notifications WHERE entity_id=$1 AND type=$2 ORDER BY user_id',
+          [r.id, type],
+        )
+      ).rows;
+    const r = await schedule();
+    const code = `BT-${r.id.slice(0, 8)}`;
+    // Scheduled by the manager: staff hear of it, the actor does not.
+    expect(await sent('MAINTENANCE_RECORD_SCHEDULED')).toEqual([
+      {
+        user_id: actors.MAINTENANCE_STAFF.user,
+        body: `Hồ sơ bảo trì ${code} đã được lên lịch, chờ chọn đơn vị và ngày hẹn trả.`,
+      },
+    ]);
+    // Supplier and return date set: the warehouse approvers (not the actor) get it.
+    expect(
+      (await sent('MAINTENANCE_RECORD_READY_TO_SEND')).map((n) => n.user_id),
+    ).toEqual([actors.FARM_OWNER.user]);
+    // A ready record can still be moved to another day.
+    const later = new Date(Date.now() + 86400000 * 2).toISOString();
+    await expect(
+      service.update(r.id, farm, worker, { scheduledAt: later }),
+    ).resolves.toMatchObject({ status: 'SCHEDULED' });
+    await service.start(r.id, farm, manager);
+    expect(
+      (await sent('MAINTENANCE_RECORD_IN_PROGRESS')).map((n) => n.user_id),
+    ).toEqual([actors.MAINTENANCE_STAFF.user]);
+  });
+
   it('enforces duties, keeps original asset, adds stock once under concurrent approval', async () => {
     const original = await balance();
     const r = await schedule();

@@ -235,7 +235,6 @@ export class WarehousesService {
     return memberId;
   }
 
-
   /**
    * Who may read which stock documents: approvers read every document of their
    * warehouses (`memberId` null), others only their own; `scope` limits warehouses.

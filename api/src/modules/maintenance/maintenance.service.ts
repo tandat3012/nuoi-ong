@@ -17,6 +17,7 @@ import {
   or,
   sql,
   SQL,
+  type AnyColumn,
 } from 'drizzle-orm';
 import { activeMaintenanceCondition } from './maintenance-state';
 import { PaginationParams } from '../../common/query-params';
@@ -83,14 +84,24 @@ const issuedByName = sql<string | null>`(SELECT COALESCE(u.full_name, u.email)
   FROM farm_members m JOIN users u ON u.id = m.user_id
   WHERE m.id = ${maintenanceRecords.issuedByMemberId})`;
 
-const memberNameSql = (memberIdCol: SQL | unknown) =>
-  sql<string | null>`(SELECT COALESCE(u.full_name, u.email) FROM farm_members m JOIN users u ON u.id = m.user_id WHERE m.id = ${memberIdCol})`;
+const memberNameSql = (memberIdCol: AnyColumn) =>
+  sql<
+    string | null
+  >`(SELECT COALESCE(u.full_name, u.email) FROM farm_members m JOIN users u ON u.id = m.user_id WHERE m.id = ${memberIdCol})`;
 
 const maintenanceExtraColumns = {
-  itemName: sql<string | null>`(SELECT name FROM items WHERE id=${assets.itemId})`,
-  supplierName: sql<string | null>`(SELECT name FROM suppliers WHERE id=${maintenanceRecords.supplierId})`,
-  assetWarehouseName: sql<string | null>`(SELECT w.name FROM locations l JOIN warehouses w ON w.id = l.warehouse_id WHERE l.id=${assets.currentLocationId})`,
-  assetLocationName: sql<string | null>`(SELECT name FROM locations WHERE id=${assets.currentLocationId})`,
+  itemName: sql<
+    string | null
+  >`(SELECT name FROM items WHERE id=${assets.itemId})`,
+  supplierName: sql<
+    string | null
+  >`(SELECT name FROM suppliers WHERE id=${maintenanceRecords.supplierId})`,
+  assetWarehouseName: sql<
+    string | null
+  >`(SELECT w.name FROM locations l JOIN warehouses w ON w.id = l.warehouse_id WHERE l.id=${assets.currentLocationId})`,
+  assetLocationName: sql<
+    string | null
+  >`(SELECT name FROM locations WHERE id=${assets.currentLocationId})`,
   performedByName: memberNameSql(maintenanceRecords.performedByMemberId),
   receivedByName: memberNameSql(maintenanceRecords.receivedByMemberId),
   inspectedByName: memberNameSql(maintenanceRecords.inspectedByMemberId),
@@ -386,10 +397,6 @@ export class MaintenanceService {
       if (current.status !== 'SCHEDULED')
         throw new ConflictException(
           'Completed or cancelled records cannot be edited',
-        );
-      if (current.supplierId && current.expectedReturnAt)
-        throw new ConflictException(
-          'Maintenance record has already been prepared for warehouse issue',
         );
       this.validateReturnDate(
         input.scheduledAt === undefined
