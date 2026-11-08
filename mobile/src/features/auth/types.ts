@@ -1,4 +1,4 @@
-export type FarmRoleCode = 'ADMIN' | 'FARM_OWNER' | 'WAREHOUSE_MANAGER' | 'STORE_MANAGER' | 'EMPLOYEE' | 'GUEST';
+export type FarmRoleCode = 'ADMIN' | 'FARM_OWNER' | 'WAREHOUSE_MANAGER' | 'STORE_MANAGER' | 'DELIVERY_STAFF' | 'MAINTENANCE_STAFF' | 'EMPLOYEE' | 'GUEST';
 
 export type FarmMembership = {
   memberId: string;

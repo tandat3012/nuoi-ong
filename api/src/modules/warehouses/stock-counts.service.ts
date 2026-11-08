@@ -97,6 +97,7 @@ export class StockCountsService {
   ) {}
 
   async list(f: Filters) {
+
     const { memberId: readMemberId, scope } =
       await this.warehousesService.documentReadScope(f.farmId, f.clerkUserId);
     const conditions: SQL[] = [eq(stockCounts.farmId, f.farmId)];
@@ -132,6 +133,7 @@ export class StockCountsService {
   }
 
   async get(id: string, farmId: string, user: string) {
+
     const { memberId: readMemberId, scope } =
       await this.warehousesService.documentReadScope(farmId, user);
     const result = await this.withItems(id, farmId);

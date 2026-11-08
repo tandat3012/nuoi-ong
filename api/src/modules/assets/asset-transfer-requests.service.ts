@@ -31,6 +31,7 @@ import {
   pendingMaintenanceRequest,
 } from '../maintenance/maintenance-requests.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
+
 import {
   assertInScope,
   scopeCondition,
@@ -418,6 +419,7 @@ export class AssetTransferRequestsService {
       .$dynamic();
   }
 
+
   /**
    * Approvers see every request of the farm; anyone else only their own. Members
    * limited to warehouses see requests leaving or entering those warehouses.
@@ -428,6 +430,7 @@ export class AssetTransferRequestsService {
       clerkUserId,
     );
     const conditions = [eq(assetTransferRequests.farmId, farmId)];
+
     if (memberId)
       conditions.push(eq(assetTransferRequests.requestedByMemberId, memberId));
     if (scope)
@@ -571,7 +574,7 @@ export class AssetTransferRequestsService {
       farmId: request.farmId,
       entityType: 'ASSET_TRANSFER_REQUEST',
       entityId: request.id,
-      documentCode: assetCode,
+      documentCode: `ATR-${request.id.slice(0, 8)}`,
       documentKind: 'Yêu cầu chuyển tài sản',
       status,
       title: NOTIFICATION_TITLES[status],

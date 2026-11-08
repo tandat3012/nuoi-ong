@@ -78,6 +78,7 @@ describe('Stock document approval rules', () => {
           })
         ).receipt.id,
       list: (actor: Actor) =>
+
         receipts.listReceipts({
           farmId: farm,
           clerkUserId: clerk(actor),
@@ -114,6 +115,7 @@ describe('Stock document approval rules', () => {
           })
         ).issue.id,
       list: (actor: Actor) =>
+
         issues.list({
           farmId: farm,
           clerkUserId: clerk(actor),
@@ -150,6 +152,7 @@ describe('Stock document approval rules', () => {
           })
         ).transfer.id,
       list: (actor: Actor) =>
+
         transfers.list({
           farmId: farm,
           clerkUserId: clerk(actor),
@@ -188,6 +191,7 @@ describe('Stock document approval rules', () => {
           })
         ).count.id,
       list: (actor: Actor) =>
+
         counts.list({
           farmId: farm,
           clerkUserId: clerk(actor),
@@ -356,6 +360,7 @@ describe('Stock document approval rules', () => {
   });
 
   describe.each(cases)('$type', (document) => {
+
     it('shows employees only their own documents; approvers see all', async () => {
       const own = await document.create('creator');
       const others = await document.create('peer');

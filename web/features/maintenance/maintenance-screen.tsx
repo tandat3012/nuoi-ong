@@ -17,6 +17,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuthContext, useAuthenticatedRequest } from "@/features/auth";
+import { useNotificationRefresh } from "@/features/notifications";
 import { assetError } from "@/features/assets/asset.logic";
 import type { PaginatedResponse } from "@/shared/api/contracts";
 import { Button } from "@/shared/components/ui/button";
@@ -231,6 +232,8 @@ function MaintenanceList({
                       record={record}
                       roles={roles}
                       now={today}
+                      farmId={farmId}
+                      defaultExpanded={Boolean(query.recordId)}
                       actions={
                         <MaintenanceActions
                           record={record}
@@ -262,6 +265,7 @@ function MaintenanceList({
 function MaintenanceContent() {
   const search = useSearchParams();
   const recordId = search.get("id") ?? undefined;
+  const notificationRevision = useNotificationRefresh();
   const { selectedFarmId, isLoading, error, data } = useAuthContext();
   if (isLoading) return <BeeLoader label="Đang tải trang trại…" />;
   if (error)
@@ -272,7 +276,7 @@ function MaintenanceContent() {
     return <p role="status">Vui lòng chọn trang trại để xem bảo trì.</p>;
   return (
     <MaintenanceList
-      key={`${selectedFarmId}:${recordId ?? ""}`}
+      key={`${selectedFarmId}:${recordId ?? ""}:${notificationRevision}`}
       farmId={selectedFarmId}
       recordId={recordId}
       roles={

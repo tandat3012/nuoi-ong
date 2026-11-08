@@ -65,7 +65,7 @@ export default function AssetTransferRequestDetailScreen() {
       <Card style={styles.card}>
         <View style={styles.row}><Text style={styles.heading}>{request.itemName}</Text><Pill tone={request.status === 'CONFIRMED' ? 'success' : request.status === 'REJECTED' ? 'danger' : 'amber'}><Text style={styles.status}>{statusLabels[request.status] ?? request.status}</Text></Pill></View>
         <Text style={styles.value}>Mã tài sản: {request.assetCode}</Text>
-        <Text style={styles.muted}>Mã yêu cầu: {request.id.slice(0, 8)}</Text>
+        <Text style={styles.muted}>Mã yêu cầu: ATR-{request.id.slice(0, 8)}</Text>
       </Card>
       <Card style={styles.card}>
         <Text style={styles.heading}>Lộ trình chuyển</Text>

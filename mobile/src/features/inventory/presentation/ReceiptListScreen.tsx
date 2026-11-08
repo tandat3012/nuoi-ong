@@ -30,7 +30,7 @@ const filterTabs: { icon: 'fact-check' | 'input' | 'output' | 'swap-horiz' | 'bu
 function tone(status: string): 'success' | 'amber' | 'danger' | 'cream' {
   if (status === 'CONFIRMED') return 'success';
   if (status === 'REJECTED' || status === 'CANCELLED') return 'danger';
-  if (status === 'PENDING_APPROVAL' || status === 'COUNTING' || status === 'SCHEDULED' || status === 'IN_PROGRESS') return 'amber';
+  if (status === 'PENDING_APPROVAL' || status === 'IN_TRANSIT' || status === 'COUNTING' || status === 'SCHEDULED' || status === 'IN_PROGRESS') return 'amber';
   return 'cream';
 }
 
@@ -40,6 +40,10 @@ function cardStatusLabel(status: string, type: Filter) {
     if (status === 'CONFIRMED') return 'ĐÃ DUYỆT';
     if (status === 'REJECTED') return 'TỪ CHỐI';
   }
+  if (type === 'TRANSFER') {
+    if (status === 'IN_TRANSIT') return 'ĐANG CHUYỂN';
+    if (status === 'CONFIRMED') return 'ĐÃ NHẬN';
+  }
   return statusLabel(status);
 }
 
@@ -47,7 +51,7 @@ export default function ReceiptListScreen() {
   const router = useRouter();
   const { maintenanceAssetId } = useLocalSearchParams<{ maintenanceAssetId?: string }>();
   const { data, currentFarmId, getAccessToken } = useAuthContext();
-  const [filter, setFilter] = useState<Filter>('RECEIPT');
+  const [filter, setFilter] = useState<Filter>(maintenanceAssetId ? 'MAINTENANCE' : 'RECEIPT');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageInfo, setPageInfo] = useState<{ totalItems: number; totalPages: number } | null>(null);
@@ -83,18 +87,18 @@ export default function ReceiptListScreen() {
         apiRequest<Paginated<StockCount>>('/stock-counts', { token, params: { farmId: currentFarmId, page: 1, pageSize: 100 } }),
         apiRequest<Paginated<StockTransfer>>('/stock-transfers', { token, params: { farmId: currentFarmId, page: 1, pageSize: 100 } }),
         apiRequest<MaintenanceRequestPage>('/maintenance-requests', { token, params: { farmId: currentFarmId, page: 1, pageSize: 100 }, skipCache: true }),
-        apiRequest<Paginated<Warehouse>>('/warehouses', { token, params: { farmId: currentFarmId, page: 1, pageSize: 100 } }),
+        apiRequest<Paginated<Warehouse>>('/warehouses', { token, params: { farmId: currentFarmId, destination: 'true', page: 1, pageSize: 100 } }),
       ]);
     }).then(([receipts, issues, counts, transfers, maintenanceRequests, warehouses]) => {
       if (cancelled) return;
       setPageInfo(filter === 'RECEIPT' ? receipts.page : filter === 'ISSUE' ? issues.page : null);
       const warehouseLabels = new Map(warehouses.data.map((row) => [row.id, `${row.code} · ${row.name}`]));
       setDocuments([
-        ...receipts.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.receiptCode, row.id), title: row.note || 'Phiếu nhập kho', type: 'RECEIPT' as const, status: row.status, date: row.receiptDate ?? row.createdAt, createdAt: row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
-        ...issues.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.issueCode, row.id), title: row.reason || 'Phiếu xuất kho', type: 'ISSUE' as const, status: row.status, date: row.issueDate ?? row.createdAt, createdAt: row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
-        ...counts.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.countCode, row.id), title: row.note || 'Phiếu kiểm kê kho', type: 'COUNT' as const, status: row.status, date: row.createdAt, createdAt: row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
-        ...transfers.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.transferCode, row.id), title: row.note || 'Điều chuyển vật tư giữa các kho', type: 'TRANSFER' as const, status: row.status, date: row.transferDate ?? row.createdAt, createdAt: row.createdAt, warehouseId: warehouseLabels.get(row.fromWarehouseId) ?? row.fromWarehouseId, destinationWarehouse: warehouseLabels.get(row.toWarehouseId) ?? row.toWarehouseId, reason: row.rejectionReason })),
-        ...maintenanceRequests.data.map((row) => ({ id: row.id, code: `MNT-${row.id.slice(0, 8).toUpperCase()}`, title: row.itemName, description: row.description, type: 'MAINTENANCE' as const, status: row.status, date: row.createdAt, reason: row.rejectionReason, assetId: row.assetId, assetCode: row.assetCode })),
+        ...receipts.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.receiptCode, row.id, 'PN'), title: row.note || 'Phiếu nhập kho', type: 'RECEIPT' as const, status: row.status, date: row.receiptDate ?? row.createdAt, createdAt: row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
+        ...issues.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.issueCode, row.id, 'PX'), title: row.reason || 'Phiếu xuất kho', type: 'ISSUE' as const, status: row.status, date: row.issueDate ?? row.createdAt, createdAt: row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
+        ...counts.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.countCode, row.id, 'KK'), title: row.note || 'Phiếu kiểm kê kho', type: 'COUNT' as const, status: row.status, date: row.createdAt, createdAt: row.createdAt, warehouseId: row.warehouseId, reason: row.rejectionReason })),
+        ...transfers.data.map((row) => ({ id: row.id, code: documentCodeLabel(row.transferCode, row.id, 'CK'), title: row.note || 'Điều chuyển vật tư giữa các kho', type: 'TRANSFER' as const, status: row.status, date: row.transferDate ?? row.createdAt, createdAt: row.createdAt, warehouseId: warehouseLabels.get(row.fromWarehouseId) ?? row.fromWarehouseId, destinationWarehouse: warehouseLabels.get(row.toWarehouseId) ?? row.toWarehouseId, reason: row.rejectionReason })),
+        ...maintenanceRequests.data.map((row) => ({ id: row.id, code: documentCodeLabel(null, row.id, 'MNT'), title: row.itemName, description: row.description, type: 'MAINTENANCE' as const, status: row.status, date: row.createdAt, reason: row.rejectionReason, assetId: row.assetId, assetCode: row.assetCode })),
       ]);
       setError(null);
     }).catch((cause: unknown) => {
@@ -194,7 +198,8 @@ export default function ReceiptListScreen() {
     </ScrollView>
     {(filter === 'RECEIPT' || filter === 'ISSUE') ? <StockDateRangeFilter key={filter} value={dateRanges[filter]} onApply={applyDateRange} /> : null}
     <SectionTitle title={filter === 'COUNT' ? 'Danh sách kiểm kê' : filter === 'MAINTENANCE' ? 'Danh sách phiếu bảo trì' : filter === 'TRANSFER' ? 'Danh sách điều chuyển' : 'Danh sách phiếu'} count={`${search.trim() ? visibleDocuments.length : pageInfo?.totalItems ?? visibleDocuments.length} phiếu`} />
-    {loading ? <Text style={styles.emptyText}>Đang tải dữ liệu từ cơ sở dữ liệu...</Text> : visibleDocuments.length === 0 ? <Text style={styles.emptyText}>{error ?? (search.trim() || activeDateRange.dateFrom || activeDateRange.dateTo ? 'Không có kết quả phù hợp với bộ lọc.' : 'Chưa có dữ liệu.')}</Text> : visibleDocuments.map((document) => <Pressable key={`${document.type}-${document.id}`} onPress={() => openDocument(document)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [pressed && styles.pressed]}>
+
+    {loading ? <Text style={styles.emptyText}>Đang tải danh sách phiếu...</Text> : visibleDocuments.length === 0 ? <Text style={styles.emptyText}>{error ?? (search.trim() || activeDateRange.dateFrom || activeDateRange.dateTo ? 'Không có kết quả phù hợp với bộ lọc.' : 'Chưa có dữ liệu.')}</Text> : visibleDocuments.map((document) => <Pressable key={`${document.type}-${document.id}`} onPress={() => openDocument(document)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [pressed && styles.pressed]}>
       <Card style={[styles.receipt, document.status === 'DRAFT' && styles.draft]}>
         <HoneycombDecor tone={tone(document.status) === 'success' ? 'green' : 'amber'} />
         <View style={styles.receiptContent}>

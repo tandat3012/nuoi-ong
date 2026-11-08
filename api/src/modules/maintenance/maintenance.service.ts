@@ -41,6 +41,7 @@ import { maintenanceNextDate, maintenanceAlert } from './maintenance-dates';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
+  notifyMaintenanceStaff,
 } from '../notifications/notification-events';
 import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
@@ -81,6 +82,19 @@ type Filters = PaginationParams & {
 const issuedByName = sql<string | null>`(SELECT COALESCE(u.full_name, u.email)
   FROM farm_members m JOIN users u ON u.id = m.user_id
   WHERE m.id = ${maintenanceRecords.issuedByMemberId})`;
+
+const memberNameSql = (memberIdCol: SQL | unknown) =>
+  sql<string | null>`(SELECT COALESCE(u.full_name, u.email) FROM farm_members m JOIN users u ON u.id = m.user_id WHERE m.id = ${memberIdCol})`;
+
+const maintenanceExtraColumns = {
+  itemName: sql<string | null>`(SELECT name FROM items WHERE id=${assets.itemId})`,
+  supplierName: sql<string | null>`(SELECT name FROM suppliers WHERE id=${maintenanceRecords.supplierId})`,
+  assetWarehouseName: sql<string | null>`(SELECT w.name FROM locations l JOIN warehouses w ON w.id = l.warehouse_id WHERE l.id=${assets.currentLocationId})`,
+  assetLocationName: sql<string | null>`(SELECT name FROM locations WHERE id=${assets.currentLocationId})`,
+  performedByName: memberNameSql(maintenanceRecords.performedByMemberId),
+  receivedByName: memberNameSql(maintenanceRecords.receivedByMemberId),
+  inspectedByName: memberNameSql(maintenanceRecords.inspectedByMemberId),
+};
 
 @Injectable()
 export class MaintenanceService {
@@ -144,6 +158,7 @@ export class MaintenanceService {
             string | null
           >`(SELECT name FROM locations WHERE id=${maintenanceRecords.returnLocationId})`,
           issuedByName,
+          ...maintenanceExtraColumns,
         })
         .from(maintenanceRecords)
         .leftJoin(
@@ -199,6 +214,7 @@ export class MaintenanceService {
           string | null
         >`(SELECT name FROM locations WHERE id=${maintenanceRecords.returnLocationId})`,
         issuedByName,
+        ...maintenanceExtraColumns,
       })
       .from(maintenanceRecords)
       .leftJoin(
@@ -325,6 +341,36 @@ export class MaintenanceService {
         summary: `Đã lên lịch ${this.maintenanceName(record.maintenanceType)}`,
       },
     );
+    await notifyMaintenanceStaff(
+      tx,
+      this.recordNotification(record, 'SCHEDULED'),
+      actorUserId,
+    );
+    if (record.supplierId && record.expectedReturnAt) {
+      const [[actorMember], [assetWarehouse]] = await Promise.all([
+        tx
+          .select({ id: farmMembers.id })
+          .from(farmMembers)
+          .where(
+            and(
+              eq(farmMembers.farmId, farmId),
+              eq(farmMembers.userId, actorUserId),
+            ),
+          )
+          .limit(1),
+        tx
+          .select({ warehouseId: assetWarehouseId })
+          .from(assets)
+          .where(eq(assets.id, asset.id))
+          .limit(1),
+      ]);
+      await notifyFarmApprovers(
+        tx,
+        this.recordNotification(record, 'READY_TO_SEND'),
+        actorMember?.id ?? '',
+        assetWarehouse?.warehouseId,
+      );
+    }
     return record;
   }
 
@@ -340,6 +386,10 @@ export class MaintenanceService {
       if (current.status !== 'SCHEDULED')
         throw new ConflictException(
           'Completed or cancelled records cannot be edited',
+        );
+      if (current.supplierId && current.expectedReturnAt)
+        throw new ConflictException(
+          'Maintenance record has already been prepared for warehouse issue',
         );
       this.validateReturnDate(
         input.scheduledAt === undefined
@@ -377,6 +427,23 @@ export class MaintenanceService {
           ),
         )
         .returning();
+      if (
+        record.supplierId &&
+        record.expectedReturnAt &&
+        (input.supplierId !== undefined || input.expectedReturnAt !== undefined)
+      ) {
+        const [assetWarehouse] = await tx
+          .select({ warehouseId: assetWarehouseId })
+          .from(assets)
+          .where(eq(assets.id, record.assetId))
+          .limit(1);
+        await notifyFarmApprovers(
+          tx,
+          this.recordNotification(record, 'READY_TO_SEND'),
+          actor.memberId,
+          assetWarehouse?.warehouseId,
+        );
+      }
       return record;
     });
   }
@@ -581,6 +648,11 @@ export class MaintenanceService {
           referenceId: record.id,
           summary: 'Kho đã xác nhận xuất thiết bị đi sửa',
         },
+      );
+      await notifyMaintenanceStaff(
+        tx,
+        this.recordNotification(updated, 'IN_PROGRESS'),
+        actor.userId,
       );
       return updated;
     });
@@ -888,6 +960,18 @@ export class MaintenanceService {
         },
         record.returnCreatedByMemberId,
       );
+      await notifyMaintenanceStaff(
+        tx,
+        {
+          ...this.returnNotification(
+            updated,
+            approve ? 'CONFIRMED' : 'REJECTED',
+          ),
+          rejectionReason: updated.returnRejectionReason ?? undefined,
+        },
+        actor.userId,
+        record.returnCreatedByMemberId,
+      );
       await this.audit(
         tx,
         farmId,
@@ -973,6 +1057,20 @@ export class MaintenanceService {
     });
   }
 
+  private recordNotification(
+    record: typeof maintenanceRecords.$inferSelect,
+    status: 'SCHEDULED' | 'READY_TO_SEND' | 'IN_PROGRESS',
+  ) {
+    return {
+      farmId: record.farmId,
+      entityType: 'MAINTENANCE_RECORD',
+      entityId: record.id,
+      documentCode: `BT-${record.id.slice(0, 8)}`,
+      documentKind: 'Hồ sơ bảo trì',
+      status,
+    };
+  }
+
   private returnNotification(
     record: typeof maintenanceRecords.$inferSelect,
     status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED',
@@ -981,7 +1079,7 @@ export class MaintenanceService {
       farmId: record.farmId,
       entityType: 'MAINTENANCE_RETURN',
       entityId: record.id,
-      documentCode: `BT-${record.id}`,
+      documentCode: `BT-${record.id.slice(0, 8)}`,
       documentKind: 'Phiếu nhập lại bảo trì',
       status,
     };

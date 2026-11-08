@@ -35,7 +35,7 @@ import {
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import {
-  FARM_ADMIN_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
   STOCK_WRITE_ROLES,
   hasAnyRole,
 } from '../auth/farm-access/farm-role-groups';
@@ -123,6 +123,7 @@ export class AuditLogsService {
   }
 
   /** Admins and owners read farm history; other staff read only actions they performed. */
+
   private async scope(
     farmId: string,
     clerkUserId: string,
@@ -133,7 +134,7 @@ export class AuditLogsService {
     const { userId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
     const conditions = [eq(auditLogs.farmId, farmId)];
-    if (hasAnyRole(roleCodes, FARM_ADMIN_ROLES))
+    if (hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES))
       return { conditions, visibility: 'FARM' };
     if (!hasAnyRole(roleCodes, [...STOCK_WRITE_ROLES, 'STORE_MANAGER']))
       throw new ForbiddenException('Audit history permission is required');
@@ -215,19 +216,19 @@ export class AuditLogsService {
           and(eq(farmMembers.farmId, farmId), inArray(farmMembers.id, ids)),
         ),
       db
-        .select({ id: stockReceipts.id, label: stockReceipts.receiptCode })
+        .select({ id: stockReceipts.id, label: sql<string>`coalesce(${stockReceipts.receiptCode}, 'PN-' || left(${stockReceipts.id}::text, 8))` })
         .from(stockReceipts)
         .where(
           and(eq(stockReceipts.farmId, farmId), inArray(stockReceipts.id, ids)),
         ),
       db
-        .select({ id: stockIssues.id, label: stockIssues.issueCode })
+        .select({ id: stockIssues.id, label: sql<string>`coalesce(${stockIssues.issueCode}, 'PX-' || left(${stockIssues.id}::text, 8))` })
         .from(stockIssues)
         .where(
           and(eq(stockIssues.farmId, farmId), inArray(stockIssues.id, ids)),
         ),
       db
-        .select({ id: stockTransfers.id, label: stockTransfers.transferCode })
+        .select({ id: stockTransfers.id, label: sql<string>`coalesce(${stockTransfers.transferCode}, 'CK-' || left(${stockTransfers.id}::text, 8))` })
         .from(stockTransfers)
         .where(
           and(
@@ -236,7 +237,7 @@ export class AuditLogsService {
           ),
         ),
       db
-        .select({ id: stockCounts.id, label: stockCounts.countCode })
+        .select({ id: stockCounts.id, label: sql<string>`coalesce(${stockCounts.countCode}, 'KK-' || left(${stockCounts.id}::text, 8))` })
         .from(stockCounts)
         .where(
           and(eq(stockCounts.farmId, farmId), inArray(stockCounts.id, ids)),

@@ -7,12 +7,19 @@ import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import type { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import { notifications, users } from '../../db/schema';
+import {
+  NOTIFICATION_DOCUMENT_KINDS,
+  formatNotificationBody,
+  formatNotificationDocumentCode,
+} from './notification-events';
 
 type ListFilters = PaginationParams & {
   clerkUserId: string;
   farmId: string;
   unreadOnly?: boolean;
 };
+
+type NotificationRow = typeof notifications.$inferSelect;
 
 @Injectable()
 export class NotificationsService {
@@ -33,6 +40,67 @@ export class NotificationsService {
     return user.id;
   }
 
+  private normalizeNotificationRow(row: NotificationRow): NotificationRow {
+    const rawData =
+      row.data && typeof row.data === 'object' && !Array.isArray(row.data)
+        ? (row.data as Record<string, unknown>)
+        : null;
+    const entityType =
+      (typeof rawData?.documentType === 'string'
+        ? rawData.documentType
+        : null) ?? row.entityType;
+    const entityId =
+      (typeof rawData?.documentId === 'string' ? rawData.documentId : null) ??
+      row.entityId;
+    const storedCode =
+      typeof rawData?.documentCode === 'string' ? rawData.documentCode : null;
+    const resolvedCode = formatNotificationDocumentCode(
+      entityType,
+      entityId,
+      storedCode,
+    );
+    const status =
+      (typeof rawData?.status === 'string' ? rawData.status : null) ??
+      (entityType && row.type.startsWith(`${entityType}_`)
+        ? row.type.slice(entityType.length + 1)
+        : null);
+    const rejectionReason =
+      typeof rawData?.rejectionReason === 'string'
+        ? rawData.rejectionReason
+        : null;
+    const documentKind = entityType
+      ? NOTIFICATION_DOCUMENT_KINDS[entityType]
+      : undefined;
+    const nextBody =
+      documentKind && resolvedCode
+        ? (formatNotificationBody(
+            documentKind,
+            resolvedCode,
+            status,
+            rejectionReason,
+          ) ?? row.body)
+        : row.body;
+
+    return {
+      ...row,
+      body: nextBody,
+      data: rawData
+        ? {
+            ...rawData,
+            documentCode: resolvedCode || rawData.documentCode || null,
+          }
+        : resolvedCode
+          ? {
+              documentType: entityType,
+              documentId: entityId,
+              documentCode: resolvedCode,
+              status,
+              rejectionReason,
+            }
+          : row.data,
+    };
+  }
+
   async list(filters: ListFilters) {
     const userId = await this.getUserId(filters.clerkUserId);
     const conditions = [
@@ -41,7 +109,7 @@ export class NotificationsService {
     ];
     if (filters.unreadOnly) conditions.push(isNull(notifications.readAt));
     const where = and(...conditions);
-    const [data, unreadTotals, filteredTotals] = await Promise.all([
+    const [rawRows, unreadTotals, filteredTotals] = await Promise.all([
       this.database.db
         .select()
         .from(notifications)
@@ -64,6 +132,7 @@ export class NotificationsService {
         .from(notifications)
         .where(where),
     ]);
+    const data = rawRows.map((row) => this.normalizeNotificationRow(row));
     const filteredCount = Number(filteredTotals[0]?.value ?? 0);
     return {
       data,

@@ -17,7 +17,14 @@ import {
   getNotifications, markAllNotificationsRead, markNotificationRead,
   type Notification, type NotificationsResponse,
 } from '../api/notifications.api';
-import { notificationBadgeText, notificationErrorMessage, notificationHref, notificationTargetsCurrentPage } from '../notifications.logic';
+import {
+  notificationBadgeText,
+  notificationBodyText,
+  notificationDocumentCode,
+  notificationErrorMessage,
+  notificationHref,
+  notificationTargetsCurrentPage,
+} from '../notifications.logic';
 import { NOTIFICATION_REFRESH_EVENT } from '../use-notification-refresh';
 import { BeeLoader } from '@/shared/components/ui/bee-loader';
 
@@ -175,19 +182,25 @@ function FarmNotificationBell({ farmId }: { farmId: string }) {
                     {unreadOnly ? 'Không có thông báo chưa đọc.' : 'Chưa có thông báo.'}
                   </p>
                   : <ul className="divide-y">
-                    {current.response.data.map((notification) => <li key={notification.id}>
-                      <button type="button" disabled={isSaving} onClick={() => void openNotification(notification)}
-                        className={`w-full min-w-0 space-y-2 p-5 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary disabled:opacity-50 ${!notification.readAt ? 'bg-primary/5' : ''}`}>
-                        <span className="flex items-start justify-between gap-3">
-                          <span className={`min-w-0 break-words text-sm ${!notification.readAt ? 'font-semibold' : 'font-medium'}`}>{notification.title}</span>
-                          {!notification.readAt && <Badge className="shrink-0">Chưa đọc</Badge>}
-                        </span>
-                        <span className="block whitespace-pre-wrap break-words text-sm text-muted-foreground">{notification.body}</span>
-                        <time dateTime={notification.createdAt} className="block text-xs text-muted-foreground">
-                          {new Date(notification.createdAt).toLocaleString('vi-VN')}
-                        </time>
-                      </button>
-                    </li>)}
+                    {current.response.data.map((notification) => {
+                      const docCode = notificationDocumentCode(notification);
+                      return <li key={notification.id}>
+                        <button type="button" disabled={isSaving} onClick={() => void openNotification(notification)}
+                          className={`w-full min-w-0 space-y-2 p-5 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary disabled:opacity-50 ${!notification.readAt ? 'bg-primary/5' : ''}`}>
+                          <span className="flex items-start justify-between gap-3">
+                            <span className={`min-w-0 break-words text-sm ${!notification.readAt ? 'font-semibold' : 'font-medium'}`}>{notification.title}</span>
+                            {!notification.readAt && <Badge className="shrink-0">Chưa đọc</Badge>}
+                          </span>
+                          <span className="block whitespace-pre-wrap break-words text-sm text-muted-foreground">{notificationBodyText(notification)}</span>
+                          <span className="flex flex-wrap items-center justify-between gap-2">
+                            <time dateTime={notification.createdAt} className="block text-xs text-muted-foreground">
+                              {new Date(notification.createdAt).toLocaleString('vi-VN')}
+                            </time>
+                            {docCode && <span className="font-mono text-xs font-medium text-primary">{docCode}</span>}
+                          </span>
+                        </button>
+                      </li>;
+                    })}
                   </ul>
               )}
         </div>

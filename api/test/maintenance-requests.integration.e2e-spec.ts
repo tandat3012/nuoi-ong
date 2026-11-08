@@ -348,6 +348,7 @@ describe('Maintenance requests', () => {
       ...page,
     });
     expect(reviewerHistory.data.map((log) => log.action).sort()).toEqual([
+
       'CREATE',
       'REJECT',
     ]);

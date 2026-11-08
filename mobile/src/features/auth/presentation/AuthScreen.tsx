@@ -213,7 +213,7 @@ export default function AuthScreen() {
             <Text style={styles.statusMuted} numberOfLines={1}>/ Trạm vệ tinh</Text>
           </View>
           <View style={styles.networkCopy}>
-            <View style={styles.networkBadge}><Text style={styles.networkText}>Trực tuyến 4G</Text></View>
+            <View style={styles.networkBadge}><Text style={styles.networkText}>Dữ liệu trang trại</Text></View>
             <Icon name="wifi" size={16} color={colors.primary} />
           </View>
         </View>
@@ -259,7 +259,7 @@ export default function AuthScreen() {
               </Pressable>
               {verification ? <View style={styles.verificationBox}>
                 <Text style={styles.verificationTitle}>Xác thực bổ sung</Text>
-                <Text style={styles.verificationHint}>{verification.strategy === 'email_code' ? 'Nhập mã Clerk đã gửi đến email.' : verification.strategy === 'phone_code' ? 'Nhập mã Clerk đã gửi qua SMS.' : 'Nhập mã từ ứng dụng xác thực.'}</Text>
+                <Text style={styles.verificationHint}>{verification.strategy === 'email_code' ? 'Nhập mã xác thực đã gửi đến email.' : verification.strategy === 'phone_code' ? 'Nhập mã xác thực đã gửi qua SMS.' : 'Nhập mã từ ứng dụng xác thực.'}</Text>
                 <TextInput value={verificationCode} onChangeText={setVerificationCode} autoCapitalize="none" keyboardType="number-pad" placeholder="Nhập mã xác thực" placeholderTextColor={colors.outline} style={styles.verificationInput} />
                 <PrimaryButton label={busy ? 'Đang kiểm tra mã...' : 'Xác nhận mã'} icon={busy ? 'sync' : 'verified'} onPress={handleVerification} loading={busy} />
                 <Pressable onPress={() => { setVerification(null); setVerificationCode(''); }} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.cancelVerification, pressed && styles.pressed]}>
@@ -288,8 +288,8 @@ export default function AuthScreen() {
         </View>
 
         <View style={styles.footer}>
-          <View style={styles.footerCloud}><Icon name="cloud-done" size={15} color={colors.secondaryContainer} /><Text style={styles.footerStatus}>Máy chủ Cloud API — Chờ xác thực Clerk</Text></View>
-          <Text style={styles.footerVersion}>Phiên bản v2.4.0 • Xác thực bảo mật Clerk JWT API & Quản lý Thu hoạch</Text>
+          <View style={styles.footerCloud}><Icon name="cloud-done" size={15} color={colors.secondaryContainer} /><Text style={styles.footerStatus}>Đăng nhập để tiếp tục công việc</Text></View>
+          <Text style={styles.footerVersion}>Quản lý trang trại và công việc hiện trường</Text>
         </View>
       </ScrollView>
 

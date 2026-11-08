@@ -83,6 +83,8 @@ export const HISTORY_FIELD_LABELS: Record<string, string> = {
   items: "Dòng hàng",
   quantity: "Số lượng",
   actualQuantity: "Số lượng thực tế",
+  receivedQuantity: "Số lượng thực nhận",
+  discrepancyReason: "Lý do lệch",
   systemQuantity: "Số lượng sổ sách",
   unitPrice: "Đơn giá",
   warehouseId: "Kho",

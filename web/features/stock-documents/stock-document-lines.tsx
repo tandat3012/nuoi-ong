@@ -286,7 +286,7 @@ export function StockDocumentLines({
           {detail
             ? documentCodeLabel(
                 detail.header.transferCode ?? detail.header.countCode,
-                id,
+                id, counts ? "KK" : "CK",
               )
             : ""}
         </h2>

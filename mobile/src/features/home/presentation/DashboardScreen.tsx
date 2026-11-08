@@ -6,12 +6,12 @@ import { useEffect, useRef, useState } from 'react';
 import { AppShell, Card, Icon, PageHeader, Pill, SectionTitle } from '@/src/shared/ui/MobileShell';
 import { colors, dimensions, radius, spacing, typography } from '@/src/core/theme/tokens';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
-import { formatQuantity } from '@/src/shared/format-quantity';
 import { formatApiDateTime as formatDateTime } from '@/src/shared/format-date-time';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { canUseMobileOperations } from '@/src/features/auth/mobile-access';
 import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
-import { documentCodeLabel, listBalances, listWarehouses, type Paginated, type StockIssue, type StockReceipt } from '@/src/features/inventory/api';
+import { documentCodeLabel, listBalances, listWarehouses, statusLabel, type Paginated, type StockIssue, type StockReceipt } from '@/src/features/inventory/api';
+import { recordLabel, statusLabel as auditStatusLabel } from '@/src/features/activity/model';
 import { listAuditLogs, type AuditLog } from '@/src/features/activity/api';
 
 const honeyImage = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBcFTg3NHhZT19Pgto7IjhPfrsqK7lAsHctJe-0YtEaBDDigmmrx8Lxtt17FslOR8ksf7XQCeEjtqMzDJoaWsi1jZ43c6SBfYE10cgNAYRixQzSa0Jh3i9t1N4hQWj6ZA1N0XvwHyj-kRho2h2L2a6_mwaqcszJI-_KgHpcym0A-6foeyTQFanrB3CRTQkTbB02LiKrcRrQhVkqeiDoAEqHvUOqaE93PofHmRMHoTEoanwHHjSqSK7m1Q';
@@ -23,7 +23,7 @@ export default function DashboardScreen() {
   const [farmSheetOpen, setFarmSheetOpen] = useState(false);
   const [pendingFarmId, setPendingFarmId] = useState<string | null>(currentFarmId);
   const [summary, setSummary] = useState({ warehouseCount: 0, itemCount: 0, balanceCount: 0, totalQuantity: 0, pendingCount: 0, activities: [] as Array<{ code: string; status: string; title: string; detail: string; quantity: string; createdAt: string; tone: 'amber' | 'success' | 'danger' }> });
-  const [auditActivities, setAuditActivities] = useState<Array<{ code: string; status: string; title: string; detail: string; quantity: string; createdAt: string; tone: 'amber' | 'success' | 'danger' }>>([]);
+  const [auditActivities, setAuditActivities] = useState<Array<{ id: string; code: string; status: string; title: string; detail: string; quantity: string; createdAt: string; tone: 'amber' | 'success' | 'danger' }>>([]);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -42,7 +42,7 @@ export default function DashboardScreen() {
   const canOperate = canUseMobileOperations(membership?.roles);
   const farm = membership?.farm;
   const role = membership?.roles[0] ?? 'GUEST';
-  const roleLabel = { ADMIN: 'Quản trị viên', FARM_OWNER: 'Chủ trại', WAREHOUSE_MANAGER: 'Quản lý kho', STORE_MANAGER: 'Quản lý cửa hàng', EMPLOYEE: 'Nhân viên', GUEST: 'Khách' }[role] ?? role;
+  const roleLabel = { ADMIN: 'Quản trị viên', FARM_OWNER: 'Chủ trại', WAREHOUSE_MANAGER: 'Quản lý kho', STORE_MANAGER: 'Quản lý cửa hàng', DELIVERY_STAFF: 'Nhân viên giao hàng', MAINTENANCE_STAFF: 'Nhân viên bảo trì', EMPLOYEE: 'Nhân viên', GUEST: 'Khách' }[role] ?? role;
   const userName = data?.user.fullName?.trim() || 'Người dùng';
   const initials = userName.trim().split(/\s+/).slice(-2).map((part) => part[0]).join('').toUpperCase();
   useEffect(() => {
@@ -80,8 +80,10 @@ export default function DashboardScreen() {
         listBalances(token, currentFarmId),
         apiRequest<Paginated<StockReceipt>>('/stock-receipts', { token, params: { farmId: currentFarmId, page: 1, pageSize: 5 } }),
         apiRequest<Paginated<StockIssue>>('/stock-issues', { token, params: { farmId: currentFarmId, page: 1, pageSize: 5 } }),
+        apiRequest<Paginated<{ id: string; transferCode: string | null; status: string; fromWarehouseId: string; toWarehouseId: string; note?: string | null; createdAt?: string }>>('/stock-transfers', { token, params: { farmId: currentFarmId, page: 1, pageSize: 5 } }),
+        listWarehouses(token, currentFarmId, true),
       ]);
-    }).then(([warehouses, balances, receipts, issues]) => {
+    }).then(([warehouses, balances, receipts, issues, transfers, allWarehouses]) => {
       if (cancelled) return;
       const positiveItemIds = new Set<string>();
       const totalQuantity = balances.data.reduce((total, row) => {
@@ -90,8 +92,9 @@ export default function DashboardScreen() {
         positiveItemIds.add(row.balance.itemId);
         return total + quantity;
       }, 0);
-      const docs = [...receipts.data.map((row) => ({ code: documentCodeLabel(row.receiptCode, row.id), status: row.status, title: row.note || 'Phiếu nhập kho', detail: `Kho: ${row.warehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const })), ...issues.data.map((row) => ({ code: documentCodeLabel(row.issueCode, row.id), status: row.status, title: row.reason || 'Phiếu xuất kho', detail: `Kho: ${row.warehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const }))];
-      setSummary({ warehouseCount: warehouses.data.length, itemCount: positiveItemIds.size, balanceCount: positiveItemIds.size, totalQuantity, pendingCount: docs.filter((row) => row.status === 'DRAFT' || row.status === 'PENDING_APPROVAL').length, activities: docs.slice(0, 3) });
+      const warehouseLabels = new Map(allWarehouses.data.map((row) => [row.id, `${row.code} · ${row.name}`]));
+      const docs = [...receipts.data.map((row) => ({ code: documentCodeLabel(row.receiptCode, row.id, 'PN'), rawStatus: row.status, status: statusLabel(row.status), title: row.note || 'Phiếu nhập kho', detail: `Kho: ${warehouseLabels.get(row.warehouseId) ?? row.warehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const })), ...issues.data.map((row) => ({ code: documentCodeLabel(row.issueCode, row.id, 'PX'), rawStatus: row.status, status: statusLabel(row.status), title: row.reason || 'Phiếu xuất kho', detail: `Kho: ${warehouseLabels.get(row.warehouseId) ?? row.warehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const })), ...transfers.data.map((row) => ({ code: documentCodeLabel(row.transferCode, row.id, 'CK'), rawStatus: row.status, status: row.status === 'IN_TRANSIT' ? 'ĐANG CHUYỂN' : row.status === 'CONFIRMED' ? 'ĐÃ NHẬN' : statusLabel(row.status), title: row.note || 'Điều chuyển vật tư giữa các kho', detail: `${warehouseLabels.get(row.fromWarehouseId) ?? row.fromWarehouseId} → ${warehouseLabels.get(row.toWarehouseId) ?? row.toWarehouseId}`, quantity: '', createdAt: row.createdAt ?? '', tone: row.status === 'CONFIRMED' ? 'success' as const : row.status === 'REJECTED' ? 'danger' as const : 'amber' as const }))].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setSummary({ warehouseCount: warehouses.data.length, itemCount: positiveItemIds.size, balanceCount: positiveItemIds.size, totalQuantity, pendingCount: docs.filter((row) => row.rawStatus === 'DRAFT' || row.rawStatus === 'PENDING_APPROVAL' || row.rawStatus === 'IN_TRANSIT').length, activities: docs.slice(0, 3) });
       setSummaryError(null);
     }).catch((cause: unknown) => { if (!cancelled) setSummaryError(cause instanceof Error ? cause.message : 'Không thể tải tổng quan.'); });
     return () => { cancelled = true; };
@@ -112,7 +115,7 @@ export default function DashboardScreen() {
     return () => { cancelled = true; };
   }, [canOperate, currentFarmId, getAccessToken, reloadNonce]);
   return <AppShell active="dashboard">
-    <PageHeader title={farm?.name ?? 'Chưa chọn trang trại'} subtitle="● Hệ thống quản lý trại • Trực tuyến" action={canOperate ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={sync} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.sync, pressed && styles.pressed]}><Animated.View style={syncTransform}><Icon name="sync" color={colors.primary} /></Animated.View></Pressable></View> : undefined} />
+    <PageHeader title={farm?.name ?? 'Chưa chọn trang trại'} subtitle="Công việc tại trang trại" action={canOperate ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={sync} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.sync, pressed && styles.pressed]}><Animated.View style={syncTransform}><Icon name="sync" color={colors.primary} /></Animated.View></Pressable></View> : undefined} />
     <Card style={styles.farmCard}>
       <HoneyCardArtwork />
       <View style={styles.farmTop}>
@@ -149,19 +152,19 @@ export default function DashboardScreen() {
       </View>
       <View style={styles.shiftStats}>
         <MiniStat label="Mục tồn kho" value={String(summary.balanceCount)} icon="inventory-2" />
-        <MiniStat label="Phiếu chờ duyệt" value={String(summary.pendingCount)} icon="description" tone="amber" />
+        <MiniStat label="Nháp/chờ duyệt gần đây" value={String(summary.pendingCount)} icon="description" tone="amber" />
         <MiniStat label="Kho đang hoạt động" value={String(summary.warehouseCount)} icon="warehouse" />
       </View>
     </Card>
-    <SectionTitle title="Tác vụ hiện trường" count={`${summary.itemCount} MỤC DB`} />
-    <Pressable onPress={() => router.push('/scan' as never)} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.scanAction, pressed && styles.pressed]}><LinearGradient colors={[colors.primary, colors.primaryContainer, colors.secondary]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.scanGradient}><View style={styles.scanIcon}><Icon name="qr-code-scanner" size={25} color={colors.onPrimary} /></View><View style={styles.scanCopy}><View style={styles.scanTitleRow}><Text style={styles.scanTitle} numberOfLines={2}>Quét QR Thùng ong & Thiết bị</Text><Pill tone="cream"><Text style={styles.aiScan}>AI SCAN</Text></Pill></View><Text style={styles.scanMeta} numberOfLines={2}>Tra cứu nhật ký đàn, tầng kế & vị trí đặt</Text></View><View style={styles.scanArrow}><Icon name="arrow-forward" size={21} color={colors.onPrimary} /></View></LinearGradient></Pressable>
-    <View style={styles.actionGrid}><Action icon="inventory-2" title="Tra cứu tồn kho" sub={`${summary.warehouseCount} kho từ DB`} onPress={() => router.push('/inventory' as never)} /><Action icon="input" title="Tạo phiếu nhập" sub={`${summary.pendingCount} phiếu chờ duyệt`} onPress={() => router.push('/receipts/new' as never)} /><Action icon="output" title="Tạo phiếu xuất" sub="Xuất trại / Bảo trì" onPress={() => router.push('/receipts/new' as never)} /><Action icon="checklist" title="Kiểm kê thực tế" sub="Mở danh sách phiếu DB" onPress={() => router.push('/receipts' as never)} /><Action icon="build" title="Báo sự cố" sub="Thiết bị hiện trường" onPress={() => router.push('/receipts' as never)} /><Action icon="warehouse" title="Tra cứu kho" sub={`${summary.itemCount} mục từ DB`} onPress={() => router.push('/inventory' as never)} /></View>
-    <Pressable onPress={() => router.push('/receipts' as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.maintenance, pressed && styles.pressed]}><View style={styles.maintenanceIcon}><Icon name="build" color={colors.error} /></View><View style={styles.maintenanceCopy}><Text style={styles.maintenanceTitle} numberOfLines={3}>Bảo trì thiết bị hiện trường</Text><Text style={styles.maintenanceMeta} numberOfLines={2}>{summary.itemCount} mục tồn kho từ DB</Text></View><Icon name="chevron-right" color={colors.outline} /></Pressable>
-    <SectionTitle title="Hoạt động hiện trường" action={<Pressable onPress={() => router.push('/receipts' as never)}><Text style={styles.link}>Xem tất cả →</Text></Pressable>} />
-    {summary.activities.length === 0 ? <Text style={styles.emptyText}>{summaryError ?? 'Chưa có hoạt động từ DB.'}</Text> : summary.activities.map((activity) => <Activity key={activity.code} {...activity} />)}
+    <SectionTitle title="Tác vụ hiện trường" />
+    <Pressable onPress={() => router.push('/scan' as never)} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.scanAction, pressed && styles.pressed]}><LinearGradient colors={[colors.primary, colors.primaryContainer, colors.secondary]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.scanGradient}><View style={styles.scanIcon}><Icon name="qr-code-scanner" size={25} color={colors.onPrimary} /></View><View style={styles.scanCopy}><View style={styles.scanTitleRow}><Text style={styles.scanTitle} numberOfLines={2}>Quét mã tài sản và vật tư</Text><Pill tone="cream"><Text style={styles.aiScan}>MÃ QR</Text></Pill></View><Text style={styles.scanMeta} numberOfLines={2}>Xem thông tin tài sản, vật tư và tồn kho</Text></View><View style={styles.scanArrow}><Icon name="arrow-forward" size={21} color={colors.onPrimary} /></View></LinearGradient></Pressable>
+    <View style={styles.actionGrid}><Action icon="inventory-2" title="Tra cứu tồn kho" sub={`${summary.warehouseCount} kho đang hoạt động`} onPress={() => router.push('/inventory' as never)} /><Action icon="input" title="Tạo phiếu nhập" sub={"Lập phiếu để gửi duyệt"} onPress={() => router.push('/receipts/new' as never)} /><Action icon="output" title="Tạo phiếu xuất" sub="Lập phiếu xuất kho" onPress={() => router.push('/receipts/new?type=issue' as never)} /><Action icon="checklist" title="Kiểm kê thực tế" sub="Xem hoặc tạo phiếu kiểm kê" onPress={() => router.push('/receipts' as never)} /><Action icon="build" title="Báo sự cố" sub="Xem hoặc tạo yêu cầu" onPress={() => router.push('/receipts' as never)} /><Action icon="warehouse" title="Tra cứu kho" sub={"Xem mặt hàng đang lưu kho"} onPress={() => router.push('/inventory' as never)} /></View>
+    <Pressable onPress={() => router.push('/receipts' as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.maintenance, pressed && styles.pressed]}><View style={styles.maintenanceIcon}><Icon name="build" color={colors.error} /></View><View style={styles.maintenanceCopy}><Text style={styles.maintenanceTitle} numberOfLines={3}>Bảo trì thiết bị hiện trường</Text><Text style={styles.maintenanceMeta} numberOfLines={2}>Xem yêu cầu bảo trì</Text></View><Icon name="chevron-right" color={colors.outline} /></Pressable>
+    <SectionTitle title="Phiếu gần đây" action={<Pressable onPress={() => router.push('/receipts' as never)}><Text style={styles.link}>Xem tất cả →</Text></Pressable>} />
+    {summary.activities.length === 0 ? <Text style={styles.emptyText}>{summaryError ?? 'Chưa có phiếu gần đây.'}</Text> : summary.activities.map((activity) => <Activity key={activity.code} {...activity} />)}
     <SectionTitle title="Lịch sử thao tác" action={<Pressable onPress={() => router.push('/activity' as never)}><Text style={styles.link}>Xem tất cả →</Text></Pressable>} />
-    {auditActivities.length === 0 ? <Text style={styles.emptyText}>{auditError ?? 'Chưa có thao tác được ghi nhận.'}</Text> : auditActivities.map((activity) => <Pressable key={activity.code} accessibilityRole="button" accessibilityLabel="Xem chi tiết thao tác" onPress={() => router.push(`/activity/${encodeURIComponent(activity.code.split(':')[0])}` as never)} style={({ pressed }) => pressed && styles.pressed}><Activity {...activity} /></Pressable>)}
-    <Card style={styles.warehouse}><Image source={{ uri: warehouseImage }} style={styles.warehouseImage} /><View style={styles.warehouseCopy}><Text style={styles.warehouseName} numberOfLines={2}>{summary.warehouseCount ? `Đã kết nối ${summary.warehouseCount} kho trong farm` : 'Chưa có kho trong farm'}</Text><Text style={styles.warehouseMeta} numberOfLines={2}>Tồn kho: {summary.balanceCount} sản phẩm • {formatQuantity(summary.totalQuantity)} đơn vị</Text></View><View style={styles.warehouseStatus}><Pill tone={summaryError ? 'danger' : 'success'}><Text style={styles.online}>{summaryError ? 'ERROR' : 'ONLINE'}</Text></Pill><Text style={styles.warehouseUpdated}>API</Text></View></Card>
+    {auditActivities.length === 0 ? <Text style={styles.emptyText}>{auditError ?? 'Chưa có thao tác được ghi nhận.'}</Text> : auditActivities.map((activity) => <Pressable key={activity.id} accessibilityRole="button" accessibilityLabel="Xem chi tiết thao tác" onPress={() => router.push(`/activity/${encodeURIComponent(activity.id)}` as never)} style={({ pressed }) => pressed && styles.pressed}><Activity {...activity} /></Pressable>)}
+    <Card style={styles.warehouse}><Image source={{ uri: warehouseImage }} style={styles.warehouseImage} /><View style={styles.warehouseCopy}><Text style={styles.warehouseName} numberOfLines={2}>{summary.warehouseCount ? `Có ${summary.warehouseCount} kho trong trang trại` : 'Chưa có kho trong trang trại'}</Text><Text style={styles.warehouseMeta} numberOfLines={2}>{summary.balanceCount} mặt hàng có tồn kho</Text></View><View style={styles.warehouseStatus}><Pill tone={summaryError ? 'danger' : 'success'}><Text style={styles.online}>{summaryError ? 'CẦN TẢI LẠI' : 'ĐÃ CẬP NHẬT'}</Text></Pill></View></Card>
     </> : <Card><Text>Ứng dụng di động dành cho nhân viên hiện trường. Vui lòng dùng bản web để quản lý trang trại, kho và tài sản.</Text></Card>}
     <Modal visible={farmSheetOpen} transparent animationType="slide" onRequestClose={() => setFarmSheetOpen(false)}><View style={styles.sheetBackdrop}><View style={styles.sheet}><View style={styles.sheetHead}><Text style={styles.sheetTitle}>Chọn trại đang làm việc</Text><Pressable onPress={() => setFarmSheetOpen(false)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.iconOnly, pressed && styles.pressed]}><Icon name="close" color={colors.onSurfaceVariant} /></Pressable></View>{(data?.memberships ?? []).map(({ farm: candidate }) => <Pressable key={candidate.id} onPress={() => setPendingFarmId(candidate.id)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.farmOption, pendingFarmId === candidate.id && styles.farmOptionActive, pressed && styles.pressed]}><Icon name={pendingFarmId === candidate.id ? 'radio-button-checked' : 'radio-button-unchecked'} color={pendingFarmId === candidate.id ? colors.primary : colors.outline} /><View style={styles.farmOptionCopy}><Text style={styles.farmOptionName}>{candidate.name}</Text><Text style={styles.farmOptionCode}>{candidate.code}</Text></View></Pressable>)}<PrimaryAction label="Xác nhận chuyển trại" onPress={() => void confirmFarmSelection()} /></View></View></Modal>
   </AppShell>;
@@ -194,10 +197,12 @@ function Action({ icon, title, sub, onPress }: { icon: Parameters<typeof Icon>[0
   function Activity({ code, status, title, detail, quantity, createdAt, tone }: { code: string; status: string; title: string; detail: string; quantity: string; createdAt: string; tone: 'amber' | 'success' | 'danger' }) { return <Card style={[styles.activity, tone === 'success' && styles.activitySuccess, tone === 'danger' && styles.activityDanger]}><View style={styles.activityHead}><Pill tone="cream"><Text numberOfLines={1} style={styles.activityCode}>{code}</Text></Pill><Text numberOfLines={1} style={styles.activityTime}>◷ {formatDateTime(createdAt)}</Text><Pill tone={tone === 'amber' ? 'amber' : tone === 'success' ? 'success' : 'danger'}><Text numberOfLines={1} style={styles.activityStatus}>{status}</Text></Pill></View><Text numberOfLines={2} style={styles.activityTitle}>{title}</Text><Text numberOfLines={3} style={styles.activityDetail}>{detail}</Text>{quantity ? <View style={styles.activityBottom}><Text numberOfLines={2} style={styles.activityQuantity}>{quantity}</Text></View> : null}</Card>; }
 
 function toAuditActivity(log: AuditLog) {
-  const status = getAuditStatus(log.newData) ?? getAuditStatus(log.oldData) ?? 'ĐÃ GHI';
-  const tone = status === 'CONFIRMED' ? 'success' as const : status === 'REJECTED' || status === 'CANCELLED' ? 'danger' as const : 'amber' as const;
+  const rawStatus = getAuditStatus(log.newData) ?? getAuditStatus(log.oldData);
+  const status = auditStatusLabel(rawStatus);
+  const tone = rawStatus === 'CONFIRMED' ? 'success' as const : rawStatus === 'REJECTED' || rawStatus === 'CANCELLED' ? 'danger' as const : 'amber' as const;
   return {
-    code: `${log.id}:${log.entityId ?? log.entityType}`,
+    id: log.id,
+    code: recordLabel(log),
     status,
     title: `${auditActionLabel(log.action)} • ${auditEntityLabel(log.entityType)}`,
     detail: log.actor?.name ?? log.actor?.email ?? 'Người dùng hệ thống',
@@ -213,12 +218,12 @@ function getAuditStatus(value: unknown) {
 }
 
 function auditActionLabel(action: string) {
-  const labels: Record<string, string> = { CREATE: 'Tạo mới', UPDATE: 'Cập nhật', SUBMIT: 'Gửi duyệt', CONFIRM: 'Xác nhận', REJECT: 'Từ chối', CANCEL: 'Hủy', DELETE: 'Xóa' };
+  const labels: Record<string, string> = { CREATE: 'Tạo mới', UPDATE: 'Cập nhật', SUBMIT: 'Gửi duyệt', CONFIRM: 'Xác nhận', REJECT: 'Từ chối', CANCEL: 'Hủy', DELETE: 'Xóa', DISPATCH: 'Xuất hàng đi', RECEIVE: 'Nhận hàng', DELIVERY_CLAIM: 'Nhận giao đơn', DELIVERY_RETURN: 'Trả đơn giao', DELIVERY_COMPLETE: 'Giao xong đơn', SHIPPING_FEES_UPDATED: 'Sửa phí giao hàng' };
   return labels[action.toUpperCase()] ?? action;
 }
 
 function auditEntityLabel(entityType: string) {
-  const labels: Record<string, string> = { STOCK_RECEIPT: 'phiếu nhập', STOCK_ISSUE: 'phiếu xuất', STOCK_COUNT: 'phiếu kiểm kê', STOCK_TRANSFER: 'phiếu điều chuyển', INVENTORY: 'tồn kho', ITEM: 'vật tư', ASSET: 'tài sản', MAINTENANCE: 'bảo trì' };
+  const labels: Record<string, string> = { STOCK_RECEIPT: 'phiếu nhập', STOCK_ISSUE: 'phiếu xuất', STOCK_COUNT: 'phiếu kiểm kê', STOCK_TRANSFER: 'phiếu điều chuyển', INVENTORY: 'tồn kho', ITEM: 'vật tư', ASSET: 'tài sản', MAINTENANCE: 'bảo trì', MAINTENANCE_RECORD: 'bảo trì', MAINTENANCE_REQUEST: 'yêu cầu bảo trì', ASSET_TRANSFER_REQUEST: 'yêu cầu chuyển tài sản', STORE_ORDER: 'đơn hàng', STORE_SHIPPING_FEES: 'phí giao hàng' };
   return labels[entityType.toUpperCase()] ?? entityType;
 }
 
