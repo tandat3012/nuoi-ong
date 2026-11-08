@@ -2456,7 +2456,7 @@ export const assetTransferRequests = pgTable(
     // Only a DAMAGED arrival waits or is settled; legacy DAMAGED rows confirmed before A2 stay as they were.
     check(
       'ck_asset_transfer_discrepancy',
-      sql`(status <> 'DISCREPANCY'::document_status OR (received_condition = 'DAMAGED' AND resolved_at IS NULL)) AND ((resolved_at IS NULL AND resolved_by_member_id IS NULL AND resolution_note IS NULL) OR (status = 'CONFIRMED'::document_status AND received_condition = 'DAMAGED' AND resolved_at IS NOT NULL AND resolved_by_member_id IS NOT NULL AND coalesce(btrim(resolution_note), '') <> ''))`,
+      sql`(status <> 'DISCREPANCY'::document_status OR (coalesce(received_condition, '') = 'DAMAGED' AND received_at IS NOT NULL AND resolved_at IS NULL)) AND ((resolved_at IS NULL AND resolved_by_member_id IS NULL AND resolution_note IS NULL) OR (status = 'CONFIRMED'::document_status AND received_condition = 'DAMAGED' AND resolved_at IS NOT NULL AND resolved_by_member_id IS NOT NULL AND coalesce(btrim(resolution_note), '') <> ''))`,
     ),
     check(
       'ck_asset_transfer_received',

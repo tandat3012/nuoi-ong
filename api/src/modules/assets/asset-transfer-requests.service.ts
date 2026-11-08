@@ -72,7 +72,7 @@ const NOTIFICATION_TITLES = {
   REJECTED: 'Yêu cầu chuyển tài sản bị từ chối',
   RECEIVE: 'Tài sản đang chuyển đến kho, cần xác nhận nhận',
   RECEIVED: 'Kho đích đã nhận tài sản điều chuyển',
-  DAMAGED: 'Tài sản điều chuyển đến bị hỏng, cần xử lý',
+  DISCREPANCY: 'Tài sản điều chuyển đến bị hỏng, cần xử lý',
   RESOLVED: 'Sai lệch điều chuyển tài sản đã được xử lý',
 };
 
@@ -330,18 +330,23 @@ export class AssetTransferRequestsService {
       await this.audit(tx, reviewer.memberId, 'RECEIVE', request, updated);
       await notifyDocumentCreator(
         tx,
-        {
-          ...this.notification(request, asset.assetCode, 'CONFIRMED'),
-          title: NOTIFICATION_TITLES.RECEIVED,
-        },
+        damaged
+          ? {
+              ...this.notification(request, asset.assetCode, 'DISCREPANCY'),
+              title: NOTIFICATION_TITLES.DISCREPANCY,
+            }
+          : {
+              ...this.notification(request, asset.assetCode, 'CONFIRMED'),
+              title: NOTIFICATION_TITLES.RECEIVED,
+            },
         request.requestedByMemberId,
       );
       if (damaged)
         await notifyFarmApprovers(
           tx,
           {
-            ...this.notification(request, asset.assetCode, 'PENDING_APPROVAL'),
-            title: NOTIFICATION_TITLES.DAMAGED,
+            ...this.notification(request, asset.assetCode, 'DISCREPANCY'),
+            title: NOTIFICATION_TITLES.DISCREPANCY,
           },
           reviewer.memberId,
           request.toWarehouseId,
@@ -647,7 +652,12 @@ export class AssetTransferRequestsService {
   private notification(
     request: TransferRequest,
     assetCode: string,
-    status: 'PENDING_APPROVAL' | 'IN_TRANSIT' | 'CONFIRMED' | 'REJECTED',
+    status:
+      | 'PENDING_APPROVAL'
+      | 'IN_TRANSIT'
+      | 'DISCREPANCY'
+      | 'CONFIRMED'
+      | 'REJECTED',
   ) {
     return {
       farmId: request.farmId,

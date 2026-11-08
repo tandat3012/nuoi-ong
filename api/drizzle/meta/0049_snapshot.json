@@ -1,5 +1,5 @@
 {
-  "id": "55e3a453-d523-4139-a8dd-77b083a638c9",
+  "id": "30afb0f0-e760-40e2-a740-5da3604f8234",
   "prevId": "e83c342a-2250-4b98-8982-472805136ac0",
   "version": "7",
   "dialect": "postgresql",
@@ -713,7 +713,7 @@
       "checkConstraints": {
         "ck_asset_transfer_discrepancy": {
           "name": "ck_asset_transfer_discrepancy",
-          "value": "(status <> 'DISCREPANCY'::document_status OR (received_condition = 'DAMAGED' AND resolved_at IS NULL)) AND ((resolved_at IS NULL AND resolved_by_member_id IS NULL AND resolution_note IS NULL) OR (status = 'CONFIRMED'::document_status AND received_condition = 'DAMAGED' AND resolved_at IS NOT NULL AND resolved_by_member_id IS NOT NULL AND coalesce(btrim(resolution_note), '') <> ''))"
+          "value": "(status <> 'DISCREPANCY'::document_status OR (coalesce(received_condition, '') = 'DAMAGED' AND received_at IS NOT NULL AND resolved_at IS NULL)) AND ((resolved_at IS NULL AND resolved_by_member_id IS NULL AND resolution_note IS NULL) OR (status = 'CONFIRMED'::document_status AND received_condition = 'DAMAGED' AND resolved_at IS NOT NULL AND resolved_by_member_id IS NOT NULL AND coalesce(btrim(resolution_note), '') <> ''))"
         },
         "ck_asset_transfer_received": {
           "name": "ck_asset_transfer_received",
