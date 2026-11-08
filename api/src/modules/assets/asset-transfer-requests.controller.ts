@@ -37,6 +37,7 @@ import { AssetTransferRequestsService } from './asset-transfer-requests.service'
 import {
   CreateAssetTransferRequestDto,
   ReceiveAssetTransferDto,
+  ResolveAssetTransferDto,
   RejectAssetTransferRequestDto,
 } from './dto/asset-lifecycle.dto';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
@@ -189,6 +190,35 @@ export class AssetTransferRequestsController {
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
         input.rejectionReason,
+      ),
+    };
+  }
+
+  @Post(':id/resolve')
+  @ApiOperation({
+    summary:
+      'Chủ trại/quản trị ghi nhận đã xử lý tài sản nhận hỏng (DISCREPANCY → CONFIRMED)',
+    description:
+      'Không đổi tồn hay trạng thái tài sản (đã DAMAGED tại kho đích khi nhận). Gọi lại khi đã xử lý trả về yêu cầu hiện tại.',
+  })
+  @ApiUuidParam('id', 'ID yêu cầu chuyển tài sản.')
+  @ApiFarmIdQuery()
+  @ApiBody({ type: ResolveAssetTransferDto })
+  @ApiBadRequestResponse({ description: 'Thiếu ghi chú xử lý.' })
+  @ApiForbiddenResponse({ description: 'Chỉ ADMIN/FARM_OWNER.' })
+  @ApiConflictResponse({ description: 'Yêu cầu không ở DISCREPANCY.' })
+  async resolve(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id: string,
+    @Query('farmId') farmId: string | undefined,
+    @Body() input: ResolveAssetTransferDto,
+  ) {
+    return {
+      data: await this.service.resolve(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        input.note,
       ),
     };
   }

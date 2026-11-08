@@ -13,6 +13,7 @@ export function shouldReloadAfterFailure(status: number | null) {
 export const REQUEST_STATUS_LABELS = {
   PENDING_APPROVAL: "Chờ duyệt",
   IN_TRANSIT: "Đang chuyển, chờ kho đích nhận",
+  DISCREPANCY: "Nhận hỏng, chờ xử lý",
   CONFIRMED: "Đã duyệt",
   REJECTED: "Đã từ chối",
 } as const;
@@ -29,7 +30,9 @@ export function requestActions(roles: readonly string[], status: RequestStatus, 
     status === "PENDING_APPROVAL";
   // P1-02: across warehouses, approval only dispatches; a warehouse manager of the destination receives.
   const receive = !maintenance && canApproveRequests(roles) && status === "IN_TRANSIT";
-  return { approve: review, reject: review, receive };
+  // A2: only the owner/admin settles a damaged arrival.
+  const resolve = !maintenance && hasAnyRole(roles, FARM_ADMIN_ROLES) && status === "DISCREPANCY";
+  return { approve: review, reject: review, receive, resolve };
 }
 
 export function assetRequestActions(roles: readonly string[], assetStatus: string) {
@@ -73,7 +76,8 @@ export function parseRequestsQuery(
   const page = params.get("page") ?? "";
   const id = params.get("id") ?? "";
   const validStatus = status === "ALL" || status === "PENDING_APPROVAL" ||
-    status === "IN_TRANSIT" || status === "CONFIRMED" || status === "REJECTED";
+    status === "IN_TRANSIT" || status === "DISCREPANCY" || status === "CONFIRMED" ||
+    status === "REJECTED";
   return {
     type: params.get("type") === "transfer" ? "transfer" : "maintenance",
     status: validStatus ? status : canApproveRequests(roles) ? "PENDING_APPROVAL" : "ALL",
@@ -132,6 +136,8 @@ const CONFLICTS: [RegExp, string][] = [
   [/Only PENDING_APPROVAL/, "Yêu cầu không còn chờ duyệt. Có thể người khác đã xử lý."],
   [/ASSET_MISMATCH/, "Mã tài sản không khớp tài sản đã xuất. Kiểm tra lại tài sản thực nhận."],
   [/Only IN_TRANSIT/, "Tài sản không còn đang chuyển. Có thể kho đích đã nhận."],
+  [/Only DISCREPANCY/, "Yêu cầu không còn chờ xử lý sai lệch. Có thể người khác đã xử lý."],
+  [/resolution needs a note/, "Ghi cách đã xử lý tài sản nhận hỏng."],
   [/Only AVAILABLE assets can be requested/, "Tài sản không còn sẵn sàng để yêu cầu chuyển."],
   [/Only AVAILABLE assets can be transferred|Asset changed during transfer/,
     "Trạng thái hoặc vị trí tài sản đã thay đổi nên chưa thể duyệt chuyển."],
