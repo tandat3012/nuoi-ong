@@ -323,8 +323,8 @@ export class StockReceiptsService {
           'An internal return cannot be edited; cancel it and record it again',
         );
       // An order return may end up with nothing usable to take back.
-      if (input.items && !(await this.isOrderReturn(tx, id)))
-        this.validateItems(input.items);
+      const orderReturn = await this.isOrderReturn(tx, id);
+      if (input.items && !orderReturn) this.validateItems(input.items);
       if (input.warehouseId) assertInScope(writer.scope, input.warehouseId);
       if (receipt.status !== 'DRAFT') {
         throw new ConflictException('Only DRAFT receipts can be edited');
@@ -371,8 +371,33 @@ export class StockReceiptsService {
           legacyByLine.delete(source.id);
           return source;
         };
-        const rows = input.items.map((item) => {
-          const source = sourceOf(item);
+        const sources = input.items.map(sourceOf);
+        // P1-08: an order return only takes back the shipped assets, each by its
+        // line id; anything else would silently drop the asset link and condition.
+        if (orderReturn) {
+          const unmatched = input.items
+            .filter((_, index) => !sources[index]?.assetId)
+            .map((item) => item.itemId);
+          const [asset] = unmatched.length
+            ? await tx
+                .select({ id: items.id })
+                .from(items)
+                .where(
+                  and(
+                    eq(items.farmId, farmId),
+                    inArray(items.id, unmatched),
+                    eq(items.trackingMode, 'ASSET'),
+                  ),
+                )
+                .limit(1)
+            : [];
+          if (asset)
+            throw new BadRequestException(
+              'An order return line of an asset must keep the lineId of a shipped asset',
+            );
+        }
+        const rows = input.items.map((item, index) => {
+          const source = sources[index];
           const assetId = source?.assetId ?? null;
           if (item.assetCondition && !assetId)
             throw new BadRequestException(
@@ -384,19 +409,29 @@ export class StockReceiptsService {
             stockReceiptId: id,
             itemId: item.itemId,
             quantity: item.quantity,
-            unitPrice: item.unitPrice ?? '0',
+            // Fields a client leaves out keep the line's saved value (P1-08).
+            unitPrice: item.unitPrice ?? source?.unitPrice ?? '0',
             lotId: item.lotId,
             supplierLotNumber: item.supplierLotNumber,
             legacyLotNumber:
               source && !item.lotId ? source.legacyLotNumber : null,
-            locationId: item.locationId,
+            locationId:
+              item.locationId === undefined
+                ? (source?.locationId ?? null)
+                : item.locationId,
             manufacturedDate: item.manufacturedDate,
             expiryDate: item.expiryDate,
             assetId,
             assetCode: assetId ? source!.assetCode : item.assetCode,
             serialNumber: assetId ? source!.serialNumber : item.serialNumber,
-            assetCondition: assetId ? (item.assetCondition ?? null) : null,
-            note: item.note,
+            // P1-08: a client that does not send the field (old mobile) keeps the
+            // inspected condition; only an explicit null clears it.
+            assetCondition: assetId
+              ? item.assetCondition === undefined
+                ? source!.assetCondition
+                : item.assetCondition
+              : null,
+            note: item.note === undefined ? (source?.note ?? null) : item.note,
           };
         });
         await tx
