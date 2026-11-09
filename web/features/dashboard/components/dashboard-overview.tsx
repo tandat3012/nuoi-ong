@@ -1,148 +1,127 @@
 'use client';
 
-import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import * as React from 'react';
 import { useAuthenticatedRequest, useFarmMembership } from '@/features/auth';
-import { formatOrderMoney } from '@/features/commerce/orders/order.logic';
-import { isNavigationItemVisible, primaryNavigationSections } from '@/shared/config/navigation';
 import { ErrorAlert } from '@/shared/components/ui/error-alert';
-import { PageHeader } from '@/shared/components/ui/page-header';
-import { Skeleton } from '@/shared/components/ui/skeleton';
-
-type FarmSummary = {
-  stockValue: string;
-  unpricedItems: number;
-  belowMinimum: number;
-  expiringLots: number;
-  expiredLots: number;
-  assetsInMaintenance: number;
-  pendingAdjustments: number;
-};
-type StoreSummary = { ordersToday: number; ordersPending: number };
-// The API nulls the figures of an area the caller's roles do not cover.
-type DashboardSummary = (FarmSummary | { [K in keyof FarmSummary]: null }) &
-  (StoreSummary | { [K in keyof StoreSummary]: null });
-
-type Metric = { label: string; value: string; note?: string; href: string; alert?: boolean };
-
-function metrics(summary: DashboardSummary, showOrders: boolean): Metric[] {
-  const list: Metric[] = summary.stockValue === null ? [] : farmMetrics(summary);
-  if (showOrders && summary.ordersToday !== null)
-    list.push({
-      label: 'Đơn hàng hôm nay',
-      value: String(summary.ordersToday),
-      note: `${summary.ordersPending} đơn chờ xác nhận`,
-      href: '/store-orders',
-      alert: summary.ordersPending > 0,
-    });
-  return list;
-}
-
-function farmMetrics(summary: FarmSummary): Metric[] {
-  return [
-    {
-      // NV09-F01: with unpriced stock the figure is only the priced part, never a full total.
-      label: summary.unpricedItems ? 'Giá trị phần tồn đã định giá' : 'Giá trị tồn kho (ước tính)',
-      value: formatOrderMoney(summary.stockValue),
-      // Same definition as the stock report (AC27); scope = the caller's warehouses.
-      note: `Bình quân gia quyền di động, như báo cáo nhập–xuất–tồn; các kho bạn được xem${
-        summary.unpricedItems ? `. Chưa đầy đủ: ${summary.unpricedItems} mặt hàng có tồn chưa có giá ở ít nhất một kho, phần đó không được tính` : ''
-      }`,
-      href: '/inventory',
-      alert: summary.unpricedItems > 0,
-    },
-    { label: 'Dưới mức tồn tối thiểu', value: String(summary.belowMinimum), href: '/materials', alert: summary.belowMinimum > 0 },
-    {
-      label: 'Lô sắp hết hạn (30 ngày)',
-      value: String(summary.expiringLots),
-      note: summary.expiredLots ? `${summary.expiredLots} lô đã hết hạn còn tồn` : undefined,
-      href: '/inventory',
-      alert: summary.expiringLots + summary.expiredLots > 0,
-    },
-    { label: 'Tài sản đang bảo trì', value: String(summary.assetsInMaintenance), href: '/maintenance' },
-    { label: 'Điều chỉnh tồn chờ duyệt', value: String(summary.pendingAdjustments), href: '/inventory', alert: summary.pendingAdjustments > 0 },
-  ];
-}
-
-function DashboardMetrics({ farmId, showOrders }: { farmId: string; showOrders: boolean }) {
-  const request = useAuthenticatedRequest();
-  const [result, setResult] = useState<{ summary?: DashboardSummary; error?: boolean } | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void request<{ data: DashboardSummary }>('/dashboard/summary', { params: { farmId } })
-      .then(({ data }) => { if (!cancelled) setResult({ summary: data }); })
-      .catch(() => { if (!cancelled) setResult({ error: true }); });
-    return () => { cancelled = true; };
-  }, [request, farmId]);
-
-  if (result?.error) return <ErrorAlert message="Không tải được số liệu tổng quan. Vui lòng tải lại trang." />;
-  return (
-    <section aria-label="Số liệu tổng quan" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {!result?.summary
-        ? Array.from({ length: showOrders ? 6 : 5 }, (_, index) => <Skeleton key={index} className="h-28 rounded-xl" />)
-        : metrics(result.summary, showOrders).map((metric) => (
-            <Link
-              key={metric.label}
-              href={metric.href}
-              className={`rounded-xl border bg-card p-4 shadow-2xs transition-colors hover:border-primary/40 ${metric.alert ? 'border-warning/50' : ''}`}
-            >
-              <span className="block text-sm text-muted-foreground">{metric.label}</span>
-              <span className={`mt-1 block text-2xl font-semibold tabular-nums ${metric.alert ? 'text-warning' : 'text-foreground'}`}>{metric.value}</span>
-              {metric.note && <span className="mt-1 block text-xs text-muted-foreground">{metric.note}</span>}
-            </Link>
-          ))}
-    </section>
-  );
-}
+import type { DashboardSummary } from '../types/dashboard';
+import { DashboardHeader } from './dashboard-header';
+import { DashboardActionRadar } from './dashboard-action-radar';
+import { DashboardKpiGrid } from './dashboard-kpi-grid';
+import { DashboardQuickActions } from './dashboard-quick-actions';
+import { DashboardTrendSummary } from './dashboard-trend-summary';
+import { DashboardActivityFeed } from './dashboard-activity-feed';
 
 export function DashboardOverview() {
   const access = useFarmMembership();
-  const { membership, selectedFarmId, isStoreFarm, canViewMetrics, canManageStore } = access;
+  const {
+    membership,
+    selectedFarmId,
+    isStoreFarm,
+    canViewMetrics,
+    canManageStore,
+    canManageWarehouse,
+  } = access;
 
-  const sections = primaryNavigationSections
-    .map((section) => ({
-      ...section,
-      items: section.items.filter((item) => item.href !== '/dashboard' && isNavigationItemVisible(item, access)),
-    }))
-    .filter((section) => section.items.length > 0);
+  const request = useAuthenticatedRequest();
+  const [refreshKey, setRefreshKey] = React.useState(0);
+  const [result, setResult] = React.useState<{
+    key: string;
+    data: DashboardSummary | null;
+  } | null>(null);
+
+  const handleRefresh = React.useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+
+  const requestKey = `${selectedFarmId}:${refreshKey}`;
+  const canFetch = Boolean(selectedFarmId && canViewMetrics);
+
+  React.useEffect(() => {
+    if (!selectedFarmId || !canViewMetrics) return;
+
+    let cancelled = false;
+    request<{ data: DashboardSummary }>('/dashboard/summary', {
+      params: { farmId: selectedFarmId },
+    })
+      .then(({ data }) => {
+        if (!cancelled) setResult({ key: requestKey, data });
+      })
+      .catch(() => {
+        if (!cancelled) setResult({ key: requestKey, data: null });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [request, selectedFarmId, canViewMetrics, requestKey]);
+
+  const isLoading = canFetch && result?.key !== requestKey;
+  const error = canFetch && result?.key === requestKey && result.data === null;
+  const summary = result?.key.startsWith(`${selectedFarmId}:`) ? result.data : null;
+
+  if (!membership || !selectedFarmId) {
+    return (
+      <div className="py-12 text-center">
+        <h2 className="text-lg font-semibold text-foreground">Chọn trang trại để bắt đầu làm việc</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Vui lòng chọn trang trại từ thanh điều hướng trên cùng để truy cập bảng điều khiển vận hành.
+        </p>
+      </div>
+    );
+  }
+
+  const primaryRole = membership.roles[0];
+  const showOrders = isStoreFarm && canManageStore;
 
   return (
-    <div className="space-y-8">
-      <PageHeader
-        title="Tổng quan"
-        description={membership ? `Trang trại ${membership.farm.name}` : 'Chọn trang trại để bắt đầu làm việc.'}
+    <div className="space-y-6 pb-8 max-w-7xl mx-auto">
+      {/* Executive Header with Refresh & Quick Actions */}
+      <DashboardHeader
+        farmName={membership.farm.name}
+        roleCode={primaryRole}
+        onRefresh={handleRefresh}
+        isRefreshing={isLoading}
+        canManageWarehouse={canManageWarehouse}
+        isStoreFarm={isStoreFarm}
       />
 
-      {selectedFarmId && membership && canViewMetrics && (
-        <DashboardMetrics key={selectedFarmId} farmId={selectedFarmId} showOrders={isStoreFarm && canManageStore} />
+      {error && (
+        <ErrorAlert message="Không tải được số liệu tổng quan của trang trại. Vui lòng thử bấm Làm mới lại." />
       )}
 
-      {sections.map((section, index) => (
-        <section key={section.title} aria-labelledby={`hub-${index}`} className="space-y-3">
-          <h2 id={`hub-${index}`} className="text-sm font-semibold text-muted-foreground">
-            {section.title}
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {section.items.map(({ href, label, description, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className="group flex items-start gap-3.5 rounded-xl border bg-card p-4 shadow-2xs transition-colors hover:border-primary/40 hover:bg-secondary/40"
-              >
-                <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-secondary text-primary">
-                  <Icon className="size-5" aria-hidden="true" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-semibold text-foreground group-hover:text-primary">{label}</span>
-                  {description && (
-                    <span className="mt-0.5 block text-sm leading-5 text-muted-foreground">{description}</span>
-                  )}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ))}
+      {/* Tầng 1: Action Radar - Cảnh báo khẩn & Việc cần xử lý ngay */}
+      {summary && canViewMetrics && (
+        <DashboardActionRadar summary={summary} showOrders={showOrders} />
+      )}
+
+      {/* Tầng 2: Executive KPI Cards */}
+      {canViewMetrics && (
+        <DashboardKpiGrid
+          summary={summary}
+          isLoading={isLoading}
+          showOrders={showOrders}
+        />
+      )}
+
+      {/* Phím tắt thao tác nhanh */}
+      <DashboardQuickActions canManageWarehouse={canManageWarehouse} />
+
+      {/* Tầng 3: Operational Workspace (Biểu đồ xu hướng & Nhật ký thao tác) */}
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className={canManageWarehouse ? 'lg:col-span-7' : 'lg:col-span-12'}>
+          <DashboardTrendSummary
+            key={`trend-${selectedFarmId}-${refreshKey}`}
+            farmId={selectedFarmId}
+            canManageWarehouse={canManageWarehouse}
+          />
+        </div>
+        <div className={canManageWarehouse ? 'lg:col-span-5' : 'lg:col-span-12'}>
+          <DashboardActivityFeed
+            key={`feed-${selectedFarmId}-${refreshKey}`}
+            farmId={selectedFarmId}
+          />
+        </div>
+      </div>
     </div>
   );
 }
