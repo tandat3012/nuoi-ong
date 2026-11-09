@@ -707,8 +707,10 @@ export function ReceiptDraftForm({
             <AddLineTile label="Thêm vật tư hoặc thiết bị/tài sản">
               {(close) => (
                 <>
-                  <div className="space-y-1">
-                    Vật tư
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">
+                      Vật tư
+                    </label>
                     <ReceiptDraftPicker
                       farmId={farmId}
                       kind="material"
@@ -720,8 +722,10 @@ export function ReceiptDraftForm({
                       }}
                     />
                   </div>
-                  <div className="space-y-1">
-                    Thiết bị/tài sản
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">
+                      Thiết bị / tài sản
+                    </label>
                     <ReceiptDraftPicker
                       farmId={farmId}
                       kind="asset"
@@ -739,7 +743,7 @@ export function ReceiptDraftForm({
         </section>
 
         {/* Sticky Action Bar */}
-        <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card/95 p-4 shadow-lg backdrop-blur-xs">
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card/95 p-4 shadow-lg backdrop-blur-xs">
           <div className="flex flex-wrap items-center gap-4 text-xs font-medium">
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Số dòng hàng:</span>
