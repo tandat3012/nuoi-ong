@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, Link2, Pencil, Plus } from "lucide-react";
 import { useAuthenticatedRequest, useFarmMembership } from "@/features/auth";
 import { ConfirmDialog } from "@/shared/components/ui/confirm-dialog";
 import { FormDialog } from "@/shared/components/ui/form-dialog";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
+import { cn } from "@/shared/lib/utils";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import {
@@ -117,6 +118,9 @@ export function StoreProductDetail({
     }
   };
 
+  const mappedCount = product.variants.filter((v) => v.item).length;
+  const prices = product.variants.map((v) => Number(v.price));
+
   return (
     <div className="space-y-6">
       <Link
@@ -128,9 +132,16 @@ export function StoreProductDetail({
       </Link>
       <PageHeader
         title={product.name}
-        description={`/products/${product.slug} · ${
-          categories.find((c) => c.id === product.categoryId)?.name ?? ""
-        }`}
+        description={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="font-mono text-xs">/products/{product.slug}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {categories.find((c) => c.id === product.categoryId)?.name ??
+                "Chưa có danh mục"}
+            </span>
+          </span>
+        }
         badge={
           <Badge variant={statusVariant[product.status]}>
             {storeStatusLabels[product.status]}
@@ -161,10 +172,40 @@ export function StoreProductDetail({
         }
       />
       {actionError && <ErrorAlert message={actionError} />}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: "Quy cách", value: String(product.variants.length) },
+          {
+            label: "Đã gắn vật tư",
+            value: `${mappedCount}/${product.variants.length}`,
+            warn: mappedCount < product.variants.length,
+          },
+          { label: "Giá thấp nhất", value: prices.length ? formatVndCurrency(Math.min(...prices)) : "—" },
+          { label: "Giá cao nhất", value: prices.length ? formatVndCurrency(Math.max(...prices)) : "—" },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className="rounded-xl border border-border bg-card px-4 py-3 shadow-2xs"
+          >
+            <p className="text-xs font-medium text-muted-foreground">{stat.label}</p>
+            <p
+              className={cn(
+                "mt-1 text-xl font-semibold tabular-nums",
+                stat.warn && "text-warning",
+              )}
+            >
+              {stat.value}
+            </p>
+          </div>
+        ))}
+      </div>
       {product.description && (
-        <p className="whitespace-pre-line text-sm text-muted-foreground">
-          {product.description}
-        </p>
+        <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-2xs">
+          <p className="text-xs font-medium text-muted-foreground">Mô tả</p>
+          <p className="mt-1 whitespace-pre-line text-sm text-foreground">
+            {product.description}
+          </p>
+        </div>
       )}
 
       <Card>
@@ -173,14 +214,13 @@ export function StoreProductDetail({
             <div>
               <h2 className="text-base font-semibold">Quy cách bán</h2>
               <p className="text-sm text-muted-foreground">
-                Cột vật tư là vật tư của trại đang chọn. Trại chỉ bán quy cách
-                đã gắn vật tư.
+                Trại chỉ bán quy cách đã gắn vật tư của trại đang chọn.
               </p>
             </div>
             {canEditCatalog && (
-              <Button variant="outline" onClick={() => setVariant("new")}>
+              <Button onClick={() => setVariant("new")}>
                 <Plus className="size-4" aria-hidden="true" />
-                Thêm
+                Thêm quy cách
               </Button>
             )}
           </div>
@@ -188,11 +228,11 @@ export function StoreProductDetail({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Quy cách</TableHead>
-                  <TableHead>Vật tư của trại</TableHead>
-                  <TableHead className="text-right">Giá</TableHead>
-                  <TableHead className="text-right">Bước</TableHead>
-                  <TableHead>Trạng thái</TableHead>
+                  <TableHead className="text-[0.6875rem] font-semibold uppercase tracking-wider">Quy cách</TableHead>
+                  <TableHead className="text-[0.6875rem] font-semibold uppercase tracking-wider">Vật tư của trại</TableHead>
+                  <TableHead className="text-[0.6875rem] font-semibold uppercase tracking-wider text-right">Giá</TableHead>
+                  <TableHead className="text-[0.6875rem] font-semibold uppercase tracking-wider text-right">Bước bán</TableHead>
+                  <TableHead className="text-[0.6875rem] font-semibold uppercase tracking-wider">Trạng thái</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -202,18 +242,23 @@ export function StoreProductDetail({
                     <TableCell className="font-medium">{row.name}</TableCell>
                     <TableCell>
                       {row.item ? (
-                        `${row.item.code} — ${row.item.name}`
+                        <>
+                          <span className="font-mono text-xs">{row.item.code}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {row.item.name}
+                          </span>
+                        </>
                       ) : (
-                        <span className="text-muted-foreground">Chưa gắn</span>
+                        <Badge variant="warning">Chưa gắn vật tư</Badge>
                       )}
-                      <span className="block text-xs text-muted-foreground">
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
                         {row.farmCount} trại cung cấp
                       </span>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right font-medium tabular-nums">
                       {formatVndCurrency(Number(row.price))}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
                       {formatInventoryQuantity(row.quantityStep)}{" "}
                       {row.unit?.symbol ?? row.unit?.name}
                     </TableCell>
@@ -229,6 +274,7 @@ export function StoreProductDetail({
                           variant="ghost"
                           onClick={() => setMapping(row)}
                         >
+                          <Link2 className="size-3.5" aria-hidden="true" />
                           {row.item ? "Đổi vật tư" : "Gắn vật tư"}
                         </Button>
                       )}
@@ -236,6 +282,7 @@ export function StoreProductDetail({
                         <Button
                           size="sm"
                           variant="ghost"
+                          className="text-destructive hover:text-destructive"
                           onClick={() => setUnmapping(row)}
                         >
                           Gỡ
@@ -247,6 +294,7 @@ export function StoreProductDetail({
                           variant="ghost"
                           onClick={() => setVariant(row)}
                         >
+                          <Pencil className="size-3.5" aria-hidden="true" />
                           Sửa
                         </Button>
                       )}

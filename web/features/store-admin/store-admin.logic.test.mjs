@@ -4,6 +4,8 @@ import {
   canManageStore,
   isVndAmount,
   moveItem,
+  salesStockState,
+  summarizeSalesStock,
   slugify,
   storeAdminError,
   validateStoreImage,
@@ -45,4 +47,20 @@ test("isVndAmount accepts whole non-negative VND only", () => {
   assert.equal(isVndAmount("-1"), false);
   assert.equal(isVndAmount("1.5"), false);
   assert.equal(isVndAmount(""), false);
+});
+
+test("sales stock state and summary", () => {
+  const rows = [
+    { saleable: true, available: "3.000", held: "0" },
+    { saleable: true, available: "0", held: "2" },
+    { saleable: false, available: "5", held: "0" },
+  ];
+  assert.deepEqual(rows.map(salesStockState), ["ON", "OUT", "OFF"]);
+  assert.deepEqual(summarizeSalesStock(rows), {
+    total: 3,
+    ON: 1,
+    OUT: 1,
+    OFF: 1,
+    held: 1,
+  });
 });
