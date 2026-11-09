@@ -176,13 +176,15 @@ export function StoreOrderReports({ farmId }: { farmId: string }) {
   };
 
   // Calculations for daily revenue chart
+  const daily = current?.stats?.daily;
+  const counts = current?.stats?.counts;
   const { dailyMax, peakDay, totalPeriodRevenue } = useMemo(() => {
-    if (!current?.stats?.daily) return { dailyMax: 1, peakDay: null, totalPeriodRevenue: 0 };
+    if (!daily) return { dailyMax: 1, peakDay: null, totalPeriodRevenue: 0 };
     let max = 0;
     let peak: { date: string; revenue: string } | null = null;
     let sum = 0;
 
-    for (const d of current.stats.daily) {
+    for (const d of daily) {
       const val = Number(d.revenue) || 0;
       sum += val;
       if (val > max) {
@@ -191,13 +193,13 @@ export function StoreOrderReports({ farmId }: { farmId: string }) {
       }
     }
     return { dailyMax: Math.max(1, max), peakDay: peak, totalPeriodRevenue: sum };
-  }, [current?.stats?.daily]);
+  }, [daily]);
 
   // Total orders count across all statuses
   const totalOrdersCount = useMemo(() => {
-    if (!current?.stats?.counts) return 0;
-    return Object.values(current.stats.counts).reduce((acc, v) => acc + (v || 0), 0);
-  }, [current?.stats?.counts]);
+    if (!counts) return 0;
+    return Object.values(counts).reduce((acc, v) => acc + (v || 0), 0);
+  }, [counts]);
 
   return (
     <div className="space-y-6">
@@ -212,19 +214,19 @@ export function StoreOrderReports({ farmId }: { farmId: string }) {
             <span className="mr-1 text-xs font-semibold text-muted-foreground">
               Khoảng thời gian:
             </span>
-            {[
+            {([
               { id: "today", label: "Hôm nay" },
               { id: "7d", label: "7 ngày qua" },
               { id: "30d", label: "30 ngày qua" },
               { id: "thisMonth", label: "Tháng này" },
               { id: "lastMonth", label: "Tháng trước" },
-            ].map((p) => (
+            ] as const).map((p) => (
               <Button
                 key={p.id}
                 type="button"
                 variant={activePreset === p.id ? "default" : "outline"}
                 size="sm"
-                onClick={() => handleApplyPreset(p.id as any)}
+                onClick={() => handleApplyPreset(p.id)}
                 className={`h-8 px-2.5 text-xs font-medium ${
                   activePreset === p.id
                     ? "shadow-2xs font-semibold"
