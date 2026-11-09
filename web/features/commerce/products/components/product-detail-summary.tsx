@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Star, Truck, ShieldCheck, RotateCcw } from 'lucide-react';
+import { Check, Star, Truck, ShieldCheck, RotateCcw } from 'lucide-react';
 import type {
   StorefrontProductDetail,
   StorefrontProductVariant,
@@ -12,7 +12,7 @@ import {
   resolveActiveProductSnapshot,
   resolveProductQualityBadge,
 } from './product-detail.logic';
-import { getProductCardRating } from './product-card.logic';
+import { formatProductCardPriceRange, getProductCardRating } from './product-card.logic';
 import { ProductQuantitySelector } from './product-quantity-selector';
 import { ProductPurchaseActions } from './product-purchase-actions';
 import { ProductGallery } from './product-gallery';
@@ -36,6 +36,7 @@ export function ProductDetailSummary({
   onVariantChange,
   className,
 }: ProductDetailSummaryProps) {
+  const variantGroupId = React.useId();
   const hasMultipleVariants =
     Array.isArray(product.variants) && product.variants.length > 1;
   const [selectedVariantId, setSelectedVariantId] = React.useState<
@@ -188,7 +189,6 @@ export function ProductDetailSummary({
       {/* 5. Current price, valid previous price, and calculated savings */}
       <div className="flex flex-wrap items-baseline gap-3">
         <span className="text-2xl sm:text-3xl font-bold text-[#2d241e] dark:text-foreground">
-          {hasMultipleVariants && !selectedVariant ? 'Giá từ ' : ''}
           {formatVndCurrency(snapshot.price) ?? 'Chưa có giá'}
         </span>
 
@@ -256,37 +256,39 @@ export function ProductDetailSummary({
         </p>
       )}
       {hasMultipleVariants && product.variants && (
-        <div className="flex flex-col gap-2 pt-1">
-          <span className="text-xs sm:text-sm font-medium text-foreground">
-            Quy cách
-          </span>
+        <fieldset aria-label="Chọn quy cách sản phẩm" className="min-w-0 pt-1">
+          <legend className="mb-3 text-sm font-semibold text-foreground">
+            Chọn quy cách
+          </legend>
           <div
-            role="radiogroup"
-            aria-label="Chọn quy cách sản phẩm"
-            className="flex flex-wrap gap-2.5"
+            className="grid grid-cols-2 gap-2.5 sm:grid-cols-3"
           >
             {product.variants.map((v) => {
               const isSelected = v.id === selectedVariantId;
               return (
-                <button
-                  key={v.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={isSelected}
-                  onClick={() => handleSelectVariant(v)}
-                  className={cn(
-                    'rounded-xl px-4 py-2 text-xs sm:text-sm font-medium transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-primary',
-                    isSelected
-                      ? 'bg-[#ebb02d] text-[#451a03] font-semibold shadow-xs'
-                      : 'border border-[#ede5db] dark:border-border/80 bg-background text-foreground hover:bg-muted/50',
-                  )}
-                >
-                  {v.name}
-                </button>
+                <label key={v.id} className="min-w-0 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={variantGroupId}
+                    value={v.id}
+                    checked={isSelected}
+                    onChange={() => handleSelectVariant(v)}
+                    className="peer sr-only"
+                  />
+                  <span className="flex h-full min-h-20 flex-col gap-2 rounded-xl border border-border bg-card p-3 text-foreground transition-colors hover:bg-muted/50 peer-checked:border-foreground peer-checked:bg-secondary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring">
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 break-words text-sm font-medium">{v.name}</span>
+                      <Check className={cn('mt-0.5 size-4 shrink-0', !isSelected && 'invisible')} aria-hidden="true" />
+                    </span>
+                    <span className="mt-auto break-words text-sm font-semibold tabular-nums">
+                      {formatProductCardPriceRange(v.price) ?? 'Chưa có giá'}
+                    </span>
+                  </span>
+                </label>
               );
             })}
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* 9. Quantity control */}

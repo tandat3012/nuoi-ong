@@ -51,22 +51,22 @@ export function ProductsActiveFilters({
   return (
     <div
       aria-label="Các bộ lọc đang áp dụng"
-      className={className ?? 'mb-6 flex flex-wrap items-center gap-2'}
+      className={className ?? 'mb-4 flex flex-wrap items-center gap-2'}
     >
-      <span className="text-xs font-medium text-muted-foreground">
+      <span className="sr-only">
         Đang lọc theo:
       </span>
 
       {/* Pill: Từ khóa tìm kiếm */}
       {q && (
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
-          <span>
-            Tìm kiếm: <strong className="font-semibold">&ldquo;{q}&rdquo;</strong>
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
+          <span className="min-w-0 break-words">
+            &ldquo;{q}&rdquo;
           </span>
           <Link
             href={removeQHref}
             aria-label="Xóa từ khóa tìm kiếm"
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <X className="size-3" aria-hidden="true" />
           </Link>
@@ -75,14 +75,12 @@ export function ProductsActiveFilters({
 
       {/* Pill: Danh mục */}
       {category && (
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
-          <span>
-            Danh mục: <strong className="font-semibold">{categoryName || category}</strong>
-          </span>
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
+          <span className="min-w-0 break-words">{categoryName || category}</span>
           <Link
             href={removeCategoryHref}
             aria-label={`Xóa bộ lọc danh mục ${categoryName || category}`}
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <X className="size-3" aria-hidden="true" />
           </Link>
@@ -91,7 +89,7 @@ export function ProductsActiveFilters({
 
       {/* Pill: Khoảng giá */}
       {hasPrice && (
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
           <span>
             Giá:{' '}
             <strong className="font-semibold">
@@ -101,7 +99,7 @@ export function ProductsActiveFilters({
           <Link
             href={removePriceHref}
             aria-label="Xóa bộ lọc khoảng giá"
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <X className="size-3" aria-hidden="true" />
           </Link>
@@ -110,14 +108,14 @@ export function ProductsActiveFilters({
 
       {/* Pill: Còn hàng */}
       {inStock && (
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
           <span>
-            Tình trạng: <strong className="font-semibold">Còn hàng</strong>
+            Còn hàng
           </span>
           <Link
             href={removeInStockHref}
             aria-label="Xóa bộ lọc còn hàng"
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <X className="size-3" aria-hidden="true" />
           </Link>
@@ -126,9 +124,8 @@ export function ProductsActiveFilters({
 
       {/* Pill: Sắp xếp */}
       {sort && (
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground shadow-2xs">
           <span>
-            Sắp xếp:{' '}
             <strong className="font-semibold">
               {sort === 'price_asc' ? 'Giá thấp đến cao' : 'Giá cao đến thấp'}
             </strong>
@@ -136,7 +133,7 @@ export function ProductsActiveFilters({
           <Link
             href={removeSortHref}
             aria-label="Xóa tùy chọn sắp xếp"
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <X className="size-3" aria-hidden="true" />
           </Link>
