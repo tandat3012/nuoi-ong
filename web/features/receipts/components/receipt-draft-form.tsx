@@ -20,6 +20,7 @@ import { Textarea } from "@/shared/components/ui/textarea";
 import { Input } from "@/shared/components/ui/input";
 import { Select } from "@/shared/components/ui/select";
 import { DateInput } from "@/shared/components/ui/date-input";
+import { formatVndCurrency } from "@/shared/lib/currency";
 import {
   DOCUMENT_CODE_HINT,
   documentCodeLabel,
@@ -202,6 +203,17 @@ export function ReceiptDraftForm({
         </button>
       </div>
     );
+
+  const totalValue = lines.reduce((sum, line) => {
+    const qty = Number(line.quantity) || 0;
+    const price = Number(line.unitPrice) || 0;
+    return sum + qty * price;
+  }, 0);
+
+  const totalQuantity = lines.reduce((sum, line) => {
+    return sum + (line.trackingMode === "ASSET" ? 1 : Number(line.quantity) || 0);
+  }, 0);
+
   return (
     <form
       noValidate
@@ -336,24 +348,43 @@ export function ReceiptDraftForm({
             {lines.map((line) => (
               <div
                 key={line.rowKey}
-                className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4"
+                className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-2xs hover:border-primary/40 transition-all"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-base font-semibold">{line.label}</p>
-                  <Badge variant={line.trackingMode === "ASSET" ? "info" : "secondary"}>
-                    {line.trackingMode === "LOT"
-                      ? "Theo lô"
-                      : line.trackingMode === "ASSET"
-                        ? "Tài sản"
-                        : "Theo số lượng"}
-                  </Badge>
+                <div className="flex items-start justify-between gap-2 border-b border-border/50 pb-2.5">
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-foreground leading-snug">{line.label}</p>
+                    <Badge variant={line.trackingMode === "ASSET" ? "info" : line.trackingMode === "LOT" ? "secondary" : "outline"} className="text-xs">
+                      {line.trackingMode === "LOT"
+                        ? "Theo lô"
+                        : line.trackingMode === "ASSET"
+                          ? "Tài sản"
+                          : "Theo số lượng"}
+                    </Badge>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Bỏ dòng ${line.label}`}
+                    onClick={() =>
+                      setLines((previous) =>
+                        previous.filter((row) => row.rowKey !== line.rowKey),
+                      )
+                    }
+                    className="size-7 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer"
+                    title="Bỏ dòng hàng này"
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                  </Button>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {line.trackingMode === "ASSET" ? (
-                    <p>Số lượng: 1 tài sản</p>
+                    <div className="flex items-center text-xs font-medium text-foreground bg-muted/40 px-3 py-2 rounded-md">
+                      Số lượng: 1 tài sản
+                    </div>
                   ) : (
-                    <label>
-                      Số lượng *
+                    <label className="space-y-1 text-xs font-medium">
+                      <span>Số lượng *</span>
                       <Input
                         aria-label={`Số lượng ${line.label}`}
                         required
@@ -368,12 +399,12 @@ export function ReceiptDraftForm({
                             ),
                           )
                         }
-                        className="w-full"
+                        className="w-full text-xs"
                       />
                     </label>
                   )}
-                  <label>
-                    Đơn giá
+                  <label className="space-y-1 text-xs font-medium">
+                    <span>Đơn giá nhập</span>
                     <Input
                       aria-label={`Đơn giá ${line.label}`}
                       inputMode="decimal"
@@ -387,9 +418,17 @@ export function ReceiptDraftForm({
                           ),
                         )
                       }
-                      className="w-full"
+                      className="w-full text-xs"
                     />
                   </label>
+                  {Number(line.quantity) > 0 && Number(line.unitPrice) > 0 && (
+                    <div className="sm:col-span-2 flex items-center justify-between text-xs pt-1 px-1 text-muted-foreground bg-muted/30 p-2 rounded-md">
+                      <span>Thành tiền dự kiến:</span>
+                      <span className="font-bold text-primary text-sm tabular-nums">
+                        {formatVndCurrency(Number(line.quantity) * Number(line.unitPrice))}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {line.trackingMode === "LOT" && (
                   <fieldset className="flex flex-wrap gap-4">
@@ -663,23 +702,6 @@ export function ReceiptDraftForm({
                     className="w-full"
                   />
                 </label>
-                <div className="mt-auto flex justify-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Bỏ dòng ${line.label}`}
-                    onClick={() =>
-                      setLines((previous) =>
-                        previous.filter((row) => row.rowKey !== line.rowKey),
-                      )
-                    }
-                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" aria-hidden="true" />
-                    Bỏ dòng
-                  </Button>
-                </div>
               </div>
             ))}
             <AddLineTile label="Thêm vật tư hoặc thiết bị/tài sản">
@@ -715,13 +737,47 @@ export function ReceiptDraftForm({
             </AddLineTile>
           </div>
         </section>
-        <div className="flex gap-3">
-          <Button type="submit">
-            {isSaving ? "Đang lưu..." : initial ? "Lưu thay đổi" : "Lưu nháp"}
-          </Button>
-          <Button variant="outline" onClick={onCancel}>
-            Quay lại danh sách
-          </Button>
+
+        {/* Sticky Action Bar */}
+        <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card/95 p-4 shadow-lg backdrop-blur-xs">
+          <div className="flex flex-wrap items-center gap-4 text-xs font-medium">
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Số dòng hàng:</span>
+              <span className="font-bold text-foreground tabular-nums">{lines.length}</span>
+            </div>
+            {totalQuantity > 0 && (
+              <div className="flex items-center gap-1.5 border-l border-border pl-4">
+                <span className="text-muted-foreground">Tổng số lượng:</span>
+                <span className="font-bold text-foreground tabular-nums">{totalQuantity}</span>
+              </div>
+            )}
+            {totalValue > 0 && (
+              <div className="flex items-center gap-1.5 border-l border-border pl-4">
+                <span className="text-muted-foreground">Tổng tiền tạm tính:</span>
+                <span className="font-bold text-primary tabular-nums text-sm">
+                  {formatVndCurrency(totalValue)}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              type="button"
+              onClick={onCancel}
+              disabled={isSaving}
+              className="text-xs font-medium h-9"
+            >
+              Quay lại danh sách
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSaving}
+              className="font-semibold shadow-xs text-xs h-9"
+            >
+              {isSaving ? "Đang lưu..." : initial ? "Lưu thay đổi" : "Lưu phiếu nháp"}
+            </Button>
+          </div>
         </div>
       </fieldset>
     </form>
