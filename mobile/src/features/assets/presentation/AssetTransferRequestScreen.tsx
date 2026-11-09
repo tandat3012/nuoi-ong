@@ -25,7 +25,7 @@ async function activeWarehouses(token: string, farmId: string) {
   let totalPages = 1;
   do {
     const response = await apiRequest<Paginated<Warehouse>>('/warehouses', {
-      token, params: { farmId, status: 'ACTIVE', page, pageSize: 100 }, skipCache: true,
+      token, params: { farmId, status: 'ACTIVE', destination: 'true', page, pageSize: 100 }, skipCache: true,
     });
     warehouses.push(...response.data.filter((row) => row.farmId === farmId && row.status === 'ACTIVE'));
     totalPages = response.page.totalPages;
@@ -180,7 +180,20 @@ export default function AssetTransferRequestScreen() {
         </ScrollView>
       </View></View>
     </Modal>
-    <OperationResultDialog visible={Boolean(createdId)} title="Đã gửi yêu cầu chuyển" message="Yêu cầu đang chờ quản lý duyệt. Bạn có thể theo dõi kết quả và nhận thông báo trên mobile." actionLabel="Xem yêu cầu" onAction={() => { if (createdId) router.replace(`/assets/transfer-requests/${encodeURIComponent(createdId)}` as never); }} />
+    <OperationResultDialog
+      visible={Boolean(createdId)}
+      title="Đã gửi yêu cầu chuyển tài sản"
+      details={[
+        { label: 'Mã yêu cầu', value: createdId ? `ATR-${createdId.slice(0, 8)}` : '—' },
+        { label: 'Mã tài sản', value: assetCode || '—' },
+        { label: 'Kho đích', value: warehouses.find((w) => w.id === warehouseId)?.name ?? '—' },
+        { label: 'Vị trí đích', value: locations.find((l) => l.id === locationId)?.name ?? '—' },
+      ]}
+      actionLabel="Xem yêu cầu"
+      onAction={() => {
+        if (createdId) router.replace(`/assets/transfer-requests/${encodeURIComponent(createdId)}` as never);
+      }}
+    />
   </>;
 }
 

@@ -24,6 +24,7 @@ export function createWarranty(
     orderId: string;
     orderItemId: string;
     quantity: number;
+    assetId?: string;
     kind: WarrantyKind;
     issueDescription: string;
     intakeNote?: string;

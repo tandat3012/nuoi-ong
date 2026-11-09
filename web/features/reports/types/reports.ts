@@ -17,6 +17,8 @@ export type StockTimeseries = {
   granularity: Granularity;
   periods: TimeseriesPeriod[];
   unpricedMovements: number;
+  /** NV09-F02: what the maintenance costs cover; never the selected warehouse alone. */
+  maintenanceScope?: "FARM" | "ASSIGNED_WAREHOUSES";
 };
 
 export const MOVE_KINDS = [

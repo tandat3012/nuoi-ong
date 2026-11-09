@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -50,6 +51,16 @@ export class CreateStockReceiptItemDto {
   @IsString()
   @MaxLength(4000)
   note?: string | null;
+
+  @ApiPropertyOptional({
+    enum: ['GOOD', 'DAMAGED'],
+    description:
+      'Chỉ dòng tài sản của phiếu nhập hàng trả về: kết quả kiểm nhận. DAMAGED nhập kho nhưng tài sản không cấp phát/bán được. Khi sửa nháp: bỏ trống trường này giữ kết quả đã lưu; gửi null để xóa.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsIn(['GOOD', 'DAMAGED'])
+  assetCondition?: 'GOOD' | 'DAMAGED' | null;
 
   @ApiPropertyOptional({
     format: 'uuid',

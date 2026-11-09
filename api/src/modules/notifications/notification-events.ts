@@ -10,7 +10,9 @@ import {
 } from '../../db/schema';
 import {
   FARM_ADMIN_ROLES,
+  MAINTENANCE_WORK_ROLES,
   WAREHOUSE_MANAGE_ROLES,
+  WAREHOUSE_SCOPED_ROLES,
 } from '../auth/farm-access/farm-role-groups';
 
 type Db = DatabaseService['db'];
@@ -22,11 +24,84 @@ type DocumentNotification = {
   entityId: string;
   documentCode: string | null;
   documentKind: string;
-  status: 'PENDING_APPROVAL' | 'IN_TRANSIT' | 'CONFIRMED' | 'REJECTED';
+  status:
+    | 'PENDING_APPROVAL'
+    | 'IN_TRANSIT'
+    | 'DISCREPANCY'
+    | 'SCHEDULED'
+    | 'READY_TO_SEND'
+    | 'IN_PROGRESS'
+    | 'CONFIRMED'
+    | 'REJECTED';
   rejectionReason?: string;
   /** Overrides the default stock-document title ("Phiếu …"). */
   title?: string;
 };
+
+export const NOTIFICATION_DOCUMENT_PREFIXES: Record<string, string> = {
+  STOCK_RECEIPT: 'PN',
+  STOCK_ISSUE: 'PX',
+  STOCK_COUNT: 'KK',
+  STOCK_TRANSFER: 'CK',
+  MAINTENANCE_REQUEST: 'MNT',
+  ASSET_TRANSFER_REQUEST: 'ATR',
+  MAINTENANCE_RETURN: 'BT',
+  MAINTENANCE_RECORD: 'BT',
+};
+
+export const NOTIFICATION_DOCUMENT_KINDS: Record<string, string> = {
+  STOCK_RECEIPT: 'Phiếu nhập kho',
+  STOCK_ISSUE: 'Phiếu xuất kho',
+  STOCK_COUNT: 'Phiếu kiểm kê kho',
+  STOCK_TRANSFER: 'Phiếu chuyển kho',
+  MAINTENANCE_REQUEST: 'Yêu cầu bảo trì tài sản',
+  ASSET_TRANSFER_REQUEST: 'Yêu cầu chuyển tài sản',
+  MAINTENANCE_RETURN: 'Phiếu nhập lại bảo trì',
+  MAINTENANCE_RECORD: 'Hồ sơ bảo trì',
+};
+
+export function formatNotificationDocumentCode(
+  entityType: string | null | undefined,
+  entityId: string | null | undefined,
+  documentCode?: string | null,
+): string {
+  // The permanent code (or asset code) wins; only uncoded drafts get prefix + short id.
+  const code = documentCode?.trim();
+  if (code || !entityId) return code ?? '';
+  const prefix = entityType
+    ? NOTIFICATION_DOCUMENT_PREFIXES[entityType]
+    : undefined;
+  const shortId = entityId.slice(0, 8);
+  return prefix ? `${prefix}-${shortId}` : `#${shortId}`;
+}
+
+export function formatNotificationBody(
+  documentKind: string,
+  code: string,
+  status: string | null | undefined,
+  rejectionReason?: string | null,
+): string | null {
+  switch (status) {
+    case 'PENDING_APPROVAL':
+      return `${documentKind} ${code} đang chờ duyệt.`;
+    case 'IN_TRANSIT':
+      return `${documentKind} ${code} đã xuất, chờ kho nhận xác nhận số thực nhận.`;
+    case 'DISCREPANCY':
+      return `${documentKind} ${code} đã được nhận nhưng có sai lệch (hỏng/thiếu), chờ chủ trại xử lý.`;
+    case 'SCHEDULED':
+      return `${documentKind} ${code} đã được lên lịch, chờ chọn đơn vị và ngày hẹn trả.`;
+    case 'READY_TO_SEND':
+      return `${documentKind} ${code} đã có đơn vị sửa và ngày hẹn trả, chờ kho xác nhận xuất.`;
+    case 'IN_PROGRESS':
+      return `${documentKind} ${code} đã được kho xác nhận xuất đi sửa, chờ nhận lại thiết bị.`;
+    case 'CONFIRMED':
+      return `${documentKind} ${code} đã được duyệt.`;
+    case 'REJECTED':
+      return `${documentKind} ${code} bị từ chối${rejectionReason ? `: ${rejectionReason}` : '.'}`;
+    default:
+      return null;
+  }
+}
 
 async function insertForUsers(
   tx: Transaction,
@@ -35,9 +110,11 @@ async function insertForUsers(
 ) {
   const distinctUserIds = [...new Set(userIds)];
   if (!distinctUserIds.length) return;
-  // Drafts have no permanent code yet; name them by a short id instead.
-  const code =
-    notification.documentCode ?? `(nháp #${notification.entityId.slice(0, 8)})`;
+  const code = formatNotificationDocumentCode(
+    notification.entityType,
+    notification.entityId,
+    notification.documentCode,
+  );
 
   const labels = {
     PENDING_APPROVAL: {
@@ -49,6 +126,26 @@ async function insertForUsers(
       type: `${notification.entityType}_IN_TRANSIT`,
       title: 'Hàng đang chuyển đến kho',
       body: `${notification.documentKind} ${code} đã xuất, chờ kho nhận xác nhận số thực nhận.`,
+    },
+    DISCREPANCY: {
+      type: `${notification.entityType}_DISCREPANCY`,
+      title: 'Nhận hàng có sai lệch, cần xử lý',
+      body: `${notification.documentKind} ${code} đã được nhận nhưng có sai lệch (hỏng/thiếu), chờ chủ trại xử lý.`,
+    },
+    SCHEDULED: {
+      type: `${notification.entityType}_SCHEDULED`,
+      title: 'Lịch bảo trì mới',
+      body: `${notification.documentKind} ${code} đã được lên lịch, chờ chọn đơn vị và ngày hẹn trả.`,
+    },
+    READY_TO_SEND: {
+      type: `${notification.entityType}_READY_TO_SEND`,
+      title: 'Thiết bị chờ xuất đi sửa',
+      body: `${notification.documentKind} ${code} đã có đơn vị sửa và ngày hẹn trả, chờ kho xác nhận xuất.`,
+    },
+    IN_PROGRESS: {
+      type: `${notification.entityType}_IN_PROGRESS`,
+      title: 'Kho đã xuất thiết bị đi sửa',
+      body: `${notification.documentKind} ${code} đã được kho xác nhận xuất đi sửa, chờ nhận lại thiết bị.`,
     },
     CONFIRMED: {
       type: `${notification.entityType}_CONFIRMED`,
@@ -76,7 +173,7 @@ async function insertForUsers(
         data: {
           documentType: notification.entityType,
           documentId: notification.entityId,
-          documentCode: notification.documentCode,
+          documentCode: code,
           status: notification.status,
           rejectionReason: notification.rejectionReason ?? null,
         },
@@ -148,6 +245,57 @@ export async function notifyDocumentCreator(
       ),
     )
     .limit(1);
+  await insertForUsers(
+    tx,
+    recipients.map(({ userId }) => userId),
+    notification,
+  );
+}
+
+const holdsRole = (codes: string[]) =>
+  sql`EXISTS (SELECT 1 FROM farm_member_roles l JOIN roles r ON r.id = l.role_id
+    WHERE l.farm_member_id = farm_members.id
+      AND r.code IN (${sql.join(
+        codes.map((code) => sql`${code}`),
+        sql`, `,
+      )}))`;
+
+/** Maintenance staff; a member also holding a warehouse-scoped role only for `warehouseId` (WarehousesService.scopeFor). */
+export async function notifyMaintenanceStaff(
+  tx: Transaction,
+  notification: DocumentNotification,
+  warehouseId: string | null | undefined,
+  excludedUserId?: string | null,
+  excludedMemberId?: string | null,
+) {
+  const recipients = await tx
+    .select({ userId: farmMembers.userId })
+    .from(farmMembers)
+    .innerJoin(users, eq(users.id, farmMembers.userId))
+    .innerJoin(
+      farmMemberRoleLink,
+      eq(farmMemberRoleLink.farmMemberId, farmMembers.id),
+    )
+    .innerJoin(roles, eq(roles.id, farmMemberRoleLink.roleId))
+    .where(
+      and(
+        eq(farmMembers.farmId, notification.farmId),
+        eq(farmMembers.status, 'ACTIVE'),
+        eq(users.status, 'ACTIVE'),
+        inArray(roles.code, MAINTENANCE_WORK_ROLES),
+        or(
+          holdsRole(FARM_ADMIN_ROLES),
+          sql`NOT ${holdsRole(WAREHOUSE_SCOPED_ROLES)}`,
+          warehouseId
+            ? sql`EXISTS (SELECT 1 FROM farm_member_warehouses fmw
+                WHERE fmw.farm_member_id = farm_members.id
+                  AND fmw.warehouse_id = ${warehouseId})`
+            : undefined,
+        ),
+        excludedUserId ? ne(users.id, excludedUserId) : undefined,
+        excludedMemberId ? ne(farmMembers.id, excludedMemberId) : undefined,
+      ),
+    );
   await insertForUsers(
     tx,
     recipients.map(({ userId }) => userId),

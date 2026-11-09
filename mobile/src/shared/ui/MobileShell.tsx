@@ -133,10 +133,10 @@ export function AppShell({ active, children, scroll = true, showScrollIndicator 
   const { data, currentFarmId } = useAuthContext();
   const canOperate = canUseMobileOperations(data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.roles);
   const insets = useSafeAreaInsets();
-  const content = <View style={styles.contentWidth}>{children}</View>;
+  const content = <View style={styles.contentWidth} collapsable={false}>{children}</View>;
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}> 
-      <View style={styles.mobileFrame}>
+    <View style={[styles.screen, { paddingTop: insets.top }]} collapsable={false}> 
+      <View style={styles.mobileFrame} collapsable={false}>
         {scroll ? <ScrollView showsVerticalScrollIndicator={showScrollIndicator} contentContainerStyle={{ paddingBottom: dimensions.bottomNavHeight + insets.bottom + spacing.spaceLg }}>{content}</ScrollView> : content}
         <View style={[styles.bottomDock, { paddingBottom: insets.bottom }]}> 
           <View style={styles.bottomNav}>

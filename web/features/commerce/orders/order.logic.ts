@@ -3,6 +3,7 @@ import type {
   CustomerOrder,
   Order,
   OrderDetail,
+  OrderStatus,
   StoreRegion,
 } from "./types/order";
 
@@ -382,4 +383,78 @@ export function orderErrorMessage(error: unknown) {
   if (failure?.status && failure.status > 0 && failure.status < 500)
     return "Yêu cầu chưa được chấp nhận. Hãy kiểm tra thông tin và thử lại.";
   return "Chưa xác nhận được kết quả. Đơn có thể đã được tạo; hãy tải danh sách đơn trước khi tiếp tục.";
+}
+
+export function normalizeOrderLookupQuery(raw: string): string {
+  return raw.trim().replace(/^#/, "").toLowerCase();
+}
+
+export function filterOrdersByLookupQuery<
+  T extends Pick<CustomerOrder, "id" | "code" | "recipientName" | "phone">,
+>(orders: readonly T[], rawQuery: string): T[] {
+  const q = normalizeOrderLookupQuery(rawQuery);
+  if (!q) return [...orders];
+  return orders.filter(
+    (order) =>
+      order.code.toLowerCase().includes(q) ||
+      order.id.toLowerCase() === q ||
+      order.recipientName.toLowerCase().includes(q) ||
+      order.phone.toLowerCase().includes(q),
+  );
+}
+
+export function resolveOrderProgressStep(status: OrderStatus): {
+  activeStep: number;
+  isTerminalAlert: boolean;
+  summary: string;
+} {
+  switch (status) {
+    case "PENDING":
+    case "PREPARING":
+      return {
+        activeStep: 1,
+        isTerminalAlert: false,
+        summary:
+          status === "PREPARING"
+            ? "Đơn đang được điều chuyển bổ sung tồn kho về kho bán trước khi xác nhận."
+            : "Đơn hàng đã được ghi nhận và đang chờ trang trại xác nhận.",
+      };
+    case "CONFIRMED":
+      return {
+        activeStep: 2,
+        isTerminalAlert: false,
+        summary:
+          "Trang trại đã xác nhận đơn, lập phiếu xuất kho giữ hàng và đang đóng gói.",
+      };
+    case "SHIPPING":
+      return {
+        activeStep: 3,
+        isTerminalAlert: false,
+        summary: "Đơn hàng đã xuất kho và đang trên đường giao đến địa chỉ của bạn.",
+      };
+    case "COMPLETED":
+      return {
+        activeStep: 4,
+        isTerminalAlert: false,
+        summary: "Đơn hàng đã giao thành công. Chính sách bảo hành thiết bị (nếu có) đã được kích hoạt.",
+      };
+    case "RETURNING":
+      return {
+        activeStep: 3,
+        isTerminalAlert: true,
+        summary: "Giao hàng không thành công; kiện hàng đang được hoàn trả về kho bán.",
+      };
+    case "RETURNED":
+      return {
+        activeStep: 3,
+        isTerminalAlert: true,
+        summary: "Kiện hàng hoàn trả đã được kho bán kiểm nhận lại.",
+      };
+    case "CANCELLED":
+      return {
+        activeStep: 0,
+        isTerminalAlert: true,
+        summary: "Đơn hàng đã bị hủy.",
+      };
+  }
 }

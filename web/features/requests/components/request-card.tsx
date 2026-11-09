@@ -33,7 +33,7 @@ export function RequestCard({ row, href, detail = false, children }: {
             {maintenance ? REQUEST_MAINTENANCE_LABELS[row.maintenanceType] : transferDestination(row)}
           </p>
         </div>
-        <Badge variant={row.status === "PENDING_APPROVAL" ? "warning" : row.status === "CONFIRMED" ? "success" : "destructive"}>
+        <Badge variant={row.status === "PENDING_APPROVAL" || row.status === "IN_TRANSIT" || row.status === "DISCREPANCY" ? "warning" : row.status === "CONFIRMED" ? "success" : "destructive"}>
           {REQUEST_STATUS_LABELS[row.status]}
         </Badge>
       </div>
@@ -62,6 +62,25 @@ export function RequestCard({ row, href, detail = false, children }: {
           <div className="min-w-0 sm:col-span-2">
             <dt className="text-xs text-muted-foreground">Vị trí nguồn</dt>
             <dd className="mt-1 break-words">{row.fromLocationName || row.fromLocationCode || "Chưa có tên"}</dd>
+          </div>
+        )}
+        {!maintenance && row.receivedAt && (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="text-xs text-muted-foreground">Kho đích nhận</dt>
+            <dd className="mt-1 break-words">
+              <RequestTime value={row.receivedAt} />
+              {row.receivedCondition === "DAMAGED" ? " · Hỏng, chưa dùng được" : " · Tốt"}
+              {row.receiveNote ? ` · ${row.receiveNote}` : ""}
+            </dd>
+          </div>
+        )}
+        {!maintenance && row.resolvedAt && (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="text-xs text-muted-foreground">Đã xử lý sai lệch</dt>
+            <dd className="mt-1 break-words">
+              <RequestTime value={row.resolvedAt} />
+              {row.resolutionNote ? ` · ${row.resolutionNote}` : ""}
+            </dd>
           </div>
         )}
         {detail && "maintenanceScheduledAt" in row && row.maintenanceScheduledAt && (

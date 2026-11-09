@@ -21,6 +21,7 @@ import { qrSvg, scanUrl } from '../../common/qr';
 import { DatabaseService } from '../../db/database.service';
 import {
   assets,
+  auditLogs,
   categories,
   itemType,
   items,
@@ -67,6 +68,29 @@ export interface FarmLookupFilters extends PaginationParams {
 
 export interface LocationListFilters extends FarmLookupFilters {
   warehouseId?: string;
+}
+
+type Transaction = Parameters<
+  Parameters<DatabaseService['db']['transaction']>[0]
+>[0];
+
+/** Who created or changed an item template, and how, in the same transaction (NV07). */
+export async function auditItem(
+  tx: Transaction,
+  clerkUserId: string,
+  action: 'ITEM_CREATED' | 'ITEM_UPDATED',
+  before: object | null,
+  after: { id: string; farmId: string; [field: string]: unknown },
+) {
+  await tx.insert(auditLogs).values({
+    farmId: after.farmId,
+    userId: sql`(SELECT id FROM users WHERE auth_provider_user_id = ${clerkUserId})`,
+    action,
+    entityType: 'ITEM',
+    entityId: after.id,
+    oldData: before,
+    newData: after,
+  });
 }
 
 @Injectable()
@@ -404,18 +428,30 @@ export class CatalogService {
   }
 
   // A template holds no stock: units arrive through receipts (NV01) or recorded assets.
-  async createItem(farmId: string, input: CreateEquipmentItemDto) {
+  async createItem(
+    farmId: string,
+    clerkUserId: string,
+    input: CreateEquipmentItemDto,
+  ) {
     await this.assertActiveReferences(input.categoryId, input.unitId);
-    return this.unique('Item code already exists', async () => {
-      const [row] = await this.databaseService.db
-        .insert(items)
-        .values({ ...input, farmId })
-        .returning();
-      return row;
-    });
+    return this.unique('Item code already exists', () =>
+      this.databaseService.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(items)
+          .values({ ...input, farmId })
+          .returning();
+        await auditItem(tx, clerkUserId, 'ITEM_CREATED', null, row);
+        return row;
+      }),
+    );
   }
 
-  async updateItem(id: string, farmId: string, input: UpdateEquipmentItemDto) {
+  async updateItem(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    input: UpdateEquipmentItemDto,
+  ) {
     this.assertChanges(input);
     return this.unique('Item code already exists', () =>
       this.databaseService.db.transaction(async (tx) => {
@@ -426,11 +462,7 @@ export class CatalogService {
         );
         // FOR UPDATE waits for writers that FK key-share lock the item (lines, balances, assets).
         const [current] = await tx
-          .select({
-            categoryId: items.categoryId,
-            unitId: items.unitId,
-            trackingMode: items.trackingMode,
-          })
+          .select()
           .from(items)
           .where(where)
           .for('update');
@@ -466,6 +498,7 @@ export class CatalogService {
           .set({ ...input, updatedAt: new Date().toISOString() })
           .where(where)
           .returning();
+        await auditItem(tx, clerkUserId, 'ITEM_UPDATED', current, row);
         return row;
       }),
     );

@@ -132,8 +132,8 @@ export class InventoryService {
         SELECT 1 FROM assets a JOIN locations l ON l.id=a.current_location_id AND l.farm_id=a.farm_id
         WHERE a.id=${filters.assetId} AND a.farm_id=${filters.farmId}
           AND a.item_id=${inventoryBalances.itemId} AND l.warehouse_id=${inventoryBalances.warehouseId}
-          AND (a.status IN ('AVAILABLE','TRANSFER_PENDING') OR (a.status='MAINTENANCE' AND EXISTS (
-            SELECT 1 FROM maintenance_records m WHERE m.asset_id=a.id AND m.status='FAILED' AND m.return_status='CONFIRMED'
+          AND (a.status IN ('AVAILABLE','TRANSFER_PENDING','DAMAGED') OR (a.status='MAINTENANCE' AND EXISTS (
+            SELECT 1 FROM maintenance_records m WHERE m.asset_id=a.id AND m.status IN ('FAILED','COMPLETED') AND m.return_status='CONFIRMED'
           )))
       )`);
     }

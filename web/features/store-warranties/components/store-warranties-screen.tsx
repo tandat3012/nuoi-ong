@@ -18,6 +18,7 @@ import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { createWarranty, getWarranties, runWarrantyAction } from "../warranties.api";
 import {
+  lineAssets,
   nextSteps,
   WARRANTY_KIND_LABELS,
   WARRANTY_STATUS_LABELS,
@@ -146,7 +147,7 @@ function CreateWarranty({
   const request = useAuthenticatedRequest();
   const [code, setCode] = useState("");
   const [order, setOrder] = useState<OrderDetail | null>(null);
-  const [form, setForm] = useState({ lineId: "", quantity: "1", kind: "WARRANTY" as WarrantyKind, issueDescription: "", intakeNote: "" });
+  const [form, setForm] = useState({ lineId: "", assetId: "", quantity: "1", kind: "WARRANTY" as WarrantyKind, issueDescription: "", intakeNote: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -182,6 +183,8 @@ function CreateWarranty({
   }
 
   const line = order?.items.find((item) => item.id === form.lineId);
+  // An asset-tracked line is claimed one delivered unit at a time.
+  const units = lineAssets(order?.deliveredAssets, line);
   const coverage = line ? warrantyCoverage(order?.order.completedAt, line.warrantyMonths) : null;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -193,13 +196,14 @@ function CreateWarranty({
       const { data } = await createWarranty(request, farmId, {
         orderId: order.order.id,
         orderItemId: line.id,
-        quantity: Number(form.quantity),
+        quantity: units.length ? 1 : Number(form.quantity),
+        assetId: units.length ? form.assetId : undefined,
         kind: coverage?.inWarranty ? form.kind : "PAID_REPAIR",
         issueDescription: form.issueDescription.trim(),
         intakeNote: form.intakeNote.trim() || undefined,
       });
       setOrder(null);
-      setForm({ lineId: "", quantity: "1", kind: "WARRANTY", issueDescription: "", intakeNote: "" });
+      setForm({ lineId: "", assetId: "", quantity: "1", kind: "WARRANTY", issueDescription: "", intakeNote: "" });
       onCreated(data);
     } catch (failure) {
       setError(warrantyErrorMessage(failure));
@@ -222,7 +226,7 @@ function CreateWarranty({
             Đơn <strong>{order.order.code}</strong> · {order.customer.fullName ?? order.order.recipientName} · giao thành công {date(order.order.completedAt)}{" "}
             <Link href={`/store-orders/${order.order.id}`} className="underline">Xem đơn</Link>
           </p>
-          <Select aria-label="Dòng sản phẩm" required value={form.lineId} onChange={(event) => setForm({ ...form, lineId: event.target.value })}>
+          <Select aria-label="Dòng sản phẩm" required value={form.lineId} onChange={(event) => setForm({ ...form, lineId: event.target.value, assetId: "" })}>
             <option value="">Chọn sản phẩm trong đơn</option>
             {order.items.map((item) => (
               <option key={item.id} value={item.id}>
@@ -230,7 +234,18 @@ function CreateWarranty({
               </option>
             ))}
           </Select>
-          <Input aria-label="Số lượng" type="number" min={1} max={line?.quantity} required value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} />
+          {units.length ? (
+            <Select aria-label="Tài sản đã giao" required value={form.assetId} onChange={(event) => setForm({ ...form, assetId: event.target.value })}>
+              <option value="">Chọn tài sản (mã/serial) khách mang đến</option>
+              {units.map((asset) => (
+                <option key={asset.id} value={asset.id}>
+                  {asset.assetCode}{asset.serialNumber ? ` · Serial ${asset.serialNumber}` : ""}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Input aria-label="Số lượng" type="number" min={1} max={line?.quantity} required value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} />
+          )}
           {coverage && <p className="text-sm text-muted-foreground md:col-span-2">{coverage.label}</p>}
           <Select aria-label="Loại yêu cầu" value={coverage?.inWarranty ? form.kind : "PAID_REPAIR"} disabled={!coverage?.inWarranty} onChange={(event) => setForm({ ...form, kind: event.target.value as WarrantyKind })}>
             <option value="WARRANTY">Bảo hành (còn hạn, chờ đối tác kiểm tra)</option>
@@ -238,7 +253,7 @@ function CreateWarranty({
           </Select>
           <Input aria-label="Cách nhận sản phẩm" placeholder="Cách nhận sản phẩm (khách mang đến, shipper nhận…)" value={form.intakeNote} onChange={(event) => setForm({ ...form, intakeNote: event.target.value })} />
           <Textarea aria-label="Mô tả lỗi" required maxLength={4000} placeholder="Mô tả lỗi khách báo" value={form.issueDescription} onChange={(event) => setForm({ ...form, issueDescription: event.target.value })} className="md:col-span-2" />
-          <Button type="submit" disabled={busy || !line || !form.issueDescription.trim()} className="md:col-span-2">
+          <Button type="submit" disabled={busy || !line || (units.length > 0 && !form.assetId) || !form.issueDescription.trim()} className="md:col-span-2">
             {busy ? "Đang lưu..." : "Tạo yêu cầu"}
           </Button>
         </form>
@@ -285,6 +300,7 @@ function WarrantyDetail({
   const facts: [string, string | null | undefined][] = [
     ["Đơn", warranty.orderCode],
     ["Sản phẩm", `${warranty.productName} — ${warranty.variantName} × ${warranty.quantity}`],
+    ["Tài sản", warranty.assetCode && `${warranty.assetCode}${warranty.assetSerialNumber ? ` · Serial ${warranty.assetSerialNumber}` : ""}`],
     ["Loại", WARRANTY_KIND_LABELS[warranty.kind]],
     ["Bảo hành", warrantyCoverage(warranty.completedAt, warranty.warrantyMonths).label],
     ["Lỗi khách báo", warranty.issueDescription],

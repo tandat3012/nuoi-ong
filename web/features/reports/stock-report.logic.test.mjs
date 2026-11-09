@@ -97,7 +97,7 @@ test("stockReportCsv writes Excel (Vietnam) friendly cells", () => {
   assert.equal(first.length, header.length);
   // Formula-looking code is escaped; quotes and ; inside a name are quoted.
   assert.ok(lines[8].startsWith(`Kho 1;'=CMD();"Khay ""lớn""; 2 tầng";Vật tư;`));
-  assert.ok(lines[8].endsWith(";Có hàng chưa có giá nhập (tính 0 đ)"));
+  assert.ok(lines[8].endsWith(";Có hàng chưa có giá - giá trị chỉ gồm phần đã định giá"));
 
   const total = lines[9].split(";");
   assert.equal(total[0], "Tổng cộng");

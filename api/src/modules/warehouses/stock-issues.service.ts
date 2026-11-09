@@ -12,8 +12,10 @@ import {
   eq,
   getTableColumns,
   gte,
+  inArray,
   isNull,
   lte,
+  or,
   sql,
   SQL,
 } from 'drizzle-orm';
@@ -21,6 +23,8 @@ import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
   assets,
+  farmMemberRoles,
+  farmMembers,
   inventoryBalances,
   inventoryLots,
   inventoryTransactions,
@@ -31,7 +35,10 @@ import {
   stockIssues,
   storeOrders,
   storeOrderItems,
+  storeWarrantyRequests,
+  roles,
   units,
+  users,
   warehouses,
 } from '../../db/schema';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
@@ -50,8 +57,13 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { quantityMillis } from '../store-orders/store-order.rules';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  FARM_AREA_ROLES,
+  hasAnyRole,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 import { activeMaintenanceCondition } from '../maintenance/maintenance-state';
+import { assertHoldsStillCovered } from './stock-holds';
 
 type Filters = PaginationParams & {
   farmId: string;
@@ -71,17 +83,25 @@ export class StockIssuesService {
   ) {}
 
   async list(filters: Filters) {
-    const { memberId: readMemberId, scope } =
-      await this.warehousesService.documentReadScope(
-        filters.farmId,
-        filters.clerkUserId,
-      );
+    const {
+      memberId: readMemberId,
+      viewerId,
+      scope,
+    } = await this.warehousesService.documentReadScope(
+      filters.farmId,
+      filters.clerkUserId,
+    );
 
     const conditions: SQL[] = [eq(stockIssues.farmId, filters.farmId)];
-    const scoped = scopeCondition(stockIssues.warehouseId, scope);
-    if (scoped) conditions.push(scoped);
-    if (readMemberId)
-      conditions.push(eq(stockIssues.createdByMemberId, readMemberId));
+    const own = and(
+      scopeCondition(stockIssues.warehouseId, scope),
+      readMemberId
+        ? eq(stockIssues.createdByMemberId, readMemberId)
+        : undefined,
+    );
+    // The recipient always sees the issues handed to them.
+    if (own)
+      conditions.push(or(own, eq(stockIssues.recipientMemberId, viewerId))!);
 
     if (filters.status) conditions.push(eq(stockIssues.status, filters.status));
     if (filters.dateFrom)
@@ -128,12 +148,16 @@ export class StockIssuesService {
   }
 
   async get(id: string, farmId: string, clerkUserId: string) {
-    const { memberId: readMemberId, scope } =
-      await this.warehousesService.documentReadScope(farmId, clerkUserId);
+    const {
+      memberId: readMemberId,
+      viewerId,
+      scope,
+    } = await this.warehousesService.documentReadScope(farmId, clerkUserId);
     const result = await this.withItems(id, farmId);
     if (
-      (readMemberId && result.issue.createdByMemberId !== readMemberId) ||
-      !inScope(scope, result.issue.warehouseId)
+      result.issue.recipientMemberId !== viewerId &&
+      ((readMemberId && result.issue.createdByMemberId !== readMemberId) ||
+        !inScope(scope, result.issue.warehouseId))
     )
       throw new NotFoundException('Stock issue not found');
     return result;
@@ -166,6 +190,8 @@ export class StockIssuesService {
       .transaction(async (tx) => {
         await this.assertWarehouse(tx, farmId, input.warehouseId);
         await this.validateLines(tx, farmId, input.items, issueType);
+        if (input.recipientMemberId)
+          await this.assertRecipient(tx, farmId, input.recipientMemberId);
         ignoreLegacyCode('issueCode', input.issueCode);
         const [issue] = await tx
           .insert(stockIssues)
@@ -176,6 +202,7 @@ export class StockIssuesService {
             issueDate: input.issueDate,
             issueType,
             maintenanceRecordId: input.maintenanceRecordId,
+            recipientMemberId: input.recipientMemberId,
             reason: input.reason,
             note: input.note,
             createdByMemberId: memberId,
@@ -254,6 +281,20 @@ export class StockIssuesService {
               'Order issue warehouse and type cannot change',
             );
           await this.assertOrderLines(tx, current.orderId, lines);
+        } else if (current.warrantyRequestId) {
+          if (
+            (input.warehouseId && input.warehouseId !== current.warehouseId) ||
+            (input.issueType && input.issueType !== 'OTHER')
+          )
+            throw new ConflictException(
+              'Warranty exchange issue warehouse and type cannot change',
+            );
+          await this.assertWarrantyLines(
+            tx,
+            current.warrantyRequestId,
+            current.warehouseId,
+            lines,
+          );
         } else if (issueType === 'SALE') {
           throw new ConflictException('SALE issues must be linked to an order');
         }
@@ -278,15 +319,33 @@ export class StockIssuesService {
               note: line.note,
             })),
           );
+          // A held issue edited onto other lots/assets must be covered there too.
+          if (current.orderId || current.warrantyRequestId)
+            await this.assertEditedHold(
+              tx,
+              farmId,
+              current.warehouseId,
+              id,
+              input.items,
+            );
         }
         if (input.warehouseId)
           await this.assertWarehouse(tx, farmId, input.warehouseId);
+        const recipient =
+          input.recipientMemberId === undefined
+            ? current.recipientMemberId
+            : input.recipientMemberId;
+        if (recipient && issueType === 'SALE')
+          throw new BadRequestException('SALE issues have no recipient');
+        if (input.recipientMemberId)
+          await this.assertRecipient(tx, farmId, input.recipientMemberId);
         const changes: Partial<typeof stockIssues.$inferInsert> = {};
         for (const key of [
           'warehouseId',
           'issueDate',
           'issueType',
           'maintenanceRecordId',
+          'recipientMemberId',
           'reason',
           'note',
         ] as const)
@@ -488,11 +547,30 @@ export class StockIssuesService {
         );
       if (!lines.length)
         throw new BadRequestException('Issue must contain at least one item');
+      // Bank transfers must be PAID before the goods leave, not only before delivery.
+      if (
+        issue.orderPayment?.method === 'BANK_TRANSFER' &&
+        issue.orderPayment.status !== 'PAID'
+      )
+        throw new ConflictException({
+          code: 'PAYMENT_NOT_VERIFIED',
+          message: 'A bank transfer order must be PAID before it is issued',
+        });
       if (issue.orderId) await this.assertOrderLines(tx, issue.orderId, lines);
+      else if (issue.warrantyRequestId)
+        await this.assertWarrantyLines(
+          tx,
+          issue.warrantyRequestId,
+          issue.warehouseId,
+          lines,
+          issue.issueType,
+        );
       else if (issue.issueType === 'SALE')
         throw new ConflictException('SALE issues must be linked to an order');
       if (lines.some((line) => line.assetId))
         this.assertAssetIssueType(issue.issueType, true);
+      const toCustomer =
+        issue.issueType === 'SALE' || !!issue.warrantyRequestId;
       for (const line of lines) {
         const [item] = await tx
           .select({ trackingMode: items.trackingMode })
@@ -539,6 +617,10 @@ export class StockIssuesService {
           )
           .returning({ id: inventoryBalances.id });
         if (!balance) throw new ConflictException('Insufficient inventory');
+        await assertHoldsStillCovered(tx, balance.id, {
+          issueId: id,
+          assetId: line.assetId,
+        });
         if (line.assetId) {
           const [asset] = await tx
             .select()
@@ -589,12 +671,12 @@ export class StockIssuesService {
           await tx
             .update(assets)
             .set({
-              status: ['DISPOSAL', 'SALE'].includes(issue.issueType)
-                ? 'RETIRED'
-                : 'IN_USE',
-              ...(issue.issueType === 'SALE'
-                ? { currentLocationId: null }
-                : {}),
+              // Sold or handed to a customer as a warranty exchange: it left the farm.
+              status:
+                issue.issueType === 'DISPOSAL' || toCustomer
+                  ? 'RETIRED'
+                  : 'IN_USE',
+              ...(toCustomer ? { currentLocationId: null } : {}),
               updatedAt: new Date().toISOString(),
             })
             .where(eq(assets.id, line.assetId));
@@ -686,6 +768,98 @@ export class StockIssuesService {
     throw error;
   }
 
+  /** NV02: the recipient confirms they got the confirmed issue; a manager may record it for them with a note. Never touches stock. */
+  async acknowledge(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    note?: string | null,
+  ) {
+    const { memberId, roleCodes } =
+      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    const receiptNote = note?.trim() || null;
+    await this.databaseService.db.transaction(async (tx) => {
+      const [issue] = await tx
+        .select()
+        .from(stockIssues)
+        .where(and(eq(stockIssues.id, id), eq(stockIssues.farmId, farmId)))
+        .for('update')
+        .limit(1);
+      if (!issue) throw new NotFoundException('Stock issue not found');
+      const isRecipient = issue.recipientMemberId === memberId;
+      if (!isRecipient) {
+        const scope = await this.warehousesService.warehouseScope(
+          farmId,
+          clerkUserId,
+        );
+        if (
+          !hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ||
+          !inScope(scope, issue.warehouseId)
+        )
+          throw new NotFoundException('Stock issue not found');
+      }
+      if (issue.status !== 'CONFIRMED')
+        throw new ConflictException('Only CONFIRMED issues can be received');
+      if (!issue.recipientMemberId)
+        throw new ConflictException('This issue has no recipient');
+      // Retried acknowledgement: already recorded, nothing changes.
+      if (issue.receivedAt) return;
+      if (!isRecipient && !receiptNote)
+        throw new BadRequestException(
+          'A note is required when recording receipt for the recipient',
+        );
+      const now = new Date().toISOString();
+      const [updated] = await tx
+        .update(stockIssues)
+        .set({
+          receivedAt: now,
+          receivedRecordedByMemberId: memberId,
+          receiptNote,
+          updatedAt: now,
+        })
+        .where(eq(stockIssues.id, id))
+        .returning();
+      await auditStockDocument(
+        tx,
+        memberId,
+        'STOCK_ISSUE',
+        'ACKNOWLEDGE',
+        issue,
+        updated,
+      );
+    });
+    return this.withItems(id, farmId);
+  }
+
+  private async assertRecipient(
+    tx: Transaction,
+    farmId: string,
+    memberId: string,
+  ) {
+    // Only roles that can open stock issues, so the recipient can acknowledge.
+    const [member] = await tx
+      .select({ id: farmMembers.id })
+      .from(farmMembers)
+      .innerJoin(
+        farmMemberRoles,
+        eq(farmMemberRoles.farmMemberId, farmMembers.id),
+      )
+      .innerJoin(roles, eq(roles.id, farmMemberRoles.roleId))
+      .where(
+        and(
+          eq(farmMembers.id, memberId),
+          eq(farmMembers.farmId, farmId),
+          eq(farmMembers.status, 'ACTIVE'),
+          inArray(roles.code, FARM_AREA_ROLES),
+        ),
+      )
+      .limit(1);
+    if (!member)
+      throw new BadRequestException(
+        'Recipient must be an active farm member with farm-area access',
+      );
+  }
+
   private async getOnly(
     id: string,
     farmId: string,
@@ -709,9 +883,31 @@ export class StockIssuesService {
       .from(stockIssues)
       .where(and(eq(stockIssues.id, id), eq(stockIssues.farmId, farmId)))
       .limit(1);
+    const warrantyQuery = db
+      .select({ id: storeWarrantyRequests.id })
+      .from(storeWarrantyRequests)
+      .where(
+        and(
+          eq(storeWarrantyRequests.exchangeIssueId, id),
+          eq(storeWarrantyRequests.farmId, farmId),
+        ),
+      );
+    // A warranty exchange issue is locked through its request, before the issue.
+    const [warranty] = order
+      ? []
+      : forUpdate
+        ? await warrantyQuery.for('update')
+        : await warrantyQuery;
     const [issue] = forUpdate ? await query.for('update') : await query;
     if (!issue) throw new NotFoundException('Stock issue not found');
-    return { ...issue, orderId: order?.id ?? null };
+    return {
+      ...issue,
+      orderId: order?.id ?? null,
+      orderPayment: order
+        ? { method: order.paymentMethod, status: order.paymentStatus }
+        : null,
+      warrantyRequestId: warranty?.id ?? null,
+    };
   }
 
   private async withItems(id: string, farmId: string) {
@@ -720,6 +916,9 @@ export class StockIssuesService {
         ...getTableColumns(stockIssues),
         warehouseCode: warehouses.code,
         warehouseName: warehouses.name,
+        recipientName: sql<
+          string | null
+        >`coalesce(${users.fullName}, ${users.email})`,
       })
       .from(stockIssues)
       .leftJoin(
@@ -729,6 +928,8 @@ export class StockIssuesService {
           eq(warehouses.farmId, stockIssues.farmId),
         ),
       )
+      .leftJoin(farmMembers, eq(farmMembers.id, stockIssues.recipientMemberId))
+      .leftJoin(users, eq(users.id, farmMembers.userId))
       .where(and(eq(stockIssues.id, id), eq(stockIssues.farmId, farmId)))
       .limit(1);
     if (!issue) throw new NotFoundException('Stock issue not found');
@@ -746,6 +947,14 @@ export class StockIssuesService {
         lotExpiryDate: inventoryLots.expiryDate,
         assetCode: assets.assetCode,
         serialNumber: assets.serialNumber,
+        // NV02 internal returns already confirmed against this line (accepted + rejected).
+        returnedQuantity: sql<string>`coalesce((
+          SELECT sum(ri.quantity + ri.rejected_quantity)
+          FROM stock_receipt_items ri
+          JOIN stock_receipts r ON r.id = ri.stock_receipt_id
+          WHERE ri.source_issue_item_id = "stock_issue_items"."id"
+            AND r.status = 'CONFIRMED'
+        ), 0)::text`,
       })
       .from(stockIssueItems)
       .leftJoin(
@@ -778,7 +987,25 @@ export class StockIssuesService {
         and(eq(storeOrders.stockIssueId, id), eq(storeOrders.farmId, farmId)),
       )
       .limit(1);
-    return { issue: { ...issue, orderId: order?.id ?? null }, items: lines };
+    const [warranty] = await this.databaseService.db
+      .select({ id: storeWarrantyRequests.id })
+      .from(storeWarrantyRequests)
+      .where(
+        and(
+          eq(storeWarrantyRequests.exchangeIssueId, id),
+          eq(storeWarrantyRequests.farmId, farmId),
+        ),
+      )
+      .limit(1);
+    return {
+      issue: {
+        ...issue,
+        orderId: order?.id ?? null,
+        // A warranty exchange handed goods to a customer: never an internal return.
+        warrantyRequestId: warranty?.id ?? null,
+      },
+      items: lines,
+    };
   }
 
   private async assertOrderLines(
@@ -805,6 +1032,95 @@ export class StockIssuesService {
     )
       throw new ConflictException(
         'Issue items and stock quantities must match the linked order',
+      );
+  }
+
+  private async assertEditedHold(
+    tx: Transaction,
+    farmId: string,
+    warehouseId: string,
+    issueId: string,
+    lines: CreateStockIssueDto['items'],
+  ) {
+    // Same lock order as order confirmation: balances by item then lot.
+    const ordered = [...lines].sort(
+      (a, b) =>
+        a.itemId.localeCompare(b.itemId) ||
+        (a.lotId ?? '').localeCompare(b.lotId ?? ''),
+    );
+    for (const line of ordered) {
+      const [balance] = await tx
+        .select({ id: inventoryBalances.id })
+        .from(inventoryBalances)
+        .where(
+          and(
+            eq(inventoryBalances.farmId, farmId),
+            eq(inventoryBalances.warehouseId, warehouseId),
+            eq(inventoryBalances.itemId, line.itemId),
+            line.lotId
+              ? eq(inventoryBalances.lotId, line.lotId)
+              : isNull(inventoryBalances.lotId),
+          ),
+        )
+        .for('update');
+      if (!balance) throw new ConflictException('Insufficient inventory');
+      await assertHoldsStillCovered(tx, balance.id, {
+        ownIssueId: issueId,
+        assetId: line.assetId,
+      });
+    }
+  }
+
+  /** A warranty exchange issue ships exactly what the request approved, from the order's warehouse. */
+  private async assertWarrantyLines(
+    db: Db | Transaction,
+    requestId: string,
+    warehouseId: string,
+    lines: CreateStockIssueDto['items'],
+    confirmingType?: string,
+  ) {
+    const [row] = await db
+      .select({
+        status: storeWarrantyRequests.status,
+        quantity: storeWarrantyRequests.quantity,
+        warehouseId: storeOrders.warehouseId,
+        itemId: storeOrderItems.itemId,
+        stockQuantity: storeOrderItems.stockQuantity,
+        orderQuantity: storeOrderItems.quantity,
+      })
+      .from(storeWarrantyRequests)
+      .innerJoin(storeOrders, eq(storeOrders.id, storeWarrantyRequests.orderId))
+      .innerJoin(
+        storeOrderItems,
+        eq(storeOrderItems.id, storeWarrantyRequests.orderItemId),
+      )
+      .where(eq(storeWarrantyRequests.id, requestId));
+    if (confirmingType !== undefined && row?.status !== 'EXCHANGING')
+      throw new ConflictException(
+        'The warranty request is no longer waiting for this exchange issue',
+      );
+    // Drafts changed to another type before the update guard existed.
+    if (confirmingType !== undefined && confirmingType !== 'OTHER')
+      throw new ConflictException(
+        'Warranty exchange issue warehouse and type cannot change',
+      );
+    // Same stock-per-unit arithmetic as when the issue was drafted.
+    const expected =
+      row &&
+      (quantityMillis(row.stockQuantity) * BigInt(row.quantity)) /
+        BigInt(row.orderQuantity);
+    const total = lines.reduce(
+      (sum, line) => sum + quantityMillis(line.quantity),
+      0n,
+    );
+    if (
+      !row ||
+      row.warehouseId !== warehouseId ||
+      total !== expected ||
+      lines.some((line) => line.itemId !== row.itemId)
+    )
+      throw new ConflictException(
+        'Exchange issue must match the item, quantity and warehouse of the warranty request',
       );
   }
 

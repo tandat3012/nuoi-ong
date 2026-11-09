@@ -227,13 +227,15 @@ export type StockDocumentStatus =
   | 'DRAFT'
   | 'COUNTING'
   | 'PENDING_APPROVAL'
+  | 'IN_TRANSIT'
   | 'CONFIRMED'
   | 'REJECTED'
   | 'CANCELLED';
 
 /** Drafts have no permanent code until confirmation; name them by a short id. */
-export function documentCodeLabel(code: string | null | undefined, id: string) {
-  return code ?? `Nháp #${id.slice(0, 8)}`;
+export type DocumentCodePrefix = 'PN' | 'PX' | 'KK' | 'CK' | 'MNT' | 'ATR' | 'BT';
+export function documentCodeLabel(code: string | null | undefined, id: string, prefix: DocumentCodePrefix = 'PN') {
+  return code ?? `${prefix}-${id.slice(0, 8)}`;
 }
 
 export type StockReceipt = {
@@ -291,6 +293,9 @@ export type StockDocumentLine = {
   serialNumber?: string | null;
   assetCodeFromAsset?: string | null;
   assetSerialNumber?: string | null;
+  locationId?: string | null;
+  locationCode?: string | null;
+  locationName?: string | null;
   lotCode?: string | null;
   supplierLotNumber?: string | null;
   legacyLotNumber?: string | null;
@@ -316,6 +321,7 @@ export function unwrap<T>(value: { data: T } | T): T {
 export function statusLabel(status: string) {
   switch (status) {
     case 'PENDING_APPROVAL': return 'CHỜ DUYỆT';
+    case 'IN_TRANSIT': return 'ĐANG CHUYỂN';
     case 'CONFIRMED': return 'ĐÃ DUYỆT';
     case 'REJECTED': return 'TỪ CHỐI';
     case 'CANCELLED': return 'ĐÃ HỦY';
@@ -329,10 +335,37 @@ export function formatDate(value?: string | null) {
   return new Date(value).toLocaleDateString('vi-VN');
 }
 
-export async function listWarehouses(token: string, farmId: string) {
+export type WarehouseLocation = {
+  id: string;
+  warehouseId: string;
+  code: string;
+  name: string;
+  status: string;
+};
+
+export async function listActiveLocations(token: string, farmId: string, warehouseId: string) {
+  const firstPage = await apiRequest<Paginated<WarehouseLocation>>('/locations', {
+    token,
+    params: { farmId, warehouseId, status: 'ACTIVE', page: 1, pageSize: 100 },
+    skipCache: true,
+  });
+  const remainingPages = await loadRemainingPages(firstPage.page.totalPages, async (page) => {
+    const nextPage = await apiRequest<Paginated<WarehouseLocation>>('/locations', {
+      token,
+      params: { farmId, warehouseId, status: 'ACTIVE', page, pageSize: 100 },
+      skipCache: true,
+    });
+    return nextPage.data;
+  });
+  return [firstPage.data, ...remainingPages]
+    .flat()
+    .filter((row) => row.warehouseId === warehouseId && row.status === 'ACTIVE');
+}
+
+export async function listWarehouses(token: string, farmId: string, destination = false) {
   return apiRequest<Paginated<Warehouse>>('/warehouses', {
     token,
-    params: { farmId, page: 1, pageSize: 100, status: 'ACTIVE' },
+    params: { farmId, page: 1, pageSize: 100, status: 'ACTIVE', destination: destination ? 'true' : undefined },
   });
 }
 

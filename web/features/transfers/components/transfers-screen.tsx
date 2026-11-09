@@ -34,8 +34,9 @@ import {
 import { shouldReloadAfterFailure } from "@/features/stock-documents/stock-document.logic";
 import { useNotificationRefresh } from "@/features/notifications";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
-import { canReceiveTransfer } from "../transfer-receive.logic";
+import { canReceiveTransfer, canResolveTransfer } from "../transfer-receive.logic";
 import { TransferReceivePanel } from "./transfer-receive-panel";
+import { TransferResolvePanel } from "./transfer-resolve-panel";
 
 type Warehouse = { id: string; code: string; name: string };
 type Item = {
@@ -56,6 +57,7 @@ type Transfer = {
     | "DRAFT"
     | "PENDING_APPROVAL"
     | "IN_TRANSIT"
+    | "DISCREPANCY"
     | "CONFIRMED"
     | "REJECTED"
     | "CANCELLED";
@@ -72,6 +74,7 @@ const STATUS_LABELS: Record<Transfer["status"], string> = {
   DRAFT: "Nháp",
   PENDING_APPROVAL: "Chờ duyệt",
   IN_TRANSIT: "Đang chuyển",
+  DISCREPANCY: "Nhận thiếu, chờ xử lý",
   CONFIRMED: "Đã nhận hàng",
   REJECTED: "Đã từ chối",
   CANCELLED: "Đã hủy",
@@ -128,6 +131,7 @@ function FarmTransfersScreen() {
     | "DRAFT"
     | "PENDING_APPROVAL"
     | "IN_TRANSIT"
+    | "DISCREPANCY"
     | "CONFIRMED"
     | "REJECTED"
     | "CANCELLED"
@@ -251,6 +255,7 @@ function FarmTransfersScreen() {
   // Keep after the other state hooks: stock-document-interaction.test.mjs seeds state by call order.
   const [numbering, setNumbering] = useState(numberingDraft);
   const [receiving, setReceiving] = useState<Transfer | null>(null);
+  const [resolving, setResolving] = useState<Transfer | null>(null);
   async function createTransfer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const numberingOptions = isOwner ? numberingOptionsPayload(numbering) : {};
@@ -473,10 +478,10 @@ function FarmTransfersScreen() {
       )}
       {receiving && (
         <TransferReceivePanel
-          key={receiving.id}
+          key={`receive-${receiving.id}`}
           farmId={selectedFarmId}
           id={receiving.id}
-          code={documentCodeLabel(receiving.transferCode, receiving.id)}
+          code={documentCodeLabel(receiving.transferCode, receiving.id, "CK")}
           lock={lock}
           onReceived={() => {
             setReceiving(null);
@@ -485,9 +490,23 @@ function FarmTransfersScreen() {
           onClose={() => setReceiving(null)}
         />
       )}
+      {resolving && (
+        <TransferResolvePanel
+          key={resolving.id}
+          farmId={selectedFarmId}
+          id={resolving.id}
+          code={documentCodeLabel(resolving.transferCode, resolving.id, "CK")}
+          lock={lock}
+          onResolved={() => {
+            setResolving(null);
+            reloadList();
+          }}
+          onClose={() => setResolving(null)}
+        />
+      )}
       {openId && (
         <StockDocumentLines
-          key={openId}
+          key={`lines-${openId}`}
           revision={revision}
           kind="stock-transfers"
           farmId={selectedFarmId}
@@ -543,7 +562,7 @@ function FarmTransfersScreen() {
                 >
                   <div>
                     <p className="font-semibold">
-                      {documentCodeLabel(transfer.transferCode, transfer.id)}
+                      {documentCodeLabel(transfer.transferCode, transfer.id, "CK")}
                     </p>
                     {transfer.externalReference && (
                       <p className="text-xs text-muted-foreground">
@@ -575,7 +594,7 @@ function FarmTransfersScreen() {
                       variant="outline"
                       disabled={lock.locked}
                       onClick={() => {
-                        if (!lock.locked) setOpenId(transfer.id);
+                        if (!lock.locked) { setReceiving(null); setOpenId(transfer.id); }
                       }}
                     >
                       Xem dòng hàng
@@ -593,9 +612,20 @@ function FarmTransfersScreen() {
                     {canReceiveTransfer(viewer.roles, transfer) && (
                       <Button
                         disabled={lock.locked}
-                        onClick={() => setReceiving(transfer)}
+                        onClick={() => {
+                          setOpenId(null);
+                          setReceiving(transfer);
+                        }}
                       >
                         Nhận hàng
+                      </Button>
+                    )}
+                    {canResolveTransfer(viewer.roles, transfer) && (
+                      <Button
+                        disabled={lock.locked}
+                        onClick={() => setResolving(transfer)}
+                      >
+                        Xử lý chênh lệch
                       </Button>
                     )}
                     {actions.cancel && (
@@ -615,7 +645,7 @@ function FarmTransfersScreen() {
                       id={transfer.id}
                       code={documentCodeLabel(
                         transfer.transferCode,
-                        transfer.id,
+                        transfer.id, "CK",
                       )}
                       canSubmit={actions.submit}
                       canReject={actions.reject}

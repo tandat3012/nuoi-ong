@@ -1,4 +1,8 @@
-import type { StorefrontProductRating } from '../types/product';
+import type {
+  StorefrontProduct,
+  StorefrontProductRating,
+} from '../types/product';
+import { formatVndCurrency } from '@/shared/lib/currency';
 
 export type ProductCardRatingInfo = {
   score: number;
@@ -6,6 +10,47 @@ export type ProductCardRatingInfo = {
   fillPercentages: number[];
   ariaLabel: string;
 };
+
+/**
+ * Xác định số lượng quy cách bán của sản phẩm từ `variantCount` hoặc mảng `variants`.
+ */
+export function resolveProductVariantCount(
+  product: Pick<StorefrontProduct, 'variantCount' | 'variants'>,
+): number {
+  if (
+    typeof product.variantCount === 'number' &&
+    Number.isInteger(product.variantCount) &&
+    product.variantCount >= 1
+  ) {
+    return product.variantCount;
+  }
+  if (Array.isArray(product.variants) && product.variants.length >= 1) {
+    return product.variants.length;
+  }
+  return 1;
+}
+
+/**
+ * Định dạng giá hiển thị trên thẻ sản phẩm (hỗ trợ khoảng giá khi có nhiều quy cách khác giá).
+ */
+export function formatProductCardPriceRange(
+  price: number,
+  maxPrice?: number,
+): string | null {
+  const minFormatted = formatVndCurrency(price);
+  if (!minFormatted) return null;
+  if (
+    typeof maxPrice === 'number' &&
+    Number.isSafeInteger(maxPrice) &&
+    maxPrice > price
+  ) {
+    const maxFormatted = formatVndCurrency(maxPrice);
+    if (maxFormatted) {
+      return `${minFormatted} – ${maxFormatted}`;
+    }
+  }
+  return minFormatted;
+}
 
 /**
  * Xác định trạng thái chiết khấu của sản phẩm.

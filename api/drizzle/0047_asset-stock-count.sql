@@ -1,0 +1,7 @@
+ALTER TABLE "stock_count_items" ADD COLUMN "asset_condition" varchar(10);--> statement-breakpoint
+ALTER TABLE "stock_count_items" ADD COLUMN "found_location_id" uuid;--> statement-breakpoint
+ALTER TABLE "stock_count_items" ADD COLUMN "asset_version" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "stock_count_items" ADD CONSTRAINT "stock_count_items_found_location_id_fkey" FOREIGN KEY ("found_location_id") REFERENCES "public"."locations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "ux_count_asset_once" ON "stock_count_items" USING btree ("stock_count_id","asset_id") WHERE asset_id IS NOT NULL;--> statement-breakpoint
+-- NOT VALID: legacy asset lines (before counts refused ASSET) are left as they were; new rows are checked.
+ALTER TABLE "stock_count_items" ADD CONSTRAINT "ck_count_asset_line" CHECK ((asset_id IS NULL AND asset_condition IS NULL AND found_location_id IS NULL) OR (asset_id IS NOT NULL AND system_quantity = 1 AND ((actual_quantity = 1 AND asset_condition IN ('GOOD', 'DAMAGED')) OR (actual_quantity = 0 AND asset_condition IS NULL AND found_location_id IS NULL)))) NOT VALID;

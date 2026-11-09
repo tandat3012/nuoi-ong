@@ -21,7 +21,10 @@ import { formatVndCurrency } from '@/shared/lib/currency';
 import { useCart } from '../hooks/use-cart';
 import { cartItemStatus, isValidCartPrice, validateQuantity } from './cart.logic';
 import { CartVerificationNote } from './cart-verification-note';
-import { CartRegionCheck } from './cart-region-check';
+import {
+  CartRegionCheck,
+  SavedSplitCartBanner,
+} from './cart-region-check';
 
 function QuantityInput({ quantity, purchaseLimit, disabled, name, onChange }: {
   quantity: number;
@@ -116,24 +119,27 @@ export function CartPageContent() {
 
       {items.length === 0 ? (
         /* Empty State */
-        <div className="rounded-2xl border border-[#ede6dc] dark:border-border/80 bg-card p-8 sm:p-16 text-center max-w-2xl mx-auto shadow-2xs">
-          <div className="inline-flex rounded-full bg-[#faf5ee] dark:bg-muted/40 p-6 mb-5 text-[#8c827a] dark:text-muted-foreground">
-            <ShoppingBag className="size-12 stroke-1" aria-hidden="true" />
+        <div className="max-w-2xl mx-auto space-y-6">
+          <SavedSplitCartBanner />
+          <div className="rounded-2xl border border-[#ede6dc] dark:border-border/80 bg-card p-8 sm:p-16 text-center shadow-2xs">
+            <div className="inline-flex rounded-full bg-[#faf5ee] dark:bg-muted/40 p-6 mb-5 text-[#8c827a] dark:text-muted-foreground">
+              <ShoppingBag className="size-12 stroke-1" aria-hidden="true" />
+            </div>
+            <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#2d241e] dark:text-foreground mb-2">
+              Giỏ hàng của bạn đang trống
+            </h2>
+            <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto mb-8 leading-relaxed">
+              Bạn chưa chọn sản phẩm nào. Hãy khám phá danh mục mật ong thiên
+              nhiên và thiết bị nuôi ong từ Mộc Ong nhé.
+            </p>
+            <Link
+              href="/products"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground font-semibold px-8 py-3 text-sm sm:text-base shadow-xs hover:bg-primary/90 transition-colors"
+            >
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              <span>Khám phá sản phẩm</span>
+            </Link>
           </div>
-          <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#2d241e] dark:text-foreground mb-2">
-            Giỏ hàng của bạn đang trống
-          </h2>
-          <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto mb-8 leading-relaxed">
-            Bạn chưa chọn sản phẩm nào. Hãy khám phá danh mục mật ong thiên
-            nhiên và thiết bị nuôi ong từ Mộc Ong nhé.
-          </p>
-          <Link
-            href="/products"
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground font-semibold px-8 py-3 text-sm sm:text-base shadow-xs hover:bg-primary/90 transition-colors"
-          >
-            <ArrowLeft className="size-4" aria-hidden="true" />
-            <span>Khám phá sản phẩm</span>
-          </Link>
         </div>
       ) : (
         /* Non-empty 2-Column Responsive Layout */

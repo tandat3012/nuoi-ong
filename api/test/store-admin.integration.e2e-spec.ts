@@ -530,4 +530,108 @@ describe('Store admin (migrated PostgreSQL)', () => {
       ]);
       expect(detail.image).toEqual({ src: second.url, alt: 'B' });
     }));
+  it('audits catalog and sales settings changes with actor and before/after (NV10-F01)', () =>
+    inRollback(async (tx) => {
+      const clerkUserId = `store-audit-${ids.farm}`;
+      const [user] = await tx
+        .insert(schema.users)
+        .values({
+          authProviderUserId: clerkUserId,
+          email: `${clerkUserId}@example.local`,
+        })
+        .returning({ id: schema.users.id });
+      const actor = { farmId: ids.farm, clerkUserId };
+      const admin = service(tx);
+      const product = await admin.createProduct(
+        ids.farm,
+        {
+          categoryId: ids.storeCategory,
+          name: 'Audit',
+          slug: `audit-${ids.farm.slice(0, 8)}`,
+          description: 'Xem https://example.com/?token=SECRET',
+        },
+        actor,
+      );
+      // A refused publish (no variant yet) logs nothing.
+      await expect(
+        inSavepoint(tx, (sp) =>
+          service(sp).updateProductStatus(
+            ids.farm,
+            product.id,
+            'PUBLISHED',
+            actor,
+          ),
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+      const variant = await admin.createVariant(
+        ids.farm,
+        product.id,
+        { itemId: ids.item, name: 'Chai', price: '1000' },
+        actor,
+      );
+      await admin.updateVariant(
+        product.id,
+        variant.id,
+        { price: '1200' },
+        actor,
+      );
+      await admin.updateProductStatus(ids.farm, product.id, 'PUBLISHED', actor);
+      await admin.removeVariantItem(ids.farm, product.id, variant.id, actor);
+      await admin.setVariantItem(
+        ids.farm,
+        product.id,
+        variant.id,
+        ids.item,
+        actor,
+      );
+      await admin.updateSettings(
+        ids.farm,
+        {
+          salesWarehouseId: ids.warehouse,
+          salesEnabled: false,
+          regions: ['NORTH', 'SOUTH'],
+        },
+        actor,
+      );
+      const rows = await tx
+        .select({
+          action: schema.auditLogs.action,
+          entityType: schema.auditLogs.entityType,
+          userId: schema.auditLogs.userId,
+          farmId: schema.auditLogs.farmId,
+          oldData: schema.auditLogs.oldData,
+          newData: schema.auditLogs.newData,
+        })
+        .from(schema.auditLogs)
+        .where(eq(schema.auditLogs.userId, user.id));
+      expect(rows.every((row) => row.farmId === ids.farm)).toBe(true);
+      // Free text that may carry a token never reaches the audit trail.
+      expect(JSON.stringify(rows)).not.toContain('SECRET');
+      expect(rows.map((row) => row.action).sort()).toEqual(
+        [
+          'PRODUCT_CREATED',
+          'PRODUCT_STATUS_CHANGED',
+          'STORE_SETTINGS_UPDATED',
+          'VARIANT_CREATED',
+          'VARIANT_ITEM_REMOVED',
+          'VARIANT_ITEM_SET',
+          'VARIANT_PRICE_CHANGED',
+        ].sort(),
+      );
+      const row = (action: string) => rows.find((r) => r.action === action)!;
+      expect(row('VARIANT_PRICE_CHANGED')).toMatchObject({
+        entityType: 'STORE_PRODUCT',
+        oldData: expect.objectContaining({ price: '1000' }) as unknown,
+        newData: expect.objectContaining({ price: '1200' }) as unknown,
+      });
+      expect(row('PRODUCT_STATUS_CHANGED')).toMatchObject({
+        oldData: { status: 'DRAFT' },
+        newData: { status: 'PUBLISHED' },
+      });
+      expect(row('STORE_SETTINGS_UPDATED')).toMatchObject({
+        entityType: 'STORE_SETTINGS',
+        oldData: { salesEnabled: true, regions: ['NORTH'] },
+        newData: { salesEnabled: false, regions: ['NORTH', 'SOUTH'] },
+      });
+    }));
 });

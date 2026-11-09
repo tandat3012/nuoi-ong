@@ -13,6 +13,8 @@ import {
 import { supportsIssueDraftEdit } from "./issue-draft.logic";
 import { formatInventoryQuantity } from "@/features/inventory/inventory.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
+import { IssueReceipt } from "./issue-receipt";
+import { IssueReturn } from "./issue-return";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
@@ -149,7 +151,7 @@ export function IssueDetail({
         detail && (
           <>
             <PageHeader
-              title={`Phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)}`}
+              title={`Phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id, "PX")}`}
               badge={
                 <Badge variant="outline">
                   {ISSUE_STATUS_LABELS[detail.issue.status]}
@@ -172,7 +174,7 @@ export function IssueDetail({
                     kind="stock-issues"
                     farmId={farmId}
                     id={id}
-                    code={documentCodeLabel(detail.issue.issueCode, detail.issue.id)}
+                    code={documentCodeLabel(detail.issue.issueCode, detail.issue.id, "PX")}
                     canSubmit={actions.submit}
                     canReject={actions.reject}
                     disabled={isProcessing}
@@ -186,7 +188,7 @@ export function IssueDetail({
                         void runAction(confirm, {
                           title: "Xác nhận phiếu xuất",
                           confirmLabel: "Xác nhận xuất kho",
-                          description: `Xác nhận phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
+                          description: `Xác nhận phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id, "PX")} từ kho ${detail.issue.warehouseName ?? detail.issue.warehouseId} (${detail.items.length} dòng hàng)? Thao tác này sẽ trừ tồn kho và cập nhật trạng thái tài sản liên quan.`,
                         })
                       }
                     >
@@ -202,7 +204,7 @@ export function IssueDetail({
                           confirmLabel: "Hủy phiếu",
                           cancelLabel: "Giữ phiếu",
                           variant: "destructive",
-                          description: `Hủy phiếu xuất nháp ${documentCodeLabel(detail.issue.issueCode, detail.issue.id)}? Thao tác này không thay đổi tồn kho.`,
+                          description: `Hủy phiếu xuất nháp ${documentCodeLabel(detail.issue.issueCode, detail.issue.id, "PX")}? Thao tác này không thay đổi tồn kho.`,
                         })
                       }
                       variant="outline"
@@ -276,13 +278,20 @@ export function IssueDetail({
                 </dd>
               </div>
             </dl>
+            <IssueReceipt
+              farmId={farmId}
+              issue={detail.issue}
+              viewer={viewer}
+              onChanged={refresh}
+            />
+            <IssueReturn farmId={farmId} detail={detail} roles={viewer.roles} />
             {detail.items.length === 0 ? (
               <p role="status">Phiếu xuất chưa có dòng hàng.</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border bg-card">
                 <table className="w-full text-left text-sm">
                   <caption className="sr-only">
-                    Các dòng hàng trong phiếu xuất {documentCodeLabel(detail.issue.issueCode, detail.issue.id)}
+                    Các dòng hàng trong phiếu xuất {documentCodeLabel(detail.issue.issueCode, detail.issue.id, "PX")}
                   </caption>
                   <thead className="border-b bg-muted/50">
                     <tr>
@@ -365,6 +374,11 @@ export function IssueDetail({
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           {formatInventoryQuantity(line.quantity)}
+                          {Number(line.returnedQuantity ?? 0) > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Đã hoàn trả {formatInventoryQuantity(line.returnedQuantity!)}
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           {line.unitSymbol || line.unitName || "—"}

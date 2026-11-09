@@ -1,5 +1,6 @@
 export type RequestType = "maintenance" | "transfer";
-export type RequestStatus = "PENDING_APPROVAL" | "CONFIRMED" | "REJECTED";
+export type RequestStatus =
+  "PENDING_APPROVAL" | "IN_TRANSIT" | "DISCREPANCY" | "CONFIRMED" | "REJECTED";
 export type RequestStatusFilter = RequestStatus | "ALL";
 export type RequestedMaintenanceType = "CORRECTIVE" | "INSPECTION";
 
@@ -34,6 +35,15 @@ export interface TransferRequestRecord extends RequestRecord {
   toWarehouseId: string;
   toLocationId: string;
   note: string | null;
+  /** P1-02: set when the destination warehouse counted the asset in. */
+  receivedByMemberId?: string | null;
+  receivedAt?: string | null;
+  receivedCondition?: "GOOD" | "DAMAGED" | null;
+  receiveNote?: string | null;
+  /** A2: a DAMAGED arrival stays DISCREPANCY until the owner/admin records how it was handled. */
+  resolvedByMemberId?: string | null;
+  resolvedAt?: string | null;
+  resolutionNote?: string | null;
 }
 
 // shortcut: list omits people; require these fields when the API returns the joins.

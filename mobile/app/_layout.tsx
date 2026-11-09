@@ -118,7 +118,7 @@ function AppNavigator() {
   const canOperate = canUseMobileOperations(membership?.roles);
   if (isSignedIn && isLoading) return null;
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, animation: 'none' }}>
       <Stack.Screen name="index" options={{ animation: 'none' }} />
       <Stack.Screen name="auth" options={{ animation: 'none' }} />
       <Stack.Protected guard={!!isSignedIn}>

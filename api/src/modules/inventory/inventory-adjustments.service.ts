@@ -20,6 +20,7 @@ import {
   users,
   warehouses,
 } from '../../db/schema';
+import { SELF_APPROVAL } from '../warehouses/stock-counts.service';
 import { PaginationParams, requireUuid } from '../../common/query-params';
 import {
   AdjustmentReasonCode,
@@ -46,7 +47,6 @@ const inventoryLotSupplierNumber = sql<
 >`${inventoryLots}."supplier_lot_number"`;
 const inventoryLotExpired = sql<boolean>`coalesce(${inventoryLots}."expiry_date" < CURRENT_DATE, false)`;
 
-const APPROVER_ROLES = WAREHOUSE_MANAGE_ROLES;
 const REQUESTER_ROLES = STOCK_WRITE_ROLES;
 
 // Ledger rows keep a readable reason so the movement history needs no lookup.
@@ -88,7 +88,10 @@ export class InventoryAdjustmentsService {
     private readonly warehousesService: WarehousesService,
   ) {}
 
-  /** Owners/admins apply immediately; employees create a PENDING_APPROVAL request. */
+  /**
+   * Every adjustment is a PENDING_APPROVAL request that another approver must
+   * confirm (NV03, P0-01): nobody changes stock on their own say-so.
+   */
   async create(
     farmId: string,
     clerkUserId: string,
@@ -97,7 +100,6 @@ export class InventoryAdjustmentsService {
     requireUuid(farmId, 'farmId');
     const { memberId, roleCodes } =
       await this.warehousesService.getActiveMembership(farmId, clerkUserId);
-    const canApprove = roleCodes.some((code) => APPROVER_ROLES.includes(code));
     if (!roleCodes.some((code) => REQUESTER_ROLES.includes(code))) {
       throw new ForbiddenException(
         'Inventory adjustment permission is required',
@@ -117,7 +119,6 @@ export class InventoryAdjustmentsService {
     try {
       return await this.databaseService.db.transaction(async (tx) => {
         const lotId = await this.assertTarget(tx, farmId, input, isPositive);
-        const now = new Date().toISOString();
         const [adjustment] = await tx
           .insert(inventoryAdjustments)
           .values({
@@ -128,21 +129,14 @@ export class InventoryAdjustmentsService {
             quantityChange,
             reasonCode: input.reasonCode,
             note,
-            status: canApprove ? 'CONFIRMED' : 'PENDING_APPROVAL',
+            status: 'PENDING_APPROVAL',
             idempotencyKey: input.idempotencyKey,
             requestedByMemberId: memberId,
-            reviewedByMemberId: canApprove ? memberId : null,
-            reviewedAt: canApprove ? now : null,
           })
           .returning();
-
-        if (!canApprove) {
-          // Fail early on an impossible decrease; approval re-checks atomically.
-          if (!isPositive) await this.assertAvailable(tx, adjustment);
-          return { adjustment, transaction: null };
-        }
-        const transaction = await this.applyStock(tx, adjustment);
-        return { adjustment, transaction };
+        // Fail early on an impossible decrease; approval re-checks atomically.
+        if (!isPositive) await this.assertAvailable(tx, adjustment);
+        return { adjustment, transaction: null };
       });
     } catch (error: unknown) {
       if (
@@ -169,6 +163,16 @@ export class InventoryAdjustmentsService {
     try {
       return await this.databaseService.db.transaction(async (tx) => {
         await this.assertAdjustmentInScope(tx, farmId, id, scope);
+        const [own] = await tx
+          .select({ id: inventoryAdjustments.id })
+          .from(inventoryAdjustments)
+          .where(
+            and(
+              eq(inventoryAdjustments.id, id),
+              eq(inventoryAdjustments.requestedByMemberId, memberId),
+            ),
+          );
+        if (own) throw new ForbiddenException(SELF_APPROVAL);
         // The status predicate makes approve-once atomic under concurrent clicks.
         const [adjustment] = await tx
           .update(inventoryAdjustments)
@@ -425,6 +429,8 @@ export class InventoryAdjustmentsService {
           eq(warehouses.status, 'ACTIVE'),
         ),
       )
+      // Shares the row lock deactivation takes, so it waits for this move (NV08).
+      .for('share')
       .limit(1);
     if (!warehouse) {
       throw new ConflictException('Warehouse must exist and be ACTIVE');

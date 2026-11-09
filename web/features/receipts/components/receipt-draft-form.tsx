@@ -18,6 +18,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import { AddLineTile } from "@/shared/components/ui/add-line-tile";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { Input } from "@/shared/components/ui/input";
+import { Select } from "@/shared/components/ui/select";
 import { DateInput } from "@/shared/components/ui/date-input";
 import {
   DOCUMENT_CODE_HINT,
@@ -48,6 +49,9 @@ type DraftLine = DraftChoice & {
   serialNumber: string;
   locationId: string | null;
   locationLabel: string;
+  // Order returns: the shipped asset coming back and its inspected condition.
+  assetId: string | null;
+  assetCondition: "GOOD" | "DAMAGED" | "";
   note: string;
 };
 
@@ -118,6 +122,8 @@ export function ReceiptDraftForm({
               : line.locationId
                 ? `Vị trí (${line.locationId})`
                 : "",
+            assetId: line.assetId,
+            assetCondition: line.assetCondition ?? "",
             note: line.note ?? "",
           };
         })
@@ -180,6 +186,8 @@ export function ReceiptDraftForm({
                 serialNumber: "",
                 locationId: null,
                 locationLabel: "",
+                assetId: null,
+                assetCondition: "",
                 note: "",
               },
             ],
@@ -226,10 +234,13 @@ export function ReceiptDraftForm({
                   assetCode: line.assetCode.trim(),
                   serialNumber: line.serialNumber.trim() || undefined,
                   locationId: line.locationId ?? undefined,
+                  ...(line.assetId
+                    ? { assetCondition: line.assetCondition }
+                    : {}),
                 }
               : {}),
           })),
-        });
+        }, initial?.detail.orderReturn);
       }}
       className="space-y-4"
     >
@@ -257,6 +268,7 @@ export function ReceiptDraftForm({
                   ? documentCodeLabel(
                       initial.detail.receipt.receiptCode,
                       initial.detail.receipt.id,
+                      "PN",
                     )
                   : DOCUMENT_CODE_HINT}
               </p>
@@ -526,6 +538,8 @@ export function ReceiptDraftForm({
                       <Input
                         required
                         maxLength={100}
+                        // A returned asset keeps its code; it is not a new asset.
+                        readOnly={!!line.assetId}
                         value={line.assetCode}
                         onChange={(event) =>
                           setLines((previous) =>
@@ -543,6 +557,7 @@ export function ReceiptDraftForm({
                       Số serial
                       <Input
                         maxLength={255}
+                        readOnly={!!line.assetId}
                         value={line.serialNumber}
                         onChange={(event) =>
                           setLines((previous) =>
@@ -556,6 +571,35 @@ export function ReceiptDraftForm({
                         className="w-full"
                       />
                     </label>
+                    {line.assetId && (
+                      <label className="sm:col-span-2">
+                        Kết quả kiểm nhận *
+                        <Select
+                          required
+                          value={line.assetCondition}
+                          onChange={(event) =>
+                            setLines((previous) =>
+                              previous.map((row) =>
+                                row.rowKey === line.rowKey
+                                  ? {
+                                      ...row,
+                                      assetCondition: event.target
+                                        .value as DraftLine["assetCondition"],
+                                    }
+                                  : row,
+                              ),
+                            )
+                          }
+                          className="w-full font-normal"
+                        >
+                          <option value="">Chọn kết quả</option>
+                          <option value="GOOD">Đạt, bán lại được</option>
+                          <option value="DAMAGED">
+                            Hỏng: nhập kho nhưng không cấp phát/bán
+                          </option>
+                        </Select>
+                      </label>
+                    )}
                     <div className="space-y-1 sm:col-span-2">
                       <div className="flex items-baseline justify-between gap-2">
                         Vị trí trong kho

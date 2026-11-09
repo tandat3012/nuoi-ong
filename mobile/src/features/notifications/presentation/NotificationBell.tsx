@@ -36,7 +36,7 @@ export default function NotificationBell() {
       accessibilityLabel={`Thông báo${unreadCount ? `, ${unreadCount} chưa đọc` : ''}`}
       onPress={() => router.push('/notifications' as never)}
       android_ripple={{ color: colors.primaryFixed }}
-      style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.button, pressed && styles.pressed]} collapsable={false}
     >
       <Icon name="notifications-none" color={colors.deepAmber} />
       {unreadCount > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text></View> : null}

@@ -20,6 +20,7 @@ import {
   assetTransferRequests,
   auditLogs,
   farmMembers,
+  farms,
   inventoryLots,
   items,
   locations,
@@ -29,6 +30,9 @@ import {
   stockIssues,
   stockReceipts,
   stockTransfers,
+  storeCategories,
+  storeProductVariants,
+  storeProducts,
   suppliers,
   users,
   warehouses,
@@ -123,6 +127,7 @@ export class AuditLogsService {
   }
 
   /** Admins and owners read farm history; other staff read only actions they performed. */
+
   private async scope(
     farmId: string,
     clerkUserId: string,
@@ -215,19 +220,28 @@ export class AuditLogsService {
           and(eq(farmMembers.farmId, farmId), inArray(farmMembers.id, ids)),
         ),
       db
-        .select({ id: stockReceipts.id, label: stockReceipts.receiptCode })
+        .select({
+          id: stockReceipts.id,
+          label: sql<string>`coalesce(${stockReceipts.receiptCode}, 'PN-' || left(${stockReceipts.id}::text, 8))`,
+        })
         .from(stockReceipts)
         .where(
           and(eq(stockReceipts.farmId, farmId), inArray(stockReceipts.id, ids)),
         ),
       db
-        .select({ id: stockIssues.id, label: stockIssues.issueCode })
+        .select({
+          id: stockIssues.id,
+          label: sql<string>`coalesce(${stockIssues.issueCode}, 'PX-' || left(${stockIssues.id}::text, 8))`,
+        })
         .from(stockIssues)
         .where(
           and(eq(stockIssues.farmId, farmId), inArray(stockIssues.id, ids)),
         ),
       db
-        .select({ id: stockTransfers.id, label: stockTransfers.transferCode })
+        .select({
+          id: stockTransfers.id,
+          label: sql<string>`coalesce(${stockTransfers.transferCode}, 'CK-' || left(${stockTransfers.id}::text, 8))`,
+        })
         .from(stockTransfers)
         .where(
           and(
@@ -236,7 +250,10 @@ export class AuditLogsService {
           ),
         ),
       db
-        .select({ id: stockCounts.id, label: stockCounts.countCode })
+        .select({
+          id: stockCounts.id,
+          label: sql<string>`coalesce(${stockCounts.countCode}, 'KK-' || left(${stockCounts.id}::text, 8))`,
+        })
         .from(stockCounts)
         .where(
           and(eq(stockCounts.farmId, farmId), inArray(stockCounts.id, ids)),
@@ -272,6 +289,30 @@ export class AuditLogsService {
             inArray(assetTransferRequests.id, ids),
           ),
         ),
+      // NV10: the shared catalog is public; sales settings are named by this farm.
+      db
+        .select({ id: storeProducts.id, label: storeProducts.name })
+        .from(storeProducts)
+        .where(inArray(storeProducts.id, ids)),
+      db
+        .select({
+          id: storeProductVariants.id,
+          label: sql<string>`${storeProducts.name} || ' — ' || ${storeProductVariants.name}`,
+        })
+        .from(storeProductVariants)
+        .innerJoin(
+          storeProducts,
+          eq(storeProducts.id, storeProductVariants.productId),
+        )
+        .where(inArray(storeProductVariants.id, ids)),
+      db
+        .select({ id: storeCategories.id, label: storeCategories.name })
+        .from(storeCategories)
+        .where(inArray(storeCategories.id, ids)),
+      db
+        .select({ id: farms.id, label: farms.name })
+        .from(farms)
+        .where(and(eq(farms.id, farmId), inArray(farms.id, ids))),
     ]);
     return Object.fromEntries(
       groups

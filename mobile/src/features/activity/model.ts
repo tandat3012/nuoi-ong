@@ -4,18 +4,20 @@ import { formatApiDateTime } from '@/src/shared/format-date-time';
 
 export const actionLabels: Record<string, string> = {
   CREATE: 'Tạo mới', UPDATE: 'Cập nhật', SUBMIT: 'Gửi duyệt',
-  CONFIRM: 'Xác nhận', REJECT: 'Từ chối', CANCEL: 'Hủy', DELETE: 'Xóa', RETURN: 'Trả kho',
+  CONFIRM: 'Xác nhận', REJECT: 'Từ chối', CANCEL: 'Hủy', DELETE: 'Xóa', RETURN: 'Trả kho', DISPATCH: 'Xuất hàng đi', RECEIVE: 'Nhận hàng',
+  DELIVERY_CLAIM: 'Nhận giao đơn', DELIVERY_RETURN: 'Trả đơn giao', DELIVERY_COMPLETE: 'Giao xong đơn', SHIPPING_FEES_UPDATED: 'Sửa phí giao hàng',
 };
 export const entityLabels: Record<string, string> = {
   STOCK_RECEIPT: 'Phiếu nhập kho', STOCK_ISSUE: 'Phiếu xuất kho', STOCK_COUNT: 'Phiếu kiểm kê',
   STOCK_TRANSFER: 'Phiếu điều chuyển', INVENTORY: 'Tồn kho', ITEM: 'Vật tư', ASSET: 'Tài sản',
-  MAINTENANCE: 'Bảo trì', ASSET_TRANSFER_REQUEST: 'Yêu cầu chuyển tài sản',
+  MAINTENANCE: 'Bảo trì', MAINTENANCE_REQUEST: 'Yêu cầu bảo trì', ASSET_TRANSFER_REQUEST: 'Yêu cầu chuyển tài sản',
+  STORE_ORDER: 'Đơn hàng', STORE_SHIPPING_FEES: 'Phí giao hàng',
 };
 const statusLabels: Record<string, string> = {
-  DRAFT: 'Nháp', COUNTING: 'Đang kiểm kê', PENDING_APPROVAL: 'Chờ duyệt', CONFIRMED: 'Đã xác nhận',
+  DRAFT: 'Nháp', COUNTING: 'Đang kiểm kê', PENDING_APPROVAL: 'Chờ duyệt', IN_TRANSIT: 'Đang chuyển', CONFIRMED: 'Đã xác nhận',
   REJECTED: 'Bị từ chối', CANCELLED: 'Đã hủy', ACTIVE: 'Hoạt động', INACTIVE: 'Ngừng hoạt động',
   SCHEDULED: 'Đã lên lịch', IN_PROGRESS: 'Đang thực hiện', COMPLETED: 'Hoàn thành',
-  AVAILABLE: 'Sẵn sàng', IN_USE: 'Đang sử dụng', UNDER_MAINTENANCE: 'Đang bảo trì',
+  AVAILABLE: 'Sẵn sàng', IN_USE: 'Đang sử dụng', UNDER_MAINTENANCE: 'Đang bảo trì', SHIPPING: 'Đang giao', PAID: 'Đã thanh toán', UNPAID: 'Chưa thanh toán',
 };
 const fieldLabels: Record<string, string> = {
   id: 'ID', farmId: 'Trang trại', userId: 'Người dùng', status: 'Trạng thái', note: 'Ghi chú',
@@ -29,15 +31,16 @@ const fieldLabels: Record<string, string> = {
   fromLocationId: 'Vị trí nguồn', toLocationId: 'Vị trí đích',
   fromWarehouseId: 'Kho nguồn', toWarehouseId: 'Kho đích', itemCode: 'Mã vật tư', itemName: 'Tên vật tư',
   itemId: 'Vật tư', lotId: 'Lô', assetId: 'Tài sản', locationId: 'Vị trí',
-  quantity: 'Số lượng', actualQuantity: 'Số lượng thực tế', systemQuantity: 'Số lượng hệ thống',
+  quantity: 'Số lượng', actualQuantity: 'Số lượng thực tế', systemQuantity: 'Số lượng hệ thống', receivedQuantity: 'Số lượng thực nhận', discrepancyReason: 'Lý do lệch', dispatchedAt: 'Thời gian xuất', dispatchedByMemberId: 'Thành viên xuất',
   quantityOnHand: 'Tồn kho', difference: 'Chênh lệch', unitPrice: 'Đơn giá', totalAmount: 'Thành tiền',
   receiptDate: 'Ngày nhập', issueDate: 'Ngày xuất', countDate: 'Ngày kiểm kê', transferDate: 'Ngày chuyển',
   description: 'Mô tả', items: 'Danh sách vật tư', receipt: 'Phiếu nhập', issue: 'Phiếu xuất',
   transfer: 'Phiếu điều chuyển', count: 'Phiếu kiểm kê', asset: 'Tài sản', item: 'Vật tư',
-  scheduledAt: 'Lịch bảo trì', startedAt: 'Bắt đầu', completedAt: 'Hoàn thành', resultNote: 'Kết quả',
+  scheduledAt: 'Lịch bảo trì', startedAt: 'Bắt đầu', issuedByMemberId: 'Thành viên kho xác nhận xuất', issuedByName: 'Người xác nhận xuất', completedAt: 'Hoàn thành', resultNote: 'Kết quả',
   maintenanceType: 'Loại bảo trì', trackingMode: 'Cách theo dõi', itemType: 'Loại vật tư',
   lotCode: 'Mã lô nội bộ', supplierLotNumber: 'Số lô trên hàng', legacyLotNumber: 'Số lô cũ (tham khảo)', lotNumber: 'Số lô cũ (tham khảo)', qrToken: 'Token QR', expiryDate: 'Hạn sử dụng', manufactureDate: 'Ngày sản xuất',
   supplierId: 'Nhà cung cấp', unitId: 'Đơn vị', categoryId: 'Danh mục',
+  NORTH: 'Phí miền Bắc', CENTRAL: 'Phí miền Trung', SOUTH: 'Phí miền Nam', collectedCod: 'Đã thu COD', shipperMemberId: 'Thành viên giao hàng', paidByMemberId: 'Thành viên thu tiền', paymentStatus: 'Trạng thái thanh toán', paymentMethod: 'Phương thức thanh toán', shippingFee: 'Phí giao hàng', subtotal: 'Tạm tính', total: 'Tổng cộng', recipientName: 'Người nhận', phone: 'Số điện thoại', address: 'Địa chỉ', region: 'Miền', shippedAt: 'Thời gian nhận giao',
 };
 
 export function normalizeEntity(value: string) {
@@ -51,7 +54,7 @@ export function statusLabel(value: string | null) { return value ? statusLabels[
 export function statusTone(value: string | null): 'success' | 'amber' | 'danger' | 'cream' {
   if (value === 'CONFIRMED' || value === 'COMPLETED') return 'success';
   if (value === 'REJECTED' || value === 'CANCELLED') return 'danger';
-  if (value === 'PENDING_APPROVAL' || value === 'DRAFT' || value === 'COUNTING') return 'amber';
+  if (value === 'PENDING_APPROVAL' || value === 'IN_TRANSIT' || value === 'DRAFT' || value === 'COUNTING') return 'amber';
   return 'cream';
 }
 export function formatDateTime(value: string) {
@@ -79,7 +82,8 @@ export function recordLabel(log: AuditLog) {
     const value = snapshotField(log.newData, key) ?? snapshotField(log.oldData, key);
     if (typeof value === 'string' && value.trim()) return value;
   }
-  return log.entityId ? formatIdentifier(log.entityId) : 'Chưa có mã đối tượng';
+  if (log.entityId && /^[\da-f]{8}-/i.test(log.entityId)) { const prefix = ({ STOCK_RECEIPT: 'PN', STOCK_ISSUE: 'PX', STOCK_COUNT: 'KK', STOCK_TRANSFER: 'CK', MAINTENANCE_REQUEST: 'MNT', ASSET_TRANSFER_REQUEST: 'ATR' } as Record<string, string>)[normalizeEntity(log.entityType)]; if (prefix) return `${prefix}-${log.entityId.slice(0, 8)}`; }
+  return log.entityId ? formatIdentifier(log.entityId) : (normalizeEntity(log.entityType) === 'STORE_SHIPPING_FEES' ? entityLabel(log.entityType) : 'Chưa có mã đối tượng');
 }
 
 export function formatIdentifier(value: string) {
@@ -134,10 +138,10 @@ export function formatValue(value: unknown, path: string, farm?: { id: string; n
     if (field === 'id') return formatIdentifier(value);
     if (field === 'status') return statusLabel(value);
     if (/^\d{4}-\d{2}-\d{2}(?:T|$)/.test(value)) return formatDateTime(value);
-    if (['quantity', 'actualQuantity', 'systemQuantity', 'quantityOnHand', 'difference'].includes(field ?? '') && Number.isFinite(Number(value))) return formatQuantity(value);
+    if (['quantity', 'actualQuantity', 'systemQuantity', 'quantityOnHand', 'difference', 'receivedQuantity'].includes(field ?? '') && Number.isFinite(Number(value))) return formatQuantity(value);
     return value;
   }
-  if (typeof value === 'number' && ['quantity', 'actualQuantity', 'systemQuantity', 'quantityOnHand', 'difference'].includes(field ?? '')) return formatQuantity(value);
+  if (typeof value === 'number' && ['quantity', 'actualQuantity', 'systemQuantity', 'quantityOnHand', 'difference', 'receivedQuantity'].includes(field ?? '')) return formatQuantity(value);
   return typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
 }
 

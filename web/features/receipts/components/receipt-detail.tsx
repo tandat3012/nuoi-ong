@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useReceiptDetail } from "../hooks/use-receipt-detail";
 import { useCancelReceipt } from "../hooks/use-cancel-receipt";
 import { useConfirmReceipt } from "../hooks/use-confirm-receipt";
@@ -141,7 +142,7 @@ export function ReceiptDetail({
               kind="stock-receipts"
               farmId={farmId}
               id={id}
-              code={documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id)}
+              code={documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id, "PN")}
               canSubmit={actions.submit}
               canReject={actions.reject}
               disabled={isCancelling || isConfirming}
@@ -219,11 +220,28 @@ export function ReceiptDetail({
                     : "Phiếu có dòng hàng thiếu thông tin lô hoặc tài sản nên chưa thể xác nhận."}
                 </p>
               )}
-            {actions.edit && !canEdit && (
+            {detail.receipt.sourceIssueId ? (
               <p role="status" className="rounded-xl border p-3 text-sm">
-                Phiếu nháp có dòng hàng không hợp lệ nên chưa thể sửa bằng form
-                hiện tại.
+                Phiếu nhập hoàn trả nội bộ từ{" "}
+                <Link
+                  className="text-primary underline"
+                  href={`/issues/${encodeURIComponent(detail.receipt.sourceIssueId)}`}
+                >
+                  phiếu xuất nguồn
+                </Link>
+                . Chỉ lượng đạt được cộng tồn khi xác nhận; lượng không đạt chỉ
+                ghi nhận.
+                {actions.edit &&
+                  " Muốn đổi số lượng: hủy phiếu này rồi lập lại từ phiếu xuất."}
               </p>
+            ) : (
+              actions.edit &&
+              !canEdit && (
+                <p role="status" className="rounded-xl border p-3 text-sm">
+                  Phiếu nháp có dòng hàng không hợp lệ nên chưa thể sửa bằng
+                  form hiện tại.
+                </p>
+              )
             )}
             {warning && (
               <p role="status" className="rounded-xl border p-3 text-sm">
@@ -238,7 +256,7 @@ export function ReceiptDetail({
               <div>
                 <dt className="text-sm text-muted-foreground">Mã phiếu</dt>
                 <dd className="break-words font-mono">
-                  {documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id)}
+                  {documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id, "PN")}
                 </dd>
               </div>
               <NumberingDetails document={detail.receipt} />
@@ -279,7 +297,7 @@ export function ReceiptDetail({
               <div className="overflow-x-auto rounded-xl border bg-card">
                 <table className="w-full text-left text-sm">
                   <caption className="sr-only">
-                    Các dòng hàng của phiếu nhập {documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id)}
+                    Các dòng hàng của phiếu nhập {documentCodeLabel(detail.receipt.receiptCode, detail.receipt.id, "PN")}
                   </caption>
                   <thead className="border-b bg-muted/50">
                     <tr>
@@ -326,6 +344,12 @@ export function ReceiptDetail({
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {formatInventoryQuantity(line.quantity)} {line.unitSymbol || line.unitName}
+                            {Number(line.rejectedQuantity ?? 0) > 0 && (
+                              <p className="whitespace-normal text-xs text-destructive">
+                                Không đạt: {formatInventoryQuantity(line.rejectedQuantity!)}
+                                {line.rejectionReason ? ` — ${line.rejectionReason}` : ""}
+                              </p>
+                            )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             {line.unitPrice}

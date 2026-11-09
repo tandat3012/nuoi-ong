@@ -37,17 +37,21 @@ const LABELS: { [key: string]: string } = {
   "return-receipt": "Lập phiếu nhập lại",
   "return-receipt/approve": "Duyệt nhập kho",
   "return-receipt/reject": "Từ chối nhập kho",
+  "final-decision/reuse": "Cho dùng lại",
+  "final-decision/hold": "Chưa cho dùng lại",
 };
 
 export function MaintenanceActions({
   record,
   farmId,
   roles,
+  memberId,
   onSaved,
 }: {
   record: Record;
   farmId: string;
   roles: readonly string[];
+  memberId?: string;
   onSaved: () => void;
 }) {
   const request = useAuthenticatedRequest();
@@ -97,7 +101,7 @@ export function MaintenanceActions({
     };
   }, [action, farmId, request, lookupRevision]);
 
-  const actions = maintenanceActions(record, roles);
+  const actions = maintenanceActions(record, roles, memberId);
   const receivingLocations = locations.filter(
     (l) => l.warehouseId === warehouseId,
   );
@@ -192,6 +196,8 @@ export function MaintenanceActions({
               };
             if (action === "return-receipt/reject")
               body = { reason: String(data.get("reason")) };
+            if (action.startsWith("final-decision/"))
+              body = { note: String(data.get("note") ?? "").trim() || undefined };
             return request(`/maintenance-records/${record.id}/${action}`, {
               method: "POST",
               params: { farmId },
@@ -405,6 +411,18 @@ export function MaintenanceActions({
             <label className="block">
               Lý do từ chối
               <Textarea name="reason" required minLength={3} maxLength={4000} />
+            </label>
+          )}
+          {action?.startsWith("final-decision/") && (
+            <label className="block">
+              {action === "final-decision/hold"
+                ? "Lý do chưa cho dùng lại (thiết bị chuyển sang Hỏng, chờ xử lý)"
+                : "Ghi chú (không bắt buộc)"}
+              <Textarea
+                name="note"
+                required={action === "final-decision/hold"}
+                maxLength={4000}
+              />
             </label>
           )}
         </AssetMutationDialog>

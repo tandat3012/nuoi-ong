@@ -1,0 +1,4 @@
+ALTER TABLE "store_warranty_requests" ADD COLUMN "asset_id" uuid;--> statement-breakpoint
+ALTER TABLE "store_warranty_requests" ADD CONSTRAINT "store_warranty_requests_asset_id_assets_id_fk" FOREIGN KEY ("asset_id") REFERENCES "public"."assets"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_store_warranty_open_asset" ON "store_warranty_requests" USING btree ("asset_id") WHERE "store_warranty_requests"."asset_id" IS NOT NULL AND "store_warranty_requests"."status" NOT IN ('CLOSED', 'CANCELLED');--> statement-breakpoint
+ALTER TABLE "store_warranty_requests" ADD CONSTRAINT "ck_store_warranty_asset_quantity" CHECK ("store_warranty_requests"."asset_id" IS NULL OR "store_warranty_requests"."quantity" = 1);

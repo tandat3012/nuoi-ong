@@ -1,5 +1,8 @@
 import type { Availability } from '../../region/region.logic';
 
+export type StorefrontItemType = 'MATERIAL' | 'EQUIPMENT' | 'TOOL';
+export type StorefrontTrackingMode = 'QUANTITY' | 'LOT' | 'ASSET';
+
 export type StorefrontProductRating = {
   score: number;
   reviewCount: number;
@@ -22,6 +25,8 @@ export type StorefrontProduct = {
   name: string;
   category: StorefrontProductCategory;
   price: number;
+  maxPrice?: number;
+  variantCount?: number;
   originalPrice?: number;
   badge?: string;
   rating?: StorefrontProductRating;
@@ -40,6 +45,12 @@ export type StorefrontProductVariant = {
   availability?: Availability;
   image?: StorefrontProductImage;
   sku?: string;
+  quantityStep?: string;
+  unitName?: string;
+  unitSymbol?: string | null;
+  itemType?: StorefrontItemType | null;
+  trackingMode?: StorefrontTrackingMode | null;
+  warrantyMonths?: number | null;
 };
 
 export type StorefrontProductSpecification = {
@@ -59,6 +70,11 @@ export type StorefrontProductDetail = StorefrontProduct & {
   description: string;
   sku?: string;
   brand?: string;
+  unitName?: string;
+  unitSymbol?: string | null;
+  itemType?: StorefrontItemType | null;
+  trackingMode?: StorefrontTrackingMode | null;
+  warrantyMonths?: number | null;
   images?: StorefrontProductImage[];
   variants?: StorefrontProductVariant[];
   specifications?: StorefrontProductSpecification[];

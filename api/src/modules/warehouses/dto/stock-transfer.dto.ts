@@ -3,6 +3,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsDateString,
+  IsIn,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
@@ -113,4 +115,19 @@ export class ReceiveStockTransferDto {
   @ValidateNested({ each: true })
   @Type(() => ReceivedTransferLineDto)
   items?: ReceivedTransferLineDto[];
+}
+export const TRANSFER_RESOLUTIONS = ['RETURN_TO_SOURCE', 'WRITE_OFF'] as const;
+export class ResolveStockTransferDto {
+  @ApiProperty({
+    enum: TRANSFER_RESOLUTIONS,
+    description:
+      'RETURN_TO_SOURCE: phần thiếu về lại kho nguồn. WRITE_OFF: ghi nhận mất/hỏng, không cộng tồn ở đâu.',
+  })
+  @IsIn(TRANSFER_RESOLUTIONS)
+  resolution!: (typeof TRANSFER_RESOLUTIONS)[number];
+  @ApiProperty({ description: 'Căn cứ xử lý chênh lệch.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  note!: string;
 }

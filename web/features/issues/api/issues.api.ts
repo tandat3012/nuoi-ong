@@ -80,6 +80,40 @@ export function confirmIssue(
   });
 }
 
+/** NV02 internal return: a DRAFT receipt for goods given back from this issue. */
+export function createIssueReturn(
+  request: AuthenticatedRequest,
+  farmId: string,
+  issueId: string,
+  input: {
+    note?: string;
+    items: {
+      issueItemId: string;
+      acceptedQuantity: string;
+      rejectedQuantity: string;
+      rejectionReason?: string;
+    }[];
+  },
+) {
+  return request<{ data: { receipt: { id: string } } }>(
+    `/stock-receipts/from-issue/${issueId}`,
+    { method: "POST", params: { farmId }, data: input },
+  );
+}
+
+export function acknowledgeIssue(
+  request: AuthenticatedRequest,
+  farmId: string,
+  id: string,
+  note: string | null,
+) {
+  return request<{ data: IssueDetail }>(`/stock-issues/${id}/acknowledge`, {
+    method: "POST",
+    params: { farmId },
+    data: { note },
+  });
+}
+
 export function cancelIssue(
   request: AuthenticatedRequest,
   farmId: string,

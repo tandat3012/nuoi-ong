@@ -69,6 +69,7 @@ export interface ProductListFilters {
   minPrice?: number;
   maxPrice?: number;
   sort?: 'price_asc' | 'price_desc';
+  inStock?: boolean;
 }
 
 type Db = DatabaseService['db'];
@@ -96,6 +97,8 @@ type ProductRow = {
 type ProductExtras = {
   inStock: boolean;
   availability: Availability;
+  maxPrice?: number;
+  variantCount?: number;
   image?: {
     src: string;
     alt: string;
@@ -145,6 +148,18 @@ export class CommerceService {
     }
     if (maxPrice !== undefined) {
       conditions.push(lte(catalog.price, String(maxPrice)));
+    }
+    if (filters.inStock) {
+      const inRegion = filters.region && this.servesRegion(filters.region);
+      conditions.push(
+        sql`EXISTS (
+          SELECT 1 FROM ${storeProductVariants}
+          JOIN ${units} ON "units"."id" = "store_product_variants"."unit_id"
+          WHERE "store_product_variants"."product_id" = ${catalog.id}
+            AND ${this.eligibleVariantConditions()}
+            AND ${this.variantInStock(sql`${storeProductVariants.quantityStep}`, inRegion)}
+        )`,
+      );
     }
 
     const where = and(...conditions);
@@ -199,6 +214,20 @@ export class CommerceService {
         id: storeProductVariants.id,
         name: storeProductVariants.name,
         price: storeProductVariants.price,
+        quantityStep: storeProductVariants.quantityStep,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+        itemType: this.variantItemColumn<
+          'MATERIAL' | 'EQUIPMENT' | 'TOOL' | null
+        >(sql`${items.itemType}`, region, quantity),
+        trackingMode: this.variantItemColumn<
+          'QUANTITY' | 'LOT' | 'ASSET' | null
+        >(sql`${items.trackingMode}`, region, quantity),
+        warrantyMonths: this.variantItemColumn<number | null>(
+          sql`CASE WHEN ${items.itemType} = 'MATERIAL' THEN NULL ELSE COALESCE(${items.warrantyMonths}, 0) END`,
+          region,
+          quantity,
+        ),
         ...this.availabilityFlags(region, quantity),
       })
       .from(storeProductVariants)
@@ -210,9 +239,18 @@ export class CommerceService {
         ),
       )
       .orderBy(asc(storeProductVariants.id));
+    const primary =
+      variants.find((v) =>
+        region ? v.regionQty || v.regionStep || v.served : v.anywhere,
+      ) ?? variants[0];
 
     return {
       ...this.toProduct(row, extras.get(row.id)),
+      unitName: primary?.unitName,
+      unitSymbol: primary?.unitSymbol ?? null,
+      itemType: primary?.itemType ?? null,
+      trackingMode: primary?.trackingMode ?? null,
+      warrantyMonths: primary?.warrantyMonths ?? null,
       images,
       variants: variants.map(
         ({ anywhere, served, regionStep, regionQty, ...variant }) => ({
@@ -236,6 +274,18 @@ export class CommerceService {
           id: storeCategories.id,
           name: storeCategories.name,
           slug: storeCategories.slug,
+          productCount: sql<number>`(
+            SELECT COUNT(*)::int
+            FROM ${storeProducts} sp
+            WHERE sp.category_id = "store_categories"."id"
+              AND sp.status = 'PUBLISHED'
+              AND EXISTS (
+                SELECT 1 FROM ${storeProductVariants}
+                JOIN ${units} ON "units"."id" = "store_product_variants"."unit_id"
+                WHERE "store_product_variants"."product_id" = sp.id
+                  AND ${this.eligibleVariantConditions()}
+              )
+          )`.as('product_count'),
         })
         .from(storeCategories)
         .orderBy(asc(storeCategories.name), asc(storeCategories.id))
@@ -498,6 +548,41 @@ export class CommerceService {
     )`;
   }
 
+  /** Metadata of the active item in the sales warehouse that would fulfil the variant. */
+  private variantItemColumn<T>(
+    expression: SQL,
+    region?: StoreRegion,
+    quantity = 1,
+  ) {
+    const step = sql`${storeProductVariants.quantityStep}`;
+    const warehouse = {
+      warehouseId: storeSettings.salesWarehouseId,
+      farmId: storeSettings.farmId,
+    };
+    const inStockQty = this.itemStock(
+      warehouse,
+      sql`${step} * ${quantity}::numeric`,
+    );
+    const inStockStep = this.itemStock(warehouse, step);
+    return sql<T>`(
+      SELECT ${expression}
+      FROM ${storeVariantItems}
+      JOIN ${storeSettings} ON ${storeSettings.farmId} = ${storeVariantItems.farmId}
+      JOIN ${farms} ON ${farms.id} = ${storeSettings.farmId}
+      JOIN ${items} ON ${items.id} = ${storeVariantItems.itemId}
+      WHERE ${storeVariantItems.variantId} = ${storeProductVariants.id}
+        AND ${items.status} = 'ACTIVE'
+        AND ${this.sellingConditions()}
+      ORDER BY
+        ${region ? sql`(${this.servesRegion(region)}) DESC,` : sql``}
+        (${inStockQty}) DESC,
+        (${inStockStep}) DESC,
+        ${farms.code} ASC,
+        ${farms.id} ASC
+      LIMIT 1
+    )`;
+  }
+
   /**
    * Stock of the `items` row in scope that the farm's sales warehouse alone
    * can still give, net of what unapproved issues (confirmed orders) and
@@ -675,6 +760,12 @@ export class CommerceService {
       db
         .select({
           productId: storeProductVariants.productId,
+          maxPrice: sql<string>`MAX(${storeProductVariants.price})`.as(
+            'max_price',
+          ),
+          variantCount: sql<number>`COUNT(${storeProductVariants.id})::int`.as(
+            'variant_count',
+          ),
           ...this.availabilityFlags(region, quantity, true),
         })
         .from(storeProductVariants)
@@ -692,9 +783,13 @@ export class CommerceService {
       images.map(({ productId, src, alt }) => [productId, { src, alt }]),
     );
     const stockByProduct = new Map(
-      availability.map(({ productId, ...flags }) => [
+      availability.map(({ productId, maxPrice, variantCount, ...flags }) => [
         productId,
-        this.toAvailability(flags, region),
+        {
+          ...this.toAvailability(flags, region),
+          maxPrice: this.toPrice(maxPrice),
+          variantCount,
+        },
       ]),
     );
 

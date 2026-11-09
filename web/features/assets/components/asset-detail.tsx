@@ -48,6 +48,8 @@ export function AssetDetail({
   const request = useAuthenticatedRequest();
   const [attempt, setAttempt] = useState(0);
   const [returnOpen, setReturnOpen] = useState(false);
+  // Start-use opened by the assignee from the holder card, not recorded for them.
+  const [selfReceipt, setSelfReceipt] = useState(false);
   const [success, setSuccess] = useState(false);
   const [requestType, setRequestType] = useState<RequestType | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -284,6 +286,7 @@ export function AssetDetail({
                       disabled={returnError?.reloadRequired}
                       onClick={(event) => {
                         operationTrigger.current = event.currentTarget;
+                        setSelfReceipt(false);
                         setAction(value);
                       }}
                     >
@@ -404,6 +407,15 @@ export function AssetDetail({
               key={`holder:${attempt}`}
               farmId={farmId}
               assetId={asset.id}
+              onConfirmReceipt={
+                asset.status === "ASSIGNED" && !returnError?.reloadRequired
+                  ? (trigger) => {
+                      operationTrigger.current = trigger;
+                      setSelfReceipt(true);
+                      setAction("start-use");
+                    }
+                  : undefined
+              }
             />
             <AssetHistory
               key={`history:${attempt}`}
@@ -440,6 +452,7 @@ export function AssetDetail({
                 farmId={farmId}
                 asset={asset}
                 action={action}
+                selfReceipt={selfReceipt}
                 {...feedback}
               />
             )}

@@ -9,7 +9,7 @@ export type AppNotification = {
   data: {
     documentType?: string;
     documentId?: string;
-    documentCode?: string;
+    documentCode?: string | null;
     status?: string;
     rejectionReason?: string | null;
   } | null;
@@ -24,6 +24,75 @@ export type NotificationPage = {
   unreadCount: number;
   page: { number: number; size: number; totalItems: number; totalPages: number };
 };
+
+const NOTIFICATION_DOCUMENT_PREFIXES: Record<string, string> = {
+  STOCK_RECEIPT: 'PN',
+  STOCK_ISSUE: 'PX',
+  STOCK_COUNT: 'KK',
+  STOCK_TRANSFER: 'CK',
+  MAINTENANCE_REQUEST: 'MNT',
+  ASSET_TRANSFER_REQUEST: 'ATR',
+  MAINTENANCE_RETURN: 'BT',
+  MAINTENANCE_RECORD: 'BT',
+};
+
+const NOTIFICATION_DOCUMENT_KINDS: Record<string, string> = {
+  STOCK_RECEIPT: 'Phiếu nhập kho',
+  STOCK_ISSUE: 'Phiếu xuất kho',
+  STOCK_COUNT: 'Phiếu kiểm kê kho',
+  STOCK_TRANSFER: 'Phiếu chuyển kho',
+  MAINTENANCE_REQUEST: 'Yêu cầu bảo trì tài sản',
+  ASSET_TRANSFER_REQUEST: 'Yêu cầu chuyển tài sản',
+  MAINTENANCE_RETURN: 'Phiếu nhập lại bảo trì',
+  MAINTENANCE_RECORD: 'Hồ sơ bảo trì',
+};
+
+export function notificationDocumentCode(notification: AppNotification): string | null {
+  const entityType = notification.data?.documentType ?? notification.entityType;
+  const entityId = notification.data?.documentId ?? notification.entityId;
+  if (entityId) {
+    const shortId = entityId.slice(0, 8);
+    const prefix = entityType ? NOTIFICATION_DOCUMENT_PREFIXES[entityType] : undefined;
+    return prefix ? `${prefix}-${shortId}` : `#${shortId}`;
+  }
+  const rawCode = notification.data?.documentCode?.trim() ?? '';
+  return rawCode || null;
+}
+
+export function notificationBodyText(notification: AppNotification): string {
+  const code = notificationDocumentCode(notification);
+  if (!code) return notification.body;
+  const entityType = notification.data?.documentType ?? notification.entityType;
+  const status =
+    notification.data?.status ??
+    (entityType && notification.type.startsWith(`${entityType}_`)
+      ? notification.type.slice(entityType.length + 1)
+      : undefined);
+  const rejectionReason = notification.data?.rejectionReason;
+  const documentKind = entityType
+    ? NOTIFICATION_DOCUMENT_KINDS[entityType]
+    : undefined;
+  if (!documentKind) return notification.body;
+
+  switch (status) {
+    case 'PENDING_APPROVAL':
+      return `${documentKind} ${code} đang chờ duyệt.`;
+    case 'IN_TRANSIT':
+      return `${documentKind} ${code} đã xuất, chờ kho nhận xác nhận số thực nhận.`;
+    case 'SCHEDULED':
+      return `${documentKind} ${code} đã được lên lịch, chờ chọn đơn vị và ngày hẹn trả.`;
+    case 'READY_TO_SEND':
+      return `${documentKind} ${code} đã có đơn vị sửa và ngày hẹn trả, chờ kho xác nhận xuất.`;
+    case 'IN_PROGRESS':
+      return `${documentKind} ${code} đã được kho xác nhận xuất đi sửa, chờ nhận lại thiết bị.`;
+    case 'CONFIRMED':
+      return `${documentKind} ${code} đã được duyệt.`;
+    case 'REJECTED':
+      return `${documentKind} ${code} bị từ chối${rejectionReason ? `: ${rejectionReason}` : '.'}`;
+    default:
+      return notification.body;
+  }
+}
 
 export function notificationRoute(notification: AppNotification) {
   const entityType = notification.data?.documentType ?? notification.entityType;

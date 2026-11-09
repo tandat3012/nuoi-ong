@@ -35,7 +35,7 @@ export function ReceiptTable({
         <tbody className="divide-y">
           {receipts.map((receipt) => (
             <tr key={receipt.id}>
-              <td className="px-4 py-3 font-mono">{documentCodeLabel(receipt.receiptCode, receipt.id)}</td>
+              <td className="px-4 py-3 font-mono">{documentCodeLabel(receipt.receiptCode, receipt.id, "PN")}</td>
               <td className="whitespace-nowrap px-4 py-3">
                 {receipt.receiptDate.split('-').reverse().join('/')}
               </td>
@@ -58,7 +58,7 @@ export function ReceiptTable({
               <td className="px-4 py-3">
                 <Button variant="outline"
                   onClick={() => onOpen(receipt.id)}
-                  aria-label={`Chi tiết phiếu ${documentCodeLabel(receipt.receiptCode, receipt.id)}`}
+                  aria-label={`Chi tiết phiếu ${documentCodeLabel(receipt.receiptCode, receipt.id, "PN")}`}
                 >
                   Chi tiết
                 </Button>

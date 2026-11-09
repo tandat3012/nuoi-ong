@@ -70,10 +70,30 @@ export class CreateStockIssueDto extends DocumentNumberingOptionsDto {
   issueDate?: string;
   @IsOptional() @IsIn(ISSUE_TYPES) issueType?: (typeof ISSUE_TYPES)[number];
   @IsOptional() @IsUUID() maintenanceRecordId?: string | null;
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description:
+      'Thành viên nhận hàng; sau khi phiếu được xác nhận, người này (hoặc quản lý kho ghi thay kèm căn cứ) xác nhận đã nhận.',
+  })
+  @IsOptional()
+  @IsUUID()
+  recipientMemberId?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) reason?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateStockIssueItemDto)
   items!: CreateStockIssueItemDto[];
+}
+
+export class AcknowledgeStockIssueDto {
+  @ApiPropertyOptional({
+    description:
+      'Ghi chú nhận hàng. Bắt buộc khi quản lý kho ghi nhận thay người nhận (căn cứ).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  note?: string | null;
 }

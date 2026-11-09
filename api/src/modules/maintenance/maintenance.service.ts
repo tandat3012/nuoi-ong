@@ -1,10 +1,12 @@
 import {
   ConflictException,
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { assertHoldsStillCovered } from '../warehouses/stock-holds';
 import {
   and,
   count,
@@ -16,6 +18,7 @@ import {
   or,
   sql,
   SQL,
+  type AnyColumn,
 } from 'drizzle-orm';
 import { activeMaintenanceCondition } from './maintenance-state';
 import { PaginationParams } from '../../common/query-params';
@@ -25,6 +28,8 @@ import {
   assetIncidents,
   assets,
   auditLogs,
+  farmMemberRoles,
+  farmMemberWarehouses,
   farmMembers,
   inventoryBalances,
   inventoryTransactions,
@@ -32,6 +37,7 @@ import {
   locations,
   maintenanceRecords,
   maintenanceStatus,
+  roles,
   suppliers,
   users,
   warehouses,
@@ -40,6 +46,7 @@ import { maintenanceNextDate, maintenanceAlert } from './maintenance-dates';
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
+  notifyMaintenanceStaff,
 } from '../notifications/notification-events';
 import { TRANSFER_PENDING_CONFLICT } from '../assets/asset-lifecycle.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
@@ -51,9 +58,11 @@ import {
 } from '../warehouses/warehouse-scope';
 import { assetInScope, assetWarehouseId } from '../assets/asset-warehouse';
 import {
+  FARM_ADMIN_ROLES,
   MAINTENANCE_WORK_ROLES,
   MAINTENANCE_SCHEDULE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
+  WAREHOUSE_SCOPED_ROLES,
 } from '../auth/farm-access/farm-role-groups';
 import {
   CreateMaintenanceRecordDto,
@@ -79,6 +88,39 @@ type Filters = PaginationParams & {
 const issuedByName = sql<string | null>`(SELECT COALESCE(u.full_name, u.email)
   FROM farm_members m JOIN users u ON u.id = m.user_id
   WHERE m.id = ${maintenanceRecords.issuedByMemberId})`;
+
+const memberNameSql = (memberIdCol: AnyColumn) =>
+  sql<
+    string | null
+  >`(SELECT COALESCE(u.full_name, u.email) FROM farm_members m JOIN users u ON u.id = m.user_id WHERE m.id = ${memberIdCol})`;
+
+const maintenanceExtraColumns = {
+  itemName: sql<
+    string | null
+  >`(SELECT name FROM items WHERE id=${assets.itemId})`,
+  supplierName: sql<
+    string | null
+  >`(SELECT name FROM suppliers WHERE id=${maintenanceRecords.supplierId})`,
+  assetWarehouseName: sql<
+    string | null
+  >`(SELECT w.name FROM locations l JOIN warehouses w ON w.id = l.warehouse_id WHERE l.id=${assets.currentLocationId})`,
+  assetLocationName: sql<
+    string | null
+  >`(SELECT name FROM locations WHERE id=${assets.currentLocationId})`,
+  performedByName: memberNameSql(maintenanceRecords.performedByMemberId),
+  // P1-05: an active maintenance staff assignee keeps other staff off the job.
+  performedByStaff: sql<boolean>`EXISTS (
+    SELECT 1 FROM farm_members m
+    JOIN users u ON u.id = m.user_id
+    JOIN farm_member_roles fmr ON fmr.farm_member_id = m.id
+    JOIN roles r ON r.id = fmr.role_id
+    WHERE m.id = ${maintenanceRecords.performedByMemberId}
+      AND m.status = 'ACTIVE' AND u.status = 'ACTIVE'
+      AND r.code = 'MAINTENANCE_STAFF'
+  )`,
+  receivedByName: memberNameSql(maintenanceRecords.receivedByMemberId),
+  inspectedByName: memberNameSql(maintenanceRecords.inspectedByMemberId),
+};
 
 @Injectable()
 export class MaintenanceService {
@@ -142,6 +184,7 @@ export class MaintenanceService {
             string | null
           >`(SELECT name FROM locations WHERE id=${maintenanceRecords.returnLocationId})`,
           issuedByName,
+          ...maintenanceExtraColumns,
         })
         .from(maintenanceRecords)
         .leftJoin(
@@ -197,6 +240,7 @@ export class MaintenanceService {
           string | null
         >`(SELECT name FROM locations WHERE id=${maintenanceRecords.returnLocationId})`,
         issuedByName,
+        ...maintenanceExtraColumns,
       })
       .from(maintenanceRecords)
       .leftJoin(
@@ -232,6 +276,15 @@ export class MaintenanceService {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
       await this.assertAssetInScope(tx, input.assetId, actor.scope);
+      // Staff scheduling a job may take it themselves; assigning others is the managers' call.
+      if (
+        input.performedByMemberId &&
+        input.performedByMemberId !== actor.memberId &&
+        !(await this.isManager(tx, actor.memberId))
+      )
+        throw new ForbiddenException(
+          'Only a farm owner, admin or warehouse manager assigns maintenance',
+        );
       return this.schedule(tx, farmId, actor.userId, input);
     });
   }
@@ -323,6 +376,31 @@ export class MaintenanceService {
         summary: `Đã lên lịch ${this.maintenanceName(record.maintenanceType)}`,
       },
     );
+    const warehouseId = await this.assetWarehouse(tx, asset.id);
+    await notifyMaintenanceStaff(
+      tx,
+      this.recordNotification(record, 'SCHEDULED'),
+      warehouseId,
+      actorUserId,
+    );
+    if (record.supplierId && record.expectedReturnAt) {
+      const [actorMember] = await tx
+        .select({ id: farmMembers.id })
+        .from(farmMembers)
+        .where(
+          and(
+            eq(farmMembers.farmId, farmId),
+            eq(farmMembers.userId, actorUserId),
+          ),
+        )
+        .limit(1);
+      await notifyFarmApprovers(
+        tx,
+        this.recordNotification(record, 'READY_TO_SEND'),
+        actorMember.id,
+        warehouseId,
+      );
+    }
     return record;
   }
 
@@ -339,6 +417,18 @@ export class MaintenanceService {
         throw new ConflictException(
           'Completed or cancelled records cannot be edited',
         );
+      const manager = await this.isManager(tx, actor.memberId);
+      if (!manager) {
+        await this.assertOwnWork(tx, current, actor.memberId);
+        // P1-05: assigning is the managers' call; staff never claim a job themselves.
+        if (
+          input.performedByMemberId !== undefined &&
+          input.performedByMemberId !== current.performedByMemberId
+        )
+          throw new ForbiddenException(
+            'Only a farm owner, admin or warehouse manager assigns maintenance',
+          );
+      }
       this.validateReturnDate(
         input.scheduledAt === undefined
           ? current.scheduledAt
@@ -375,6 +465,18 @@ export class MaintenanceService {
           ),
         )
         .returning();
+      if (
+        record.supplierId &&
+        record.expectedReturnAt &&
+        (input.supplierId !== undefined || input.expectedReturnAt !== undefined)
+      ) {
+        await notifyFarmApprovers(
+          tx,
+          this.recordNotification(record, 'READY_TO_SEND'),
+          actor.memberId,
+          await this.assetWarehouse(tx, record.assetId),
+        );
+      }
       return record;
     });
   }
@@ -393,7 +495,7 @@ export class MaintenanceService {
         .limit(1);
       if (!preview) throw new NotFoundException('Asset not found');
       if (
-        !['AVAILABLE', 'ASSIGNED', 'IN_USE', 'MAINTENANCE'].includes(
+        !['AVAILABLE', 'DAMAGED', 'ASSIGNED', 'IN_USE', 'MAINTENANCE'].includes(
           preview.status,
         )
       )
@@ -425,7 +527,8 @@ export class MaintenanceService {
               )
               .limit(1)
           : [];
-      if (preview.status === 'AVAILABLE' || failedReturn) {
+      // A damaged return sits in the warehouse like an available asset.
+      if (['AVAILABLE', 'DAMAGED'].includes(preview.status) || failedReturn) {
         if (!preview.currentLocationId)
           throw new ConflictException('Available asset has no source location');
         const source = await this.activeSource(
@@ -477,7 +580,7 @@ export class MaintenanceService {
         throw new ConflictException(
           'Asset changed while starting maintenance; reload and retry',
         );
-      if (asset.status === 'AVAILABLE')
+      if (asset.status === 'AVAILABLE' || asset.status === 'DAMAGED')
         await this.activeLocation(
           tx,
           farmId,
@@ -531,6 +634,9 @@ export class MaintenanceService {
           throw new ConflictException(
             'Asset is missing from warehouse inventory',
           );
+        await assertHoldsStillCovered(tx, balance.id, {
+          assetId: asset.id,
+        });
         await tx.insert(inventoryTransactions).values({
           farmId,
           warehouseId: sourceWarehouseId!,
@@ -576,6 +682,12 @@ export class MaintenanceService {
           summary: 'Kho đã xác nhận xuất thiết bị đi sửa',
         },
       );
+      await notifyMaintenanceStaff(
+        tx,
+        this.recordNotification(updated, 'IN_PROGRESS'),
+        await this.assetWarehouse(tx, updated.assetId),
+        actor.userId,
+      );
       return updated;
     });
   }
@@ -589,6 +701,7 @@ export class MaintenanceService {
     const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      await this.assertOwnWork(tx, record, actor.memberId);
       if (record.status !== 'IN_PROGRESS')
         throw new ConflictException(
           'Only external maintenance can be received',
@@ -635,6 +748,7 @@ export class MaintenanceService {
       throw new BadRequestException('Next maintenance interval is required');
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      await this.assertOwnWork(tx, record, actor.memberId);
       if (record.status !== 'RECEIVED' || !record.receivedAt)
         throw new ConflictException('Receive the asset before inspection');
       const [asset] = await tx
@@ -701,6 +815,7 @@ export class MaintenanceService {
     const actor = await this.actor(farmId, clerkUserId, MAINTENANCE_WORK_ROLES);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      await this.assertOwnWork(tx, record, actor.memberId);
       if (
         !['COMPLETED', 'FAILED'].includes(record.status) ||
         !record.receivedAt ||
@@ -852,7 +967,9 @@ export class MaintenanceService {
         await tx
           .update(assets)
           .set({
-            status: record.status === 'COMPLETED' ? 'AVAILABLE' : 'MAINTENANCE',
+            // Back in stock but not in use: a passed repair waits for the
+            // owner's final decision (NV04), a failed one stays out of use.
+            status: 'MAINTENANCE',
             currentLocationId: record.returnLocationId,
             updatedAt: now,
           })
@@ -880,6 +997,19 @@ export class MaintenanceService {
         },
         record.returnCreatedByMemberId,
       );
+      await notifyMaintenanceStaff(
+        tx,
+        {
+          ...this.returnNotification(
+            updated,
+            approve ? 'CONFIRMED' : 'REJECTED',
+          ),
+          rejectionReason: updated.returnRejectionReason ?? undefined,
+        },
+        await this.assetWarehouse(tx, updated.assetId),
+        actor.userId,
+        record.returnCreatedByMemberId,
+      );
       await this.audit(
         tx,
         farmId,
@@ -899,6 +1029,95 @@ export class MaintenanceService {
     });
   }
 
+  /** NV04: the owner/admin decides whether a passed repair goes back into use. */
+  async decide(
+    id: string,
+    farmId: string,
+    clerkUserId: string,
+    reuse: boolean,
+    note?: string,
+  ) {
+    const actor = await this.actor(farmId, clerkUserId, FARM_ADMIN_ROLES);
+    const decisionNote = note?.trim() || null;
+    if (!reuse && !decisionNote)
+      throw new BadRequestException('Keeping an asset out of use needs a note');
+    const decision = reuse ? 'REUSE' : 'HOLD';
+    return this.databaseService.db.transaction(async (tx) => {
+      const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      // A retried click: the same decision once, never a second movement.
+      if (record.finalDecision === decision) return record;
+      if (record.finalDecision)
+        throw new ConflictException('The final decision was already made');
+      if (record.status !== 'COMPLETED' || record.returnStatus !== 'CONFIRMED')
+        throw new ConflictException(
+          'Only a passed repair received back in stock awaits a final decision',
+        );
+      const [asset] = await tx
+        .select({ status: assets.status })
+        .from(assets)
+        .where(and(eq(assets.id, record.assetId), eq(assets.farmId, farmId)))
+        .for('update');
+      if (asset?.status !== 'MAINTENANCE')
+        throw new ConflictException(
+          'Asset is no longer waiting for a decision',
+        );
+      const now = new Date().toISOString();
+      // Not reused: it stays in stock as DAMAGED, for another repair or retirement.
+      await tx
+        .update(assets)
+        .set({ status: reuse ? 'AVAILABLE' : 'DAMAGED', updatedAt: now })
+        .where(eq(assets.id, record.assetId));
+      const [updated] = await tx
+        .update(maintenanceRecords)
+        .set({
+          finalDecision: decision,
+          finalDecisionNote: decisionNote,
+          finalDecidedByMemberId: actor.memberId,
+          finalDecidedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(maintenanceRecords.id, id))
+        .returning();
+      await this.audit(
+        tx,
+        farmId,
+        actor.userId,
+        'ASSET_MAINTENANCE_FINAL_DECISION',
+        record.assetId,
+        { status: asset.status },
+        {
+          status: reuse ? 'AVAILABLE' : 'DAMAGED',
+          referenceId: id,
+          summary: decisionNote,
+        },
+      );
+      return updated;
+    });
+  }
+
+  private async assetWarehouse(tx: Transaction, assetId: string) {
+    const [row] = await tx
+      .select({ warehouseId: assetWarehouseId })
+      .from(assets)
+      .where(eq(assets.id, assetId))
+      .limit(1);
+    return row?.warehouseId ?? null;
+  }
+
+  private recordNotification(
+    record: typeof maintenanceRecords.$inferSelect,
+    status: 'SCHEDULED' | 'READY_TO_SEND' | 'IN_PROGRESS',
+  ) {
+    return {
+      farmId: record.farmId,
+      entityType: 'MAINTENANCE_RECORD',
+      entityId: record.id,
+      documentCode: `BT-${record.id.slice(0, 8)}`,
+      documentKind: 'Hồ sơ bảo trì',
+      status,
+    };
+  }
+
   private returnNotification(
     record: typeof maintenanceRecords.$inferSelect,
     status: 'PENDING_APPROVAL' | 'CONFIRMED' | 'REJECTED',
@@ -907,7 +1126,7 @@ export class MaintenanceService {
       farmId: record.farmId,
       entityType: 'MAINTENANCE_RETURN',
       entityId: record.id,
-      documentCode: `BT-${record.id}`,
+      documentCode: `BT-${record.id.slice(0, 8)}`,
       documentKind: 'Phiếu nhập lại bảo trì',
       status,
     };
@@ -917,6 +1136,8 @@ export class MaintenanceService {
     const actor = await this.actor(farmId, clerkUserId);
     return this.databaseService.db.transaction(async (tx) => {
       const record = await this.getRecord(tx, id, farmId, true, actor.scope);
+      if (!(await this.isManager(tx, actor.memberId)))
+        await this.assertOwnWork(tx, record, actor.memberId);
       if (record.status !== 'SCHEDULED')
         throw new ConflictException('Only active records can be cancelled');
       const [asset] = await tx
@@ -1078,6 +1299,38 @@ export class MaintenanceService {
         throw new ConflictException(
           'Performer must be an active member of this farm',
         );
+      // P1-05: the assignee coordinates the job, so needs a maintenance or management role.
+      const codes = await this.roleCodes(tx, input.performedByMemberId);
+      if (!codes.some((code) => MAINTENANCE_SCHEDULE_ROLES.includes(code)))
+        throw new ConflictException(
+          'Performer must be a maintenance staff member, warehouse manager, farm owner or admin',
+        );
+      // Same limit as the assignee's own warehouse scope (WarehousesService.scopeFor).
+      if (
+        !codes.some((code) => FARM_ADMIN_ROLES.includes(code)) &&
+        codes.some((code) => WAREHOUSE_SCOPED_ROLES.includes(code))
+      ) {
+        const warehouseId = await this.assetWarehouse(tx, assetId);
+        const [assigned] = warehouseId
+          ? await tx
+              .select({ id: farmMemberWarehouses.farmMemberId })
+              .from(farmMemberWarehouses)
+              .where(
+                and(
+                  eq(
+                    farmMemberWarehouses.farmMemberId,
+                    input.performedByMemberId,
+                  ),
+                  eq(farmMemberWarehouses.warehouseId, warehouseId),
+                ),
+              )
+              .limit(1)
+          : [];
+        if (!assigned)
+          throw new ConflictException(
+            "Performer must manage the asset's warehouse",
+          );
+      }
     }
     if (input.supplierId) {
       const [supplier] = await tx
@@ -1095,6 +1348,54 @@ export class MaintenanceService {
       if (!supplier)
         throw new ConflictException('Supplier must be active in this farm');
     }
+  }
+
+  private async roleCodes(tx: Transaction, memberId: string) {
+    const rows = await tx
+      .select({ code: roles.code })
+      .from(farmMemberRoles)
+      .innerJoin(roles, eq(roles.id, farmMemberRoles.roleId))
+      .where(eq(farmMemberRoles.farmMemberId, memberId));
+    return rows.map((row) => row.code);
+  }
+
+  private async isManager(tx: Transaction, memberId: string) {
+    return (await this.roleCodes(tx, memberId)).some((code) =>
+      WAREHOUSE_MANAGE_ROLES.includes(code),
+    );
+  }
+
+  /** P1-05: maintenance staff act only on unassigned jobs, their own, or ones a manager coordinates. */
+  private async assertOwnWork(
+    tx: Transaction,
+    record: typeof maintenanceRecords.$inferSelect,
+    memberId: string,
+  ) {
+    const assignee = record.performedByMemberId;
+    if (!assignee || assignee === memberId) return;
+    // An assignee who left the farm or lost the role no longer blocks the job.
+    const [staff] = await tx
+      .select({ id: farmMembers.id })
+      .from(farmMembers)
+      .innerJoin(users, eq(users.id, farmMembers.userId))
+      .innerJoin(
+        farmMemberRoles,
+        eq(farmMemberRoles.farmMemberId, farmMembers.id),
+      )
+      .innerJoin(roles, eq(roles.id, farmMemberRoles.roleId))
+      .where(
+        and(
+          eq(farmMembers.id, assignee),
+          eq(farmMembers.status, 'ACTIVE'),
+          eq(users.status, 'ACTIVE'),
+          eq(roles.code, 'MAINTENANCE_STAFF'),
+        ),
+      )
+      .limit(1);
+    if (staff)
+      throw new ForbiddenException(
+        'This maintenance job is assigned to another staff member',
+      );
   }
 
   private async activeWarehouse(tx: Transaction, farmId: string, id: string) {

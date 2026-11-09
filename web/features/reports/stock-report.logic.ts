@@ -149,7 +149,7 @@ export function stockReportCsv(view: StockReportView, meta: StockReportCsvMeta) 
       ...MOVE_KINDS.flatMap((kind) => [csvQuantity(row.moves[kind].quantity), row.moves[kind].value]),
       csvQuantity(row.closing.quantity),
       row.closing.value,
-      row.unpriced ? csvText("Có hàng chưa có giá nhập (tính 0 đ)") : "",
+      row.unpriced ? csvText("Có hàng chưa có giá - giá trị chỉ gồm phần đã định giá") : "",
     ]),
     [
       ...texts("Tổng cộng", "", "", "", ""),

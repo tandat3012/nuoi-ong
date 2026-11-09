@@ -30,6 +30,9 @@ export const assetStatus = pgEnum('asset_status', [
   'LOST',
   'RETIRED',
   'TRANSFER_PENDING',
+  // Returned broken: still in the warehouse (counted in stock) but never issued
+  // or sold; it goes to maintenance (NV04) or is retired.
+  'DAMAGED',
 ]);
 export const assignmentStatus = pgEnum('assignment_status', [
   'ACTIVE',
@@ -44,6 +47,8 @@ export const documentStatus = pgEnum('document_status', [
   'CANCELLED',
   // Stock transfers only: dispatched from the source, not yet received.
   'IN_TRANSIT',
+  // Stock transfers only: received short, waiting for a manager to settle the rest.
+  'DISCREPANCY',
 ]);
 export const incidentSeverity = pgEnum('incident_severity', [
   'LOW',
@@ -634,6 +639,10 @@ export const stockReceipts = pgTable(
     farmId: uuid('farm_id').notNull(),
     warehouseId: uuid('warehouse_id').notNull(),
     supplierId: uuid('supplier_id'),
+    // NV02 internal return: the confirmed issue whose goods come back.
+    sourceIssueId: uuid('source_issue_id').references(
+      (): AnyPgColumn => stockIssues.id,
+    ),
     // Null on drafts: the permanent code is assigned at confirmation.
     receiptCode: varchar('receipt_code', { length: 50 }),
     ...documentNumberingColumns(),
@@ -676,6 +685,9 @@ export const stockReceipts = pgTable(
       table.farmId.asc().nullsLast(),
       table.status.asc().nullsLast(),
     ),
+    index('idx_stock_receipts_source_issue')
+      .using('btree', table.sourceIssueId.asc().nullsLast())
+      .where(sql`source_issue_id IS NOT NULL`),
     foreignKey({
       columns: [table.rejectedByMemberId],
       foreignColumns: [farmMembers.id],
@@ -760,12 +772,27 @@ export const stockReceiptItems = pgTable(
     }),
     assetCode: varchar('asset_code', { length: 100 }),
     serialNumber: varchar('serial_number', { length: 255 }),
+    // Order returns only: the inspected condition of the asset taken back.
+    assetCondition: varchar('asset_condition', { length: 10 }),
+    // Internal returns only: the issue line given back. `quantity` is the part
+    // that passed inspection (back to stock); `rejected_quantity` never is.
+    sourceIssueItemId: uuid('source_issue_item_id').references(
+      (): AnyPgColumn => stockIssueItems.id,
+    ),
+    rejectedQuantity: numeric('rejected_quantity', { precision: 18, scale: 3 })
+      .default('0')
+      .notNull(),
+    rejectionReason: text('rejection_reason'),
     note: text(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
   },
   (table) => [
+    check(
+      'ck_receipt_item_asset_condition',
+      sql`(asset_condition IS NULL) OR (asset_condition IN ('GOOD', 'DAMAGED') AND asset_id IS NOT NULL)`,
+    ),
     foreignKey({
       columns: [table.itemId],
       foreignColumns: [items.id],
@@ -777,7 +804,15 @@ export const stockReceiptItems = pgTable(
       name: 'stock_receipt_items_stock_receipt_id_fkey',
     }).onDelete('cascade'),
     check('ck_receipt_item_price_nonnegative', sql`unit_price >= (0)::numeric`),
-    check('ck_receipt_item_quantity_positive', sql`quantity > (0)::numeric`),
+    // A return line may pass nothing: all of it rejected.
+    check(
+      'ck_receipt_item_quantity_positive',
+      sql`quantity > (0)::numeric OR (quantity = (0)::numeric AND rejected_quantity > (0)::numeric)`,
+    ),
+    check(
+      'ck_receipt_item_rejected_return',
+      sql`rejected_quantity = (0)::numeric OR (rejected_quantity > (0)::numeric AND source_issue_item_id IS NOT NULL AND coalesce(btrim(rejection_reason), '') <> '')`,
+    ),
     check(
       'ck_receipt_item_asset_quantity',
       sql`(asset_id IS NULL) OR (quantity = (1)::numeric)`,
@@ -1043,6 +1078,16 @@ export const maintenanceRecords = pgTable(
       mode: 'string',
     }),
     returnRejectionReason: text('return_rejection_reason'),
+    // NV04: after a passed repair is back in stock, the owner decides on reuse.
+    finalDecision: varchar('final_decision', { length: 10 }),
+    finalDecisionNote: text('final_decision_note'),
+    finalDecidedByMemberId: uuid('final_decided_by_member_id').references(
+      () => farmMembers.id,
+    ),
+    finalDecidedAt: timestamp('final_decided_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     status: maintenanceStatus().default('SCHEDULED').notNull(),
     description: text(),
     resultNote: text('result_note'),
@@ -1079,6 +1124,10 @@ export const maintenanceRecords = pgTable(
       table.farmId.asc().nullsLast(),
       table.status.asc().nullsLast(),
       table.scheduledAt.asc().nullsLast(),
+    ),
+    check(
+      'ck_maintenance_final_decision',
+      sql`(final_decision IS NULL AND final_decided_by_member_id IS NULL AND final_decided_at IS NULL) OR (final_decision IN ('REUSE', 'HOLD') AND final_decided_by_member_id IS NOT NULL AND final_decided_at IS NOT NULL)`,
     ),
     uniqueIndex('ux_one_active_maintenance_per_asset')
       .using('btree', table.assetId.asc().nullsLast())
@@ -1152,6 +1201,14 @@ export const stockIssues = pgTable(
     note: text(),
     createdByMemberId: uuid('created_by_member_id').notNull(),
     confirmedByMemberId: uuid('confirmed_by_member_id'),
+    // NV02: who the goods are handed to; they (or a manager, with a note) acknowledge receipt after the issue is confirmed.
+    recipientMemberId: uuid('recipient_member_id'),
+    receivedAt: timestamp('received_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    receivedRecordedByMemberId: uuid('received_recorded_by_member_id'),
+    receiptNote: text('receipt_note'),
     rejectionReason: text('rejection_reason'),
     rejectedByMemberId: uuid('rejected_by_member_id'),
     rejectedAt: timestamp('rejected_at', {
@@ -1197,6 +1254,21 @@ export const stockIssues = pgTable(
       foreignColumns: [farmMembers.id],
       name: 'stock_issues_confirmed_by_member_id_fkey',
     }),
+    foreignKey({
+      columns: [table.recipientMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_issues_recipient_member_id_fkey',
+    }),
+    foreignKey({
+      columns: [table.receivedRecordedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_issues_received_recorded_by_member_id_fkey',
+    }),
+    // Received only once confirmed and with a recipient; recorded by someone else needs a note.
+    check(
+      'ck_issue_receipt_ack',
+      sql`(received_at IS NULL AND received_recorded_by_member_id IS NULL) OR (received_at IS NOT NULL AND received_recorded_by_member_id IS NOT NULL AND recipient_member_id IS NOT NULL AND status = 'CONFIRMED'::document_status AND (received_recorded_by_member_id = recipient_member_id OR coalesce(btrim(receipt_note), '') <> ''))`,
+    ),
     foreignKey({
       columns: [table.createdByMemberId],
       foreignColumns: [farmMembers.id],
@@ -1316,6 +1388,14 @@ export const stockTransfers = pgTable(
     }),
     // Destination receipt; on one-step legacy transfers, the single confirmation.
     confirmedByMemberId: uuid('confirmed_by_member_id'),
+    // How a short receipt was settled: RETURN_TO_SOURCE or WRITE_OFF.
+    resolution: varchar({ length: 20 }),
+    resolutionNote: text('resolution_note'),
+    resolvedByMemberId: uuid('resolved_by_member_id'),
+    resolvedAt: timestamp('resolved_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     rejectionReason: text('rejection_reason'),
     rejectedByMemberId: uuid('rejected_by_member_id'),
     rejectedAt: timestamp('rejected_at', {
@@ -1358,6 +1438,15 @@ export const stockTransfers = pgTable(
       foreignColumns: [farmMembers.id],
       name: 'stock_transfers_dispatched_by_member_id_fkey',
     }),
+    foreignKey({
+      columns: [table.resolvedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'stock_transfers_resolved_by_member_id_fkey',
+    }),
+    check(
+      'ck_transfer_resolution',
+      sql`(resolution IS NULL AND resolved_by_member_id IS NULL AND resolved_at IS NULL) OR (resolution IN ('RETURN_TO_SOURCE', 'WRITE_OFF') AND resolved_by_member_id IS NOT NULL AND resolved_at IS NOT NULL)`,
+    ),
     foreignKey({
       columns: [table.createdByMemberId],
       foreignColumns: [farmMembers.id],
@@ -1602,6 +1691,14 @@ export const stockCountItems = pgTable(
       sql`(actual_quantity - system_quantity)`,
     ),
     note: text(),
+    // P1-12 asset lines: condition when found (null = missing) and where it was found, if not its recorded place.
+    assetCondition: varchar('asset_condition', { length: 10 }),
+    foundLocationId: uuid('found_location_id'),
+    // The asset's updated_at when counted: any later change makes the count stale.
+    assetVersion: timestamp('asset_version', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -1635,6 +1732,19 @@ export const stockCountItems = pgTable(
       'ck_count_system_quantity_nonnegative',
       sql`system_quantity >= (0)::numeric`,
     ),
+    foreignKey({
+      columns: [table.foundLocationId],
+      foreignColumns: [locations.id],
+      name: 'stock_count_items_found_location_id_fkey',
+    }),
+    // One asset counted once: expected 1, found 1 with a condition or missing 0 without one.
+    check(
+      'ck_count_asset_line',
+      sql`(asset_id IS NULL AND asset_condition IS NULL AND found_location_id IS NULL) OR (asset_id IS NOT NULL AND system_quantity = 1 AND ((actual_quantity = 1 AND asset_condition IN ('GOOD', 'DAMAGED')) OR (actual_quantity = 0 AND asset_condition IS NULL AND found_location_id IS NULL)))`,
+    ),
+    uniqueIndex('ux_count_asset_once')
+      .on(table.stockCountId, table.assetId)
+      .where(sql`asset_id IS NOT NULL`),
   ],
 );
 
@@ -2295,6 +2405,21 @@ export const assetTransferRequests = pgTable(
       withTimezone: true,
       mode: 'string',
     }),
+    // P1-02: across warehouses, review = source dispatches (IN_TRANSIT); the destination then receives.
+    receivedByMemberId: uuid('received_by_member_id'),
+    receivedAt: timestamp('received_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    receivedCondition: varchar('received_condition', { length: 10 }),
+    receiveNote: text('receive_note'),
+    // A DAMAGED arrival stays DISCREPANCY until an owner/admin settles it (A2/P1-02).
+    resolvedByMemberId: uuid('resolved_by_member_id'),
+    resolvedAt: timestamp('resolved_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    resolutionNote: text('resolution_note'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -2320,7 +2445,23 @@ export const assetTransferRequests = pgTable(
         table.farmId.asc().nullsLast(),
         table.assetId.asc().nullsLast(),
       )
-      .where(sql`status = 'PENDING_APPROVAL'::document_status`),
+      .where(
+        sql`status IN ('PENDING_APPROVAL'::document_status, 'IN_TRANSIT'::document_status)`,
+      ),
+    foreignKey({
+      columns: [table.resolvedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'asset_transfer_requests_resolved_by_member_id_fkey',
+    }),
+    // Only a DAMAGED arrival waits or is settled; legacy DAMAGED rows confirmed before A2 stay as they were.
+    check(
+      'ck_asset_transfer_discrepancy',
+      sql`(status <> 'DISCREPANCY'::document_status OR (coalesce(received_condition, '') = 'DAMAGED' AND received_at IS NOT NULL AND resolved_at IS NULL)) AND ((resolved_at IS NULL AND resolved_by_member_id IS NULL AND resolution_note IS NULL) OR (status = 'CONFIRMED'::document_status AND received_condition = 'DAMAGED' AND resolved_at IS NOT NULL AND resolved_by_member_id IS NOT NULL AND coalesce(btrim(resolution_note), '') <> ''))`,
+    ),
+    check(
+      'ck_asset_transfer_received',
+      sql`(received_at IS NULL AND received_by_member_id IS NULL AND received_condition IS NULL) OR (status IN ('CONFIRMED'::document_status, 'DISCREPANCY'::document_status) AND received_at IS NOT NULL AND received_by_member_id IS NOT NULL AND received_condition IS NOT NULL AND (received_condition = 'GOOD' OR (received_condition = 'DAMAGED' AND coalesce(btrim(receive_note), '') <> '')))`,
+    ),
     foreignKey({
       columns: [table.farmId],
       foreignColumns: [farms.id],
@@ -2342,6 +2483,11 @@ export const assetTransferRequests = pgTable(
       name: 'asset_transfer_requests_reviewed_by_member_id_fkey',
     }),
     foreignKey({
+      columns: [table.receivedByMemberId],
+      foreignColumns: [farmMembers.id],
+      name: 'asset_transfer_requests_received_by_member_id_fkey',
+    }),
+    foreignKey({
       columns: [table.fromLocationId],
       foreignColumns: [locations.id],
       name: 'asset_transfer_requests_from_location_id_fkey',
@@ -2358,7 +2504,7 @@ export const assetTransferRequests = pgTable(
     }),
     check(
       'ck_asset_transfer_request_review_fields',
-      sql`((status IN ('CONFIRMED'::document_status, 'REJECTED'::document_status)) AND reviewed_by_member_id IS NOT NULL AND reviewed_at IS NOT NULL) OR (status NOT IN ('CONFIRMED'::document_status, 'REJECTED'::document_status) AND reviewed_by_member_id IS NULL AND reviewed_at IS NULL)`,
+      sql`((status IN ('IN_TRANSIT'::document_status, 'DISCREPANCY'::document_status, 'CONFIRMED'::document_status, 'REJECTED'::document_status)) AND reviewed_by_member_id IS NOT NULL AND reviewed_at IS NOT NULL) OR (status NOT IN ('IN_TRANSIT'::document_status, 'DISCREPANCY'::document_status, 'CONFIRMED'::document_status, 'REJECTED'::document_status) AND reviewed_by_member_id IS NULL AND reviewed_at IS NULL)`,
     ),
     check(
       'ck_asset_transfer_request_rejection_reason',

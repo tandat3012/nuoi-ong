@@ -690,6 +690,7 @@ describe('Personnel HTTP, provisioning and PostgreSQL consistency', () => {
       .post(`/assets/${assetId}/return`, {
         warehouseId: warehouseA,
         locationId,
+        condition: 'GOOD',
       })
       .expect(201);
     const returned = await http()

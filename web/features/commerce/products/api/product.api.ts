@@ -12,6 +12,7 @@ export interface StoreProductsQuery {
   minPrice?: number;
   maxPrice?: number;
   sort?: 'price_asc' | 'price_desc';
+  inStock?: boolean;
   region?: StoreRegion | null;
 }
 
@@ -66,6 +67,10 @@ export async function getProductsStore(
 
   if (queryObj.sort === 'price_asc' || queryObj.sort === 'price_desc') {
     query.set('sort', queryObj.sort);
+  }
+
+  if (queryObj.inStock === true) {
+    query.set('inStock', 'true');
   }
 
   if (queryObj.region) query.set('region', queryObj.region);

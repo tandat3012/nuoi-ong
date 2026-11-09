@@ -36,6 +36,14 @@ test("maintenance controls reflect each role and stage", () => {
   assert.match(maintenanceNextStep(ready, ["WAREHOUSE_MANAGER"]), /xác nhận xuất đi sửa/);
   assert.match(maintenanceNextStep(ready, ["MAINTENANCE_STAFF"]), /Chờ quản lý kho/);
   assert.deepEqual(maintenanceActions(scheduled, ["EMPLOYEE"]), []);
+  // P1-05: a job assigned to another staff member is not theirs to work on.
+  const assigned = { ...scheduled, performedByMemberId: "m2", performedByStaff: true };
+  assert.deepEqual(maintenanceActions(assigned, ["MAINTENANCE_STAFF"], "m1"), []);
+  assert.deepEqual(maintenanceActions(assigned, ["MAINTENANCE_STAFF"], "m2"), ["prepare", "cancel"]);
+  assert.deepEqual(
+    maintenanceActions({ ...assigned, performedByStaff: false }, ["MAINTENANCE_STAFF"], "m1"),
+    ["prepare", "cancel"],
+  );
   assert.deepEqual(
     maintenanceActions({ ...scheduled, status: "IN_PROGRESS" }, [
       "MAINTENANCE_STAFF",
@@ -109,4 +117,13 @@ test("dates and countdown use Vietnam calendar boundaries", () => {
   assert.equal(maintenanceCountdown("2026-11-01", now), "Quá hạn 1 ngày");
   assert.equal(maintenanceCountdown("2026-11-02", now), "Đến hạn hôm nay");
   assert.equal(maintenanceCountdown("2026-11-05", now), "Còn 3 ngày");
+});
+
+test("a passed repair back in stock waits for the owner's reuse decision (P1-05)", () => {
+  const back = { status: "COMPLETED", returnStatus: "CONFIRMED", receivedAt: "x", finalDecision: null };
+  assert.deepEqual(maintenanceActions(back, ["FARM_OWNER"]), ["final-decision/reuse", "final-decision/hold"]);
+  assert.deepEqual(maintenanceActions(back, ["WAREHOUSE_MANAGER"]), []);
+  assert.match(maintenanceNextStep(back, ["WAREHOUSE_MANAGER"]), /Chờ chủ trại/);
+  assert.deepEqual(maintenanceActions({ ...back, finalDecision: "REUSE" }, ["FARM_OWNER"]), []);
+  assert.match(maintenanceNextStep({ ...back, finalDecision: "HOLD" }, ["FARM_OWNER"]), /chưa cho dùng lại/);
 });

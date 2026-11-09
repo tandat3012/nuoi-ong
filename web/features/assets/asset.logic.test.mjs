@@ -114,6 +114,7 @@ test("terminal assets expose only safe lifecycle actions and writer checks do no
   assert.deepEqual(assetActions("MAINTENANCE"), []);
   assert.deepEqual(assetActions("TRANSFER_PENDING"), []);
   assert.deepEqual(assetActions("LOST"), ["recover"]);
+  assert.deepEqual(assetActions("DAMAGED"), ["maintenance", "retire"]);
   assert.ok(assetActions("AVAILABLE").includes("transfer"));
   assert.ok(assetActions("AVAILABLE").includes("retire"));
   assert.ok(!assetActions("IN_USE").includes("retire"));

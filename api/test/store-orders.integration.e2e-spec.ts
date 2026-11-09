@@ -291,10 +291,12 @@ describe('Store orders (migrated PostgreSQL)', () => {
       expect(detail.items[0]).not.toHaveProperty('itemId');
       expect(detail).not.toHaveProperty('stockIssue');
       expect(detail.items[0]).toMatchObject({
+        productSlug: ids.product,
         quantity: 3,
         stockQuantity: '0.375',
         unitPrice: '185000',
         lineTotal: '555000',
+        deliveredAssets: [],
       });
       expect(detail.order.code).toMatch(/^DH\d{6,}$/);
       expect(detail.order).not.toHaveProperty('requestFingerprint');
@@ -958,6 +960,11 @@ describe('Store orders (migrated PostgreSQL)', () => {
           items: [{ itemId: ids.item, quantity: '1' }],
         }),
       ).rejects.toThrow('must match');
+      await expect(
+        issues.update(issueId, ids.farm, ids.admin, {
+          recipientMemberId: ids.adminMember,
+        }),
+      ).rejects.toThrow('no recipient');
     }));
 
   it('cancels the draft with the order, but cannot cancel an approved issue or confirmed customer order', () =>
@@ -1017,7 +1024,10 @@ describe('Store orders (migrated PostgreSQL)', () => {
       });
       expect(order.total).toBe('585000');
       const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
-      await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
+      // P1-06: the goods cannot leave the warehouse before the transfer is PAID.
+      await expect(
+        issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin),
+      ).rejects.toMatchObject({ response: { code: 'PAYMENT_NOT_VERIFIED' } });
       const ready = () => service.deliveries(ids.farm, ids.staff, 'available');
       expect((await ready()).map((row) => row.id)).not.toContain(order.id);
       await expect(
@@ -1062,6 +1072,7 @@ describe('Store orders (migrated PostgreSQL)', () => {
           .where(eq(schema.paymentTransactions.farmId, ids.farm)),
       ).toHaveLength(1);
 
+      await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
       expect((await ready()).map((row) => row.id)).toContain(order.id);
       await service.ship(ids.farm, ids.staff, order.id);
       await service.complete(ids.farm, ids.staff, order.id);
@@ -1315,6 +1326,176 @@ describe('Store orders (migrated PostgreSQL)', () => {
       // The shipper can try again, which drafts a new receipt.
       await service.returnToWarehouse(ids.farm, ids.staff, order.id, 'Lần 2');
       expect(await orderStatus(tx, order.id)).toBe('RETURNING');
+    }));
+
+  it('takes back the very assets it shipped, each in its inspected condition (P1-08)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, issues, receipts, input } = ctx;
+      await tx
+        .update(schema.storeProductVariants)
+        .set({ quantityStep: '1' })
+        .where(eq(schema.storeProductVariants.id, ids.variant));
+      await tx
+        .update(schema.items)
+        .set({ trackingMode: 'ASSET', itemType: 'EQUIPMENT' })
+        .where(eq(schema.items.id, ids.item));
+      const assetIds = [randomUUID(), randomUUID()];
+      await tx.insert(schema.assets).values(
+        assetIds.map((id) => ({
+          id,
+          farmId: ids.farm,
+          itemId: ids.item,
+          assetCode: id,
+          currentLocationId: ids.location,
+        })),
+      );
+      const { order } = await service.create(ids.customer, input(2));
+      const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
+      await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
+      await service.ship(ids.farm, ids.staff, order.id);
+      expect(await salesBalance(tx, ctx)).toBe('8.000');
+      await service.returnToWarehouse(ids.farm, ids.staff, order.id, 'Từ chối');
+      const receiptId = (await service.staffGet(ids.farm, order.id)).order
+        .returnReceiptId!;
+      const draft = await receipts.getReceipt(receiptId, ids.farm, ids.admin);
+      expect(draft.items.map((line) => line.assetId).sort()).toEqual(
+        [...assetIds].sort(),
+      );
+      const edit = (items: object[]) =>
+        receipts.updateReceipt(receiptId, ids.farm, ids.admin, {
+          items,
+        } as never);
+      const asLine = (
+        line: (typeof draft.items)[number],
+        extra: object = {},
+      ) => ({
+        lineId: line.id,
+        itemId: line.itemId,
+        quantity: '1',
+        assetCode: line.assetCode,
+        locationId: ids.location,
+        ...extra,
+      });
+      // A line that is not one of the shipped assets would create a new asset
+      // or drop a shipped one: refused before anything is replaced (P1-08).
+      await expect(
+        edit([
+          asLine(draft.items[0], { assetCondition: 'GOOD' }),
+          {
+            itemId: ids.item,
+            quantity: '1',
+            assetCode: 'NEW-ASSET',
+            locationId: ids.location,
+          },
+        ]),
+      ).rejects.toThrow('keep the lineId of a shipped asset');
+      await expect(
+        edit([
+          asLine(draft.items[0], { assetCondition: 'GOOD' }),
+          asLine(draft.items[0], { assetCondition: 'GOOD' }),
+        ]),
+      ).rejects.toThrow('keep the lineId of a shipped asset');
+      await edit([asLine(draft.items[0], { assetCondition: 'GOOD' })]);
+      await expect(
+        edit([
+          {
+            ...asLine(draft.items[0]),
+            lineId: undefined,
+            assetCondition: 'GOOD',
+          },
+        ]),
+      ).rejects.toThrow('keep the lineId of a shipped asset');
+      // P1-08: a save that omits the field (old mobile) keeps the stored result.
+      const current = await receipts.getReceipt(receiptId, ids.farm, ids.admin);
+      const shipped = current.items.find((line) => line.assetId)!;
+      await edit([{ ...asLine(shipped), locationId: undefined }]);
+      expect(
+        (await receipts.getReceipt(receiptId, ids.farm, ids.admin)).items[0],
+      ).toMatchObject({ assetCondition: 'GOOD', locationId: ids.location });
+      // Without an inspection result (cleared on purpose) nothing is received.
+      await edit([asLine(shipped, { assetCondition: null })]);
+      await expect(
+        receipts.confirmReceipt(receiptId, ids.farm, ids.admin),
+      ).rejects.toThrow('inspected condition');
+      const [good] = (await receipts.getReceipt(receiptId, ids.farm, ids.admin))
+        .items;
+      const other = draft.items.find((line) => line.assetId !== good.assetId)!;
+      // Restore the second shipped line, keeping its asset through lineId.
+      await tx.insert(schema.stockReceiptItems).values({
+        stockReceiptId: receiptId,
+        itemId: ids.item,
+        quantity: '1',
+        assetId: other.assetId,
+        assetCode: other.assetCode,
+      });
+      const both = (await receipts.getReceipt(receiptId, ids.farm, ids.admin))
+        .items;
+      await edit(
+        both.map((line) =>
+          asLine(line, {
+            // Changing the code never turns it into another asset.
+            assetCode: 'RENAMED',
+            assetCondition: line.assetId === good.assetId ? 'GOOD' : 'DAMAGED',
+          }),
+        ),
+      );
+      // A retried save with the same line ids keeps the assets.
+      await edit(
+        both.map((line) =>
+          asLine(line, {
+            assetCondition: line.assetId === good.assetId ? 'GOOD' : 'DAMAGED',
+          }),
+        ),
+      );
+      await receipts.confirmReceipt(receiptId, ids.farm, ids.admin);
+      await receipts.confirmReceipt(receiptId, ids.farm, ids.admin);
+      const back = await tx
+        .select()
+        .from(schema.assets)
+        .where(eq(schema.assets.itemId, ids.item));
+      expect(back).toHaveLength(2);
+      expect(
+        Object.fromEntries(back.map((row) => [row.id, row.status])),
+      ).toEqual({
+        [good.assetId!]: 'AVAILABLE',
+        [other.assetId!]: 'DAMAGED',
+      });
+      expect(back.every((row) => row.currentLocationId === ids.location)).toBe(
+        true,
+      );
+      // Both physically back, counted once; only the good one is sellable.
+      expect(await salesBalance(tx, ctx)).toBe('10.000');
+      expect(await orderStatus(tx, order.id)).toBe('RETURNED');
+    }));
+
+  it('closes a return with nothing usable to take back (E05)', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, service, receipts } = ctx;
+      const order = await shipping(ctx);
+      await service.returnToWarehouse(ids.farm, ids.staff, order.id, 'Hỏng');
+      const receiptId = (await service.staffGet(ids.farm, order.id)).order
+        .returnReceiptId!;
+      await receipts.updateReceipt(receiptId, ids.farm, ids.admin, {
+        items: [],
+      });
+      await receipts.submitReceipt(receiptId, ids.farm, ids.admin);
+      await receipts.confirmReceipt(receiptId, ids.farm, ids.admin);
+      expect(await salesBalance(tx, ctx)).toBe('9.625');
+      expect(await orderStatus(tx, order.id)).toBe('RETURNED');
+      // An ordinary receipt still needs a line.
+      await expect(
+        receipts.updateReceipt(
+          (
+            await receipts.createReceipt(ids.farm, ids.admin, {
+              warehouseId: ids.warehouse,
+              items: [{ itemId: ids.item, quantity: '1' }],
+            })
+          ).receipt.id,
+          ids.farm,
+          ids.admin,
+          { items: [] },
+        ),
+      ).rejects.toThrow('at least one item');
     }));
 
   it('offers a VietQR of the stored total only while a bank transfer is unpaid', () =>

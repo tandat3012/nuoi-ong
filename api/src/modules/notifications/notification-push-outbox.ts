@@ -98,6 +98,9 @@ export function documentPushEligibility() {
         AND (
           (${notifications.type} = ${type + '_PENDING_APPROVAL'}
             AND push_request.status = 'PENDING_APPROVAL' AND ${isApprover})
+          -- A2: a damaged arrival waits for the owner/admin.
+          OR (${notifications.type} = ${type + '_DISCREPANCY'}
+            AND push_request.status::text = 'DISCREPANCY' AND ${isApprover})
           OR (
             ((${notifications.type} = ${type + '_CONFIRMED'} AND push_request.status = 'CONFIRMED')
               OR (${notifications.type} = ${type + '_REJECTED'} AND push_request.status = 'REJECTED'))

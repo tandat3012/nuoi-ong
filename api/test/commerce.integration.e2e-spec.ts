@@ -193,12 +193,21 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     expect(result.data[0]).toMatchObject({
       id: product.id,
       price: 100000,
+      maxPrice: 200000,
+      variantCount: 2,
       inStock: true,
       category: { id: ids.storeCategory, slug: ids.storeCategory },
       image: { src: '/cover.jpg', alt: 'Cover' },
     });
     const detail = await service.getProduct(product.id);
-    expect(detail).toMatchObject(result.data[0]);
+    expect(detail).toMatchObject({
+      ...result.data[0],
+      unitName: 'Unit',
+      unitSymbol: 'u',
+      itemType: 'MATERIAL',
+      trackingMode: 'QUANTITY',
+      warrantyMonths: null,
+    });
     expect(detail.variants).toHaveLength(2);
     expect(new Set(detail.variants.map((variant) => variant.id)).size).toBe(2);
     expect(
@@ -206,8 +215,24 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     ).toBe(true);
     expect(detail.variants).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ price: 100000, inStock: false }),
-        expect.objectContaining({ price: 200000, inStock: true }),
+        expect.objectContaining({
+          price: 100000,
+          inStock: false,
+          unitName: 'Unit',
+          unitSymbol: 'u',
+          itemType: 'MATERIAL',
+          trackingMode: 'QUANTITY',
+          warrantyMonths: null,
+        }),
+        expect.objectContaining({
+          price: 200000,
+          inStock: true,
+          unitName: 'Unit',
+          unitSymbol: 'u',
+          itemType: 'MATERIAL',
+          trackingMode: 'QUANTITY',
+          warrantyMonths: null,
+        }),
       ]),
     );
     expect(
@@ -528,7 +553,105 @@ describe('Commerce products (migrated PostgreSQL)', () => {
       offset: 0,
     });
     expect(result.data).toHaveLength(1);
-    expect(Object.keys(result.data[0]).sort()).toEqual(['id', 'name', 'slug']);
+    expect(Object.keys(result.data[0]).sort()).toEqual([
+      'id',
+      'name',
+      'productCount',
+      'slug',
+    ]);
+    expect(typeof result.data[0].productCount).toBe('number');
     expect(result.page.totalItems).toBe(total.value);
+  });
+
+  it('filters products by inStock globally and within a delivery region', async () => {
+    const stockedNorth = await createProduct('Stocked North', '120000');
+    await createProduct('Out of Stock', '150000');
+    await db
+      .update(schema.storeSettings)
+      .set({ regions: ['NORTH'] })
+      .where(eq(schema.storeSettings.farmId, ids.farm));
+    await db.insert(schema.inventoryBalances).values({
+      farmId: ids.farm,
+      warehouseId: ids.warehouse,
+      itemId: stockedNorth.itemId,
+      quantityOnHand: '3',
+    });
+
+    const all = await service.listProducts(pagination);
+    expect(all.page.totalItems).toBe(2);
+
+    const inStockAnywhere = await service.listProducts(pagination, {
+      inStock: true,
+    });
+    expect(inStockAnywhere.data.map((p) => p.id)).toEqual([stockedNorth.id]);
+
+    const inStockNorth = await service.listProducts(pagination, {
+      region: 'NORTH',
+      inStock: true,
+    });
+    expect(inStockNorth.data.map((p) => p.id)).toEqual([stockedNorth.id]);
+
+    const inStockSouth = await service.listProducts(pagination, {
+      region: 'SOUTH',
+      inStock: true,
+    });
+    expect(inStockSouth.data).toEqual([]);
+  });
+
+  it('resolves variant item metadata from the farm serving the delivery region and stock', async () => {
+    const product = await createProduct('Extractor', '2500000', 'QUANTITY');
+    await db
+      .update(schema.items)
+      .set({ itemType: 'EQUIPMENT', warrantyMonths: 12 })
+      .where(eq(schema.items.id, product.itemId));
+    await db
+      .update(schema.storeSettings)
+      .set({ regions: ['NORTH'] })
+      .where(eq(schema.storeSettings.farmId, ids.farm));
+
+    const southWarehouse = randomUUID();
+    const southItem = randomUUID();
+    await db.insert(schema.warehouses).values({
+      id: southWarehouse,
+      farmId: ids.otherFarm,
+      code: 'SOUTH-SALES',
+      name: 'South Sales',
+    });
+    await db.insert(schema.storeSettings).values({
+      farmId: ids.otherFarm,
+      salesWarehouseId: southWarehouse,
+      salesEnabled: true,
+      regions: ['SOUTH'],
+    });
+    await db.insert(schema.items).values({
+      id: southItem,
+      farmId: ids.otherFarm,
+      categoryId: ids.category,
+      unitId: ids.unit,
+      code: southItem,
+      name: 'Extractor South',
+      itemType: 'EQUIPMENT',
+      trackingMode: 'QUANTITY',
+      warrantyMonths: null,
+    });
+    await db.insert(schema.storeVariantItems).values({
+      variantId: product.variantId,
+      farmId: ids.otherFarm,
+      itemId: southItem,
+    });
+    await db.insert(schema.inventoryBalances).values({
+      farmId: ids.otherFarm,
+      warehouseId: southWarehouse,
+      itemId: southItem,
+      quantityOnHand: '5',
+    });
+
+    const northView = await service.getProduct(product.id, 'NORTH');
+    expect(northView.warrantyMonths).toBe(12);
+    expect(northView.variants[0].warrantyMonths).toBe(12);
+
+    const southView = await service.getProduct(product.id, 'SOUTH');
+    expect(southView.warrantyMonths).toBe(0);
+    expect(southView.variants[0].warrantyMonths).toBe(0);
   });
 });

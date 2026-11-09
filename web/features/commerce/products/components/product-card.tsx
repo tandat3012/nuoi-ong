@@ -16,7 +16,9 @@ import { Button } from '@/shared/components/ui/button';
 import { cn } from '@/shared/lib/utils';
 import {
   computeDiscountState,
+  formatProductCardPriceRange,
   getProductCardRating,
+  resolveProductVariantCount,
 } from './product-card.logic';
 import { useOptionalCart } from '@/features/commerce/cart/hooks/use-cart';
 
@@ -39,7 +41,10 @@ export function ProductCard({
     product.price,
     product.originalPrice,
   );
-  const formattedPrice = formatVndCurrency(product.price);
+  const formattedPrice = formatProductCardPriceRange(
+    product.price,
+    product.maxPrice,
+  );
   const formattedOriginalPrice = hasDiscount
     ? formatVndCurrency(product.originalPrice)
     : null;
@@ -51,7 +56,8 @@ export function ProductCard({
   const [isAdding, setIsAdding] = React.useState(false);
   const [addError, setAddError] = React.useState<string | null>(null);
   const adding = React.useRef(false);
-  const hasMultipleVariants = Array.isArray(product.variants) && product.variants.length > 1;
+  const variantCount = resolveProductVariantCount(product);
+  const hasMultipleVariants = variantCount > 1;
 
   const handleAddToCart = async () => {
     if (!product.inStock || adding.current) return;
@@ -199,16 +205,23 @@ export function ProductCard({
               </div>
             ) : null}
           </div>
-          <p
-            className={cn(
-              'mt-1 text-xs font-medium',
-              product.inStock
-                ? 'text-emerald-700 dark:text-emerald-400'
-                : 'text-muted-foreground',
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-1.5">
+            <p
+              className={cn(
+                'text-xs font-medium',
+                product.inStock
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-muted-foreground',
+              )}
+            >
+              {availabilityLabel(product)}
+            </p>
+            {hasMultipleVariants && (
+              <span className="inline-flex items-center rounded-md border border-border/80 bg-muted/50 px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">
+                {variantCount} quy cách
+              </span>
             )}
-          >
-            {availabilityLabel(product)}
-          </p>
+          </div>
 
           {/* Hàng giá bán — min-h cố định chống layout shift khi không có giá cũ */}
           <div className="mt-2.5 flex items-baseline gap-2 min-h-[1.75rem]">
