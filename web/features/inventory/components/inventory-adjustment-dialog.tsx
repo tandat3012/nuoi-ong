@@ -125,7 +125,7 @@ export function InventoryAdjustmentDialog({
   onSuccess,
 }: {
   farmId: string;
-  /** Employees submit a request that an owner must approve before stock changes. */
+  /** Distinguishes employees from reviewers; every report requires approval. */
   requiresApproval: boolean;
   onClose: () => void;
   onSuccess: (pending: boolean) => void;
@@ -358,12 +358,12 @@ export function InventoryAdjustmentDialog({
         <header className="flex items-start justify-between gap-4">
           <div>
             <h2 id="inventory-adjustment-title" className="text-xl font-bold">
-              {requiresApproval ? "Đề xuất điều chỉnh tồn" : "Điều chỉnh tồn kho"}
+              Báo chênh lệch tồn kho
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {requiresApproval
-                ? "Đề xuất sẽ chờ chủ trại duyệt; tồn kho chỉ thay đổi sau khi được duyệt."
-                : "Ghi nhận chênh lệch kiểm kê bằng một giao dịch kho."}
+                ? "Báo cáo sẽ chờ quản lý kho, chủ trại hoặc quản trị viên duyệt; tồn kho chỉ thay đổi sau khi được duyệt."
+                : "Báo cáo của bạn cần một người khác có quyền duyệt; tồn kho chỉ thay đổi sau khi được duyệt."}
             </p>
           </div>
           <Button variant="outline"
@@ -560,7 +560,7 @@ export function InventoryAdjustmentDialog({
         )}
 
         <label className="grid gap-1.5 text-sm font-medium">
-          Mức điều chỉnh
+          Số lượng chênh lệch
           <Input
             required
             type="text"
@@ -578,7 +578,7 @@ export function InventoryAdjustmentDialog({
             id="inventory-adjustment-quantity-help"
             className="font-normal text-muted-foreground"
           >
-            Mức điều chỉnh phải khác 0. Dùng số dương để tăng, số âm để giảm;
+            Nhập số dương khi thực tế dư, số âm khi thực tế thiếu so với tồn hệ thống. Số chênh lệch phải khác 0;
             tối đa 15 chữ số nguyên và 3 chữ số thập phân.
           </span>
           {quantityInvalid && (
@@ -663,9 +663,7 @@ export function InventoryAdjustmentDialog({
           >
             {submitting
               ? "Đang gửi..."
-              : requiresApproval
-                ? "Gửi đề xuất"
-                : "Lưu điều chỉnh"}
+              : "Gửi báo cáo"}
           </Button>
         </footer>
       </form>
