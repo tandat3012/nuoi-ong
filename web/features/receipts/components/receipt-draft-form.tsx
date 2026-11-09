@@ -72,21 +72,21 @@ export function ReceiptDraftForm({
   const [warehouse, setWarehouse] = useState<DraftChoice | null>(() =>
     initial
       ? {
-          id: initial.detail.receipt.warehouseId,
-          label:
-            initial.warehouseLabel ??
-            `Kho (${initial.detail.receipt.warehouseId})`,
-        }
+        id: initial.detail.receipt.warehouseId,
+        label:
+          initial.warehouseLabel ??
+          `Kho (${initial.detail.receipt.warehouseId})`,
+      }
       : null,
   );
   const [supplier, setSupplier] = useState<DraftChoice | null>(() =>
     initial?.detail.receipt.supplierId
       ? {
-          id: initial.detail.receipt.supplierId,
-          label:
-            initial.supplierLabel ??
-            `Nhà cung cấp (${initial.detail.receipt.supplierId})`,
-        }
+        id: initial.detail.receipt.supplierId,
+        label:
+          initial.supplierLabel ??
+          `Nhà cung cấp (${initial.detail.receipt.supplierId})`,
+      }
       : null,
   );
   const [date, setDate] = useState(initial?.detail.receipt.receiptDate ?? "");
@@ -98,36 +98,36 @@ export function ReceiptDraftForm({
   const [lines, setLines] = useState<DraftLine[]>(() =>
     initial
       ? initial.detail.items.map((line) => {
-          return {
-            id: line.itemId,
-            rowKey: line.id,
-            lineId: line.id,
-            trackingMode: line.trackingMode ?? "QUANTITY",
-            label: line.itemCode
-              ? `${line.itemCode} — ${line.itemName} (${line.unitSymbol || line.unitName || "—"})`
-              : `Vật tư (${line.itemId})`,
-            quantity: line.trackingMode === "ASSET" ? "1" : line.quantity,
-            unitPrice: line.unitPrice,
-            lotMode: line.lotId ? "existing" : "new",
-            lotId: line.lotId,
-            lotLabel: line.lotCode ?? (line.lotId ? `Lô (${line.lotId})` : ""),
-            supplierLotNumber: line.supplierLotNumber ?? "",
-            legacyLotNumber: line.legacyLotNumber,
-            manufacturedDate: line.manufacturedDate ?? "",
-            expiryDate: line.expiryDate ?? "",
-            assetCode: line.assetCode ?? "",
-            serialNumber: line.serialNumber ?? "",
-            locationId: line.locationId ?? null,
-            locationLabel: line.locationCode
-              ? `${line.locationCode} — ${line.locationName}`
-              : line.locationId
-                ? `Vị trí (${line.locationId})`
-                : "",
-            assetId: line.assetId,
-            assetCondition: line.assetCondition ?? "",
-            note: line.note ?? "",
-          };
-        })
+        return {
+          id: line.itemId,
+          rowKey: line.id,
+          lineId: line.id,
+          trackingMode: line.trackingMode ?? "QUANTITY",
+          label: line.itemCode
+            ? `${line.itemCode} — ${line.itemName} (${line.unitSymbol || line.unitName || "—"})`
+            : `Vật tư (${line.itemId})`,
+          quantity: line.trackingMode === "ASSET" ? "1" : line.quantity,
+          unitPrice: line.unitPrice,
+          lotMode: line.lotId ? "existing" : "new",
+          lotId: line.lotId,
+          lotLabel: line.lotCode ?? (line.lotId ? `Lô (${line.lotId})` : ""),
+          supplierLotNumber: line.supplierLotNumber ?? "",
+          legacyLotNumber: line.legacyLotNumber,
+          manufacturedDate: line.manufacturedDate ?? "",
+          expiryDate: line.expiryDate ?? "",
+          assetCode: line.assetCode ?? "",
+          serialNumber: line.serialNumber ?? "",
+          locationId: line.locationId ?? null,
+          locationLabel: line.locationCode
+            ? `${line.locationCode} — ${line.locationName}`
+            : line.locationId
+              ? `Vị trí (${line.locationId})`
+              : "",
+          assetId: line.assetId,
+          assetCondition: line.assetCondition ?? "",
+          note: line.note ?? "",
+        };
+      })
       : [],
   );
   const { submit, isSaving, error } = useSaveReceiptDraft(
@@ -167,31 +167,31 @@ export function ReceiptDraftForm({
     else if (kind === "material" || kind === "asset")
       setLines((previous) =>
         choice.trackingMode === "QUANTITY" &&
-        previous.some((line) => line.id === choice.id)
+          previous.some((line) => line.id === choice.id)
           ? previous
           : [
-              ...previous,
-              {
-                ...choice,
-                rowKey: crypto.randomUUID(),
-                quantity: "1",
-                unitPrice: "0",
-                lotMode: "new",
-                lotId: null,
-                lotLabel: "",
-                supplierLotNumber: "",
-                legacyLotNumber: null,
-                manufacturedDate: "",
-                expiryDate: "",
-                assetCode: "",
-                serialNumber: "",
-                locationId: null,
-                locationLabel: "",
-                assetId: null,
-                assetCondition: "",
-                note: "",
-              },
-            ],
+            ...previous,
+            {
+              ...choice,
+              rowKey: crypto.randomUUID(),
+              quantity: "1",
+              unitPrice: "0",
+              lotMode: "new",
+              lotId: null,
+              lotLabel: "",
+              supplierLotNumber: "",
+              legacyLotNumber: null,
+              manufacturedDate: "",
+              expiryDate: "",
+              assetCode: "",
+              serialNumber: "",
+              locationId: null,
+              locationLabel: "",
+              assetId: null,
+              assetCondition: "",
+              note: "",
+            },
+          ],
       );
   }
   if (!canWrite)
@@ -236,20 +236,20 @@ export function ReceiptDraftForm({
               ? { lotId: line.lotId ?? "" }
               : line.trackingMode === "LOT"
                 ? {
-                    supplierLotNumber: line.supplierLotNumber.trim() || undefined,
-                    manufacturedDate: line.manufacturedDate || undefined,
-                    expiryDate: line.expiryDate || undefined,
-                  }
+                  supplierLotNumber: line.supplierLotNumber.trim() || undefined,
+                  manufacturedDate: line.manufacturedDate || undefined,
+                  expiryDate: line.expiryDate || undefined,
+                }
                 : {}),
             ...(line.trackingMode === "ASSET"
               ? {
-                  assetCode: line.assetCode.trim(),
-                  serialNumber: line.serialNumber.trim() || undefined,
-                  locationId: line.locationId ?? undefined,
-                  ...(line.assetId
-                    ? { assetCondition: line.assetCondition }
-                    : {}),
-                }
+                assetCode: line.assetCode.trim(),
+                serialNumber: line.serialNumber.trim() || undefined,
+                locationId: line.locationId ?? undefined,
+                ...(line.assetId
+                  ? { assetCondition: line.assetCondition }
+                  : {}),
+              }
               : {}),
           })),
         }, initial?.detail.orderReturn);
@@ -278,10 +278,10 @@ export function ReceiptDraftForm({
               <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 font-normal text-muted-foreground">
                 {initial
                   ? documentCodeLabel(
-                      initial.detail.receipt.receiptCode,
-                      initial.detail.receipt.id,
-                      "PN",
-                    )
+                    initial.detail.receipt.receiptCode,
+                    initial.detail.receipt.id,
+                    "PN",
+                  )
                   : DOCUMENT_CODE_HINT}
               </p>
             </div>
@@ -558,11 +558,11 @@ export function ReceiptDraftForm({
                           previous.map((row) =>
                             row.rowKey === line.rowKey
                               ? {
-                                  ...row,
-                                  lotMode: "existing",
-                                  lotId: choice.id,
-                                  lotLabel: choice.label,
-                                }
+                                ...row,
+                                lotMode: "existing",
+                                lotId: choice.id,
+                                lotLabel: choice.label,
+                              }
                               : row,
                           ),
                         )
@@ -621,10 +621,10 @@ export function ReceiptDraftForm({
                               previous.map((row) =>
                                 row.rowKey === line.rowKey
                                   ? {
-                                      ...row,
-                                      assetCondition: event.target
-                                        .value as DraftLine["assetCondition"],
-                                    }
+                                    ...row,
+                                    assetCondition: event.target
+                                      .value as DraftLine["assetCondition"],
+                                  }
                                   : row,
                               ),
                             )
@@ -650,10 +650,10 @@ export function ReceiptDraftForm({
                                 previous.map((row) =>
                                   row.rowKey === line.rowKey
                                     ? {
-                                        ...row,
-                                        locationId: null,
-                                        locationLabel: "",
-                                      }
+                                      ...row,
+                                      locationId: null,
+                                      locationLabel: "",
+                                    }
                                     : row,
                                 ),
                               )

@@ -57,6 +57,7 @@ export function Combobox({
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [active, setActive] = React.useState(0);
+  const [dropUp, setDropUp] = React.useState(false);
   const selectedText =
     options.find((option) => option.value === value)?.label ??
     (value ? selectedLabel : undefined);
@@ -70,6 +71,12 @@ export function Combobox({
   const visible = matches.slice(0, MAX_RESULTS);
 
   function openList() {
+    // Flip above the input when the list (max-h-60 = 240px + gap) would be cut off by the viewport.
+    const rect = inputRef.current?.getBoundingClientRect();
+    if (rect) {
+      const below = window.innerHeight - rect.bottom;
+      setDropUp(below < 260 && rect.top > below);
+    }
     setOpen(true);
     setQuery("");
     setActive(0);
@@ -166,7 +173,10 @@ export function Combobox({
         <ul
           id={listId}
           role="listbox"
-          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-border bg-popover py-1 text-sm font-normal shadow-xl"
+          className={cn(
+            "absolute left-0 right-0 z-50 max-h-60 w-full overflow-y-auto rounded-md border border-border bg-popover py-1 text-sm font-normal shadow-xl",
+            dropUp ? "bottom-full mb-1" : "top-full mt-1",
+          )}
         >
           {visible.map((option, index) => (
             <li
