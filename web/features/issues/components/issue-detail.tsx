@@ -153,9 +153,31 @@ export function IssueDetail({
             <PageHeader
               title={`Phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id, "PX")}`}
               badge={
-                <Badge variant="outline">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                    detail.issue.status === "CONFIRMED"
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                      : detail.issue.status === "DRAFT"
+                        ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                        : detail.issue.status === "PENDING_APPROVAL"
+                          ? "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-400"
+                          : "border-border bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <span
+                    className={`size-1.5 shrink-0 rounded-full ${
+                      detail.issue.status === "CONFIRMED"
+                        ? "bg-emerald-500"
+                        : detail.issue.status === "DRAFT"
+                          ? "bg-amber-500"
+                          : detail.issue.status === "PENDING_APPROVAL"
+                            ? "bg-sky-500"
+                            : "bg-zinc-400"
+                    }`}
+                    aria-hidden="true"
+                  />
                   {ISSUE_STATUS_LABELS[detail.issue.status]}
-                </Badge>
+                </span>
               }
               actions={
                 <>
