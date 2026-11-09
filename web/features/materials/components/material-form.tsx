@@ -32,7 +32,7 @@ import { Textarea } from "@/shared/components/ui/textarea";
 import { Badge } from "@/shared/components/ui/badge";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { ConfirmDialog } from "@/shared/components/ui/confirm-dialog";
-import { Save, ArrowLeft } from "lucide-react";
+import { Save, ArrowLeft, Boxes, CalendarClock, ShieldCheck, AlertTriangle } from "lucide-react";
 
 interface MaterialFormProps {
   mode: "create" | "edit";
@@ -162,21 +162,22 @@ export function MaterialForm({
   const handleExpiryTrackingToggle = (checked: boolean) => {
     markChanged();
     setRequiresExpiryTracking(checked);
-    if (!checked) {
+    if (checked && trackingMode !== "LOT") {
+      setTrackingMode("LOT");
       setClientErrors((prev) => {
-        const next = { ...prev };
-        delete next.trackingMode;
-        return next;
+        const copy = { ...prev };
+        delete copy.trackingMode;
+        return copy;
       });
     }
   };
 
   const handleTrackingModeChange = (newMode: MaterialTrackingMode) => {
-    if (newMode === "QUANTITY" && requiresExpiryTracking) {
+    if (requiresExpiryTracking && newMode !== "LOT") {
       setClientErrors((prev) => ({
         ...prev,
         trackingMode:
-          "Không thể chọn theo số lượng khi đang bật theo dõi hạn sử dụng",
+          'Khi bật "Theo dõi hạn sử dụng theo từng lô", phương thức theo dõi bắt buộc phải là "Theo lô (Lot)".',
       }));
       return;
     }
@@ -220,20 +221,20 @@ export function MaterialForm({
     <>
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Header Action Card */}
-        <Card className="p-5 sm:p-6">
+        <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-2xs">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
                   {isEdit ? "Cập nhật vật tư" : "Thêm vật tư mới"}
                 </h2>
-                <Badge variant="secondary" className="font-semibold">
+                <Badge variant="secondary" className="font-semibold text-xs">
                   {farmName}
                 </Badge>
               </div>
               <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
                 {isEdit
-                  ? "Chỉnh sửa thông tin vật tư trong nông trại hiện tại."
+                  ? "Chỉnh sửa thông tin và hồ sơ quản lý vật tư trong nông trại."
                   : "Điền thông tin và hồ sơ quản lý để đăng ký vật tư mới cho nông trại."}
               </p>
             </div>
@@ -245,7 +246,7 @@ export function MaterialForm({
                 size="sm"
                 onClick={handleCancelClick}
                 disabled={isSubmitting}
-                className="gap-1.5"
+                className="h-9 gap-1.5 text-xs font-medium"
               >
                 <ArrowLeft className="size-3.5" aria-hidden="true" />
                 <span>Hủy bỏ</span>
@@ -255,14 +256,14 @@ export function MaterialForm({
                 size="sm"
                 disabled={isSubmitting}
                 isLoading={isSubmitting}
-                className="gap-1.5 font-semibold"
+                className="h-9 gap-1.5 text-xs font-semibold shadow-xs"
               >
                 <Save className="size-3.5" aria-hidden="true" />
                 <span>{isEdit ? "Lưu thay đổi" : "Tạo vật tư"}</span>
               </Button>
             </div>
           </div>
-        </Card>
+        </div>
 
         {/* Global Server Error Banner */}
         {errorMessage && (
@@ -282,23 +283,26 @@ export function MaterialForm({
         {/* Form Body - Two Grouped Cards */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Basic Information Section */}
-          <Card>
-            <CardHeader className="border-b border-border/60 pb-3">
-              <CardTitle className="text-base font-semibold">
-                Thông tin cơ bản
-              </CardTitle>
+          <Card className="rounded-xl border border-border bg-card shadow-2xs">
+            <CardHeader className="border-b border-border bg-muted/20 px-5 py-4">
+              <div className="flex items-center gap-2">
+                <Boxes className="size-4 text-primary" aria-hidden="true" />
+                <CardTitle className="text-sm font-semibold text-foreground">
+                  Thông tin cơ bản
+                </CardTitle>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Các trường đánh dấu <span className="text-destructive font-bold">*</span> là bắt buộc.
               </p>
             </CardHeader>
 
-            <CardContent className="pt-4 space-y-4">
+            <CardContent className="p-5 space-y-4">
               {/* Code & Barcode */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-code"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Mã vật tư <span className="text-destructive">*</span>
                   </label>
@@ -314,9 +318,9 @@ export function MaterialForm({
                     aria-describedby={
                       clientErrors.code ? "material-code-error" : undefined
                     }
-                    placeholder="VD: VT-001"
+                    placeholder="Ví dụ: VT-001"
                     maxLength={50}
-                    className="font-mono"
+                    className="h-9 font-mono text-xs"
                   />
                   <FieldError
                     id="material-code-error"
@@ -324,10 +328,10 @@ export function MaterialForm({
                   />
                 </div>
 
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-barcode"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Mã vạch (Barcode)
                   </label>
@@ -343,9 +347,9 @@ export function MaterialForm({
                     aria-describedby={
                       clientErrors.barcode ? "material-barcode-error" : undefined
                     }
-                    placeholder="VD: 8931234567890"
+                    placeholder="Ví dụ: 8931234567890"
                     maxLength={255}
-                    className="font-mono"
+                    className="h-9 font-mono text-xs"
                   />
                   <FieldError
                     id="material-barcode-error"
@@ -355,10 +359,10 @@ export function MaterialForm({
               </div>
 
               {/* Name */}
-              <div>
+              <div className="space-y-1.5">
                 <label
                   htmlFor="material-name"
-                  className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                  className="block text-xs font-semibold text-foreground"
                 >
                   Tên vật tư <span className="text-destructive">*</span>
                 </label>
@@ -374,8 +378,9 @@ export function MaterialForm({
                   aria-describedby={
                     clientErrors.name ? "material-name-error" : undefined
                   }
-                  placeholder="VD: Đường mía tinh luyện cho ong ăn vụ đông"
+                  placeholder="Ví dụ: Đường mía tinh luyện cho ong ăn vụ đông"
                   maxLength={255}
+                  className="h-9 text-xs"
                 />
                 <FieldError
                   id="material-name-error"
@@ -385,15 +390,16 @@ export function MaterialForm({
 
               {/* Category & Unit */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-category"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Danh mục <span className="text-destructive">*</span>
                   </label>
                   <Select
                     id="material-category"
+                    className="h-9 text-xs font-medium"
                     value={categoryId}
                     onChange={(e) => {
                       markChanged();
@@ -425,15 +431,16 @@ export function MaterialForm({
                   )}
                 </div>
 
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-unit"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Đơn vị tính <span className="text-destructive">*</span>
                   </label>
                   <Select
                     id="material-unit"
+                    className="h-9 text-xs font-medium"
                     value={unitId}
                     onChange={(e) => {
                       markChanged();
@@ -468,15 +475,16 @@ export function MaterialForm({
 
               {/* Kind & Tracking Mode */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-kind"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Phân loại vật tư <span className="text-destructive">*</span>
                   </label>
                   <Select
                     id="material-kind"
+                    className="h-9 text-xs font-medium"
                     value={kind}
                     onChange={(e) => {
                       markChanged();
@@ -501,16 +509,17 @@ export function MaterialForm({
                   />
                 </div>
 
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-tracking-mode"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Phương thức theo dõi{" "}
                     <span className="text-destructive">*</span>
                   </label>
                   <Select
                     id="material-tracking-mode"
+                    className="h-9 text-xs font-medium"
                     value={trackingMode}
                     onChange={(e) =>
                       handleTrackingModeChange(
@@ -543,10 +552,10 @@ export function MaterialForm({
 
               {/* Min Stock Level & Status (if edit) */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-min-stock"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Ngưỡng tồn tối thiểu
                   </label>
@@ -565,6 +574,7 @@ export function MaterialForm({
                         : undefined
                     }
                     placeholder="0"
+                    className="h-9 text-xs tabular-nums"
                   />
                   <FieldError
                     id="material-min-stock-error"
@@ -573,15 +583,16 @@ export function MaterialForm({
                 </div>
 
                 {isEdit && (
-                  <div>
+                  <div className="space-y-1.5">
                     <label
                       htmlFor="material-status"
-                      className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                      className="block text-xs font-semibold text-foreground"
                     >
                       Trạng thái hoạt động
                     </label>
                     <Select
                       id="material-status"
+                      className="h-9 text-xs font-medium"
                       value={status}
                       onChange={(e) => {
                         markChanged();
@@ -609,10 +620,10 @@ export function MaterialForm({
               </div>
 
               {/* Description */}
-              <div>
+              <div className="space-y-1.5">
                 <label
                   htmlFor="material-description"
-                  className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                  className="block text-xs font-semibold text-foreground"
                 >
                   Mô tả chi tiết
                 </label>
@@ -632,6 +643,7 @@ export function MaterialForm({
                   }
                   placeholder="Ghi chú về nguồn gốc, quy cách đóng bao bì..."
                   maxLength={4000}
+                  className="text-xs"
                 />
                 <FieldError
                   id="material-description-error"
@@ -641,10 +653,10 @@ export function MaterialForm({
 
               {/* Image & Source URLs */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-image-url"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     URL Hình ảnh
                   </label>
@@ -664,6 +676,7 @@ export function MaterialForm({
                     }
                     placeholder="https://..."
                     maxLength={2000}
+                    className="h-9 text-xs font-mono"
                   />
                   <FieldError
                     id="material-image-url-error"
@@ -671,10 +684,10 @@ export function MaterialForm({
                   />
                 </div>
 
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-source-url"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     URL Nguồn / Tài liệu
                   </label>
@@ -694,6 +707,7 @@ export function MaterialForm({
                     }
                     placeholder="https://..."
                     maxLength={2000}
+                    className="h-9 text-xs font-mono"
                   />
                   <FieldError
                     id="material-source-url-error"
@@ -705,37 +719,45 @@ export function MaterialForm({
           </Card>
 
           {/* Profile & Expiry Section */}
-          <Card>
-            <CardHeader className="border-b border-border/60 pb-3">
-              <CardTitle className="text-base font-semibold">
-                Hồ sơ quản lý & Hạn sử dụng
-              </CardTitle>
+          <Card className="rounded-xl border border-border bg-card shadow-2xs">
+            <CardHeader className="border-b border-border bg-muted/20 px-5 py-4">
+              <div className="flex items-center gap-2">
+                <CalendarClock className="size-4 text-primary" aria-hidden="true" />
+                <CardTitle className="text-sm font-semibold text-foreground">
+                  Hồ sơ quản lý & Hạn sử dụng
+                </CardTitle>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Quy định về bảo quản an toàn và theo dõi hạn sử dụng theo từng lô.
               </p>
             </CardHeader>
 
-            <CardContent className="pt-4 space-y-4">
+            <CardContent className="p-5 space-y-4">
               {/* Expiry Tracking Toggle Card */}
-              <div className="rounded-xl border border-border bg-muted/30 p-4">
+              <div
+                className={`rounded-xl border p-4 transition-colors ${
+                  requiresExpiryTracking
+                    ? "border-primary/40 bg-primary/5"
+                    : "border-border bg-muted/30"
+                }`}
+              >
                 <label className="flex items-start gap-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={requiresExpiryTracking}
                     onChange={(e) => handleExpiryTrackingToggle(e.target.checked)}
                     aria-describedby="material-expiry-tracking-help"
-                    className="mt-1 size-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                    className="mt-0.5 size-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
                   />
                   <div>
-                    <span className="text-sm font-semibold text-foreground">
+                    <span className="text-xs font-bold text-foreground">
                       Theo dõi hạn sử dụng theo từng lô
                     </span>
                     <p
                       id="material-expiry-tracking-help"
-                      className="mt-0.5 text-xs text-muted-foreground"
+                      className="mt-1 text-xs text-muted-foreground leading-relaxed"
                     >
-                      Khi bật, hệ thống sẽ yêu cầu ngày hết hạn khi nhập kho và tự
-                      động yêu cầu bạn chọn &quot;Theo lô (Lot)&quot;.
+                      Khi bật, hệ thống sẽ yêu cầu nhập ngày hết hạn khi lập phiếu nhập kho và tự động cố định phương thức &quot;Theo lô (Lot)&quot;.
                     </p>
                   </div>
                 </label>
@@ -743,10 +765,10 @@ export function MaterialForm({
 
               {/* Expiry Warning & Shelf Life */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-expiry-warning"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Cảnh báo trước hạn (ngày)
                   </label>
@@ -766,6 +788,7 @@ export function MaterialForm({
                         ? "material-expiry-warning-error"
                         : "material-expiry-warning-help"
                     }
+                    className="h-9 text-xs tabular-nums"
                   />
                   <FieldError
                     id="material-expiry-warning-error"
@@ -773,16 +796,16 @@ export function MaterialForm({
                   />
                   <p
                     id="material-expiry-warning-help"
-                    className="mt-1 text-[0.7rem] text-muted-foreground"
+                    className="text-[0.6875rem] text-muted-foreground"
                   >
-                    Số ngày báo trước khi lô vật tư sắp hết hạn (mặc định 30 ngày)
+                    Số ngày báo trước khi lô sắp hết hạn (mặc định 30 ngày)
                   </p>
                 </div>
 
-                <div>
+                <div className="space-y-1.5">
                   <label
                     htmlFor="material-shelf-life"
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
+                    className="block text-xs font-semibold text-foreground"
                   >
                     Hạn sử dụng tiêu chuẩn (ngày)
                   </label>
@@ -803,25 +826,29 @@ export function MaterialForm({
                         : undefined
                     }
                     placeholder="Để trống nếu không cố định"
+                    className="h-9 text-xs tabular-nums"
                   />
                   <FieldError
                     id="material-shelf-life-error"
                     message={clientErrors.defaultShelfLifeDays}
                   />
-                  <p className="mt-1 text-[0.7rem] text-muted-foreground">
-                    Số ngày sử dụng từ lúc sản xuất
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    Số ngày sử dụng tính từ ngày sản xuất
                   </p>
                 </div>
               </div>
 
               {/* Storage Instructions */}
-              <div>
-                <label
-                  htmlFor="material-storage"
-                  className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
-                >
-                  Hướng dẫn bảo quản
-                </label>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  <label
+                    htmlFor="material-storage"
+                    className="block text-xs font-semibold text-foreground"
+                  >
+                    Hướng dẫn bảo quản
+                  </label>
+                </div>
                 <Textarea
                   id="material-storage"
                   rows={3}
@@ -836,8 +863,9 @@ export function MaterialForm({
                       ? "material-storage-error"
                       : undefined
                   }
-                  placeholder="VD: Bảo quản nơi khô ráo, tránh ánh nắng trực tiếp, nhiệt độ dưới 25°C..."
+                  placeholder="Ví dụ: Bảo quản nơi khô ráo, tránh ánh nắng trực tiếp, nhiệt độ dưới 25°C..."
                   maxLength={4000}
+                  className="text-xs"
                 />
                 <FieldError
                   id="material-storage-error"
@@ -846,13 +874,16 @@ export function MaterialForm({
               </div>
 
               {/* Safety Notes */}
-              <div>
-                <label
-                  htmlFor="material-safety"
-                  className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"
-                >
-                  Lưu ý an toàn & Cảnh báo
-                </label>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangle className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  <label
+                    htmlFor="material-safety"
+                    className="block text-xs font-semibold text-foreground"
+                  >
+                    Lưu ý an toàn & Cảnh báo
+                  </label>
+                </div>
                 <Textarea
                   id="material-safety"
                   rows={3}
@@ -865,8 +896,9 @@ export function MaterialForm({
                   aria-describedby={
                     clientErrors.safetyNotes ? "material-safety-error" : undefined
                   }
-                  placeholder="VD: Đeo găng tay và khẩu trang khi pha chế thuốc điều trị ve mạt..."
+                  placeholder="Ví dụ: Đeo găng tay và khẩu trang khi pha chế thuốc điều trị ve mạt..."
                   maxLength={4000}
+                  className="text-xs"
                 />
                 <FieldError
                   id="material-safety-error"
@@ -875,6 +907,30 @@ export function MaterialForm({
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Bottom Actions Sticky / Anchored */}
+        <div className="flex items-center justify-end gap-3 rounded-xl border border-border bg-card p-4 shadow-2xs">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCancelClick}
+            disabled={isSubmitting}
+            className="h-9 px-4 text-xs font-medium"
+          >
+            Hủy bỏ
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={isSubmitting}
+            isLoading={isSubmitting}
+            className="h-9 px-5 gap-1.5 text-xs font-semibold shadow-xs"
+          >
+            <Save className="size-3.5" aria-hidden="true" />
+            <span>{isEdit ? "Lưu thay đổi" : "Tạo vật tư"}</span>
+          </Button>
         </div>
       </form>
 

@@ -46,7 +46,7 @@ export function AddLineTile({
   return (
     <div
       className={cn(
-        "min-h-48 space-y-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 p-4",
+        "relative z-20 space-y-3 rounded-lg border border-border bg-card p-4 shadow-xs",
         className,
       )}
     >

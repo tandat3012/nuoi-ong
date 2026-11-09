@@ -3,6 +3,7 @@
 import { useAuthContext } from "@/features/auth";
 import { STORE_MANAGE_ROLES, hasAnyRole } from "@/features/auth/farm-roles";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
+import { Badge } from "@/shared/components/ui/badge";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { StoreOrderCustomer } from "./components/store-order-customer";
 import { StoreOrderDetail } from "./components/store-order-detail";
@@ -79,7 +80,12 @@ export function StoreOrderReportsScreen() {
     <div className="space-y-6">
       <PageHeader
         title="Báo cáo bán hàng"
-        description={`Doanh thu và đơn hàng · ${membership.farm.name}`}
+        badge={
+          <Badge variant="secondary" className="font-semibold text-xs">
+            {membership.farm.name}
+          </Badge>
+        }
+        description="Theo dõi doanh thu, hiệu suất đơn hàng, sản phẩm bán chạy và khách hàng tiềm năng."
       />
       <StoreOrderReports key={membership.farm.id} farmId={membership.farm.id} />
     </div>
