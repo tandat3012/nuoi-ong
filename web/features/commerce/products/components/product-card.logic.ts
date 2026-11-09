@@ -37,16 +37,16 @@ export function formatProductCardPriceRange(
   price: number,
   maxPrice?: number,
 ): string | null {
-  const minFormatted = formatVndCurrency(price);
+  const minFormatted = formatVndCurrency(price)?.replace(/\s*₫$/, 'đ');
   if (!minFormatted) return null;
   if (
     typeof maxPrice === 'number' &&
     Number.isSafeInteger(maxPrice) &&
     maxPrice > price
   ) {
-    const maxFormatted = formatVndCurrency(maxPrice);
+    const maxFormatted = formatVndCurrency(maxPrice)?.replace(/\s*₫$/, 'đ');
     if (maxFormatted) {
-      return `${minFormatted} – ${maxFormatted}`;
+      return `${minFormatted} - ${maxFormatted}`;
     }
   }
   return minFormatted;

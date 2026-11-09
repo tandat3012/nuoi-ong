@@ -25,19 +25,15 @@ export interface ProductsMobileFilterProps {
   categories: readonly StorefrontCategory[];
   categoriesError?: boolean;
   criteria: ProductsQueryCriteria;
-  selectedCategoryName?: string;
 }
 
 export function ProductsMobileFilter({
   categories,
   categoriesError,
   criteria,
-  selectedCategoryName,
 }: ProductsMobileFilterProps) {
   const [open, setOpen] = React.useState(false);
   const selectedCategory = criteria.category;
-  const hasActivePrice =
-    criteria.minPrice !== undefined || criteria.maxPrice !== undefined;
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -46,14 +42,11 @@ export function ProductsMobileFilter({
           type="button"
           variant="outline"
           size="sm"
-          className="lg:hidden inline-flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-xs sm:text-sm font-medium shadow-2xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+          className="lg:hidden inline-flex h-11 min-w-0 items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs sm:text-sm font-medium shadow-2xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
           aria-label="Mở bộ lọc sản phẩm"
         >
           <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">
-            Bộ lọc{selectedCategory ? `: ${selectedCategoryName}` : ''}
-            {hasActivePrice ? ' · Giá' : ''}
-          </span>
+          <span>Lọc</span>
         </Button>
       </SheetTrigger>
       <SheetContent

@@ -39,16 +39,16 @@ function ProductsSortSelectInner({
     <div className={cn('flex items-center gap-2', className)}>
       <label
         htmlFor="products-sort-select"
-        className="text-xs sm:text-sm font-medium text-muted-foreground whitespace-nowrap"
+        className="sr-only whitespace-nowrap text-sm font-medium text-muted-foreground sm:not-sr-only"
       >
         Sắp xếp:
       </label>
-      <div className="w-38 sm:w-44">
+      <div className="w-36 sm:w-44">
         <Select
           id="products-sort-select"
           value={currentSort ?? ''}
           onChange={handleChange}
-          className="h-8.5 text-xs sm:text-sm rounded-xl bg-card"
+          className="h-11 text-xs sm:text-sm rounded-xl bg-card"
         >
           <option value="">Mặc định</option>
           <option value="price_asc">Giá: thấp đến cao</option>

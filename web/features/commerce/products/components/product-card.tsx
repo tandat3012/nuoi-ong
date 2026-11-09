@@ -244,7 +244,7 @@ export function ProductCard({
             href={`/products/${product.slug}`}
             className="w-full h-9 rounded-lg border border-[#e5dcd1] dark:border-border bg-[#faf5ee] hover:bg-[#f3ebe0] dark:bg-muted/50 dark:hover:bg-muted text-[#453c35] dark:text-foreground font-medium text-xs sm:text-sm transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
           >
-            <span>Chọn quy cách</span>
+            <span>Thêm vào giỏ hàng</span>
           </Link>
         ) : isCartImplemented ? (
           <Button
@@ -264,7 +264,7 @@ export function ProductCard({
             )}
           >
             <ShoppingBag className="size-4 text-[#786f66]" aria-hidden="true" />
-            <span>{isAdding ? 'Đang xác minh…' : product.inStock ? 'Thêm vào giỏ' : 'Không có sẵn'}</span>
+            <span>{isAdding ? 'Đang xác minh…' : product.inStock ? 'Thêm vào giỏ hàng' : 'Không có sẵn'}</span>
           </Button>
         ) : (
           <Button
@@ -276,7 +276,7 @@ export function ProductCard({
             className="w-full h-9 rounded-lg border border-[#e5dcd1] dark:border-border bg-[#faf5ee] dark:bg-muted/50 text-[#453c35] dark:text-foreground font-medium text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80 select-none hover:bg-[#faf5ee] shadow-2xs"
           >
             <ShoppingBag className="size-4 text-[#786f66]" aria-hidden="true" />
-            <span>Thêm vào giỏ</span>
+            <span>Thêm vào giỏ hàng</span>
           </Button>
         )}
         {addError && (
