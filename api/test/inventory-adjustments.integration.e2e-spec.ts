@@ -78,7 +78,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
   const inactiveUserIdentity = `${tag}-inactive-user`;
   const employeeIdentity = `${tag}-employee`;
   const employeeMemberId = randomUUID();
-  // Approves what the owner requests: nobody approves their own adjustment (P0-01).
+  // The warehouse manager reviews other members' reports in their assigned warehouse.
   const approverIdentity = `${tag}-approver`;
   const approverMemberId = randomUUID();
   const freshLotId = randomUUID();
@@ -289,7 +289,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       [approverMemberId, farmId, approverUser.rows[0].id],
     );
     await pool.query(
-      "INSERT INTO farm_member_roles (farm_member_id,role_id) SELECT $1,id FROM roles WHERE code='ADMIN'",
+      "INSERT INTO farm_member_roles (farm_member_id,role_id) SELECT $1,id FROM roles WHERE code='WAREHOUSE_MANAGER'",
       [approverMemberId],
     );
     await pool.query(
@@ -319,10 +319,10 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
         'ACTIVE',
       ],
     );
-    // The employee works in the active warehouse.
+    // Both employee and reviewer work in the active warehouse.
     await pool.query(
-      'INSERT INTO farm_member_warehouses (farm_member_id,warehouse_id) VALUES ($1,$2)',
-      [employeeMemberId, warehouseId],
+      'INSERT INTO farm_member_warehouses (farm_member_id,warehouse_id) VALUES ($1,$2),($3,$2)',
+      [employeeMemberId, warehouseId, approverMemberId],
     );
     await insertItem(quantityItemId, `${tag}-QTY`, 'QUANTITY');
     await insertItem(maximumItemId, `${tag}-MAX`, 'QUANTITY');
@@ -935,7 +935,7 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     expect(await countAdjustments(quantityItemId)).toBe(1);
   });
 
-  it('keeps employee adjustments pending until an owner approves them', async () => {
+  it('keeps employee reports pending until their warehouse manager approves them', async () => {
     const pending = await asIdentity(employeeIdentity, () =>
       submit(quantityItemId, '5', { reasonCode: 'DAMAGE', note: 'Thùng vỡ' }),
     );
@@ -971,11 +971,13 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
       }),
     );
 
-    const approved = await review(id, 'approve').expect(201);
+    const approved = await asIdentity(approverIdentity, () =>
+      review(id, 'approve').expect(201),
+    );
     const approvedBody = approved.body as AdjustmentResponse;
     expect(approvedBody.data.adjustment).toMatchObject({
       status: 'CONFIRMED',
-      reviewedByMemberId: ownerMemberId,
+      reviewedByMemberId: approverMemberId,
     });
     expect(approvedBody.data.transaction).toMatchObject({
       transactionType: 'ADJUSTMENT_IN',
@@ -1028,12 +1030,14 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
     await asIdentity(employeeIdentity, () =>
       review(id, 'reject', 'no').expect(403),
     );
-    const rejected = await review(id, 'reject', '  Đếm lại  ').expect(201);
+    const rejected = await asIdentity(approverIdentity, () =>
+      review(id, 'reject', '  Đếm lại  ').expect(201),
+    );
     expect((rejected.body as AdjustmentResponse).data.adjustment).toMatchObject(
       {
         status: 'REJECTED',
         rejectionReason: 'Đếm lại',
-        reviewedByMemberId: ownerMemberId,
+        reviewedByMemberId: approverMemberId,
       },
     );
     await review(id, 'approve').expect(409);
@@ -1105,12 +1109,53 @@ describe('Inventory adjustment HTTP and PostgreSQL contract', () => {
         { itemId: quantityItemId, mine: 'false' },
         employeeIdentity,
       ),
-    ).toEqual(expect.arrayContaining([ownerId, employeeId]));
+    ).toEqual([employeeId]);
+    expect(await listIds({ itemId: quantityItemId }, employeeIdentity)).toEqual(
+      [employeeId],
+    );
+    expect(await listIds({ itemId: quantityItemId }, approverIdentity)).toEqual(
+      expect.arrayContaining([ownerId, employeeId]),
+    );
 
     await http()
       .get(endpoint)
       .query({ farmId, itemId: 'not-a-uuid' })
       .expect(400);
     await http().get(endpoint).query({ farmId, mine: 'yes' }).expect(400);
+  });
+
+  it('blocks employees and warehouse managers from reporting or reviewing outside their warehouses', async () => {
+    const unassignedWarehouseId = randomUUID();
+    await pool.query(
+      "INSERT INTO warehouses (id,farm_id,code,name,status) VALUES ($1,$2,$3,$3,'ACTIVE')",
+      [unassignedWarehouseId, farmId, `${tag}-UNASSIGNED`],
+    );
+    const pending = await submit(quantityItemId, '2', {
+      warehouseId: unassignedWarehouseId,
+    }).expect(201);
+    const id = idOf(pending);
+    await asIdentity(employeeIdentity, () =>
+      submit(quantityItemId, '2', {
+        warehouseId: unassignedWarehouseId,
+      }).expect(403),
+    );
+    await asIdentity(approverIdentity, async () => {
+      await review(id, 'approve').expect(403);
+      await review(id, 'reject', 'Không thuộc kho phụ trách').expect(403);
+      const listed = await http().get(endpoint).query({ farmId }).expect(200);
+      expect(
+        (listed.body as { data: { id: string }[] }).data.map((r) => r.id),
+      ).not.toContain(id);
+    });
+    const stored = await pool.query<{ status: string }>(
+      'SELECT status FROM inventory_adjustments WHERE id=$1',
+      [id],
+    );
+    expect(stored.rows[0].status).toBe('PENDING_APPROVAL');
+    const balance = await pool.query(
+      'SELECT id FROM inventory_balances WHERE warehouse_id=$1',
+      [unassignedWarehouseId],
+    );
+    expect(balance.rows).toEqual([]);
   });
 });

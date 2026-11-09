@@ -57,7 +57,7 @@ function FarmInventoryPage({
 }: {
   farmId: string;
   initialFilters: Pick<InventoryFilters, "warehouseId" | "itemId">;
-  /** Warehouse managers and owners: adjust directly and approve requests. */
+  /** Warehouse managers and owners may review other members' reports. */
   canWrite: boolean;
   /** Also true for EMPLOYEE, whose adjustments wait for approval. */
   canRequest: boolean;
@@ -101,7 +101,7 @@ function FarmInventoryPage({
               onClick={() => onChangeView("adjustments")}
               className="aria-pressed:bg-primary aria-pressed:text-primary-foreground"
             >
-              Đề xuất điều chỉnh
+              Báo cáo chênh lệch
               {pendingCount ? (
                 <Badge variant="warning" className="ml-1.5 tabular-nums">
                   {pendingCount}
@@ -118,7 +118,7 @@ function FarmInventoryPage({
               setAdjustmentOpen(true);
             }}
           >
-            {canWrite ? "Điều chỉnh tồn kho" : "Đề xuất điều chỉnh"}
+            Báo chênh lệch tồn
           </Button>
         )}
       </div>
@@ -133,7 +133,7 @@ function FarmInventoryPage({
             onClick={() => onChangeView("adjustments")}
             className="underline"
           >
-            Xem đề xuất
+            Xem báo cáo
           </button>
         </div>
       )}
@@ -166,7 +166,7 @@ function FarmInventoryPage({
             setAdjustmentOpen(false);
             if (pending)
               setNotice(
-                "Đã gửi đề xuất điều chỉnh. Tồn kho sẽ cập nhật sau khi chủ trại duyệt.",
+                "Đã gửi báo cáo chênh lệch. Tồn kho chỉ cập nhật sau khi quản lý kho, chủ trại hoặc quản trị viên duyệt.",
               );
             setRefreshToken((previous) => previous + 1);
           }}
