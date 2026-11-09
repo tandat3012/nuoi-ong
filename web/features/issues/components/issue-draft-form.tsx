@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useSaveIssueDraft } from "../hooks/use-save-issue-draft";
 import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
@@ -35,6 +35,7 @@ import {
   numberingOptionsPayload,
   NumberingOptionsFields,
 } from "@/features/stock-documents";
+import { Trash2, AlertCircle, Info, Split } from "lucide-react";
 
 type DraftLine = IssueChoice & {
   rowKey: string;
@@ -91,6 +92,7 @@ export function IssueDraftForm({
   const [linkedError, setLinkedError] = useState<string | null>(null);
   const isLinkedSale =
     initial?.issue.issueType === "SALE" && Boolean(initial.issue.orderId);
+
   const [lines, setLines] = useState<DraftLine[]>(
     () =>
       initial?.items.map((line) => ({
@@ -117,6 +119,7 @@ export function IssueDraftForm({
           : null,
       })) ?? [],
   );
+
   const { submit, isSaving, error } = useSaveIssueDraft(
     farmId,
     canWrite,
@@ -124,6 +127,13 @@ export function IssueDraftForm({
     onSaved,
     isLinkedSale,
   );
+
+  const totalQuantity = useMemo(() => {
+    return lines.reduce((acc, line) => {
+      const q = parseFloat(line.quantity);
+      return acc + (isNaN(q) ? 0 : q);
+    }, 0);
+  }, [lines]);
 
   function select(kind: "warehouse" | "item", choice: IssueChoice) {
     if (kind === "warehouse") {
@@ -154,6 +164,7 @@ export function IssueDraftForm({
       ]);
     }
   }
+
   function updateLine(
     rowKey: string,
     patch: Partial<Pick<DraftLine, "quantity" | "note" | "lot" | "asset" | "splitQuantity">>,
@@ -165,6 +176,7 @@ export function IssueDraftForm({
       ),
     );
   }
+
   function splitLotLine(line: DraftLine) {
     const split = splitIssueQuantity(line.quantity, line.splitQuantity ?? "");
     if (!split) {
@@ -190,48 +202,51 @@ export function IssueDraftForm({
       ),
     );
   }
+
   if (!canWrite || (initial && !supportsIssueDraftEdit(initial)))
     return (
-      <div role="alert" className="space-y-3">
-        <p>
+      <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-5 text-sm text-destructive">
+        <p className="font-semibold">Không thể chỉnh sửa phiếu xuất</p>
+        <p className="mt-1 text-xs">
           {!canWrite
             ? "Bạn không có quyền lưu phiếu xuất."
             : "Phiếu có dữ liệu không tương thích nên chỉ có thể xem."}
         </p>
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" size="sm" onClick={onCancel} className="mt-3 text-xs">
           Quay lại
         </Button>
       </div>
     );
+
   return (
     <form
       noValidate
-      className="space-y-6"
+      className="space-y-6 pb-12"
       onSubmit={(event) => {
         event.preventDefault();
         const input: CreateIssueInput = {
-            warehouseId: warehouse?.id ?? "",
-            issueDate: date || undefined,
-            issueType,
-            maintenanceRecordId:
-              issueType === "MAINTENANCE" ? maintenanceRecordId : null,
-            recipientMemberId: issueType === "SALE" ? null : (recipient?.id ?? null),
-            reason: reason.trim() || null,
-            note: note.trim() || null,
-            ...(isOwner ? numberingOptionsPayload(numbering) : {}),
-            items: lines.map((line) => ({
-              itemId: line.id,
-              quantity:
-                line.trackingMode === "ASSET" ? "1" : line.quantity.trim(),
-              note: line.note.trim() || null,
-              ...(line.trackingMode === "LOT"
-                ? { lotId: line.lot?.id ?? "" }
-                : {}),
-              ...(line.trackingMode === "ASSET"
-                ? { assetId: line.asset?.id ?? "" }
-                : {}),
-            })),
-          };
+          warehouseId: warehouse?.id ?? "",
+          issueDate: date || undefined,
+          issueType,
+          maintenanceRecordId:
+            issueType === "MAINTENANCE" ? maintenanceRecordId : null,
+          recipientMemberId: issueType === "SALE" ? null : (recipient?.id ?? null),
+          reason: reason.trim() || null,
+          note: note.trim() || null,
+          ...(isOwner ? numberingOptionsPayload(numbering) : {}),
+          items: lines.map((line) => ({
+            itemId: line.id,
+            quantity:
+              line.trackingMode === "ASSET" ? "1" : line.quantity.trim(),
+            note: line.note.trim() || null,
+            ...(line.trackingMode === "LOT"
+              ? { lotId: line.lot?.id ?? "" }
+              : {}),
+            ...(line.trackingMode === "ASSET"
+              ? { assetId: line.asset?.id ?? "" }
+              : {}),
+          })),
+        };
         if (
           isLinkedSale &&
           !preservesIssueItemTotals(
@@ -251,169 +266,210 @@ export function IssueDraftForm({
             ? `Sửa phiếu xuất ${documentCodeLabel(initial.issue.issueCode, initial.issue.id, "PX")}`
             : "Tạo phiếu xuất nháp"
         }
-        description={isLinkedSale ? "Phiếu bán hàng liên kết đơn; chỉ phân bổ lại lô/tài sản và giữ nguyên tổng từng vật tư." : "Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho."}
+        description={
+          isLinkedSale
+            ? "Phiếu bán hàng liên kết đơn; chỉ phân bổ lại lô/tài sản và giữ nguyên tổng từng vật tư."
+            : "Lập phiếu xuất kho nháp. Phiếu nháp chưa trừ hoặc giữ chỗ tồn kho trong hệ thống."
+        }
       />
-      <fieldset disabled={isSaving} className="space-y-6 disabled:opacity-70">
+
+      <fieldset disabled={isSaving} className="space-y-6 disabled:opacity-75">
         <legend className="sr-only">Thông tin phiếu xuất</legend>
-        <div className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2">
-          <div>
-            <p className="mb-1 block text-sm font-medium">Mã phiếu</p>
-            <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-              {initial
-                ? documentCodeLabel(initial.issue.issueCode, initial.issue.id, "PX")
-                : DOCUMENT_CODE_HINT}
-            </p>
+
+        {/* Section 1: General Info */}
+        <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+          <div className="flex items-center justify-between border-b border-border pb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">1. Thông tin phiếu xuất</h2>
+              <p className="text-xs text-muted-foreground">Kho nguồn, ngày xuất và mục đích sử dụng</p>
+            </div>
           </div>
-          <div>
-            <label
-              htmlFor="issue-date"
-              className="mb-1 block text-sm font-medium"
-            >
-              Ngày xuất
-            </label>
-            <DateInput
-              id="issue-date"
-              value={date}
-              readOnly={isLinkedSale}
-              onValueChange={(value) => setDate(value)}
-              className="w-full"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Để trống để dùng ngày hiện tại khi tạo phiếu.
-            </p>
-          </div>
-          {isOwner && (
-            <NumberingOptionsFields value={numbering} onChange={setNumbering} />
-          )}
-          <div>
-            <p className="mb-1 text-sm font-medium">Kho xuất *</p>
-            <IssueDraftPicker
-              farmId={farmId}
-              kind="warehouse"
-              value={warehouse}
-              disabled={isLinkedSale}
-              onSelect={(choice) => select("warehouse", choice)}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="issue-type"
-              className="mb-1 block text-sm font-medium"
-            >
-              Loại phiếu
-            </label>
-            <Select
-              id="issue-type"
-              value={issueType}
-              disabled={isLinkedSale}
-              onChange={(event) => {
-                const next = event.target
-                  .value as CreateIssueInput["issueType"];
-                setIssueType(next);
-                if (next !== "MAINTENANCE") setMaintenanceRecordId(null);
-              }}
-              className="w-full"
-            >
-              {Object.entries(ISSUE_TYPE_LABELS)
-                .filter(([value]) => value !== "SALE" || isLinkedSale)
-                .map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
-            {(issueType === "DAMAGE" || issueType === "MAINTENANCE") && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                Phiếu này chỉ xuất vật tư theo số lượng hoặc lô. Để báo hỏng hoặc
-                đưa tài sản đi bảo trì, mở{" "}
-                <Link href="/assets" className="text-primary underline">
-                  hồ sơ tài sản
-                </Link>.
-              </p>
-            )}
-          </div>
-          {issueType !== "SALE" && (
-            <div className="space-y-1">
-              <AssetLookup
-                farmId={farmId}
-                kind="member"
-                selected={recipient}
-                onSelect={setRecipient}
-              />
-              <p className="text-xs text-muted-foreground">
-                Không bắt buộc. Sau khi phiếu được xác nhận, người nhận bấm
-                &quot;Xác nhận đã nhận&quot; trên phiếu.
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-foreground">Mã phiếu</label>
+              <p className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+                {initial
+                  ? documentCodeLabel(initial.issue.issueCode, initial.issue.id, "PX")
+                  : DOCUMENT_CODE_HINT}
               </p>
             </div>
+
+            <div>
+              <label htmlFor="issue-date" className="mb-1 block text-xs font-semibold text-foreground">
+                Ngày xuất
+              </label>
+              <DateInput
+                id="issue-date"
+                value={date}
+                readOnly={isLinkedSale}
+                onValueChange={(value) => setDate(value)}
+                className="w-full text-xs"
+              />
+              <p className="mt-1 text-[0.6875rem] text-muted-foreground">
+                Để trống để dùng ngày hiện tại khi tạo phiếu.
+              </p>
+            </div>
+
+            {isOwner && (
+              <div className="sm:col-span-2">
+                <NumberingOptionsFields value={numbering} onChange={setNumbering} />
+              </div>
+            )}
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-foreground">Kho xuất *</label>
+              <IssueDraftPicker
+                farmId={farmId}
+                kind="warehouse"
+                value={warehouse}
+                disabled={isLinkedSale}
+                onSelect={(choice) => select("warehouse", choice)}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="issue-type" className="mb-1 block text-xs font-semibold text-foreground">
+                Loại phiếu
+              </label>
+              <Select
+                id="issue-type"
+                value={issueType}
+                disabled={isLinkedSale}
+                onChange={(event) => {
+                  const next = event.target.value as CreateIssueInput["issueType"];
+                  setIssueType(next);
+                  if (next !== "MAINTENANCE") setMaintenanceRecordId(null);
+                }}
+                className="w-full text-xs font-medium"
+              >
+                {Object.entries(ISSUE_TYPE_LABELS)
+                  .filter(([value]) => value !== "SALE" || isLinkedSale)
+                  .map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+              </Select>
+              {(issueType === "DAMAGE" || issueType === "MAINTENANCE") && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Phiếu này chỉ xuất vật tư theo số lượng hoặc lô. Để báo hỏng hoặc đưa tài sản đi bảo trì, mở{" "}
+                  <Link href="/assets" className="text-primary underline">
+                    hồ sơ tài sản
+                  </Link>.
+                </p>
+              )}
+            </div>
+
+            {issueType !== "SALE" && (
+              <div className="space-y-1 sm:col-span-2">
+                <label className="block text-xs font-semibold text-foreground">Người nhận</label>
+                <AssetLookup
+                  farmId={farmId}
+                  kind="member"
+                  selected={recipient}
+                  onSelect={setRecipient}
+                />
+                <p className="text-[0.6875rem] text-muted-foreground">
+                  Không bắt buộc. Sau khi phiếu được xác nhận, người nhận có thể bấm &quot;Xác nhận đã nhận&quot; trên phiếu.
+                </p>
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="issue-reason" className="mb-1 block text-xs font-semibold text-foreground">
+                Lý do xuất
+              </label>
+              <Textarea
+                id="issue-reason"
+                value={reason}
+                readOnly={isLinkedSale}
+                onChange={(event) => setReason(event.target.value)}
+                maxLength={4000}
+                rows={2}
+                placeholder="Ví dụ: Xuất cho trại ong mật vụ cà phê..."
+                className="w-full text-xs"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="issue-note" className="mb-1 block text-xs font-semibold text-foreground">
+                Ghi chú phiếu
+              </label>
+              <Textarea
+                id="issue-note"
+                value={note}
+                readOnly={isLinkedSale}
+                onChange={(event) => setNote(event.target.value)}
+                maxLength={4000}
+                rows={2}
+                placeholder="Ghi chú thêm về quy cách đóng gói, vận chuyển..."
+                className="w-full text-xs"
+              />
+            </div>
+          </div>
+
+          {issueType === "MAINTENANCE" && (
+            <div className="pt-2">
+              <IssueMaintenancePicker
+                farmId={farmId}
+                selectedId={maintenanceRecordId}
+                onSelect={setMaintenanceRecordId}
+              />
+            </div>
           )}
-          <div>
-            <label
-              htmlFor="issue-reason"
-              className="mb-1 block text-sm font-medium"
-            >
-              Lý do xuất
-            </label>
-            <Textarea
-              id="issue-reason"
-              value={reason}
-              readOnly={isLinkedSale}
-              onChange={(event) => setReason(event.target.value)}
-              maxLength={4000}
-              rows={3}
-              className="w-full"
-            />
+        </section>
+
+        {/* Section 2: Items List */}
+        <section aria-label="Các dòng vật tư" className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">2. Vật tư trong phiếu xuất</h2>
+              <p className="text-xs text-muted-foreground">
+                Chọn kho xuất trước khi chọn lô hoặc số serial tài sản tương ứng
+              </p>
+            </div>
+            <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-xs font-semibold text-muted-foreground tabular-nums">
+              {lines.length} dòng hàng
+            </span>
           </div>
-          <div>
-            <label
-              htmlFor="issue-note"
-              className="mb-1 block text-sm font-medium"
-            >
-              Ghi chú phiếu
-            </label>
-            <Textarea
-              id="issue-note"
-              value={note}
-              readOnly={isLinkedSale}
-              onChange={(event) => setNote(event.target.value)}
-              maxLength={4000}
-              rows={3}
-              className="w-full"
-            />
-          </div>
-        </div>
-        {issueType === "MAINTENANCE" && (
-          <IssueMaintenancePicker
-            farmId={farmId}
-            selectedId={maintenanceRecordId}
-            onSelect={setMaintenanceRecordId}
-          />
-        )}
-        <section aria-label="Các dòng vật tư" className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Vật tư trong phiếu xuất</h2>
-          </div>
+
           <div className="grid gap-4 lg:grid-cols-2">
             {lines.map((line, index) => (
               <fieldset
                 key={line.rowKey}
-                className="min-w-0 space-y-3 rounded-xl border bg-card p-4"
+                className="relative min-w-0 space-y-3 rounded-lg border border-border bg-background p-4 shadow-2xs transition-colors"
               >
-                <legend className="px-1 text-sm font-medium">
-                  Dòng {index + 1}
-                </legend>
+                <legend className="sr-only">Dòng {index + 1}</legend>
+                
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{line.label}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Theo{" "}
-                      {line.trackingMode === "LOT"
-                        ? "lô"
-                        : line.trackingMode === "ASSET"
-                          ? "tài sản"
-                          : "số lượng"}
-                    </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[0.6875rem] font-semibold text-muted-foreground">
+                        #{index + 1}
+                      </span>
+                      <p className="truncate text-xs font-bold text-foreground">
+                        {line.label}
+                      </p>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.2 text-[0.625rem] font-medium ${
+                          line.trackingMode === "LOT"
+                            ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+                            : line.trackingMode === "ASSET"
+                              ? "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20"
+                              : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                        }`}
+                      >
+                        Theo {line.trackingMode === "LOT" ? "lô" : line.trackingMode === "ASSET" ? "tài sản" : "số lượng"}
+                      </span>
+                    </div>
                   </div>
-                  <Button type="button" variant="outline"
+
+                  <Button
+                    type="button"
+                    variant="outline"
                     disabled={isLinkedSale}
                     aria-label={`Xóa dòng ${index + 1}`}
                     onClick={() =>
@@ -421,38 +477,48 @@ export function IssueDraftForm({
                         previous.filter((row) => row.rowKey !== line.rowKey),
                       )
                     }
+                    className="size-7 p-0 text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                   >
-                    Xóa
+                    <Trash2 className="size-3.5" aria-hidden="true" />
                   </Button>
                 </div>
+
                 {line.trackingMode === "LOT" && (
-                  <IssueLotPicker
-                    key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
-                    farmId={farmId}
-                    warehouseId={warehouse?.id ?? null}
-                    itemId={line.id}
-                    selected={line.lot}
-                    onSelect={(lot) => updateLine(line.rowKey, { lot })}
-                  />
+                  <div className="space-y-1">
+                    <span className="text-[0.6875rem] font-medium text-muted-foreground">Lô xuất</span>
+                    <IssueLotPicker
+                      key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
+                      farmId={farmId}
+                      warehouseId={warehouse?.id ?? null}
+                      itemId={line.id}
+                      selected={line.lot}
+                      onSelect={(lot) => updateLine(line.rowKey, { lot })}
+                    />
+                  </div>
                 )}
+
                 {line.trackingMode === "ASSET" && (
-                  <IssueAssetPicker
-                    key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
-                    farmId={farmId}
-                    warehouseId={warehouse?.id ?? null}
-                    itemId={line.id}
-                    selected={line.asset}
-                    excludedIds={lines
-                      .filter((row) => row.rowKey !== line.rowKey && row.asset)
-                      .map((row) => row.asset!.id)}
-                    onSelect={(asset) => updateLine(line.rowKey, { asset })}
-                  />
+                  <div className="space-y-1">
+                    <span className="text-[0.6875rem] font-medium text-muted-foreground">Chọn thiết bị / tài sản cụ thể:</span>
+                    <IssueAssetPicker
+                      key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
+                      farmId={farmId}
+                      warehouseId={warehouse?.id ?? null}
+                      itemId={line.id}
+                      selected={line.asset}
+                      excludedIds={lines
+                        .filter((row) => row.rowKey !== line.rowKey && row.asset)
+                        .map((row) => row.asset!.id)}
+                      onSelect={(asset) => updateLine(line.rowKey, { asset })}
+                    />
+                  </div>
                 )}
-                <div className="grid gap-4 sm:grid-cols-[12rem_1fr]">
+
+                <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
                   <div>
                     <label
                       htmlFor={`quantity-${line.rowKey}`}
-                      className="mb-1 block text-sm"
+                      className="mb-1 block text-xs font-semibold text-foreground"
                     >
                       Số lượng *
                     </label>
@@ -467,14 +533,14 @@ export function IssueDraftForm({
                       onChange={(event) =>
                         updateLine(line.rowKey, { quantity: event.target.value })
                       }
-                      aria-describedby="issue-quantity-help"
-                      className="w-full"
+                      className="h-8 text-xs font-medium tabular-nums"
                     />
                   </div>
+
                   <div>
                     <label
                       htmlFor={`note-${line.rowKey}`}
-                      className="mb-1 block text-sm"
+                      className="mb-1 block text-xs font-semibold text-foreground"
                     >
                       Ghi chú dòng
                     </label>
@@ -486,34 +552,46 @@ export function IssueDraftForm({
                         updateLine(line.rowKey, { note: event.target.value })
                       }
                       maxLength={4000}
-                      className="w-full"
+                      placeholder="Ghi chú vật tư..."
+                      className="h-8 text-xs"
                     />
                   </div>
                 </div>
+
                 {isLinkedSale && line.trackingMode === "LOT" && (
-                  <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                    <label htmlFor={`split-${line.rowKey}`} className="space-y-1 text-sm">
-                      <span>Số lượng tách sang lô khác</span>
+                  <div className="grid gap-2 border-t border-border pt-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <label htmlFor={`split-${line.rowKey}`} className="space-y-1 text-xs">
+                      <span className="font-medium text-muted-foreground">Số lượng tách sang lô khác</span>
                       <Input
                         id={`split-${line.rowKey}`}
                         inputMode="decimal"
                         value={line.splitQuantity ?? ""}
                         onChange={(event) => updateLine(line.rowKey, { splitQuantity: event.target.value })}
                         placeholder="Ví dụ 1.250"
+                        className="h-8 text-xs font-medium"
                       />
                     </label>
-                    <Button type="button" variant="outline" onClick={() => splitLotLine(line)}>Tách dòng</Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => splitLotLine(line)}
+                      className="h-8 gap-1 text-xs font-medium"
+                    >
+                      <Split className="size-3.5" aria-hidden="true" />
+                      <span>Tách dòng</span>
+                    </Button>
                   </div>
                 )}
               </fieldset>
             ))}
+
             {!isLinkedSale && (
-              <AddLineTile label="Thêm vật tư">
+              <AddLineTile label="Thêm vật tư xuất kho">
                 {(close) => (
                   <IssueDraftPicker
                     farmId={farmId}
                     kind="item"
-                    autoFocus
                     onSelect={(choice) => {
                       select("item", choice);
                       close();
@@ -523,42 +601,68 @@ export function IssueDraftForm({
               </AddLineTile>
             )}
           </div>
-          <p id="issue-quantity-help" className="text-sm text-muted-foreground">
-            Số lượng phải lớn hơn 0, tối đa 3 chữ số thập phân. Dùng dấu chấm,
-            ví dụ 1.250. Lưu nháp không giữ chỗ tồn kho.
-          </p>
+
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <Info className="size-4 shrink-0 text-primary" aria-hidden="true" />
+            <span>
+              Số lượng phải lớn hơn 0, tối đa 3 chữ số thập phân (dùng dấu chấm, ví dụ 1.250). Lưu nháp không giữ chỗ tồn kho.
+            </span>
+          </div>
         </section>
       </fieldset>
+
       {error && (
-        <p
+        <div
           role="alert"
-          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+          className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-xs font-medium text-destructive"
         >
-          {error}
-        </p>
+          <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+          <span>{error}</span>
+        </div>
       )}
+
       {linkedError && (
-        <p
+        <div
           role="alert"
-          className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+          className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-xs font-medium text-destructive"
         >
-          {linkedError}
-        </p>
+          <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+          <span>{linkedError}</span>
+        </div>
       )}
-      {isSaving && <p role="status">Đang lưu phiếu xuất...</p>}
-      <div className="flex flex-wrap gap-3">
-        <Button
-          type="submit"
-          disabled={isSaving}
-        >
-          {isSaving ? "Đang lưu..." : "Lưu phiếu nháp"}
-        </Button>
-        <Button type="button" variant="outline"
-          disabled={isSaving}
-          onClick={onCancel}
-        >
-          {initial ? "Quay lại chi tiết" : "Quay lại danh sách"}
-        </Button>
+
+      {/* Sticky Action Bar */}
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card/95 p-4 shadow-lg backdrop-blur-xs">
+        <div className="flex flex-wrap items-center gap-4 text-xs font-medium">
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Số dòng hàng:</span>
+            <span className="font-bold text-foreground tabular-nums">{lines.length}</span>
+          </div>
+          {totalQuantity > 0 && (
+            <div className="flex items-center gap-1.5 border-l border-border pl-4">
+              <span className="text-muted-foreground">Tổng số lượng xuất:</span>
+              <span className="font-bold text-foreground tabular-nums">{totalQuantity}</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            type="button"
+            onClick={onCancel}
+            disabled={isSaving}
+            className="h-9 text-xs font-medium"
+          >
+            {initial ? "Quay lại chi tiết" : "Quay lại danh sách"}
+          </Button>
+          <Button
+            type="submit"
+            disabled={isSaving}
+            className="h-9 text-xs font-semibold shadow-xs"
+          >
+            {isSaving ? "Đang lưu..." : initial ? "Lưu thay đổi" : "Lưu phiếu nháp"}
+          </Button>
+        </div>
       </div>
     </form>
   );

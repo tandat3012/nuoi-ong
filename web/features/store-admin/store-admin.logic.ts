@@ -67,3 +67,25 @@ export function storeAdminError(error: unknown): string {
   if (status === 400) return "Dữ liệu không hợp lệ: " + message;
   return "Không thể tải dữ liệu. Vui lòng kiểm tra kết nối và thử lại.";
 }
+
+export type SalesStockState = "ON" | "OUT" | "OFF";
+
+/** OFF = not sold online; OUT = sold online but nothing available. */
+export function salesStockState(row: {
+  saleable: boolean;
+  available: string;
+}): SalesStockState {
+  if (!row.saleable) return "OFF";
+  return Number(row.available) > 0 ? "ON" : "OUT";
+}
+
+export function summarizeSalesStock(
+  rows: { saleable: boolean; available: string; held: string }[],
+) {
+  const summary = { total: rows.length, ON: 0, OUT: 0, OFF: 0, held: 0 };
+  for (const row of rows) {
+    summary[salesStockState(row)]++;
+    if (Number(row.held) > 0) summary.held++;
+  }
+  return summary;
+}

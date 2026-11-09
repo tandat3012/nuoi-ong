@@ -24,7 +24,6 @@ import {
   getPaginationItems,
 } from './products-page.logic';
 import { STOREFRONT_CONFIG } from '@/features/commerce/storefront/config/storefront-config';
-import { StoreSearchBar } from '@/features/commerce/storefront/components/store-search-bar';
 import { cn } from '@/shared/lib/utils';
 
 export interface ProductsPageProps {
@@ -308,25 +307,24 @@ export async function ProductsPage({
         />
 
         {/* Vùng hiển thị kết quả sản phẩm */}
-        <div className="w-full flex-1">
-          <div className="mb-5 max-w-lg">
-            <p className="mb-2 text-sm font-medium text-foreground">
-              Tìm kiếm sản phẩm
-            </p>
-            <StoreSearchBar idSuffix="products" />
-          </div>
-
-          {/* Thanh công cụ: đếm sản phẩm, bộ lọc di động và chọn sắp xếp */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
-            <p className="text-sm font-medium text-muted-foreground">
+        <div className="w-full min-w-0 flex-1">
+          {/* Các thao tác chính nằm cạnh nhau; lọc còn hàng ở hàng kế trên mobile. */}
+          <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 border-b border-border/60 pb-3 sm:flex sm:flex-wrap sm:gap-3">
+            <p className="text-xs font-medium text-muted-foreground sm:mr-auto sm:text-sm">
               <span className="font-semibold text-foreground">
                 {pageInfo.totalItems}
               </span>{' '}
               sản phẩm
             </p>
 
-            <div className="flex max-w-full flex-wrap items-center gap-2 sm:gap-3">
-              {/* Toggle lọc nhanh còn hàng tại khu vực */}
+            <ProductsMobileFilter
+              categories={categories}
+              categoriesError={categoriesError}
+              criteria={criteria}
+            />
+            <ProductsSortSelect currentSort={sort} />
+
+            <div className="col-span-3 sm:w-auto">
               <Link
                 href={buildProductsHref(
                   { ...criteria, page: 1 },
@@ -347,17 +345,6 @@ export async function ProductsPage({
                     : 'Chỉ hiện hàng còn sẵn'}
                 </span>
               </Link>
-
-              {/* Tùy chọn sắp xếp giá */}
-              <ProductsSortSelect currentSort={sort} />
-
-              {/* Nút lọc danh mục & giá trên thiết bị di động */}
-              <ProductsMobileFilter
-                categories={categories}
-                categoriesError={categoriesError}
-                criteria={criteria}
-                selectedCategoryName={selectedCategoryName}
-              />
             </div>
           </div>
 

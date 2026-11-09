@@ -278,22 +278,27 @@ export function StockDocumentLines({
     <section
       ref={panel}
       aria-label="Dòng hàng của phiếu"
-      className="space-y-3 rounded-xl border bg-card p-5"
+      className="space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5 shadow-xs"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-semibold">
-          Dòng hàng phiếu{" "}
-          {detail
-            ? documentCodeLabel(
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-foreground">
+            Dòng hàng phiếu
+          </h2>
+          {detail && (
+            <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 font-mono text-xs font-bold text-foreground">
+              {documentCodeLabel(
                 detail.header.transferCode ?? detail.header.countCode,
                 id, counts ? "KK" : "CK",
-              )
-            : ""}
-        </h2>
+              )}
+            </span>
+          )}
+        </div>
         <div className="flex gap-2">
           {canEdit && !draft && (
             <Button
               variant="outline"
+              size="sm"
               disabled={lock.locked}
               onClick={() => {
                 if (!detail || !lock.acquire()) return;
@@ -304,18 +309,21 @@ export function StockDocumentLines({
                   numbering: numberingDraft(detail.header),
                 });
               }}
+              className="h-8 text-xs font-medium"
             >
               Sửa nháp
             </Button>
           )}
           <Button
             variant="outline"
+            size="sm"
             onClick={() => {
               if (saving.current) return;
               stopEditing();
               onClose();
             }}
             disabled={isSaving}
+            className="h-8 text-xs font-medium"
           >
             Đóng
           </Button>
@@ -334,9 +342,9 @@ export function StockDocumentLines({
               {formError}
             </p>
           )}
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-border bg-card">
             <table className="w-full text-left text-sm">
-              <thead className="border-b bg-muted/50">
+              <thead className="border-b border-border bg-muted/40 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <tr>
                   {[
                     "Hàng hóa",
@@ -348,13 +356,13 @@ export function StockDocumentLines({
                         : ["Số lượng"]),
                     ...(draft ? [""] : []),
                   ].map((label, index) => (
-                    <th key={index} scope="col" className="px-3 py-2">
+                    <th key={index} scope="col" className="px-3 py-2.5">
                       {label}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-border">
                 {lines.map((line, index) => {
                   const unit = line.unitSymbol || line.unitName || "";
                   const label = line.itemCode

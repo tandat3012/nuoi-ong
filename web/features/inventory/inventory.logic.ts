@@ -195,3 +195,31 @@ export function formatInventoryExpiry(value: string | null) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
 }
+
+export type ExpiryStatus = "NONE" | "EXPIRED" | "CRITICAL" | "WARNING" | "HEALTHY";
+
+export function getExpiryStatus(expiryDate: string | null, todayStr?: string): {
+  status: ExpiryStatus;
+  daysRemaining: number | null;
+  formatted: string;
+} {
+  if (!expiryDate) return { status: "NONE", daysRemaining: null, formatted: "—" };
+  const today = todayStr ? new Date(todayStr) : new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(expiryDate);
+  target.setHours(0, 0, 0, 0);
+  const diffTime = target.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  const formatted = formatInventoryExpiry(expiryDate);
+
+  if (diffDays < 0) {
+    return { status: "EXPIRED", daysRemaining: diffDays, formatted };
+  }
+  if (diffDays <= 7) {
+    return { status: "CRITICAL", daysRemaining: diffDays, formatted };
+  }
+  if (diffDays <= 30) {
+    return { status: "WARNING", daysRemaining: diffDays, formatted };
+  }
+  return { status: "HEALTHY", daysRemaining: diffDays, formatted };
+}

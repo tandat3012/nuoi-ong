@@ -101,6 +101,10 @@ export function MaintenanceActions({
     };
   }, [action, farmId, request, lookupRevision]);
 
+  const label = (a: string) =>
+    a === "prepare" && record.supplierId && record.expectedReturnAt
+      ? "Sửa thông tin gửi"
+      : LABELS[a];
   const actions = maintenanceActions(record, roles, memberId);
   const receivingLocations = locations.filter(
     (l) => l.warehouseId === warehouseId,
@@ -131,12 +135,12 @@ export function MaintenanceActions({
             setAction(value);
           }}
         >
-          {LABELS[value]}
+          {label(value)}
         </Button>
       ))}
       {action && (
         <AssetMutationDialog
-          title={LABELS[action]}
+          title={label(action)}
           description={
             action === "start"
               ? "Xác nhận thiết bị đã bàn giao thực tế cho đơn vị sửa. Thiết bị đang ở kho sẽ giảm tồn 1; chỉ xác nhận được một lần."

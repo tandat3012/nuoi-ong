@@ -7,6 +7,7 @@ import {
   sumInventoryByItem,
   changeInventoryWarehouse,
   changeInventoryItem,
+  getExpiryStatus,
 } from "./inventory.logic.ts";
 
 test("changing warehouse or item clears a stale asset selection and resets pagination", () => {
@@ -76,4 +77,14 @@ test("sumInventoryByItem adds lots per item without float drift", () => {
   assert.equal(totals.get("b"), "12");
   assert.equal(totals.get("c"), "-0,5");
   assert.equal(totals.get("d"), "999999999999999,999");
+});
+
+test("getExpiryStatus accurately flags expired, critical, warning, healthy and null lots", () => {
+  const today = "2026-11-09";
+  assert.equal(getExpiryStatus(null, today).status, "NONE");
+  assert.equal(getExpiryStatus("2026-11-01", today).status, "EXPIRED");
+  assert.equal(getExpiryStatus("2026-11-12", today).status, "CRITICAL");
+  assert.equal(getExpiryStatus("2026-11-30", today).status, "WARNING");
+  assert.equal(getExpiryStatus("2027-05-30", today).status, "HEALTHY");
+  assert.equal(getExpiryStatus("2027-05-30", today).formatted, "30/05/2027");
 });

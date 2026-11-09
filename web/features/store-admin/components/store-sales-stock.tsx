@@ -7,6 +7,8 @@ import { Badge } from "@/shared/components/ui/badge";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Input } from "@/shared/components/ui/input";
+import { cn } from "@/shared/lib/utils";
+import { Search, Warehouse } from "lucide-react";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import {
   Table,
@@ -17,7 +19,13 @@ import {
   TableRow,
 } from "@/shared/components/ui/table";
 import { getStoreSalesStock } from "../api/store-admin.api";
-import { storeAdminError, storeRegionLabels } from "../store-admin.logic";
+import {
+  salesStockState,
+  storeAdminError,
+  storeRegionLabels,
+  summarizeSalesStock,
+  type SalesStockState,
+} from "../store-admin.logic";
 import type { StoreSalesStock } from "../types/store-admin";
 
 /** Staff-only view of the sales warehouse; customers only ever see labels. */
@@ -31,6 +39,7 @@ export function StoreSalesStockScreen() {
   // Keyed by farm, so another farm's failure never hides this one's data.
   const [error, setError] = useState<{ farmId: string; message: string }>();
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"ALL" | SalesStockState>("ALL");
 
   useEffect(() => {
     if (!selectedFarmId) return;
@@ -61,92 +70,221 @@ export function StoreSalesStockScreen() {
 
   const { salesWarehouse, salesEnabled, regions, rows } = stock.data;
   const keyword = query.trim().toLowerCase();
-  const visible = rows.filter((row) =>
-    [row.productName, row.variantName, row.itemCode, row.itemName].some(
-      (text) => text.toLowerCase().includes(keyword),
-    ),
+  const summary = summarizeSalesStock(rows);
+  const visible = rows.filter(
+    (row) =>
+      (filter === "ALL" || salesStockState(row) === filter) &&
+      [row.productName, row.variantName, row.itemCode, row.itemName].some(
+        (text) => text.toLowerCase().includes(keyword),
+      ),
   );
+  const tabs: { key: "ALL" | SalesStockState; label: string; count: number }[] = [
+    { key: "ALL", label: "Tất cả", count: summary.total },
+    { key: "ON", label: "Đang bán", count: summary.ON },
+    { key: "OUT", label: "Hết hàng", count: summary.OUT },
+    { key: "OFF", label: "Không bán", count: summary.OFF },
+  ];
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Tồn bán hàng"
-        description={
-          salesWarehouse
-            ? `Kho bán ${salesWarehouse.code} – ${salesWarehouse.name} · ${
-                salesEnabled
-                  ? `đang bán tới ${regions.map((r) => storeRegionLabels[r]).join(", ")}`
-                  : "đang tắt bán online"
-              }. Khả dụng = tồn vật lý trừ phần phiếu xuất chưa duyệt đang giữ. Kho nguồn còn được chuyển vào kho bán khi xác nhận đơn thiếu hàng.`
-            : undefined
-        }
+        description="Tồn của kho bán hàng theo từng quy cách sản phẩm."
       />
       {!salesWarehouse ? (
         <ErrorAlert message="Chưa cấu hình kho bán hàng. Vào Sản phẩm cửa hàng để chọn kho bán." />
       ) : (
         <>
-          <Input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Tìm sản phẩm, quy cách hoặc vật tư"
-            aria-label="Tìm trong tồn bán hàng"
-            className="max-w-sm"
-          />
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Sản phẩm / quy cách</TableHead>
-                <TableHead>Vật tư</TableHead>
-                <TableHead className="text-right">Tồn vật lý</TableHead>
-                <TableHead className="text-right">Đang giữ</TableHead>
-                <TableHead className="text-right">Khả dụng</TableHead>
-                <TableHead>Trạng thái bán</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visible.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
-                    {rows.length === 0
-                      ? "Trại chưa gắn vật tư nào vào quy cách bán."
-                      : "Không có dòng phù hợp."}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                visible.map((row) => (
-                  <TableRow key={row.variantId}>
-                    <TableCell>
-                      {row.productName}
-                      <span className="block text-xs text-muted-foreground">
-                        {row.variantName}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {row.itemName}
-                      <span className="block text-xs text-muted-foreground">
-                        {row.itemCode}
-                      </span>
-                    </TableCell>
-                    {[row.onHand, row.held, row.available].map(
-                      (value, index) => (
-                        <TableCell key={index} className="text-right">
-                          {formatInventoryQuantity(value)} {row.unitSymbol}
-                        </TableCell>
-                      ),
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+              <Warehouse className="size-4 text-muted-foreground" aria-hidden="true" />
+              {salesWarehouse.code} – {salesWarehouse.name}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className={cn(
+                  "size-2 rounded-full",
+                  salesEnabled ? "bg-success" : "bg-muted-foreground",
+                )}
+                aria-hidden="true"
+              />
+              {salesEnabled
+                ? `Đang bán tới ${regions.map((r) => storeRegionLabels[r]).join(", ")}`
+                : "Đang tắt bán online"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { label: "Quy cách bán", value: summary.total, tone: "" },
+              { label: "Đang bán", value: summary.ON, tone: "text-success" },
+              {
+                label: "Hết hàng",
+                value: summary.OUT,
+                tone: summary.OUT > 0 ? "text-destructive" : "",
+              },
+              {
+                label: "Đang giữ chỗ",
+                value: summary.held,
+                tone: summary.held > 0 ? "text-warning" : "",
+              },
+            ].map((card) => (
+              <div
+                key={card.label}
+                className="rounded-xl border border-border bg-card px-4 py-3 shadow-2xs"
+              >
+                <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
+                <p className={cn("mt-1 text-2xl font-semibold tabular-nums", card.tone)}>
+                  {card.value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-2xs">
+            <div className="flex flex-col gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div
+                role="tablist"
+                aria-label="Lọc theo trạng thái bán"
+                className="flex flex-wrap gap-1"
+              >
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={filter === tab.key}
+                    onClick={() => setFilter(tab.key)}
+                    className={cn(
+                      "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors",
+                      filter === tab.key
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
-                    <TableCell>
-                      <Badge variant={row.saleable ? "success" : "secondary"}>
-                        {row.saleable ? "Đang bán" : "Không bán"}
-                      </Badge>
+                  >
+                    {tab.label}
+                    <span className="tabular-nums opacity-80">{tab.count}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="relative w-full sm:w-72">
+                <Search
+                  className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <Input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Tìm sản phẩm, quy cách, mã vật tư"
+                  aria-label="Tìm trong tồn bán hàng"
+                  className="h-8 pl-8 text-sm"
+                />
+              </div>
+            </div>
+
+            <Table className="min-w-[760px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  {["Sản phẩm / quy cách", "Vật tư"].map((label) => (
+                    <TableHead key={label} className={headClass}>
+                      {label}
+                    </TableHead>
+                  ))}
+                  {["Tồn vật lý", "Đang giữ", "Khả dụng"].map((label) => (
+                    <TableHead key={label} className={cn(headClass, "text-right")}>
+                      {label}
+                    </TableHead>
+                  ))}
+                  <TableHead className={headClass}>Trạng thái bán</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visible.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                      {rows.length === 0
+                        ? "Trại chưa gắn vật tư nào vào quy cách bán."
+                        : "Không có dòng phù hợp."}
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  visible.map((row) => {
+                    const state = salesStockState(row);
+                    return (
+                      <TableRow key={row.variantId}>
+                        <TableCell className="py-3">
+                          <p className="font-medium text-foreground">{row.productName}</p>
+                          <p className="text-xs text-muted-foreground">{row.variantName}</p>
+                        </TableCell>
+                        <TableCell className="py-3">
+                          <p className="font-mono text-xs text-foreground">{row.itemCode}</p>
+                          {row.itemName !== row.productName && (
+                            <p className="text-xs text-muted-foreground">{row.itemName}</p>
+                          )}
+                        </TableCell>
+                        <Quantity value={row.onHand} unit={row.unitSymbol} />
+                        <Quantity value={row.held} unit={row.unitSymbol} tone="held" />
+                        <Quantity
+                          value={row.available}
+                          unit={row.unitSymbol}
+                          tone={state === "OUT" ? "out" : "strong"}
+                        />
+                        <TableCell className="py-3">
+                          <Badge
+                            variant={
+                              state === "ON"
+                                ? "success"
+                                : state === "OUT"
+                                  ? "destructive"
+                                  : "secondary"
+                            }
+                          >
+                            {state === "ON" ? "Đang bán" : state === "OUT" ? "Hết hàng" : "Không bán"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+            <p className="border-t border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+              Khả dụng = Tồn vật lý − Đang giữ (phiếu xuất chưa duyệt). Kho nguồn được
+              chuyển vào kho bán khi xác nhận đơn thiếu hàng.
+            </p>
+          </div>
         </>
       )}
     </div>
+  );
+}
+
+const headClass =
+  "h-10 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground";
+
+function Quantity({
+  value,
+  unit,
+  tone,
+}: {
+  value: string;
+  unit: string;
+  tone?: "held" | "strong" | "out";
+}) {
+  const zero = !(Number(value) > 0);
+  return (
+    <TableCell
+      className={cn(
+        "py-3 text-right tabular-nums",
+        zero && tone !== "out" ? "text-muted-foreground" : "text-foreground",
+        tone === "strong" && !zero && "font-semibold",
+        tone === "out" && "font-semibold text-destructive",
+        tone === "held" && !zero && "font-medium text-warning",
+      )}
+    >
+      {formatInventoryQuantity(value)}
+      <span className="ml-1 text-xs font-normal text-muted-foreground">{unit}</span>
+    </TableCell>
   );
 }

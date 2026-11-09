@@ -34,6 +34,9 @@ function fixture(kind, roles = ["ADMIN"], headerPatch = {}) {
         owner.state[index] = typeof value === "function" ? value(owner.state[index]) : value;
       }];
     },
+    useMemo(factory) {
+      return factory();
+    },
     useRef(initial) {
       const index = active.refIndex++;
       return active.refs[index] ??= { current: initial };
@@ -130,7 +133,10 @@ function nodes(node) {
 }
 // Transfers are confirmed by the source as a dispatch.
 const confirmLabel = (kind) => (kind === "transfers" ? "Xác nhận xuất" : "Xác nhận");
-const button = (tree, label) => nodes(tree).find((node) => node.type === "Button" && node.props.children === label);
+// Labels may sit in a <span> next to an icon, so compare the rendered text.
+const text = (node) =>
+  Array.isArray(node) ? node.map(text).join("") : typeof node === "string" ? node : text(node?.props?.children ?? "");
+const button = (tree, label) => nodes(tree).find((node) => node.type === "Button" && text(node.props.children).trim() === label);
 
 for (const kind of ["counts", "transfers"]) {
   test(`${kind}: editing and a slow save block confirm, cancel and submit, even through stale handlers`, async () => {

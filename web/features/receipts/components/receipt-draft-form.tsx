@@ -20,6 +20,7 @@ import { Textarea } from "@/shared/components/ui/textarea";
 import { Input } from "@/shared/components/ui/input";
 import { Select } from "@/shared/components/ui/select";
 import { DateInput } from "@/shared/components/ui/date-input";
+import { formatVndCurrency } from "@/shared/lib/currency";
 import {
   DOCUMENT_CODE_HINT,
   documentCodeLabel,
@@ -71,21 +72,21 @@ export function ReceiptDraftForm({
   const [warehouse, setWarehouse] = useState<DraftChoice | null>(() =>
     initial
       ? {
-          id: initial.detail.receipt.warehouseId,
-          label:
-            initial.warehouseLabel ??
-            `Kho (${initial.detail.receipt.warehouseId})`,
-        }
+        id: initial.detail.receipt.warehouseId,
+        label:
+          initial.warehouseLabel ??
+          `Kho (${initial.detail.receipt.warehouseId})`,
+      }
       : null,
   );
   const [supplier, setSupplier] = useState<DraftChoice | null>(() =>
     initial?.detail.receipt.supplierId
       ? {
-          id: initial.detail.receipt.supplierId,
-          label:
-            initial.supplierLabel ??
-            `Nhà cung cấp (${initial.detail.receipt.supplierId})`,
-        }
+        id: initial.detail.receipt.supplierId,
+        label:
+          initial.supplierLabel ??
+          `Nhà cung cấp (${initial.detail.receipt.supplierId})`,
+      }
       : null,
   );
   const [date, setDate] = useState(initial?.detail.receipt.receiptDate ?? "");
@@ -97,36 +98,36 @@ export function ReceiptDraftForm({
   const [lines, setLines] = useState<DraftLine[]>(() =>
     initial
       ? initial.detail.items.map((line) => {
-          return {
-            id: line.itemId,
-            rowKey: line.id,
-            lineId: line.id,
-            trackingMode: line.trackingMode ?? "QUANTITY",
-            label: line.itemCode
-              ? `${line.itemCode} — ${line.itemName} (${line.unitSymbol || line.unitName || "—"})`
-              : `Vật tư (${line.itemId})`,
-            quantity: line.trackingMode === "ASSET" ? "1" : line.quantity,
-            unitPrice: line.unitPrice,
-            lotMode: line.lotId ? "existing" : "new",
-            lotId: line.lotId,
-            lotLabel: line.lotCode ?? (line.lotId ? `Lô (${line.lotId})` : ""),
-            supplierLotNumber: line.supplierLotNumber ?? "",
-            legacyLotNumber: line.legacyLotNumber,
-            manufacturedDate: line.manufacturedDate ?? "",
-            expiryDate: line.expiryDate ?? "",
-            assetCode: line.assetCode ?? "",
-            serialNumber: line.serialNumber ?? "",
-            locationId: line.locationId ?? null,
-            locationLabel: line.locationCode
-              ? `${line.locationCode} — ${line.locationName}`
-              : line.locationId
-                ? `Vị trí (${line.locationId})`
-                : "",
-            assetId: line.assetId,
-            assetCondition: line.assetCondition ?? "",
-            note: line.note ?? "",
-          };
-        })
+        return {
+          id: line.itemId,
+          rowKey: line.id,
+          lineId: line.id,
+          trackingMode: line.trackingMode ?? "QUANTITY",
+          label: line.itemCode
+            ? `${line.itemCode} — ${line.itemName} (${line.unitSymbol || line.unitName || "—"})`
+            : `Vật tư (${line.itemId})`,
+          quantity: line.trackingMode === "ASSET" ? "1" : line.quantity,
+          unitPrice: line.unitPrice,
+          lotMode: line.lotId ? "existing" : "new",
+          lotId: line.lotId,
+          lotLabel: line.lotCode ?? (line.lotId ? `Lô (${line.lotId})` : ""),
+          supplierLotNumber: line.supplierLotNumber ?? "",
+          legacyLotNumber: line.legacyLotNumber,
+          manufacturedDate: line.manufacturedDate ?? "",
+          expiryDate: line.expiryDate ?? "",
+          assetCode: line.assetCode ?? "",
+          serialNumber: line.serialNumber ?? "",
+          locationId: line.locationId ?? null,
+          locationLabel: line.locationCode
+            ? `${line.locationCode} — ${line.locationName}`
+            : line.locationId
+              ? `Vị trí (${line.locationId})`
+              : "",
+          assetId: line.assetId,
+          assetCondition: line.assetCondition ?? "",
+          note: line.note ?? "",
+        };
+      })
       : [],
   );
   const { submit, isSaving, error } = useSaveReceiptDraft(
@@ -166,31 +167,31 @@ export function ReceiptDraftForm({
     else if (kind === "material" || kind === "asset")
       setLines((previous) =>
         choice.trackingMode === "QUANTITY" &&
-        previous.some((line) => line.id === choice.id)
+          previous.some((line) => line.id === choice.id)
           ? previous
           : [
-              ...previous,
-              {
-                ...choice,
-                rowKey: crypto.randomUUID(),
-                quantity: "1",
-                unitPrice: "0",
-                lotMode: "new",
-                lotId: null,
-                lotLabel: "",
-                supplierLotNumber: "",
-                legacyLotNumber: null,
-                manufacturedDate: "",
-                expiryDate: "",
-                assetCode: "",
-                serialNumber: "",
-                locationId: null,
-                locationLabel: "",
-                assetId: null,
-                assetCondition: "",
-                note: "",
-              },
-            ],
+            ...previous,
+            {
+              ...choice,
+              rowKey: crypto.randomUUID(),
+              quantity: "1",
+              unitPrice: "0",
+              lotMode: "new",
+              lotId: null,
+              lotLabel: "",
+              supplierLotNumber: "",
+              legacyLotNumber: null,
+              manufacturedDate: "",
+              expiryDate: "",
+              assetCode: "",
+              serialNumber: "",
+              locationId: null,
+              locationLabel: "",
+              assetId: null,
+              assetCondition: "",
+              note: "",
+            },
+          ],
       );
   }
   if (!canWrite)
@@ -202,6 +203,17 @@ export function ReceiptDraftForm({
         </button>
       </div>
     );
+
+  const totalValue = lines.reduce((sum, line) => {
+    const qty = Number(line.quantity) || 0;
+    const price = Number(line.unitPrice) || 0;
+    return sum + qty * price;
+  }, 0);
+
+  const totalQuantity = lines.reduce((sum, line) => {
+    return sum + (line.trackingMode === "ASSET" ? 1 : Number(line.quantity) || 0);
+  }, 0);
+
   return (
     <form
       noValidate
@@ -224,20 +236,20 @@ export function ReceiptDraftForm({
               ? { lotId: line.lotId ?? "" }
               : line.trackingMode === "LOT"
                 ? {
-                    supplierLotNumber: line.supplierLotNumber.trim() || undefined,
-                    manufacturedDate: line.manufacturedDate || undefined,
-                    expiryDate: line.expiryDate || undefined,
-                  }
+                  supplierLotNumber: line.supplierLotNumber.trim() || undefined,
+                  manufacturedDate: line.manufacturedDate || undefined,
+                  expiryDate: line.expiryDate || undefined,
+                }
                 : {}),
             ...(line.trackingMode === "ASSET"
               ? {
-                  assetCode: line.assetCode.trim(),
-                  serialNumber: line.serialNumber.trim() || undefined,
-                  locationId: line.locationId ?? undefined,
-                  ...(line.assetId
-                    ? { assetCondition: line.assetCondition }
-                    : {}),
-                }
+                assetCode: line.assetCode.trim(),
+                serialNumber: line.serialNumber.trim() || undefined,
+                locationId: line.locationId ?? undefined,
+                ...(line.assetId
+                  ? { assetCondition: line.assetCondition }
+                  : {}),
+              }
               : {}),
           })),
         }, initial?.detail.orderReturn);
@@ -266,10 +278,10 @@ export function ReceiptDraftForm({
               <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 font-normal text-muted-foreground">
                 {initial
                   ? documentCodeLabel(
-                      initial.detail.receipt.receiptCode,
-                      initial.detail.receipt.id,
-                      "PN",
-                    )
+                    initial.detail.receipt.receiptCode,
+                    initial.detail.receipt.id,
+                    "PN",
+                  )
                   : DOCUMENT_CODE_HINT}
               </p>
             </div>
@@ -336,24 +348,43 @@ export function ReceiptDraftForm({
             {lines.map((line) => (
               <div
                 key={line.rowKey}
-                className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4"
+                className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-2xs hover:border-primary/40 transition-all"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-base font-semibold">{line.label}</p>
-                  <Badge variant={line.trackingMode === "ASSET" ? "info" : "secondary"}>
-                    {line.trackingMode === "LOT"
-                      ? "Theo lô"
-                      : line.trackingMode === "ASSET"
-                        ? "Tài sản"
-                        : "Theo số lượng"}
-                  </Badge>
+                <div className="flex items-start justify-between gap-2 border-b border-border/50 pb-2.5">
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-foreground leading-snug">{line.label}</p>
+                    <Badge variant={line.trackingMode === "ASSET" ? "info" : line.trackingMode === "LOT" ? "secondary" : "outline"} className="text-xs">
+                      {line.trackingMode === "LOT"
+                        ? "Theo lô"
+                        : line.trackingMode === "ASSET"
+                          ? "Tài sản"
+                          : "Theo số lượng"}
+                    </Badge>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Bỏ dòng ${line.label}`}
+                    onClick={() =>
+                      setLines((previous) =>
+                        previous.filter((row) => row.rowKey !== line.rowKey),
+                      )
+                    }
+                    className="size-7 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer"
+                    title="Bỏ dòng hàng này"
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                  </Button>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {line.trackingMode === "ASSET" ? (
-                    <p>Số lượng: 1 tài sản</p>
+                    <div className="flex items-center text-xs font-medium text-foreground bg-muted/40 px-3 py-2 rounded-md">
+                      Số lượng: 1 tài sản
+                    </div>
                   ) : (
-                    <label>
-                      Số lượng *
+                    <label className="space-y-1 text-xs font-medium">
+                      <span>Số lượng *</span>
                       <Input
                         aria-label={`Số lượng ${line.label}`}
                         required
@@ -368,12 +399,12 @@ export function ReceiptDraftForm({
                             ),
                           )
                         }
-                        className="w-full"
+                        className="w-full text-xs"
                       />
                     </label>
                   )}
-                  <label>
-                    Đơn giá
+                  <label className="space-y-1 text-xs font-medium">
+                    <span>Đơn giá nhập</span>
                     <Input
                       aria-label={`Đơn giá ${line.label}`}
                       inputMode="decimal"
@@ -387,9 +418,17 @@ export function ReceiptDraftForm({
                           ),
                         )
                       }
-                      className="w-full"
+                      className="w-full text-xs"
                     />
                   </label>
+                  {Number(line.quantity) > 0 && Number(line.unitPrice) > 0 && (
+                    <div className="sm:col-span-2 flex items-center justify-between text-xs pt-1 px-1 text-muted-foreground bg-muted/30 p-2 rounded-md">
+                      <span>Thành tiền dự kiến:</span>
+                      <span className="font-bold text-primary text-sm tabular-nums">
+                        {formatVndCurrency(Number(line.quantity) * Number(line.unitPrice))}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {line.trackingMode === "LOT" && (
                   <fieldset className="flex flex-wrap gap-4">
@@ -519,11 +558,11 @@ export function ReceiptDraftForm({
                           previous.map((row) =>
                             row.rowKey === line.rowKey
                               ? {
-                                  ...row,
-                                  lotMode: "existing",
-                                  lotId: choice.id,
-                                  lotLabel: choice.label,
-                                }
+                                ...row,
+                                lotMode: "existing",
+                                lotId: choice.id,
+                                lotLabel: choice.label,
+                              }
                               : row,
                           ),
                         )
@@ -582,10 +621,10 @@ export function ReceiptDraftForm({
                               previous.map((row) =>
                                 row.rowKey === line.rowKey
                                   ? {
-                                      ...row,
-                                      assetCondition: event.target
-                                        .value as DraftLine["assetCondition"],
-                                    }
+                                    ...row,
+                                    assetCondition: event.target
+                                      .value as DraftLine["assetCondition"],
+                                  }
                                   : row,
                               ),
                             )
@@ -611,10 +650,10 @@ export function ReceiptDraftForm({
                                 previous.map((row) =>
                                   row.rowKey === line.rowKey
                                     ? {
-                                        ...row,
-                                        locationId: null,
-                                        locationLabel: "",
-                                      }
+                                      ...row,
+                                      locationId: null,
+                                      locationLabel: "",
+                                    }
                                     : row,
                                 ),
                               )
@@ -663,30 +702,15 @@ export function ReceiptDraftForm({
                     className="w-full"
                   />
                 </label>
-                <div className="mt-auto flex justify-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Bỏ dòng ${line.label}`}
-                    onClick={() =>
-                      setLines((previous) =>
-                        previous.filter((row) => row.rowKey !== line.rowKey),
-                      )
-                    }
-                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" aria-hidden="true" />
-                    Bỏ dòng
-                  </Button>
-                </div>
               </div>
             ))}
             <AddLineTile label="Thêm vật tư hoặc thiết bị/tài sản">
               {(close) => (
                 <>
-                  <div className="space-y-1">
-                    Vật tư
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">
+                      Vật tư
+                    </label>
                     <ReceiptDraftPicker
                       farmId={farmId}
                       kind="material"
@@ -698,8 +722,10 @@ export function ReceiptDraftForm({
                       }}
                     />
                   </div>
-                  <div className="space-y-1">
-                    Thiết bị/tài sản
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">
+                      Thiết bị / tài sản
+                    </label>
                     <ReceiptDraftPicker
                       farmId={farmId}
                       kind="asset"
@@ -715,13 +741,47 @@ export function ReceiptDraftForm({
             </AddLineTile>
           </div>
         </section>
-        <div className="flex gap-3">
-          <Button type="submit">
-            {isSaving ? "Đang lưu..." : initial ? "Lưu thay đổi" : "Lưu nháp"}
-          </Button>
-          <Button variant="outline" onClick={onCancel}>
-            Quay lại danh sách
-          </Button>
+
+        {/* Sticky Action Bar */}
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card/95 p-4 shadow-lg backdrop-blur-xs">
+          <div className="flex flex-wrap items-center gap-4 text-xs font-medium">
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Số dòng hàng:</span>
+              <span className="font-bold text-foreground tabular-nums">{lines.length}</span>
+            </div>
+            {totalQuantity > 0 && (
+              <div className="flex items-center gap-1.5 border-l border-border pl-4">
+                <span className="text-muted-foreground">Tổng số lượng:</span>
+                <span className="font-bold text-foreground tabular-nums">{totalQuantity}</span>
+              </div>
+            )}
+            {totalValue > 0 && (
+              <div className="flex items-center gap-1.5 border-l border-border pl-4">
+                <span className="text-muted-foreground">Tổng tiền tạm tính:</span>
+                <span className="font-bold text-primary tabular-nums text-sm">
+                  {formatVndCurrency(totalValue)}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              type="button"
+              onClick={onCancel}
+              disabled={isSaving}
+              className="text-xs font-medium h-9"
+            >
+              Quay lại danh sách
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSaving}
+              className="font-semibold shadow-xs text-xs h-9"
+            >
+              {isSaving ? "Đang lưu..." : initial ? "Lưu thay đổi" : "Lưu phiếu nháp"}
+            </Button>
+          </div>
         </div>
       </fieldset>
     </form>

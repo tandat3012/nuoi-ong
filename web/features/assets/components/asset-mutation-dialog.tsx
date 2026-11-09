@@ -57,6 +57,7 @@ export function AssetMutationDialog({
       alive.current = false;
     };
   }, []);
+
   return (
     <Dialog
       open
@@ -74,7 +75,7 @@ export function AssetMutationDialog({
             : undefined
         }
         hideCloseButton={pending}
-        className="max-h-[90dvh] w-[calc(100%_-_2rem)] overflow-y-auto rounded-xl"
+        className="flex max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-2xl flex-col rounded-xl p-0 overflow-hidden shadow-xl"
         onEscapeKeyDown={(event) => {
           const picker =
             event.target instanceof Element
@@ -88,12 +89,15 @@ export function AssetMutationDialog({
           }
         }}
       >
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
+        <div className="border-b border-border bg-card p-5">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold text-foreground">{title}</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">{description}</DialogDescription>
+          </DialogHeader>
+        </div>
+
         <form
-          className="min-w-0 space-y-4"
+          className="flex min-h-0 flex-1 flex-col"
           onSubmit={async (event) => {
             event.preventDefault();
             if (busy.current || disabled || error?.reloadRequired) return;
@@ -122,33 +126,42 @@ export function AssetMutationDialog({
             }
           }}
         >
-          <fieldset
-            disabled={pending || error?.reloadRequired}
-            className="min-w-0 space-y-4"
-          >
-            {children}
-          </fieldset>
-          {error && (
-            <ErrorAlert
-              message={error.message}
-              onRetry={error.reloadRequired ? onReload : undefined}
-              retryLabel="Tải lại dữ liệu"
-            />
-          )}
-          <DialogFooter className="gap-2">
+          <div className="flex-1 overflow-y-auto p-5">
+            <fieldset
+              disabled={pending || error?.reloadRequired}
+              className="min-w-0 space-y-4"
+            >
+              {children}
+            </fieldset>
+
+            {error && (
+              <ErrorAlert
+                className="mt-4"
+                message={error.message}
+                onRetry={error.reloadRequired ? onReload : undefined}
+                retryLabel="Tải lại dữ liệu"
+              />
+            )}
+          </div>
+
+          <DialogFooter className="border-t border-border bg-muted/30 p-4 gap-2 sm:justify-end">
             <Button
               type="button"
               variant="outline"
+              size="sm"
               disabled={pending}
               onClick={onClose}
+              className="h-9 text-xs font-medium"
             >
               Đóng
             </Button>
             <Button
               type="submit"
+              size="sm"
               variant={destructive ? "destructive" : "default"}
               isLoading={pending}
               disabled={disabled || error?.reloadRequired}
+              className="h-9 text-xs font-semibold shadow-xs"
             >
               {submitLabel}
             </Button>

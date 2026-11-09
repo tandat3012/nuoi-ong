@@ -14,12 +14,11 @@ import {
   RECORD_STATUS_LABELS,
 } from "../types/material";
 import { createDebouncedSearch } from "../hooks/debounce-search";
-import { Card } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
 import { Select } from "@/shared/components/ui/select";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
-import { Search, X, RotateCcw, Filter } from "lucide-react";
+import { Search, X, SlidersHorizontal, RotateCcw } from "lucide-react";
 
 interface MaterialFilterToolbarProps {
   filters: MaterialFilterParams;
@@ -96,66 +95,82 @@ export function MaterialFilterToolbar({
   )?.name;
 
   return (
-    <Card className="p-4 sm:p-5">
+    <section
+      aria-label="Bộ lọc vật tư"
+      className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5 shadow-2xs"
+    >
       <form onSubmit={handleSearchSubmit} className="space-y-4">
-        {/* Search row with prominent input & submit button */}
-        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        {/* Header row */}
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-xs font-semibold text-foreground">
+            <SlidersHorizontal
+              className="size-3.5 text-muted-foreground"
               aria-hidden="true"
             />
-            <Input
-              type="text"
-              aria-label="Tìm vật tư theo mã, tên hoặc mã vạch"
-              maxLength={100}
-              value={searchInput}
-              onChange={(event) => handleSearchInputChange(event.target.value)}
-              placeholder="Tìm kiếm theo mã, tên hoặc mã vạch barcode..."
-              className="pl-9 pr-8"
-            />
-            {searchInput && (
-              <button
-                type="button"
-                onClick={() => handleSearchInputChange("")}
-                aria-label="Xóa từ khóa tìm kiếm"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <X className="size-4" />
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button type="submit" size="sm" className="h-9 px-4">
-              <Search className="size-3.5" aria-hidden="true" />
-              <span>Tìm kiếm</span>
+            Bộ lọc tìm kiếm
+          </h2>
+          {hasFilters && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleClearFilters}
+              className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <RotateCcw className="size-3" aria-hidden="true" />
+              <span>Xóa bộ lọc</span>
             </Button>
-            {hasFilters && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleClearFilters}
-                className="h-9 text-muted-foreground hover:text-foreground"
-              >
-                <RotateCcw className="size-3.5" aria-hidden="true" />
-                <span>Đặt lại</span>
-              </Button>
-            )}
-          </div>
+          )}
         </div>
 
-        {/* Dropdown Filters Grid */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div>
+        {/* Search input + Dropdowns Grid */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {/* Search */}
+          <div className="sm:col-span-2 lg:col-span-2 space-y-1.5">
+            <label
+              htmlFor="search-material"
+              className="block text-xs font-semibold text-foreground"
+            >
+              Tìm kiếm vật tư
+            </label>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                id="search-material"
+                type="text"
+                maxLength={100}
+                value={searchInput}
+                onChange={(event) => handleSearchInputChange(event.target.value)}
+                placeholder="Mã vật tư, tên hoặc mã vạch barcode…"
+                className="h-9 pl-8.5 pr-8 text-xs font-normal"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => handleSearchInputChange("")}
+                  aria-label="Xóa từ khóa tìm kiếm"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Status */}
+          <div className="space-y-1.5">
             <label
               htmlFor="filter-status"
-              className="mb-1 block text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground"
+              className="block text-xs font-semibold text-foreground"
             >
               Trạng thái
             </label>
             <Select
               id="filter-status"
+              className="h-9 text-xs font-medium"
               value={filters.status ?? ""}
               onChange={(event) =>
                 onStatusChange(
@@ -176,15 +191,17 @@ export function MaterialFilterToolbar({
             </Select>
           </div>
 
-          <div>
+          {/* Kind */}
+          <div className="space-y-1.5">
             <label
               htmlFor="filter-kind"
-              className="mb-1 block text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground"
+              className="block text-xs font-semibold text-foreground"
             >
               Phân loại
             </label>
             <Select
               id="filter-kind"
+              className="h-9 text-xs font-medium"
               value={filters.kind ?? ""}
               onChange={(event) =>
                 onKindChange(
@@ -205,15 +222,17 @@ export function MaterialFilterToolbar({
             </Select>
           </div>
 
-          <div>
+          {/* Tracking mode */}
+          <div className="space-y-1.5">
             <label
               htmlFor="filter-tracking"
-              className="mb-1 block text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground"
+              className="block text-xs font-semibold text-foreground"
             >
               Phương thức theo dõi
             </label>
             <Select
               id="filter-tracking"
+              className="h-9 text-xs font-medium"
               value={filters.trackingMode ?? ""}
               onChange={(event) =>
                 onTrackingModeChange(
@@ -235,16 +254,20 @@ export function MaterialFilterToolbar({
               ))}
             </Select>
           </div>
+        </div>
 
-          <div>
+        {/* Second row: Category dropdown if available */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+          <div className="flex items-center gap-2">
             <label
               htmlFor="filter-category"
-              className="mb-1 block text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground"
+              className="text-xs font-semibold text-foreground whitespace-nowrap"
             >
-              Danh mục
+              Danh mục:
             </label>
             <Select
               id="filter-category"
+              className="h-8 text-xs font-medium max-w-xs"
               disabled={referencesLoading || Boolean(referencesError)}
               value={filters.categoryId ?? ""}
               onChange={(event) =>
@@ -254,83 +277,79 @@ export function MaterialFilterToolbar({
               <option value="">Tất cả danh mục</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
-                  {category.name}
+                  {category.name} ({category.code})
                 </option>
               ))}
             </Select>
           </div>
-        </div>
 
-        {/* Active Filter Chips Bar */}
-        {hasFilters && (
-          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/60 text-xs">
-            <span className="flex items-center gap-1 text-muted-foreground font-medium mr-1">
-              <Filter className="size-3" />
-              <span>Đang lọc:</span>
-            </span>
-            {filters.search && (
-              <Badge variant="outline" className="gap-1 bg-background text-xs py-0.5">
-                <span>Từ khóa: &quot;{filters.search}&quot;</span>
-                <button
-                  type="button"
-                  onClick={() => handleSearchInputChange("")}
-                  className="hover:text-destructive cursor-pointer"
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            )}
-            {filters.status && (
-              <Badge variant="outline" className="gap-1 bg-background text-xs py-0.5">
-                <span>Trạng thái: {RECORD_STATUS_LABELS[filters.status]}</span>
-                <button
-                  type="button"
-                  onClick={() => onStatusChange(undefined)}
-                  className="hover:text-destructive cursor-pointer"
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            )}
-            {filters.kind && (
-              <Badge variant="outline" className="gap-1 bg-background text-xs py-0.5">
-                <span>Loại: {MATERIAL_KIND_LABELS[filters.kind]}</span>
-                <button
-                  type="button"
-                  onClick={() => onKindChange(undefined)}
-                  className="hover:text-destructive cursor-pointer"
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            )}
-            {filters.trackingMode && (
-              <Badge variant="outline" className="gap-1 bg-background text-xs py-0.5">
-                <span>Theo dõi: {MATERIAL_TRACKING_MODE_LABELS[filters.trackingMode]}</span>
-                <button
-                  type="button"
-                  onClick={() => onTrackingModeChange(undefined)}
-                  className="hover:text-destructive cursor-pointer"
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            )}
-            {filters.categoryId && (
-              <Badge variant="outline" className="gap-1 bg-background text-xs py-0.5">
-                <span>Danh mục: {selectedCategoryName || filters.categoryId}</span>
-                <button
-                  type="button"
-                  onClick={() => onCategoryChange(undefined)}
-                  className="hover:text-destructive cursor-pointer"
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            )}
-          </div>
-        )}
+          {/* Active Filter Chips */}
+          {hasFilters && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {filters.search && (
+                <Badge variant="outline" className="gap-1 border-border bg-muted/60 text-xs py-0.5 font-normal">
+                  <span>Từ khóa: &quot;{filters.search}&quot;</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSearchInputChange("")}
+                    className="hover:text-destructive cursor-pointer"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {filters.status && (
+                <Badge variant="outline" className="gap-1 border-border bg-muted/60 text-xs py-0.5 font-normal">
+                  <span>{RECORD_STATUS_LABELS[filters.status]}</span>
+                  <button
+                    type="button"
+                    onClick={() => onStatusChange(undefined)}
+                    className="hover:text-destructive cursor-pointer"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {filters.kind && (
+                <Badge variant="outline" className="gap-1 border-border bg-muted/60 text-xs py-0.5 font-normal">
+                  <span>{MATERIAL_KIND_LABELS[filters.kind]}</span>
+                  <button
+                    type="button"
+                    onClick={() => onKindChange(undefined)}
+                    className="hover:text-destructive cursor-pointer"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {filters.trackingMode && (
+                <Badge variant="outline" className="gap-1 border-border bg-muted/60 text-xs py-0.5 font-normal">
+                  <span>{MATERIAL_TRACKING_MODE_LABELS[filters.trackingMode]}</span>
+                  <button
+                    type="button"
+                    onClick={() => onTrackingModeChange(undefined)}
+                    className="hover:text-destructive cursor-pointer"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {filters.categoryId && (
+                <Badge variant="outline" className="gap-1 border-border bg-muted/60 text-xs py-0.5 font-normal">
+                  <span>{selectedCategoryName || filters.categoryId}</span>
+                  <button
+                    type="button"
+                    onClick={() => onCategoryChange(undefined)}
+                    className="hover:text-destructive cursor-pointer"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
       </form>
-    </Card>
+    </section>
   );
 }
