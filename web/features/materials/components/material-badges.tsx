@@ -97,3 +97,4 @@ export function MaterialTrackingBadge({ mode }: { mode: MaterialTrackingMode }) 
     </span>
   );
 }
+

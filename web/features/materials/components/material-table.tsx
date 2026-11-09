@@ -43,10 +43,10 @@ export function MaterialTable({
 }: MaterialTableProps) {
   const hasFilters = Boolean(
     filters.search ||
-      filters.status ||
-      filters.kind ||
-      filters.trackingMode ||
-      filters.categoryId,
+    filters.status ||
+    filters.kind ||
+    filters.trackingMode ||
+    filters.categoryId,
   );
 
   return (
@@ -175,11 +175,10 @@ export function MaterialTable({
                   {/* Stock Quantity */}
                   <TableCell className="align-top py-3.5 text-right tabular-nums">
                     <span
-                      className={`text-xs font-bold ${
-                        isZero
+                      className={`text-xs font-bold ${isZero
                           ? "text-rose-600 dark:text-rose-400"
                           : "text-foreground"
-                      }`}
+                        }`}
                     >
                       {formatInventoryQuantity(row.quantityOnHand)}
                     </span>{" "}
