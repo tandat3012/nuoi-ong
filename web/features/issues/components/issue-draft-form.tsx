@@ -485,7 +485,7 @@ export function IssueDraftForm({
 
                 {line.trackingMode === "LOT" && (
                   <div className="space-y-1">
-                    <span className="text-[0.6875rem] font-medium text-muted-foreground">Chọn lô có sẵn trong kho:</span>
+                    <span className="text-[0.6875rem] font-medium text-muted-foreground">Lô xuất</span>
                     <IssueLotPicker
                       key={`${farmId}:${warehouse?.id ?? "none"}:${line.id}`}
                       farmId={farmId}
@@ -589,20 +589,14 @@ export function IssueDraftForm({
             {!isLinkedSale && (
               <AddLineTile label="Thêm vật tư xuất kho">
                 {(close) => (
-                  <div className="space-y-2">
-                    <span className="text-xs font-semibold text-foreground">
-                      Tìm và chọn vật tư xuất
-                    </span>
-                    <IssueDraftPicker
-                      farmId={farmId}
-                      kind="item"
-                      autoFocus
-                      onSelect={(choice) => {
-                        select("item", choice);
-                        close();
-                      }}
-                    />
-                  </div>
+                  <IssueDraftPicker
+                    farmId={farmId}
+                    kind="item"
+                    onSelect={(choice) => {
+                      select("item", choice);
+                      close();
+                    }}
+                  />
                 )}
               </AddLineTile>
             )}

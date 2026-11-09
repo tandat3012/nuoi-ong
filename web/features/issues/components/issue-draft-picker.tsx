@@ -7,7 +7,7 @@ import { ApiError } from "@/shared/api/client";
 import type { PageInfo } from "@/shared/api/contracts";
 import { getIssueCatalogItems } from "../api/issues.api";
 import type { IssueDraftTrackingMode } from "../types/issue";
-import { Select } from "@/shared/components/ui/select";
+import { cn } from "@/shared/lib/utils";
 import { Combobox } from "@/shared/components/ui/combobox";
 
 export type IssueChoice = {
@@ -16,6 +16,11 @@ export type IssueChoice = {
   trackingMode?: IssueDraftTrackingMode;
 };
 
+const TRACKING_OPTIONS: { value: IssueDraftTrackingMode; label: string }[] = [
+  { value: "QUANTITY", label: "Số lượng" },
+  { value: "LOT", label: "Theo lô" },
+  { value: "ASSET", label: "Tài sản" },
+];
 const PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 250;
 
@@ -150,21 +155,34 @@ export function IssueDraftPicker({
   );
   if (kind === "warehouse") return combobox;
   return (
-    <div className="flex flex-col gap-2 sm:flex-row">
-      <Select
-        aria-label="Theo dõi vật tư"
-        value={trackingMode}
-        disabled={disabled}
-        onChange={(event) => {
-          setQuery({ search: "", page: 1 });
-          setTrackingMode(event.target.value as IssueDraftTrackingMode);
-        }}
-        className="sm:w-40"
+    <div className="space-y-2">
+      <div
+        role="radiogroup"
+        aria-label="Cách theo dõi vật tư"
+        className="inline-flex rounded-md border border-border bg-muted/40 p-0.5"
       >
-        <option value="QUANTITY">Số lượng</option>
-        <option value="LOT">Theo lô</option>
-        <option value="ASSET">Tài sản</option>
-      </Select>
+        {TRACKING_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={trackingMode === option.value}
+            disabled={disabled}
+            onClick={() => {
+              setQuery({ search: "", page: 1 });
+              setTrackingMode(option.value);
+            }}
+            className={cn(
+              "h-8 rounded px-3 text-xs font-medium transition-colors disabled:opacity-50",
+              trackingMode === option.value
+                ? "bg-primary font-semibold text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
       {combobox}
     </div>
   );
