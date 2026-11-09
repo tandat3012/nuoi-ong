@@ -75,11 +75,13 @@ export function CustomerOrderPayDialog({
               <p className="text-sm text-muted-foreground">
                 Thông tin thanh toán ngân hàng đang được chuẩn bị hoặc đơn hàng không hỗ trợ chuyển khoản.
               </p>
-              <Button variant="outline" asChild onClick={onClose}>
-                <Link href={`/orders/${encodeURIComponent(order.id)}`}>
-                  Xem chi tiết đơn hàng
-                </Link>
-              </Button>
+              <Link
+                href={`/orders/${encodeURIComponent(order.id)}`}
+                onClick={onClose}
+                className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              >
+                Xem chi tiết đơn hàng
+              </Link>
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-[13rem_1fr] items-start">
@@ -203,12 +205,14 @@ export function CustomerOrderPayDialog({
           <Button variant="outline" size="sm" onClick={onClose} className="cursor-pointer">
             Đóng
           </Button>
-          <Button size="sm" asChild className="gap-1.5 cursor-pointer">
-            <Link href={`/orders/${encodeURIComponent(order.id)}`} onClick={onClose}>
-              <span>Trang chi tiết đơn hàng</span>
-              <ExternalLink className="size-3.5" />
-            </Link>
-          </Button>
+          <Link
+            href={`/orders/${encodeURIComponent(order.id)}`}
+            onClick={onClose}
+            className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <span>Trang chi tiết đơn hàng</span>
+            <ExternalLink className="size-3.5" />
+          </Link>
         </div>
       </DialogContent>
     </Dialog>

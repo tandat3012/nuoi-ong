@@ -414,18 +414,13 @@ export function CustomerOrderCard({
             </Button>
           )}
 
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            asChild
-            className="text-xs h-8 gap-1 cursor-pointer hover:border-primary/50"
+          <Link
+            href={`/orders/${encodeURIComponent(order.id)}`}
+            className="inline-flex h-8 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >
-            <Link href={`/orders/${encodeURIComponent(order.id)}`}>
-              <span>Xem chi tiết</span>
-              <ChevronRight className="size-3 text-muted-foreground" />
-            </Link>
-          </Button>
+            <span>Xem chi tiết</span>
+            <ChevronRight className="size-3 text-muted-foreground" />
+          </Link>
         </div>
       </div>
     </article>
