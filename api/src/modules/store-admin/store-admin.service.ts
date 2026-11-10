@@ -243,6 +243,7 @@ export class StoreAdminService {
         itemCode: items.code,
         itemName: items.name,
         itemStatus: items.status,
+        trackingMode: items.trackingMode,
         unitSymbol: units.symbol,
         unitStatus: units.status,
         onHand: sql<string>`${onHand}::text`,

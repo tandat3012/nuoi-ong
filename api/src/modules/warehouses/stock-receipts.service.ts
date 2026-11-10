@@ -157,6 +157,7 @@ export class StockReceiptsService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
+      true,
     );
     const { memberId } = writer;
     assertInScope(writer.scope, input.warehouseId);
@@ -313,6 +314,7 @@ export class StockReceiptsService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
+      true,
     );
     const numbering = numberingOptionChanges(input, writer);
     const transaction = this.databaseService.db.transaction(async (tx) => {
@@ -463,6 +465,7 @@ export class StockReceiptsService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
+      true,
     );
     await this.databaseService.db.transaction(async (tx) => {
       await this.hooks.run('lock', tx, id);
@@ -498,6 +501,7 @@ export class StockReceiptsService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
+      true,
     );
     await this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);

@@ -46,6 +46,9 @@ export type StoreSalesStockRow = {
   productName: string;
   variantId: string;
   variantName: string;
+  itemId: string;
+  /** QUANTITY or LOT here; assets are never sold. */
+  trackingMode: "QUANTITY" | "LOT" | "ASSET";
   itemCode: string;
   itemName: string;
   unitSymbol: string;

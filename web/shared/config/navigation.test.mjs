@@ -11,6 +11,7 @@ const access = (overrides = {}) => ({
   canManageStore: true,
   canDeliver: true,
   canAccessFarmArea: true,
+  canAccessMasterData: true,
   canViewHistory: true,
   isStoreFarm: true,
   ...overrides,
@@ -26,7 +27,7 @@ test('order screens are hidden on farms that do not sell online; products stay f
 });
 
 test('store screens need a store role; farm-area screens hide from store-only managers', () => {
-  const storeOnly = access({ canManageFarm: false, canAccessFarmArea: false });
+  const storeOnly = access({ canManageFarm: false, canAccessFarmArea: false, canAccessMasterData: false });
   for (const href of ['/store-products', '/store-orders', '/store-reports'])
     assert.equal(isNavigationItemVisible(item(href), storeOnly), true, href);
   for (const href of ['/inventory', '/receipts', '/assets', '/materials', '/catalog', '/personnel'])
@@ -42,7 +43,7 @@ test('direct routes resolve to their navigation item', () => {
 });
 
 test('delivery staff see only the delivery screen of the store section', () => {
-  const shipper = access({ canManageFarm: false, canManageStore: false, canAccessFarmArea: false, canViewHistory: false });
+  const shipper = access({ canManageFarm: false, canManageStore: false, canAccessFarmArea: false, canAccessMasterData: false, canViewHistory: false });
   assert.equal(isNavigationItemVisible(item('/deliveries'), shipper), true);
   assert.equal(isNavigationItemVisible(item('/deliveries'), { ...shipper, isStoreFarm: false }), false);
   for (const href of ['/store-orders', '/store-products', '/inventory'])
@@ -55,4 +56,12 @@ test('the reports page is for farm admins and warehouse managers only', () => {
   assert.equal(isBackOfficePath('/reports'), true);
   assert.equal(isNavigationItemVisible(reports, access({ isStoreFarm: false })), true);
   assert.equal(isNavigationItemVisible(reports, access({ canManageWarehouse: false })), false);
+});
+
+test('maintenance staff keep farm-area screens but not materials, warehouses or catalog', () => {
+  const maintenance = access({ canManageFarm: false, canManageWarehouse: false, canAccessMasterData: false });
+  for (const href of ['/materials', '/warehouses', '/catalog'])
+    assert.equal(isNavigationItemAllowed(item(href), maintenance), false, href);
+  for (const href of ['/assets', '/maintenance', '/requests'])
+    assert.equal(isNavigationItemAllowed(item(href), maintenance), true, href);
 });
