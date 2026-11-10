@@ -68,6 +68,7 @@ export class InventoryService {
     const scope = await this.warehousesService.warehouseScope(
       filters.farmId,
       filters.clerkUserId,
+      filters.warehouseId,
     );
     const [selectedAsset] = filters.assetId
       ? await this.databaseService.db
@@ -683,6 +684,7 @@ export class InventoryService {
     const scope = await this.warehousesService.warehouseScope(
       filters.farmId,
       filters.clerkUserId,
+      filters.warehouseId,
     );
     const predicates: SQL[] = [
       eq(inventoryBalances.farmId, filters.farmId),

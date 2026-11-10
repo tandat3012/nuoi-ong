@@ -57,9 +57,14 @@ export function canCreateStockDocuments(roles: readonly string[]) {
   return hasAnyRole(roles, STOCK_WRITE_ROLES);
 }
 
-/** Receipts only: a store manager also drafts them, for the sales warehouse. */
-export function canCreateReceipts(roles: readonly string[]) {
+/** Receipts and transfers: a store manager also drafts them, for the sales warehouse. */
+export function canCreateRestock(roles: readonly string[]) {
   return canCreateStockDocuments(roles) || roles.includes("STORE_MANAGER");
+}
+
+/** A store manager with no stock role: transfers go from a source warehouse into the sales warehouse. */
+export function isSalesRestockOnly(roles: readonly string[]) {
+  return !canCreateStockDocuments(roles) && roles.includes("STORE_MANAGER");
 }
 
 /**

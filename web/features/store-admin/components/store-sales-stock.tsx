@@ -272,6 +272,14 @@ export function StoreSalesStockScreen() {
                           >
                             Nhập thêm
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="ml-2"
+                            onClick={() => router.push("/transfers")}
+                          >
+                            Chuyển từ kho
+                          </Button>
                         </TableCell>
                       </TableRow>
                     );
@@ -282,7 +290,8 @@ export function StoreSalesStockScreen() {
             <p className="border-t border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
               Khả dụng = Tồn vật lý − Đang giữ (phiếu xuất chưa duyệt). Kho nguồn được
               chuyển vào kho bán khi xác nhận đơn thiếu hàng. Nhập thêm mở phiếu nhập
-              cho kho bán; tồn tăng sau khi kho duyệt.
+              từ nhà cung cấp, Chuyển từ kho lập phiếu điều chuyển từ kho nguồn; tồn
+              kho bán tăng sau khi kho duyệt và nhận.
             </p>
           </div>
         </>

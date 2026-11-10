@@ -16,7 +16,8 @@ import { Input } from "@/shared/components/ui/input";
 import { Button } from "@/shared/components/ui/button";
 import { WarehouseLotSelect } from "@/features/inventory";
 import {
-  canCreateStockDocuments,
+  canCreateRestock,
+  isSalesRestockOnly,
   StockDocumentLines,
   StockDocumentReview,
   stockDocumentActions,
@@ -165,7 +166,9 @@ function FarmTransfersScreen() {
     roles: membership?.roles ?? [],
     memberId: membership?.memberId,
   };
-  const canWrite = canCreateStockDocuments(viewer.roles);
+  const canWrite = canCreateRestock(viewer.roles);
+  // A store manager picks among the store source warehouses and sends into the sales warehouse.
+  const salesOnly = isSalesRestockOnly(viewer.roles);
   const isOwner = isFarmOwner(viewer.roles);
   const lock = useStockDocumentLock();
   const reloadList = () => {
@@ -179,6 +182,8 @@ function FarmTransfersScreen() {
     destinations: Warehouse[];
   }>({ sources: [], destinations: [] });
   const { sources: warehouses, destinations } = warehouseLists;
+  // Names for the list; a store manager's destinations alone would leave the source nameless.
+  const labelled = salesOnly ? [...destinations, ...warehouses] : destinations;
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<
     | "ALL"
@@ -220,7 +225,7 @@ function FarmTransfersScreen() {
       setError(null);
     });
     let cancelled = false;
-    const warehouseList = (destination: boolean) =>
+    const warehouseList = (destination: boolean, source = false) =>
       request<{ data: Warehouse[] }>("/warehouses", {
         params: {
           farmId: selectedFarmId,
@@ -228,10 +233,11 @@ function FarmTransfersScreen() {
           pageSize: 100,
           status: "ACTIVE",
           destination: destination || undefined,
+          source: source || undefined,
         },
       });
     void Promise.all([
-      warehouseList(false),
+      warehouseList(false, salesOnly),
       request<PaginatedResponse<{ item: Item }>>("/items", {
         params: {
           farmId: selectedFarmId,
@@ -256,7 +262,10 @@ function FarmTransfersScreen() {
         setForm((current) => ({
           ...current,
           fromWarehouseId: "",
-          toWarehouseId: "",
+          toWarehouseId:
+            destinationResponse.data.length === 1 && salesOnly
+              ? destinationResponse.data[0].id
+              : "",
           itemId: "",
           lotId: "",
         }));
@@ -267,7 +276,7 @@ function FarmTransfersScreen() {
     return () => {
       cancelled = true;
     };
-  }, [request, selectedFarmId]);
+  }, [request, selectedFarmId, salesOnly]);
 
   useEffect(() => {
     if (!selectedFarmId) return;
@@ -389,8 +398,8 @@ function FarmTransfersScreen() {
     const query = searchQuery.trim().toLowerCase();
     return visibleTransfers.filter((t) => {
       const code = (t.transferCode ?? "").toLowerCase();
-      const fromName = warehouseName(destinations, t.fromWarehouseId).toLowerCase();
-      const toName = warehouseName(destinations, t.toWarehouseId).toLowerCase();
+      const fromName = warehouseName(labelled, t.fromWarehouseId).toLowerCase();
+      const toName = warehouseName(labelled, t.toWarehouseId).toLowerCase();
       const note = (t.note ?? "").toLowerCase();
       const ref = (t.externalReference ?? "").toLowerCase();
       return (
@@ -401,7 +410,7 @@ function FarmTransfersScreen() {
         ref.includes(query)
       );
     });
-  }, [visibleTransfers, destinations, searchQuery]);
+  }, [visibleTransfers, labelled, searchQuery]);
 
   if (authLoading) return <BeeLoader label="Đang tải trang trại..." />;
   if (authError) return <p role="alert">{authError.message}</p>;
@@ -783,7 +792,7 @@ function FarmTransfersScreen() {
         ) : (
           <div className="divide-y divide-border">
             {displayedTransfers.map((transfer) => {
-              const actions = stockDocumentActions(viewer, transfer);
+              const actions = stockDocumentActions(viewer, transfer, canWrite);
               const statusCfg = STATUS_CONFIG[transfer.status] ?? {
                 label: STATUS_LABELS[transfer.status] ?? transfer.status,
                 dotClass: "bg-zinc-400",
@@ -814,11 +823,11 @@ function FarmTransfersScreen() {
 
                     <div className="flex flex-wrap items-center gap-1.5 text-xs text-foreground">
                       <span className="font-medium text-foreground">
-                        {warehouseName(destinations, transfer.fromWarehouseId)}
+                        {warehouseName(labelled, transfer.fromWarehouseId)}
                       </span>
                       <ArrowRight className="size-3 text-muted-foreground" aria-hidden="true" />
                       <span className="font-medium text-foreground">
-                        {warehouseName(destinations, transfer.toWarehouseId)}
+                        {warehouseName(labelled, transfer.toWarehouseId)}
                       </span>
                       <span className="text-muted-foreground">·</span>
                       <span className="tabular-nums text-muted-foreground">

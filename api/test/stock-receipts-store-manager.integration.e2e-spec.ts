@@ -6,6 +6,7 @@ import { Pool } from 'pg';
 import { DatabaseService } from '../src/db/database.service';
 import * as schema from '../src/db/schema';
 import { StockIssuesService } from '../src/modules/warehouses/stock-issues.service';
+import { StockTransfersService } from '../src/modules/warehouses/stock-transfers.service';
 import { StockReceiptsService } from '../src/modules/warehouses/stock-receipts.service';
 import { WarehousesService } from '../src/modules/warehouses/warehouses.service';
 
@@ -19,9 +20,11 @@ describe('Store manager receipts', () => {
   const authorization = new WarehousesService(database);
   const receipts = new StockReceiptsService(database, authorization);
   const issues = new StockIssuesService(database, authorization);
+  const transfers = new StockTransfersService(database, authorization);
   const farm = randomUUID();
   const sales = randomUUID(),
-    working = randomUUID();
+    working = randomUUID(),
+    other = randomUUID();
   const category = randomUUID(),
     unit = randomUUID(),
     item = randomUUID();
@@ -88,15 +91,21 @@ describe('Store manager receipts', () => {
       await tx.insert(schema.warehouses).values([
         { id: sales, farmId: farm, code: 'SALES', name: tag },
         { id: working, farmId: farm, code: 'WORK', name: tag },
+        { id: other, farmId: farm, code: 'OTHER', name: tag },
       ]);
-      await tx.insert(schema.farmMemberWarehouses).values({
-        farmMemberId: actors.manager.member,
-        warehouseId: sales,
-      });
+      await tx.insert(schema.farmMemberWarehouses).values(
+        [sales, working].map((warehouseId) => ({
+          farmMemberId: actors.manager.member,
+          warehouseId,
+        })),
+      );
       await tx.insert(schema.storeSettings).values({
         farmId: farm,
         salesWarehouseId: sales,
       });
+      await tx
+        .insert(schema.storeSourceWarehouses)
+        .values({ warehouseId: working, farmId: farm });
     });
     fixturesCreated = true;
   });
@@ -111,9 +120,16 @@ describe('Store manager receipts', () => {
           [farm],
         );
         await pool.query('DELETE FROM stock_receipts WHERE farm_id=$1', [farm]);
+        await pool.query('DELETE FROM stock_transfers WHERE farm_id=$1', [
+          farm,
+        ]);
         await pool.query('DELETE FROM inventory_balances WHERE farm_id=$1', [
           farm,
         ]);
+        await pool.query(
+          'DELETE FROM store_source_warehouses WHERE farm_id=$1',
+          [farm],
+        );
         await pool.query('DELETE FROM store_settings WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM items WHERE id=$1', [item]);
         await pool.query(
@@ -188,6 +204,71 @@ describe('Store manager receipts', () => {
       offset: 0,
     });
     expect(listed.data.map((row: { id: string }) => row.id)).toEqual([sales]);
+  });
+
+  it('restocks the sales warehouse from a source warehouse, approved by the source manager', async () => {
+    await pool.query(
+      'INSERT INTO inventory_balances (farm_id, warehouse_id, item_id, quantity_on_hand) VALUES ($1,$2,$3,10)',
+      [farm, working, item],
+    );
+    const quantity = async (warehouse: string) =>
+      Number(
+        (
+          await pool.query<{ q: string | null }>(
+            'SELECT SUM(quantity_on_hand) q FROM inventory_balances WHERE warehouse_id=$1 AND item_id=$2',
+            [warehouse, item],
+          )
+        ).rows[0].q ?? 0,
+      );
+    const before = await quantity(sales);
+    const lines = [{ itemId: item, quantity: '4' }];
+    const id = (
+      await transfers.create(farm, clerk('seller'), {
+        fromWarehouseId: working,
+        toWarehouseId: sales,
+        items: lines,
+      })
+    ).transfer.id;
+    // Wrong direction or a warehouse that is not a source: refused.
+    for (const [fromWarehouseId, toWarehouseId] of [
+      [sales, working],
+      [other, sales],
+    ])
+      await expect(
+        transfers.create(farm, clerk('seller'), {
+          fromWarehouseId,
+          toWarehouseId,
+          items: lines,
+        }),
+      ).rejects.toThrow('source warehouse into the sales warehouse');
+    await transfers.submit(id, farm, clerk('seller'));
+    await expect(
+      transfers.confirm(id, farm, clerk('seller')),
+    ).rejects.toThrow();
+    await transfers.confirm(id, farm, clerk('manager'));
+    expect(await quantity(working)).toBe(6);
+    await transfers.receive(id, farm, clerk('manager'));
+    expect(await quantity(sales)).toBe(before + 4);
+    // The form lists the source warehouses as sources and only the sales warehouse as destination.
+    const page = { page: 1, pageSize: 20, offset: 0 };
+    const ids = async (extra: { source?: boolean; destination?: boolean }) =>
+      (
+        await authorization.listWarehouses({
+          farmId: farm,
+          clerkUserId: clerk('seller'),
+          ...page,
+          ...extra,
+        })
+      ).data.map((row: { id: string }) => row.id);
+    expect(await ids({ source: true })).toEqual([working]);
+    expect(await ids({ destination: true })).toEqual([sales]);
+    // Stock of a source warehouse is readable for the transfer form, other warehouses are not.
+    expect(
+      await authorization.warehouseScope(farm, clerk('seller'), working),
+    ).toEqual([sales, working]);
+    expect(
+      await authorization.warehouseScope(farm, clerk('seller'), other),
+    ).toEqual([sales]);
   });
 
   it('still cannot write other stock documents', async () => {

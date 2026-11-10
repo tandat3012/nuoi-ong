@@ -47,7 +47,7 @@ import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import {
   FARM_AREA_ROLES,
-  RECEIPT_ROLES,
+  RESTOCK_ROLES,
 } from '../auth/farm-access/farm-role-groups';
 
 const warehouseSchema = {
@@ -75,7 +75,7 @@ export class WarehousesController {
   constructor(private readonly warehousesService: WarehousesService) {}
 
   @Get()
-  @FarmRoles(...RECEIPT_ROLES)
+  @FarmRoles(...RESTOCK_ROLES)
   @ApiOperation({ summary: 'Danh sách kho theo trang' })
   @ApiFarmIdQuery()
   @ApiPageQueries()
@@ -87,6 +87,13 @@ export class WarehousesController {
     enum: ['true', 'false'],
     description:
       'true = mọi kho của trang trại để chọn làm kho đích khi chuyển; mặc định chỉ các kho người gọi được phân (quản lý kho, nhân viên).',
+  })
+  @ApiQuery({
+    name: 'source',
+    required: false,
+    enum: ['true', 'false'],
+    description:
+      'true = các kho nguồn của cửa hàng (để quản lý bán hàng chọn kho chuyển hàng vào kho bán).',
   })
   @ApiOkResponse({
     description: 'Danh sách kho và metadata phân trang.',
@@ -118,9 +125,13 @@ export class WarehousesController {
     @Query('search') searchValue?: string,
     @Query('status') statusValue?: string,
     @Query('destination') destinationValue?: string,
+    @Query('source') sourceValue?: string,
   ) {
-    if (destinationValue && !['true', 'false'].includes(destinationValue))
-      throw new BadRequestException('destination must be true or false');
+    for (const value of [destinationValue, sourceValue])
+      if (value && !['true', 'false'].includes(value))
+        throw new BadRequestException(
+          'destination and source must be true or false',
+        );
     return this.warehousesService.listWarehouses({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmIdValue, 'farmId'),
@@ -128,6 +139,7 @@ export class WarehousesController {
       search: normalizeSearch(searchValue),
       status: parseOptionalEnum(statusValue, recordStatus.enumValues, 'status'),
       destination: destinationValue === 'true',
+      source: sourceValue === 'true',
     });
   }
 
@@ -177,7 +189,7 @@ export class WarehousesController {
   }
 
   @Get(':id')
-  @FarmRoles(...RECEIPT_ROLES)
+  @FarmRoles(...RESTOCK_ROLES)
   @ApiOperation({ summary: 'Chi tiết kho' })
   @ApiUuidParam('id', 'ID kho.')
   @ApiFarmIdQuery()

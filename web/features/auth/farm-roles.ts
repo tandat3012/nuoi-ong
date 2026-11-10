@@ -26,7 +26,7 @@ export const FARM_AREA_ROLES = [
 /** Materials, warehouses and shared catalog pages: farm area minus maintenance staff. */
 export const MASTER_DATA_ROLES = [...STOCK_WRITE_ROLES, "GUEST"];
 /** Receipts and the lists their form reads; the API limits a store manager to the sales warehouse. */
-export const RECEIPT_ROLES = [...FARM_AREA_ROLES, "STORE_MANAGER"];
+export const RESTOCK_ROLES = [...FARM_AREA_ROLES, "STORE_MANAGER"];
 /** Staff with dashboard metrics and change history (own documents unless farm admin). */
 export const HISTORY_ROLES = [...STOCK_WRITE_ROLES, "STORE_MANAGER"];
 

@@ -5,7 +5,7 @@ import {
   FARM_ADMIN_ROLES,
   FARM_AREA_ROLES,
   HISTORY_ROLES,
-  RECEIPT_ROLES,
+  RESTOCK_ROLES,
   MASTER_DATA_ROLES,
   STORE_DELIVERY_ROLES,
   STORE_MANAGE_ROLES,
@@ -30,7 +30,7 @@ export function useFarmMembership() {
     /** The store catalog is shared by every farm; only admins edit it. */
     canEditCatalog: roles.includes('ADMIN'),
     canAccessFarmArea: hasAnyRole(roles, FARM_AREA_ROLES),
-    canAccessReceipts: hasAnyRole(roles, RECEIPT_ROLES),
+    canAccessRestock: hasAnyRole(roles, RESTOCK_ROLES),
     canAccessMasterData: hasAnyRole(roles, MASTER_DATA_ROLES),
     /** Own activity unless farm admin; same staff set as the dashboard metrics. */
     canViewHistory: hasAnyRole(roles, HISTORY_ROLES),

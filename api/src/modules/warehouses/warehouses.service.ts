@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -20,6 +20,7 @@ import {
   recordStatus,
   roles,
   storeSettings,
+  storeSourceWarehouses,
   users,
   warehouses,
 } from '../../db/schema';
@@ -33,6 +34,7 @@ import {
 } from '../auth/farm-access/farm-role-groups';
 import {
   assertInScope,
+  inScope,
   scopeCondition,
   type WarehouseScope,
 } from './warehouse-scope';
@@ -51,6 +53,8 @@ export interface WarehouseListFilters extends PaginationParams {
   status?: WarehouseStatus;
   /** Transfer destinations: every warehouse of the farm, also for members limited to theirs. */
   destination?: boolean;
+  /** The farm's store source warehouses, for a store manager choosing where to restock from. */
+  source?: boolean;
 }
 
 export interface DocumentWriter {
@@ -60,6 +64,8 @@ export interface DocumentWriter {
   scope: WarehouseScope;
   /** Only an active FARM_OWNER may set document numbering options. */
   isOwner: boolean;
+  /** A store manager without a stock role: documents of the sales warehouse only. */
+  salesOnly: boolean;
 }
 
 /**
@@ -82,16 +88,41 @@ export class WarehousesService {
   constructor(private readonly databaseService: DatabaseService) {}
 
   async listWarehouses(filters: WarehouseListFilters) {
-    const memberScope = await this.warehouseScope(
+    const { memberId, roleCodes } = await this.getActiveMembership(
       filters.farmId,
       filters.clerkUserId,
     );
+    const memberScope = await this.scopeFor(
+      filters.farmId,
+      memberId,
+      roleCodes,
+    );
+    const storeOnly =
+      (await this.storeOnlyScope(
+        filters.farmId,
+        roleCodes,
+        FARM_AREA_ROLES,
+      )) !== undefined;
     // Stock and assets may be sent to any warehouse of the farm; only the source is limited.
-    const scope = filters.destination ? null : memberScope;
+    // A store manager only ever sends into the sales warehouse, and picks sources among the marked ones.
+    const scope =
+      (filters.destination && !storeOnly) || filters.source
+        ? null
+        : memberScope;
 
     const conditions = [eq(warehouses.farmId, filters.farmId)];
     const inScope = scopeCondition(warehouses.id, scope);
     if (inScope) conditions.push(inScope);
+    if (filters.source)
+      conditions.push(
+        inArray(
+          warehouses.id,
+          this.databaseService.db
+            .select({ id: storeSourceWarehouses.warehouseId })
+            .from(storeSourceWarehouses)
+            .where(eq(storeSourceWarehouses.farmId, filters.farmId)),
+        ),
+      );
     if (filters.status) conditions.push(eq(warehouses.status, filters.status));
     if (filters.search) {
       const pattern = `%${this.escapeLike(filters.search)}%`;
@@ -326,16 +357,58 @@ export class WarehousesService {
     };
   }
 
-  /** Warehouses the caller works in; null = every warehouse of the farm. */
+  /**
+   * Warehouses the caller works in; null = every warehouse of the farm.
+   * `sourceId`: a store manager may also read stock of that store source warehouse.
+   */
   async warehouseScope(
     farmId: string,
     clerkUserId: string,
+    sourceId?: string,
   ): Promise<WarehouseScope> {
     const { memberId, roleCodes } = await this.getActiveMembership(
       farmId,
       clerkUserId,
     );
-    return this.scopeFor(farmId, memberId, roleCodes);
+    const scope = await this.scopeFor(farmId, memberId, roleCodes);
+    if (
+      scope &&
+      sourceId &&
+      (await this.storeOnlyScope(farmId, roleCodes, FARM_AREA_ROLES)) &&
+      (await this.isSourceWarehouse(farmId, sourceId))
+    )
+      return [...scope, sourceId];
+    return scope;
+  }
+
+  async isSourceWarehouse(farmId: string, warehouseId: string) {
+    const [row] = await this.databaseService.db
+      .select({ id: storeSourceWarehouses.warehouseId })
+      .from(storeSourceWarehouses)
+      .where(
+        and(
+          eq(storeSourceWarehouses.farmId, farmId),
+          eq(storeSourceWarehouses.warehouseId, warehouseId),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
+  }
+
+  /** A store manager restocks the sales warehouse only, from store source warehouses. */
+  async assertSalesRestock(
+    writer: DocumentWriter,
+    farmId: string,
+    fromWarehouseId: string,
+    toWarehouseId: string,
+  ) {
+    if (
+      !inScope(writer.scope, toWarehouseId) ||
+      !(await this.isSourceWarehouse(farmId, fromWarehouseId))
+    )
+      throw new ForbiddenException(
+        'Store managers can only transfer from a source warehouse into the sales warehouse',
+      );
   }
 
   /** assertFarmAccess plus the caller's warehouse scope. */
@@ -438,6 +511,7 @@ export class WarehousesService {
       canApprove,
       scope: storeScope ?? (await this.scopeFor(farmId, memberId, roleCodes)),
       isOwner: roleCodes.includes('FARM_OWNER'),
+      salesOnly: Boolean(storeScope),
     };
   }
 

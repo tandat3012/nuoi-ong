@@ -232,14 +232,18 @@ describe('Store order HTTP authorization and contract', () => {
         .set('Authorization', `Bearer ${ids.staff}`)
         .expect(200);
       // Receipts into the sales warehouse, and the lists its form reads.
-      for (const path of ['/api/v1/stock-receipts', '/api/v1/warehouses'])
+      for (const path of [
+        '/api/v1/stock-receipts',
+        '/api/v1/stock-transfers',
+        '/api/v1/inventory',
+        '/api/v1/warehouses',
+      ])
         await http
           .get(path)
           .query({ farmId: ids.farm })
           .set('Authorization', `Bearer ${ids.staff}`)
           .expect(200);
       for (const path of [
-        '/api/v1/inventory',
         '/api/v1/stock-issues',
         '/api/v1/inventory/adjustments',
         '/api/v1/assets',

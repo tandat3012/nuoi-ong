@@ -29,6 +29,7 @@ describe('WarehousesController', () => {
       search: 'kho',
       status: 'ACTIVE',
       destination: false,
+      source: false,
     });
     await controller.listWarehouses(auth, farmId, '1', '20', '', '', 'true');
     expect(service.listWarehouses).toHaveBeenLastCalledWith(

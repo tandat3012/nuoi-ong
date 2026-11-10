@@ -18,7 +18,7 @@ import { PageHeader } from '@/shared/components/ui/page-header';
 import { Button } from '@/shared/components/ui/button';
 import { Select } from '@/shared/components/ui/select';
 import { DateRangeFilter } from '@/shared/components/ui/date-range-filter';
-import { canCreateReceipts, useStockDocumentQuery } from '@/features/stock-documents';
+import { canCreateRestock, useStockDocumentQuery } from '@/features/stock-documents';
 import { useSearchParams } from 'next/navigation';
 import { receiptPresetFromQuery } from './receipt-draft.logic';
 import { useNotificationRefresh } from '@/features/notifications';
@@ -38,7 +38,7 @@ export function ReceiptsPage() {
 function FarmReceiptsPage({ farmId }: { farmId: string }) {
   const { membership } = useFarmMembership();
   const roles = membership?.roles ?? [];
-  const canCreate = canCreateReceipts(roles);
+  const canCreate = canCreateRestock(roles);
   const searchParams = useSearchParams();
   const [presetDraft, setPresetDraft] = useState(() =>
     receiptPresetFromQuery(searchParams),

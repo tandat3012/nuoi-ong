@@ -16,7 +16,7 @@ test("history uses the protected dashboard routes and existing staff navigation 
       canManageStore: false,
       canDeliver: false,
       canAccessFarmArea: true,
-      canAccessReceipts: true,
+      canAccessRestock: true,
       canAccessMasterData: true,
       canViewHistory: staff,
       isStoreFarm: false,

@@ -17,7 +17,7 @@ import { HistoryPanel } from "@/features/history";
 import {
   RejectionNotice,
   StockDocumentReview,
-  canCreateReceipts,
+  canCreateRestock,
   stockDocumentActions,
 } from "@/features/stock-documents";
 import type { StockDocumentViewer } from "@/features/stock-documents/stock-document.logic";
@@ -60,7 +60,7 @@ export function ReceiptDetail({
   const actions = stockDocumentActions(
     viewer,
     detail?.receipt ?? { status: "CANCELLED", createdByMemberId: null },
-    canCreateReceipts(viewer.roles),
+    canCreateRestock(viewer.roles),
   );
   const [reviewError, setReviewError] = useState<string | null>(null);
   const refresh = () => {
