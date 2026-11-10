@@ -57,6 +57,11 @@ export function canCreateStockDocuments(roles: readonly string[]) {
   return hasAnyRole(roles, STOCK_WRITE_ROLES);
 }
 
+/** Receipts only: a store manager also drafts them, for the sales warehouse. */
+export function canCreateReceipts(roles: readonly string[]) {
+  return canCreateStockDocuments(roles) || roles.includes("STORE_MANAGER");
+}
+
 /**
  * Mirrors the API rules: approvers confirm drafts directly and review submitted
  * documents; employees edit, cancel and submit only their own drafts.
@@ -64,11 +69,12 @@ export function canCreateStockDocuments(roles: readonly string[]) {
 export function stockDocumentActions(
   viewer: StockDocumentViewer,
   document: StockDocumentState,
+  canCreate = canCreateStockDocuments(viewer.roles),
 ) {
   const approver = canApproveStockDocuments(viewer.roles);
   const own =
     Boolean(viewer.memberId) && document.createdByMemberId === viewer.memberId;
-  const ownWriter = canCreateStockDocuments(viewer.roles) && own;
+  const ownWriter = canCreate && own;
   const draft = document.status === "DRAFT" || document.status === "COUNTING";
   const pending = document.status === "PENDING_APPROVAL";
   return {

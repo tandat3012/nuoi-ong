@@ -53,6 +53,7 @@ import {
 } from '../../common/swagger-docs';
 import {
   FARM_AREA_ROLES,
+  RECEIPT_ROLES,
   WAREHOUSE_MANAGE_ROLES,
 } from '../auth/farm-access/farm-role-groups';
 
@@ -166,6 +167,7 @@ export class CatalogController {
   }
 
   @Get('items')
+  @FarmRoles(...RECEIPT_ROLES)
   @UseGuards(FarmAccessGuard)
   @ApiOperation({
     summary: 'Danh sách vật tư, dụng cụ và thiết bị',
@@ -318,6 +320,7 @@ export class CatalogController {
   }
 
   @Get('suppliers')
+  @FarmRoles(...RECEIPT_ROLES)
   @UseGuards(FarmAccessGuard)
   @ApiOperation({ summary: 'Danh sách nhà cung cấp' })
   @ApiFarmIdQuery()
@@ -383,6 +386,7 @@ export class CatalogController {
   }
 
   @Get('suppliers/:id')
+  @FarmRoles(...RECEIPT_ROLES)
   @UseGuards(FarmAccessGuard)
   @ApiOperation({ summary: 'Chi tiết nhà cung cấp' })
   @ApiUuidParam('id', 'ID nhà cung cấp.')
@@ -436,6 +440,7 @@ export class CatalogController {
   }
 
   @Get('locations')
+  @FarmRoles(...RECEIPT_ROLES)
   @UseGuards(FarmAccessGuard)
   @ApiOperation({ summary: 'Danh sách vị trí' })
   @ApiFarmIdQuery()

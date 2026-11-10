@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { useSaveReceiptDraft } from "../hooks/use-save-receipt-draft";
 import { useFarmMembership } from "@/features/auth/hooks/use-farm-membership";
-import { expiryBeforeManufactured } from "./receipt-draft.logic";
+import { expiryBeforeManufactured, type ReceiptPreset } from "./receipt-draft.logic";
 import type { ReceiptDraftInitial } from "../types/receipt";
 import {
   ReceiptDraftPicker,
@@ -56,16 +56,42 @@ type DraftLine = DraftChoice & {
   note: string;
 };
 
+function newLine(choice: DraftChoice): DraftLine {
+  return {
+    ...choice,
+    rowKey: crypto.randomUUID(),
+    quantity: "1",
+    unitPrice: "0",
+    lotMode: "new",
+    lotId: null,
+    lotLabel: "",
+    supplierLotNumber: "",
+    legacyLotNumber: null,
+    manufacturedDate: "",
+    expiryDate: "",
+    assetCode: "",
+    serialNumber: "",
+    locationId: null,
+    locationLabel: "",
+    assetId: null,
+    assetCondition: "",
+    note: "",
+  };
+}
+
 export function ReceiptDraftForm({
   farmId,
   canWrite,
   initial,
+  preset,
   onSaved,
   onCancel,
 }: {
   farmId: string;
   canWrite: boolean;
   initial?: ReceiptDraftInitial;
+  /** New draft only: warehouse and first line already chosen. */
+  preset?: ReceiptPreset;
   onSaved: (id: string) => void;
   onCancel: () => void;
 }) {
@@ -77,7 +103,7 @@ export function ReceiptDraftForm({
           initial.warehouseLabel ??
           `Kho (${initial.detail.receipt.warehouseId})`,
       }
-      : null,
+      : (preset?.warehouse ?? null),
   );
   const [supplier, setSupplier] = useState<DraftChoice | null>(() =>
     initial?.detail.receipt.supplierId
@@ -128,7 +154,9 @@ export function ReceiptDraftForm({
           note: line.note ?? "",
         };
       })
-      : [],
+      : preset?.item
+        ? [newLine(preset.item)]
+        : [],
   );
   const { submit, isSaving, error } = useSaveReceiptDraft(
     farmId,
@@ -169,29 +197,7 @@ export function ReceiptDraftForm({
         choice.trackingMode === "QUANTITY" &&
           previous.some((line) => line.id === choice.id)
           ? previous
-          : [
-            ...previous,
-            {
-              ...choice,
-              rowKey: crypto.randomUUID(),
-              quantity: "1",
-              unitPrice: "0",
-              lotMode: "new",
-              lotId: null,
-              lotLabel: "",
-              supplierLotNumber: "",
-              legacyLotNumber: null,
-              manufacturedDate: "",
-              expiryDate: "",
-              assetCode: "",
-              serialNumber: "",
-              locationId: null,
-              locationLabel: "",
-              assetId: null,
-              assetCondition: "",
-              note: "",
-            },
-          ],
+          : [...previous, newLine(choice)],
       );
   }
   if (!canWrite)

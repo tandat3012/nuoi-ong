@@ -27,8 +27,9 @@ import {
   summarizeSalesStock,
   type SalesStockState,
 } from "../store-admin.logic";
-import type { StoreSalesStock, StoreSalesStockRow } from "../types/store-admin";
-import { StoreRestockDialog } from "./store-restock-dialog";
+import type { StoreSalesStock } from "../types/store-admin";
+import { receiptPresetHref } from "@/features/receipts/components/receipt-draft.logic";
+import { useRouter } from "next/navigation";
 
 /** Staff-only view of the sales warehouse; customers only ever see labels. */
 export function StoreSalesStockScreen() {
@@ -42,8 +43,7 @@ export function StoreSalesStockScreen() {
   const [error, setError] = useState<{ farmId: string; message: string }>();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"ALL" | SalesStockState>("ALL");
-  const [restock, setRestock] = useState<StoreSalesStockRow>();
-  const [notice, setNotice] = useState("");
+  const router = useRouter();
 
   useEffect(() => {
     if (!selectedFarmId) return;
@@ -95,11 +95,6 @@ export function StoreSalesStockScreen() {
         title="Tồn bán hàng"
         description="Tồn của kho bán hàng theo từng quy cách sản phẩm."
       />
-      {notice && (
-        <p role="status" className="rounded-lg border border-success/30 bg-success/10 px-4 py-2.5 text-sm text-foreground">
-          {notice}
-        </p>
-      )}
       {!salesWarehouse ? (
         <ErrorAlert message="Chưa cấu hình kho bán hàng. Vào Sản phẩm cửa hàng để chọn kho bán." />
       ) : (
@@ -257,7 +252,23 @@ export function StoreSalesStockScreen() {
                           <Button
                             size="sm"
                             variant={state === "OUT" ? "default" : "outline"}
-                            onClick={() => setRestock(row)}
+                            onClick={() =>
+                              router.push(
+                                receiptPresetHref({
+                                  warehouse: {
+                                    id: salesWarehouse.id,
+                                    label: `${salesWarehouse.code} – ${salesWarehouse.name}`,
+                                  },
+                                  ...(row.trackingMode !== "ASSET" && {
+                                    item: {
+                                      id: row.itemId,
+                                      label: `${row.itemCode} — ${row.itemName} (${row.unitSymbol})`,
+                                      trackingMode: row.trackingMode,
+                                    },
+                                  }),
+                                }),
+                              )
+                            }
                           >
                             Nhập thêm
                           </Button>
@@ -270,21 +281,11 @@ export function StoreSalesStockScreen() {
             </Table>
             <p className="border-t border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
               Khả dụng = Tồn vật lý − Đang giữ (phiếu xuất chưa duyệt). Kho nguồn được
-              chuyển vào kho bán khi xác nhận đơn thiếu hàng.
+              chuyển vào kho bán khi xác nhận đơn thiếu hàng. Nhập thêm mở phiếu nhập
+              cho kho bán; tồn tăng sau khi kho duyệt.
             </p>
           </div>
         </>
-      )}
-      {restock && salesWarehouse && selectedFarmId && (
-        <StoreRestockDialog
-          farmId={selectedFarmId}
-          warehouseId={salesWarehouse.id}
-          row={restock}
-          onClose={() => setRestock(undefined)}
-          onSent={(code) =>
-            setNotice(`Đã gửi phiếu nhập${code ? ` ${code}` : ""} cho ${restock.itemCode}, chờ kho duyệt. Tồn sẽ tăng sau khi kho xác nhận.`)
-          }
-        />
       )}
     </div>
   );

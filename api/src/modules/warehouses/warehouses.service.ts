@@ -25,6 +25,7 @@ import {
 } from '../../db/schema';
 import {
   FARM_ADMIN_ROLES,
+  FARM_AREA_ROLES,
   STOCK_WRITE_ROLES,
   WAREHOUSE_MANAGE_ROLES,
   WAREHOUSE_SCOPED_ROLES,
@@ -321,9 +322,7 @@ export class WarehousesService {
     return {
       memberId: hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ? null : memberId,
       viewerId: memberId,
-      scope:
-        (await this.storeOnlyScope(farmId, roleCodes)) ??
-        (await this.scopeFor(memberId, roleCodes)),
+      scope: await this.scopeFor(farmId, memberId, roleCodes),
     };
   }
 
@@ -336,7 +335,7 @@ export class WarehousesService {
       farmId,
       clerkUserId,
     );
-    return this.scopeFor(memberId, roleCodes);
+    return this.scopeFor(farmId, memberId, roleCodes);
   }
 
   /** assertFarmAccess plus the caller's warehouse scope. */
@@ -353,7 +352,10 @@ export class WarehousesService {
     if (write && !hasAnyRole(roleCodes, writeRoles)) {
       throw new ForbiddenException('Warehouse write permission is required');
     }
-    return { memberId, scope: await this.scopeFor(memberId, roleCodes) };
+    return {
+      memberId,
+      scope: await this.scopeFor(farmId, memberId, roleCodes),
+    };
   }
 
   /** 403 unless one of the warehouses is assigned to the caller (or the caller is not limited). */
@@ -368,12 +370,22 @@ export class WarehousesService {
     );
   }
 
-  /** ADMIN/FARM_OWNER and roles outside warehouse work are not limited; managers and employees get their assigned warehouses. */
+  /**
+   * ADMIN/FARM_OWNER and roles outside warehouse work are not limited; managers and employees
+   * get their assigned warehouses; a store manager with no farm-area role gets the sales warehouse.
+   */
   private async scopeFor(
+    farmId: string,
     memberId: string,
     roleCodes: string[],
   ): Promise<WarehouseScope> {
     if (hasAnyRole(roleCodes, FARM_ADMIN_ROLES)) return null;
+    const storeScope = await this.storeOnlyScope(
+      farmId,
+      roleCodes,
+      FARM_AREA_ROLES,
+    );
+    if (storeScope) return storeScope;
     if (!hasAnyRole(roleCodes, WAREHOUSE_SCOPED_ROLES)) return null;
     const rows = await this.databaseService.db
       .select({ id: farmMemberWarehouses.warehouseId })
@@ -382,14 +394,15 @@ export class WarehousesService {
     return rows.map((row) => row.id);
   }
 
-  /** Store managers without a stock role see and write only the sales warehouse; undefined for everyone else. */
+  /** Store managers holding none of `otherRoles` work only in the sales warehouse; undefined for everyone else. */
   private async storeOnlyScope(
     farmId: string,
     roleCodes: string[],
+    otherRoles = STOCK_WRITE_ROLES,
   ): Promise<string[] | undefined> {
     if (
       !roleCodes.includes('STORE_MANAGER') ||
-      hasAnyRole(roleCodes, STOCK_WRITE_ROLES)
+      hasAnyRole(roleCodes, otherRoles)
     )
       return undefined;
     const [settings] = await this.databaseService.db
@@ -423,7 +436,7 @@ export class WarehousesService {
     return {
       memberId,
       canApprove,
-      scope: storeScope ?? (await this.scopeFor(memberId, roleCodes)),
+      scope: storeScope ?? (await this.scopeFor(farmId, memberId, roleCodes)),
       isOwner: roleCodes.includes('FARM_OWNER'),
     };
   }

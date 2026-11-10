@@ -11,6 +11,7 @@ const access = (overrides = {}) => ({
   canManageStore: true,
   canDeliver: true,
   canAccessFarmArea: true,
+  canAccessReceipts: true,
   canAccessMasterData: true,
   canViewHistory: true,
   isStoreFarm: true,
@@ -28,9 +29,11 @@ test('order screens are hidden on farms that do not sell online; products stay f
 
 test('store screens need a store role; farm-area screens hide from store-only managers', () => {
   const storeOnly = access({ canManageFarm: false, canAccessFarmArea: false, canAccessMasterData: false });
+  // Store managers restock the sales warehouse through ordinary receipts.
+  assert.equal(isNavigationItemVisible(item('/receipts'), storeOnly), true);
   for (const href of ['/store-products', '/store-orders', '/store-reports'])
     assert.equal(isNavigationItemVisible(item(href), storeOnly), true, href);
-  for (const href of ['/inventory', '/receipts', '/assets', '/materials', '/catalog', '/personnel'])
+  for (const href of ['/inventory', '/issues', '/assets', '/materials', '/catalog', '/personnel'])
     assert.equal(isNavigationItemVisible(item(href), storeOnly), false, href);
   assert.equal(isNavigationItemVisible(item('/store-orders'), access({ canManageStore: false })), false);
 });
@@ -43,7 +46,7 @@ test('direct routes resolve to their navigation item', () => {
 });
 
 test('delivery staff see only the delivery screen of the store section', () => {
-  const shipper = access({ canManageFarm: false, canManageStore: false, canAccessFarmArea: false, canAccessMasterData: false, canViewHistory: false });
+  const shipper = access({ canManageFarm: false, canManageStore: false, canAccessFarmArea: false, canAccessReceipts: false, canAccessMasterData: false, canViewHistory: false });
   assert.equal(isNavigationItemVisible(item('/deliveries'), shipper), true);
   assert.equal(isNavigationItemVisible(item('/deliveries'), { ...shipper, isStoreFarm: false }), false);
   for (const href of ['/store-orders', '/store-products', '/inventory'])

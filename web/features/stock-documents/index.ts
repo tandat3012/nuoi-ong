@@ -1,5 +1,6 @@
 export {
   canApproveStockDocuments,
+  canCreateReceipts,
   canCreateStockDocuments,
   DOCUMENT_CODE_HINT,
   documentCodeLabel,

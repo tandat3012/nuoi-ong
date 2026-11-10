@@ -484,3 +484,19 @@ test("order returns can be edited and confirmed with shipped assets or no line",
   assert.equal(confirmable(draft([], true)), true);
   assert.equal(confirmable(draft([], false)), false);
 });
+
+test('a preset link round-trips, and an open document or a bad link gives no preset', async () => {
+  const { receiptPresetHref, receiptPresetFromQuery } = await import('./receipt-draft.logic.ts');
+  const preset = {
+    warehouse: { id: 'w1', label: 'KB – Kho bán' },
+    item: { id: 'i1', label: 'MO-01 — Mật ong (kg)', trackingMode: 'LOT' },
+  };
+  const query = (href) => new URLSearchParams(href.split('?')[1]);
+  assert.deepEqual(receiptPresetFromQuery(query(receiptPresetHref(preset))), preset);
+  assert.deepEqual(
+    receiptPresetFromQuery(query(receiptPresetHref({ warehouse: preset.warehouse }))),
+    { warehouse: preset.warehouse },
+  );
+  assert.equal(receiptPresetFromQuery(query(`${receiptPresetHref(preset)}&id=x`)), null);
+  assert.equal(receiptPresetFromQuery(new URLSearchParams('warehouseId=w1')), null);
+});

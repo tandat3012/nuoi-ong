@@ -45,7 +45,10 @@ import {
 } from '../../common/swagger-docs';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
-import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  FARM_AREA_ROLES,
+  RECEIPT_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 const warehouseSchema = {
   type: 'object',
@@ -72,6 +75,7 @@ export class WarehousesController {
   constructor(private readonly warehousesService: WarehousesService) {}
 
   @Get()
+  @FarmRoles(...RECEIPT_ROLES)
   @ApiOperation({ summary: 'Danh sách kho theo trang' })
   @ApiFarmIdQuery()
   @ApiPageQueries()
@@ -173,6 +177,7 @@ export class WarehousesController {
   }
 
   @Get(':id')
+  @FarmRoles(...RECEIPT_ROLES)
   @ApiOperation({ summary: 'Chi tiết kho' })
   @ApiUuidParam('id', 'ID kho.')
   @ApiFarmIdQuery()

@@ -179,6 +179,17 @@ describe('Store manager receipts', () => {
     expect(balance.rows[0].quantity_on_hand).toBe('5.000');
   });
 
+  it('lists only the sales warehouse for the receipt form', async () => {
+    const listed = await authorization.listWarehouses({
+      farmId: farm,
+      clerkUserId: clerk('seller'),
+      page: 1,
+      pageSize: 20,
+      offset: 0,
+    });
+    expect(listed.data.map((row: { id: string }) => row.id)).toEqual([sales]);
+  });
+
   it('still cannot write other stock documents', async () => {
     await expect(
       issues.create(farm, clerk('seller'), {

@@ -30,7 +30,10 @@ import {
 } from '../../common/swagger-docs';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
-import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  FARM_AREA_ROLES,
+  RECEIPT_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 @Controller()
 @UseGuards(FarmAccessGuard)
@@ -424,6 +427,7 @@ export class InventoryController {
   }
 
   @Get('lots')
+  @FarmRoles(...RECEIPT_ROLES)
   @ApiOperation({
     summary: 'Danh sách lô theo trang',
     description:

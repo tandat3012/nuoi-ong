@@ -178,14 +178,3 @@ export function getReceiptLots(
     params: { farmId, ...filters },
   });
 }
-
-export function submitReceipt(
-  request: AuthenticatedRequest,
-  farmId: string,
-  id: string,
-) {
-  return request<{ data: ReceiptDetail }>(`/stock-receipts/${id}/submit`, {
-    method: 'POST',
-    params: { farmId },
-  });
-}
