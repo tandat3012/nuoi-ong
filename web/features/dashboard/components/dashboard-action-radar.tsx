@@ -7,7 +7,6 @@ import {
   Clock,
   ArrowRight,
   ShieldCheck,
-  CheckCircle2,
   FileCheck,
   PackageX,
   ShoppingCart,
@@ -117,21 +116,7 @@ export function DashboardActionRadar({ summary, showOrders = false }: DashboardA
     });
   }
 
-  if (items.length === 0) {
-    return (
-      <div className="flex items-center gap-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-emerald-800 dark:text-emerald-300">
-        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-          <CheckCircle2 className="size-5" />
-        </div>
-        <div className="text-sm">
-          <p className="font-semibold">Vận hành kho & tài sản ổn định</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Không có lô hàng hết hạn, không có vật tư cạn kiệt và không có phiếu chờ duyệt tồn đọng.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  if (items.length === 0) return null;
 
   const severityStyles = {
     critical: {
