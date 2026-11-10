@@ -290,7 +290,7 @@ export function StoreSalesStockScreen() {
             <p className="border-t border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
               Khả dụng = Tồn vật lý − Đang giữ (phiếu xuất chưa duyệt). Kho nguồn được
               chuyển vào kho bán khi xác nhận đơn thiếu hàng. Nhập thêm mở phiếu nhập
-              từ nhà cung cấp, Chuyển từ kho lập phiếu điều chuyển từ kho nguồn; tồn
+              từ nhà cung cấp, Chuyển từ kho lập phiếu điều chuyển từ kho khác của trại; tồn
               kho bán tăng sau khi kho duyệt và nhận.
             </p>
           </div>

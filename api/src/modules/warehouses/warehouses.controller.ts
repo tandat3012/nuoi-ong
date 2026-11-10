@@ -93,7 +93,7 @@ export class WarehousesController {
     required: false,
     enum: ['true', 'false'],
     description:
-      'true = các kho nguồn của cửa hàng (để quản lý bán hàng chọn kho chuyển hàng vào kho bán).',
+      'true = các kho của trại ngoài kho bán (để quản lý bán hàng chọn kho chuyển hàng vào kho bán).',
   })
   @ApiOkResponse({
     description: 'Danh sách kho và metadata phân trang.',

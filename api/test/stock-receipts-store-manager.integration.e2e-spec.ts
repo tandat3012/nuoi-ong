@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
+import { ForbiddenException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
@@ -103,9 +104,6 @@ describe('Store manager receipts', () => {
         farmId: farm,
         salesWarehouseId: sales,
       });
-      await tx
-        .insert(schema.storeSourceWarehouses)
-        .values({ warehouseId: working, farmId: farm });
     });
     fixturesCreated = true;
   });
@@ -126,10 +124,6 @@ describe('Store manager receipts', () => {
         await pool.query('DELETE FROM inventory_balances WHERE farm_id=$1', [
           farm,
         ]);
-        await pool.query(
-          'DELETE FROM store_source_warehouses WHERE farm_id=$1',
-          [farm],
-        );
         await pool.query('DELETE FROM store_settings WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM items WHERE id=$1', [item]);
         await pool.query(
@@ -229,10 +223,10 @@ describe('Store manager receipts', () => {
         items: lines,
       })
     ).transfer.id;
-    // Wrong direction or a warehouse that is not a source: refused.
+    // Out of the sales warehouse, or into any other warehouse: refused.
     for (const [fromWarehouseId, toWarehouseId] of [
       [sales, working],
-      [other, sales],
+      [other, working],
     ])
       await expect(
         transfers.create(farm, clerk('seller'), {
@@ -240,7 +234,7 @@ describe('Store manager receipts', () => {
           toWarehouseId,
           items: lines,
         }),
-      ).rejects.toThrow('source warehouse into the sales warehouse');
+      ).rejects.toThrow(ForbiddenException);
     await transfers.submit(id, farm, clerk('seller'));
     await expect(
       transfers.confirm(id, farm, clerk('seller')),
@@ -260,14 +254,20 @@ describe('Store manager receipts', () => {
           ...extra,
         })
       ).data.map((row: { id: string }) => row.id);
-    expect(await ids({ source: true })).toEqual([working]);
+    expect((await ids({ source: true })).sort()).toEqual(
+      [working, other].sort(),
+    );
     expect(await ids({ destination: true })).toEqual([sales]);
-    // Stock of a source warehouse is readable for the transfer form, other warehouses are not.
+    // Stock of another warehouse of the farm is readable for the transfer form.
     expect(
       await authorization.warehouseScope(farm, clerk('seller'), working),
     ).toEqual([sales, working]);
     expect(
       await authorization.warehouseScope(farm, clerk('seller'), other),
+    ).toEqual([sales, other]);
+    // A warehouse outside the farm is never readable.
+    expect(
+      await authorization.warehouseScope(farm, clerk('seller'), randomUUID()),
     ).toEqual([sales]);
   });
 

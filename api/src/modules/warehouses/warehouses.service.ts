@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -20,7 +20,6 @@ import {
   recordStatus,
   roles,
   storeSettings,
-  storeSourceWarehouses,
   users,
   warehouses,
 } from '../../db/schema';
@@ -53,7 +52,7 @@ export interface WarehouseListFilters extends PaginationParams {
   status?: WarehouseStatus;
   /** Transfer destinations: every warehouse of the farm, also for members limited to theirs. */
   destination?: boolean;
-  /** The farm's store source warehouses, for a store manager choosing where to restock from. */
+  /** The farm's warehouses other than the sales warehouse, for a store manager choosing where to restock from. */
   source?: boolean;
 }
 
@@ -115,13 +114,7 @@ export class WarehousesService {
     if (inScope) conditions.push(inScope);
     if (filters.source)
       conditions.push(
-        inArray(
-          warehouses.id,
-          this.databaseService.db
-            .select({ id: storeSourceWarehouses.warehouseId })
-            .from(storeSourceWarehouses)
-            .where(eq(storeSourceWarehouses.farmId, filters.farmId)),
-        ),
+        sql`${warehouses.id} IS DISTINCT FROM (SELECT ${storeSettings.salesWarehouseId} FROM ${storeSettings} WHERE ${storeSettings.farmId} = ${filters.farmId})`,
       );
     if (filters.status) conditions.push(eq(warehouses.status, filters.status));
     if (filters.search) {
@@ -381,21 +374,25 @@ export class WarehousesService {
     return scope;
   }
 
+  /** Any other active warehouse of the farm may restock the sales warehouse (the old store_source_warehouses table is unused). */
   async isSourceWarehouse(farmId: string, warehouseId: string) {
     const [row] = await this.databaseService.db
-      .select({ id: storeSourceWarehouses.warehouseId })
-      .from(storeSourceWarehouses)
+      .select({ id: warehouses.id })
+      .from(warehouses)
+      .leftJoin(storeSettings, eq(storeSettings.farmId, warehouses.farmId))
       .where(
         and(
-          eq(storeSourceWarehouses.farmId, farmId),
-          eq(storeSourceWarehouses.warehouseId, warehouseId),
+          eq(warehouses.id, warehouseId),
+          eq(warehouses.farmId, farmId),
+          eq(warehouses.status, 'ACTIVE'),
+          sql`${warehouses.id} IS DISTINCT FROM ${storeSettings.salesWarehouseId}`,
         ),
       )
       .limit(1);
     return Boolean(row);
   }
 
-  /** A store manager restocks the sales warehouse only, from store source warehouses. */
+  /** A store manager restocks the sales warehouse only, from the farm's other active warehouses. */
   async assertSalesRestock(
     writer: DocumentWriter,
     farmId: string,
@@ -407,7 +404,7 @@ export class WarehousesService {
       !(await this.isSourceWarehouse(farmId, fromWarehouseId))
     )
       throw new ForbiddenException(
-        'Store managers can only transfer from a source warehouse into the sales warehouse',
+        'Store managers can only transfer from another warehouse into the sales warehouse',
       );
   }
 

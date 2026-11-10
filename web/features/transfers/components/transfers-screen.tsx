@@ -167,7 +167,7 @@ function FarmTransfersScreen() {
     memberId: membership?.memberId,
   };
   const canWrite = canCreateRestock(viewer.roles);
-  // A store manager picks among the store source warehouses and sends into the sales warehouse.
+  // A store manager picks among the farm's other warehouses and sends into the sales warehouse.
   const salesOnly = isSalesRestockOnly(viewer.roles);
   const isOwner = isFarmOwner(viewer.roles);
   const lock = useStockDocumentLock();
