@@ -76,11 +76,6 @@ export function HomeTestimonials({ className }: { className?: string } = {}) {
             </figure>
           ))}
         </div>
-
-        {/* Thông báo minh họa bản xem trước */}
-        <p className="mt-8 text-center text-xs text-muted-foreground/70 select-none">
-          * Đánh giá mẫu phục vụ hiển thị giao diện cho bản xem trước.
-        </p>
       </div>
     </section>
   );

@@ -109,7 +109,7 @@ export class InventoryAdjustmentsController {
   @ApiOperation({
     summary: 'Danh sách điều chỉnh tồn kho',
     description:
-      'Mọi thành viên đang hoạt động của trang trại đều xem được; mới nhất trước.',
+      'Nhân viên chỉ xem báo cáo của mình. Quản lý kho xem các báo cáo trong kho được phân công; chủ trại và quản trị viên xem trong trại. Mới nhất trước.',
   })
   @ApiFarmIdQuery()
   @ApiPageQueries()
@@ -151,9 +151,9 @@ export class InventoryAdjustmentsController {
 
   @Post()
   @ApiOperation({
-    summary: 'Điều chỉnh tăng hoặc giảm tồn kho',
+    summary: 'Báo chênh lệch tồn kho để xét duyệt',
     description:
-      'Quản trị viên hoặc chủ trang trại: ghi tồn ngay (CONFIRMED). Nhân viên: tạo đề xuất PENDING_APPROVAL, tồn chưa đổi. Gửi lại cùng idempotencyKey trả về kết quả cũ, không điều chỉnh thêm. Vật tư ngừng hoạt động và lô hết hạn chỉ được giảm.',
+      'Mọi báo cáo đều ở trạng thái PENDING_APPROVAL, tồn chưa đổi. Quản lý kho trong phạm vi được phân công, chủ trại hoặc quản trị viên duyệt; không được tự duyệt báo cáo của mình. Gửi lại cùng idempotencyKey trả về kết quả cũ, không điều chỉnh thêm. Vật tư ngừng hoạt động và lô hết hạn chỉ được giảm.',
   })
   @ApiFarmIdQuery()
   @ApiBody({
@@ -173,7 +173,7 @@ export class InventoryAdjustmentsController {
     },
   })
   @ApiCreatedResponse({
-    description: 'Điều chỉnh đã ghi nhận hoặc đã gửi chờ duyệt.',
+    description: 'Báo cáo đã gửi chờ duyệt; tồn kho chưa thay đổi.',
     schema: adjustmentResultSchema,
   })
   @ApiBadRequestResponse({
@@ -189,7 +189,7 @@ export class InventoryAdjustmentsController {
   })
   @ApiForbiddenResponse({
     description:
-      'Chỉ quản trị viên, chủ trang trại hoặc nhân viên được điều chỉnh tồn kho.',
+      'Chỉ quản trị viên, chủ trang trại, quản lý kho hoặc nhân viên được báo chênh lệch tồn kho.',
   })
   async create(
     @CurrentAuth() auth: { clerkUserId: string },
@@ -209,7 +209,7 @@ export class InventoryAdjustmentsController {
   @ApiOperation({
     summary: 'Duyệt đề xuất điều chỉnh tồn kho',
     description:
-      'Chỉ quản trị viên hoặc chủ trang trại. Kiểm tra lại kho, vật tư, lô và số dư tại thời điểm duyệt rồi ghi tồn.',
+      'Quản lý kho trong phạm vi được phân công, chủ trại hoặc quản trị viên; không tự duyệt báo cáo của mình. Kiểm tra lại kho, vật tư, lô và số dư tại thời điểm duyệt rồi ghi tồn.',
   })
   @ApiFarmIdQuery()
   @ApiUuidParam('id', 'Mã điều chỉnh.')
@@ -223,7 +223,8 @@ export class InventoryAdjustmentsController {
       'Đề xuất đã được duyệt/từ chối, hoặc không còn hợp lệ (kho, vật tư, lô, số dư).',
   })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên hoặc chủ trang trại được duyệt.',
+    description:
+      'Cần quyền quản lý kho, chủ trại hoặc quản trị viên; không được tự duyệt.',
   })
   async approve(
     @CurrentAuth() auth: { clerkUserId: string },
@@ -243,7 +244,7 @@ export class InventoryAdjustmentsController {
   @ApiOperation({
     summary: 'Từ chối đề xuất điều chỉnh tồn kho',
     description:
-      'Chỉ quản trị viên hoặc chủ trang trại. Tồn kho không thay đổi.',
+      'Quản lý kho trong phạm vi được phân công, chủ trại hoặc quản trị viên. Tồn kho không thay đổi.',
   })
   @ApiFarmIdQuery()
   @ApiUuidParam('id', 'Mã điều chỉnh.')
@@ -256,7 +257,7 @@ export class InventoryAdjustmentsController {
   @ApiNotFoundResponse({ description: 'Không tìm thấy điều chỉnh.' })
   @ApiConflictResponse({ description: 'Đề xuất đã được duyệt/từ chối.' })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên hoặc chủ trang trại được từ chối.',
+    description: 'Cần quyền quản lý kho, chủ trại hoặc quản trị viên.',
   })
   async reject(
     @CurrentAuth() auth: { clerkUserId: string },

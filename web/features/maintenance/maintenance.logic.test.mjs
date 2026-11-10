@@ -36,6 +36,14 @@ test("maintenance controls reflect each role and stage", () => {
   assert.match(maintenanceNextStep(ready, ["WAREHOUSE_MANAGER"]), /xác nhận xuất đi sửa/);
   assert.match(maintenanceNextStep(ready, ["MAINTENANCE_STAFF"]), /Chờ quản lý kho/);
   assert.deepEqual(maintenanceActions(scheduled, ["EMPLOYEE"]), []);
+  // P1-05: a job assigned to another staff member is not theirs to work on.
+  const assigned = { ...scheduled, performedByMemberId: "m2", performedByStaff: true };
+  assert.deepEqual(maintenanceActions(assigned, ["MAINTENANCE_STAFF"], "m1"), []);
+  assert.deepEqual(maintenanceActions(assigned, ["MAINTENANCE_STAFF"], "m2"), ["prepare", "cancel"]);
+  assert.deepEqual(
+    maintenanceActions({ ...assigned, performedByStaff: false }, ["MAINTENANCE_STAFF"], "m1"),
+    ["prepare", "cancel"],
+  );
   assert.deepEqual(
     maintenanceActions({ ...scheduled, status: "IN_PROGRESS" }, [
       "MAINTENANCE_STAFF",

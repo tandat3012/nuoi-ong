@@ -918,7 +918,9 @@ export class StockTransfersService {
           eq(warehouses.farmId, farmId),
           eq(warehouses.status, 'ACTIVE'),
         ),
-      );
+      )
+      // Shares the row lock deactivation takes, so it waits for this move (NV08).
+      .for('share');
     if (!row) throw new ConflictException('Warehouse must exist and be ACTIVE');
   }
   private async validateLines(

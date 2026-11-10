@@ -25,7 +25,14 @@ export type MaintenanceWorkflow = {
   returnWarehouseInScope?: boolean;
   /** NV04: the owner's reuse decision on a passed repair back in stock. */
   finalDecision?: "REUSE" | "HOLD" | null;
+  /** P1-05: the job is assigned to an active maintenance staff member. */
+  performedByMemberId?: string | null;
+  performedByStaff?: boolean;
 };
+
+/** P1-05: maintenance staff stay off a job assigned to another staff member (API: 403). */
+const assignedToOther = (record: MaintenanceWorkflow, memberId?: string) =>
+  Boolean(record.performedByStaff) && record.performedByMemberId !== memberId;
 
 /** A passed repair received back in stock waits for the owner's reuse decision. */
 const awaitsDecision = (record: MaintenanceWorkflow) =>
@@ -59,9 +66,12 @@ export const RETURN_STATUSES: Record<string, string> = {
 export function maintenanceActions(
   record: MaintenanceWorkflow,
   roles: readonly string[],
+  memberId?: string,
 ): string[] {
-  const worker = hasAnyRole(roles, MAINTENANCE_WORK_ROLES);
   const manager = hasAnyRole(roles, WAREHOUSE_MANAGE_ROLES);
+  const worker =
+    hasAnyRole(roles, MAINTENANCE_WORK_ROLES) &&
+    (manager || !assignedToOther(record, memberId));
   if (record.returnStatus === "PENDING_APPROVAL")
     return reviewsReturn(record, roles) ? ["return-receipt/approve", "return-receipt/reject"] : [];
   if (awaitsDecision(record))

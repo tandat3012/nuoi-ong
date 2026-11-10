@@ -122,6 +122,7 @@ describe('Commerce HTTP contract', () => {
         minPrice: 0,
         maxPrice: 200000,
         sort: 'price_desc',
+        inStock: 'true',
       })
       .expect(200);
     expect(service.listProducts).toHaveBeenCalledWith(
@@ -132,6 +133,7 @@ describe('Commerce HTTP contract', () => {
         minPrice: 0,
         maxPrice: 200000,
         sort: 'price_desc',
+        inStock: true,
       },
     );
   });
@@ -183,6 +185,9 @@ describe('Commerce HTTP contract', () => {
     'sort=PRICE_ASC',
     'sort=',
     'sort=price_asc&sort=price_desc',
+    'inStock=yes',
+    'inStock=1',
+    'inStock=true&inStock=false',
     'q=one&q=two',
     `q=${'a'.repeat(101)}`,
   ])('rejects invalid filters: %s', async (query) => {

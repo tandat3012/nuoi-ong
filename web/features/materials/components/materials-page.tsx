@@ -7,13 +7,14 @@ import { MaterialDetailView } from "./material-detail";
 import { MaterialFilterToolbar } from "./material-filter-toolbar";
 import { MaterialForm } from "./material-form";
 import { MaterialTable } from "./material-table";
+import { MaterialSummaryBar } from "./material-summary-bar";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Pagination } from "@/shared/components/ui/pagination";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Card } from "@/shared/components/ui/card";
-import { RotateCcw, Plus, AlertCircle } from "lucide-react";
+import { RefreshCw, Plus, AlertCircle } from "lucide-react";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
 export function MaterialsPage() {
@@ -84,46 +85,49 @@ function FarmMaterialsPage() {
 
   return (
     <div className="space-y-6">
-      <Card className="p-5 sm:p-6">
-        <PageHeader
-          title="Quản lý vật tư"
-          badge={
-            <Badge variant="secondary" className="font-semibold">
-              {farmName}
-            </Badge>
-          }
-          description="Theo dõi, định mức tồn kho và hồ sơ quản lý hạn sử dụng vật tư nông trại."
-          actions={
-            <>
+      <PageHeader
+        title="Quản lý danh mục vật tư"
+        badge={
+          <Badge variant="secondary" className="font-semibold text-xs">
+            {farmName}
+          </Badge>
+        }
+        description="Theo dõi danh mục vật tư nông trại, quy cách đóng gói, định mức an toàn và hồ sơ hạn sử dụng."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={viewMode === "detail" ? onRetryDetail : onReload}
+              disabled={
+                isLoading ||
+                isDetailLoading ||
+                viewMode === "create" ||
+                viewMode === "edit"
+              }
+              isLoading={isLoading}
+              className="h-9 gap-1.5 text-xs font-medium"
+              title="Tải lại danh sách"
+            >
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              <span>Tải lại</span>
+            </Button>
+            {canWrite && viewMode === "list" && (
               <Button
-                variant="outline"
                 size="sm"
-                onClick={viewMode === "detail" ? onRetryDetail : onReload}
-                disabled={
-                  isLoading ||
-                  isDetailLoading ||
-                  viewMode === "create" ||
-                  viewMode === "edit"
-                }
-                isLoading={isLoading}
-                title="Tải lại danh sách"
+                onClick={onStartCreate}
+                className="h-9 gap-1.5 text-xs font-semibold shadow-xs"
               >
-                <RotateCcw className="size-3.5" aria-hidden="true" />
-                <span>Tải lại</span>
+                <Plus className="size-4" aria-hidden="true" />
+                <span>Thêm vật tư</span>
               </Button>
-              {canWrite && viewMode === "list" && (
-                <Button size="sm" onClick={onStartCreate}>
-                  <Plus className="size-3.5" aria-hidden="true" />
-                  <span>Thêm vật tư</span>
-                </Button>
-              )}
-            </>
-          }
-        />
-      </Card>
+            )}
+          </div>
+        }
+      />
 
       {notice && (
-        <div role="status" className="rounded-xl border border-border bg-secondary p-4 text-sm text-secondary-foreground">
+        <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs font-medium text-emerald-800 dark:text-emerald-300">
           {notice}
         </div>
       )}
@@ -219,12 +223,20 @@ function FarmMaterialsPage() {
         )
       ) : (
         <div className="space-y-6">
+          {/* Summary KPI Bar */}
+          <MaterialSummaryBar
+            materials={materials}
+            totalItems={pageInfo?.totalItems}
+          />
+
           {errorMessage && (
             <ErrorAlert
               message={errorMessage}
               onRetry={onReload}
             />
           )}
+
+          {/* Filter Toolbar */}
           <MaterialFilterToolbar
             filters={filters}
             categories={categories}
@@ -237,7 +249,24 @@ function FarmMaterialsPage() {
             onCategoryChange={onCategoryChange}
             onResetFilters={onResetFilters}
           />
-          <Card className="overflow-hidden">
+
+          {/* Table Container Section */}
+          <section
+            aria-label="Danh sách vật tư nông trại"
+            aria-busy={isLoading}
+            className="overflow-hidden rounded-xl border border-border bg-card shadow-2xs"
+          >
+            <div className="flex items-center justify-between border-b border-border px-4 py-3.5 sm:px-5">
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-sm font-semibold text-foreground">Danh sách vật tư</h2>
+                {pageInfo?.totalItems !== undefined && (
+                  <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                    {pageInfo.totalItems} vật tư
+                  </span>
+                )}
+              </div>
+            </div>
+
             <MaterialTable
               materials={materials}
               filters={filters}
@@ -248,14 +277,17 @@ function FarmMaterialsPage() {
               onViewDetail={onViewDetail}
               onStartEdit={onStartEdit}
             />
-            <Pagination
-              pageInfo={pageInfo}
-              isLoading={isLoading}
-              errorMessage={errorMessage}
-              onPageChange={onPageChange}
-              itemLabel="vật tư"
-            />
-          </Card>
+
+            <div className="border-t border-border p-4">
+              <Pagination
+                pageInfo={pageInfo}
+                isLoading={isLoading}
+                errorMessage={errorMessage}
+                onPageChange={onPageChange}
+                itemLabel="vật tư"
+              />
+            </div>
+          </section>
         </div>
       )}
     </div>

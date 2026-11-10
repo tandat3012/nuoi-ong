@@ -60,6 +60,11 @@ import {
 } from './dto/store-variant.dto';
 
 type StoreProductStatus = (typeof storeProductStatus.enumValues)[number];
+type Transaction = Parameters<
+  Parameters<DatabaseService['db']['transaction']>[0]
+>[0];
+/** NV10-F01: who changes the store and from which farm; the controller always passes it. */
+export type StoreActor = { farmId: string; clerkUserId: string };
 
 export interface StoreProductListFilters extends PaginationParams {
   search?: string;
@@ -85,6 +90,12 @@ const imageColumns = {
   url: storeProductImages.url,
   alt: storeProductImages.alt,
   position: storeProductImages.position,
+};
+
+const categoryColumns = {
+  id: storeCategories.id,
+  name: storeCategories.name,
+  slug: storeCategories.slug,
 };
 
 const variantColumns = {
@@ -232,6 +243,7 @@ export class StoreAdminService {
         itemCode: items.code,
         itemName: items.name,
         itemStatus: items.status,
+        trackingMode: items.trackingMode,
         unitSymbol: units.symbol,
         unitStatus: units.status,
         onHand: sql<string>`${onHand}::text`,
@@ -268,10 +280,22 @@ export class StoreAdminService {
     };
   }
 
-  async updateSettings(farmId: string, input: UpdateStoreSettingsDto) {
+  async updateSettings(
+    farmId: string,
+    input: UpdateStoreSettingsDto,
+    actor?: StoreActor,
+  ) {
     await this.databaseService.db.transaction(async (tx) => {
+      // FOR UPDATE misses a first save; this serializes it so the audit's old value is right.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${'store_settings:' + farmId}))`,
+      );
       const [current] = await tx
-        .select({ salesWarehouseId: storeSettings.salesWarehouseId })
+        .select({
+          salesWarehouseId: storeSettings.salesWarehouseId,
+          salesEnabled: storeSettings.salesEnabled,
+          regions: storeSettings.regions,
+        })
         .from(storeSettings)
         .where(eq(storeSettings.farmId, farmId))
         .for('update');
@@ -328,6 +352,19 @@ export class StoreAdminService {
           .insert(storeSettings)
           .values({ farmId, ...values })
           .onConflictDoUpdate({ target: storeSettings.farmId, set: values }),
+      );
+      await this.audit(
+        tx,
+        actor,
+        'STORE_SETTINGS_UPDATED',
+        'STORE_SETTINGS',
+        farmId,
+        current ?? null,
+        {
+          salesWarehouseId: values.salesWarehouseId,
+          salesEnabled: values.salesEnabled,
+          regions: values.regions,
+        },
       );
     });
     return this.getSettings(farmId);
@@ -451,12 +488,28 @@ export class StoreAdminService {
     return { ...product, variants, images };
   }
 
-  async createProduct(farmId: string, input: CreateStoreProductDto) {
-    const [product] = await this.mapDatabaseError(
-      this.databaseService.db
-        .insert(storeProducts)
-        .values(input)
-        .returning({ id: storeProducts.id }),
+  async createProduct(
+    farmId: string,
+    input: CreateStoreProductDto,
+    actor?: StoreActor,
+  ) {
+    const product = await this.mapDatabaseError(
+      this.databaseService.db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(storeProducts)
+          .values(input)
+          .returning();
+        await this.audit(
+          tx,
+          actor,
+          'PRODUCT_CREATED',
+          'STORE_PRODUCT',
+          created.id,
+          null,
+          this.productAudit(created),
+        );
+        return created;
+      }),
     );
     return this.getProduct(farmId, product.id);
   }
@@ -465,18 +518,33 @@ export class StoreAdminService {
     farmId: string,
     id: string,
     input: UpdateStoreProductDto,
+    actor?: StoreActor,
   ) {
     this.assertHasValue(input);
-    const updated = await this.mapDatabaseError(
-      this.databaseService.db
-        .update(storeProducts)
-        .set({ ...input, updatedAt: new Date().toISOString() })
-        .where(eq(storeProducts.id, id))
-        .returning({ id: storeProducts.id }),
+    await this.mapDatabaseError(
+      this.databaseService.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(storeProducts)
+          .where(eq(storeProducts.id, id))
+          .for('update');
+        if (!before) throw new NotFoundException('Store product not found');
+        const [after] = await tx
+          .update(storeProducts)
+          .set({ ...input, updatedAt: new Date().toISOString() })
+          .where(eq(storeProducts.id, id))
+          .returning();
+        await this.audit(
+          tx,
+          actor,
+          'PRODUCT_UPDATED',
+          'STORE_PRODUCT',
+          id,
+          this.productAudit(before),
+          this.productAudit(after, before),
+        );
+      }),
     );
-    if (updated.length === 0) {
-      throw new NotFoundException('Store product not found');
-    }
     return this.getProduct(farmId, id);
   }
 
@@ -484,10 +552,11 @@ export class StoreAdminService {
     farmId: string,
     id: string,
     status: StoreProductStatus,
+    actor?: StoreActor,
   ) {
     await this.databaseService.db.transaction(async (transaction) => {
       const [product] = await transaction
-        .select({ id: storeProducts.id })
+        .select({ id: storeProducts.id, status: storeProducts.status })
         .from(storeProducts)
         .where(eq(storeProducts.id, id))
         .for('update');
@@ -524,6 +593,16 @@ export class StoreAdminService {
         .update(storeProducts)
         .set({ status, updatedAt: new Date().toISOString() })
         .where(eq(storeProducts.id, id));
+      if (product.status !== status)
+        await this.audit(
+          transaction,
+          actor,
+          'PRODUCT_STATUS_CHANGED',
+          'STORE_PRODUCT',
+          id,
+          { status: product.status },
+          { status },
+        );
     });
     return this.getProduct(farmId, id);
   }
@@ -532,6 +611,7 @@ export class StoreAdminService {
     farmId: string,
     productId: string,
     input: CreateStoreVariantDto,
+    actor?: StoreActor,
   ) {
     await this.requireProduct(productId);
     const [item] = await this.databaseService.db
@@ -554,6 +634,20 @@ export class StoreAdminService {
         await tx
           .insert(storeVariantItems)
           .values({ variantId: variant.id, farmId, itemId });
+        await this.audit(
+          tx,
+          actor,
+          'VARIANT_CREATED',
+          'STORE_PRODUCT',
+          productId,
+          null,
+          {
+            ...variant,
+            variantId: variant.id,
+            // The first mapping belongs to this farm only.
+            farmItem: { farmId, itemId },
+          },
+        );
         return variant;
       }),
     );
@@ -563,22 +657,41 @@ export class StoreAdminService {
     productId: string,
     variantId: string,
     input: UpdateStoreVariantDto,
+    actor?: StoreActor,
   ) {
     this.assertHasValue(input);
-    const [variant] = await this.mapDatabaseError(
-      this.databaseService.db
-        .update(storeProductVariants)
-        .set({ ...input, updatedAt: new Date().toISOString() })
-        .where(
-          and(
-            eq(storeProductVariants.id, variantId),
-            eq(storeProductVariants.productId, productId),
-          ),
-        )
-        .returning(variantColumns),
+    return this.mapDatabaseError(
+      this.databaseService.db.transaction(async (tx) => {
+        const condition = and(
+          eq(storeProductVariants.id, variantId),
+          eq(storeProductVariants.productId, productId),
+        );
+        const [before] = await tx
+          .select(variantColumns)
+          .from(storeProductVariants)
+          .where(condition)
+          .for('update');
+        if (!before) throw new NotFoundException('Variant not found');
+        // Placed orders keep their own price snapshot; only new orders see the change.
+        const [variant] = await tx
+          .update(storeProductVariants)
+          .set({ ...input, updatedAt: new Date().toISOString() })
+          .where(condition)
+          .returning(variantColumns);
+        await this.audit(
+          tx,
+          actor,
+          before.price !== variant.price
+            ? 'VARIANT_PRICE_CHANGED'
+            : 'VARIANT_UPDATED',
+          'STORE_PRODUCT',
+          productId,
+          { ...before, variantId },
+          { ...variant, variantId },
+        );
+        return variant;
+      }),
     );
-    if (!variant) throw new NotFoundException('Variant not found');
-    return variant;
   }
 
   /** Sets which item of this farm fulfils the variant. */
@@ -587,6 +700,7 @@ export class StoreAdminService {
     productId: string,
     variantId: string,
     itemId: string,
+    actor?: StoreActor,
   ) {
     const [variant] = await this.databaseService.db
       .select({ unitId: storeProductVariants.unitId })
@@ -619,13 +733,39 @@ export class StoreAdminService {
       );
     const now = new Date().toISOString();
     await this.mapDatabaseError(
-      this.databaseService.db
-        .insert(storeVariantItems)
-        .values({ variantId, farmId, itemId })
-        .onConflictDoUpdate({
-          target: [storeVariantItems.variantId, storeVariantItems.farmId],
-          set: { itemId, updatedAt: now },
-        }),
+      this.databaseService.db.transaction(async (tx) => {
+        // Same for the first mapping of this variant in this farm.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${`store_variant_items:${variantId}:${farmId}`}))`,
+        );
+        const [before] = await tx
+          .select({ itemId: storeVariantItems.itemId })
+          .from(storeVariantItems)
+          .where(
+            and(
+              eq(storeVariantItems.variantId, variantId),
+              eq(storeVariantItems.farmId, farmId),
+            ),
+          )
+          .for('update');
+        await tx
+          .insert(storeVariantItems)
+          .values({ variantId, farmId, itemId })
+          .onConflictDoUpdate({
+            target: [storeVariantItems.variantId, storeVariantItems.farmId],
+            set: { itemId, updatedAt: now },
+          });
+        if (before?.itemId !== itemId)
+          await this.audit(
+            tx,
+            actor,
+            'VARIANT_ITEM_SET',
+            'STORE_PRODUCT',
+            productId,
+            before ? { variantId, farmId, itemId: before.itemId } : null,
+            { variantId, farmId, itemId },
+          );
+      }),
     );
     return this.getProduct(farmId, productId);
   }
@@ -635,29 +775,42 @@ export class StoreAdminService {
     farmId: string,
     productId: string,
     variantId: string,
+    actor?: StoreActor,
   ) {
-    const removed = await this.databaseService.db
-      .delete(storeVariantItems)
-      .where(
-        and(
-          eq(storeVariantItems.variantId, variantId),
-          eq(storeVariantItems.farmId, farmId),
-          sql`EXISTS (
+    await this.databaseService.db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(storeVariantItems)
+        .where(
+          and(
+            eq(storeVariantItems.variantId, variantId),
+            eq(storeVariantItems.farmId, farmId),
+            sql`EXISTS (
             SELECT 1 FROM ${storeProductVariants}
             WHERE ${storeProductVariants.id} = ${variantId}
               AND ${storeProductVariants.productId} = ${productId}
           )`,
-        ),
-      )
-      .returning({ variantId: storeVariantItems.variantId });
-    if (removed.length === 0)
-      throw new NotFoundException('Variant is not mapped for this farm');
+          ),
+        )
+        .returning({ itemId: storeVariantItems.itemId });
+      if (removed.length === 0)
+        throw new NotFoundException('Variant is not mapped for this farm');
+      await this.audit(
+        tx,
+        actor,
+        'VARIANT_ITEM_REMOVED',
+        'STORE_PRODUCT',
+        productId,
+        { variantId, farmId, itemId: removed[0].itemId },
+        null,
+      );
+    });
   }
 
   async addImage(
     productId: string,
     file: Express.Multer.File | undefined,
     alt = '',
+    actor?: StoreActor,
   ) {
     if (!file) throw new BadRequestException('file is required');
     if (
@@ -684,40 +837,76 @@ export class StoreAdminService {
     });
 
     try {
-      const [image] = await this.mapDatabaseError(
-        this.databaseService.db
-          .insert(storeProductImages)
-          .values({
-            productId,
-            url: uploaded.secure_url,
-            publicId: uploaded.public_id,
-            alt: alt.trim(),
-            position: sql`(
-              SELECT COALESCE(MAX(position) + 1, 0)
-              FROM ${storeProductImages}
-              WHERE product_id = ${productId}
-            )`,
-          })
-          .returning(imageColumns),
-      );
-      return image;
+      return await this.databaseService.db.transaction(async (tx) => {
+        const [image] = await this.mapDatabaseError(
+          tx
+            .insert(storeProductImages)
+            .values({
+              productId,
+              url: uploaded.secure_url,
+              publicId: uploaded.public_id,
+              alt: alt.trim(),
+              position: sql`(
+                SELECT COALESCE(MAX(position) + 1, 0)
+                FROM ${storeProductImages}
+                WHERE product_id = ${productId}
+              )`,
+            })
+            .returning(imageColumns),
+        );
+        await this.audit(
+          tx,
+          actor,
+          'IMAGE_ADDED',
+          'STORE_PRODUCT',
+          productId,
+          null,
+          this.imageAudit(image),
+        );
+        return image;
+      });
     } catch (error) {
       await this.deleteRemoteImage(uploaded.public_id);
       throw error;
     }
   }
 
-  async updateImage(productId: string, imageId: string, alt: string) {
-    const [image] = await this.databaseService.db
-      .update(storeProductImages)
-      .set({ alt, updatedAt: new Date().toISOString() })
-      .where(this.imageCondition(productId, imageId))
-      .returning(imageColumns);
-    if (!image) throw new NotFoundException('Image not found');
-    return image;
+  async updateImage(
+    productId: string,
+    imageId: string,
+    alt: string,
+    actor?: StoreActor,
+  ) {
+    return this.databaseService.db.transaction(async (tx) => {
+      const [before] = await tx
+        .select(imageColumns)
+        .from(storeProductImages)
+        .where(this.imageCondition(productId, imageId))
+        .for('update');
+      if (!before) throw new NotFoundException('Image not found');
+      const [image] = await tx
+        .update(storeProductImages)
+        .set({ alt, updatedAt: new Date().toISOString() })
+        .where(this.imageCondition(productId, imageId))
+        .returning(imageColumns);
+      await this.audit(
+        tx,
+        actor,
+        'IMAGE_UPDATED',
+        'STORE_PRODUCT',
+        productId,
+        this.imageAudit(before),
+        this.imageAudit(image),
+      );
+      return image;
+    });
   }
 
-  async reorderImages(productId: string, imageIds: string[]) {
+  async reorderImages(
+    productId: string,
+    imageIds: string[],
+    actor?: StoreActor,
+  ) {
     return this.databaseService.db.transaction(async (transaction) => {
       const current = await transaction
         .select({
@@ -753,6 +942,19 @@ export class StoreAdminService {
           .where(eq(storeProductImages.id, id));
       }
 
+      const before = [...current]
+        .sort((a, b) => a.position - b.position)
+        .map((image) => image.id);
+      if (before.join() !== imageIds.join())
+        await this.audit(
+          transaction,
+          actor,
+          'IMAGES_REORDERED',
+          'STORE_PRODUCT',
+          productId,
+          { imageIds: before },
+          { imageIds },
+        );
       return transaction
         .select(imageColumns)
         .from(storeProductImages)
@@ -761,12 +963,24 @@ export class StoreAdminService {
     });
   }
 
-  async deleteImage(productId: string, imageId: string) {
-    const [deleted] = await this.databaseService.db
-      .delete(storeProductImages)
-      .where(this.imageCondition(productId, imageId))
-      .returning({ publicId: storeProductImages.publicId });
-    if (!deleted) throw new NotFoundException('Image not found');
+  async deleteImage(productId: string, imageId: string, actor?: StoreActor) {
+    const deleted = await this.databaseService.db.transaction(async (tx) => {
+      const [row] = await tx
+        .delete(storeProductImages)
+        .where(this.imageCondition(productId, imageId))
+        .returning({ ...imageColumns, publicId: storeProductImages.publicId });
+      if (!row) throw new NotFoundException('Image not found');
+      await this.audit(
+        tx,
+        actor,
+        'IMAGE_DELETED',
+        'STORE_PRODUCT',
+        productId,
+        this.imageAudit(row),
+        null,
+      );
+      return row;
+    });
     // The row is gone either way; a failed remote delete only leaves an orphan file.
     if (deleted.publicId) await this.deleteRemoteImage(deleted.publicId);
   }
@@ -813,32 +1027,109 @@ export class StoreAdminService {
     return { data };
   }
 
-  async createCategory(input: CreateStoreCategoryDto) {
-    const [category] = await this.mapDatabaseError(
-      this.databaseService.db.insert(storeCategories).values(input).returning({
-        id: storeCategories.id,
-        name: storeCategories.name,
-        slug: storeCategories.slug,
+  async createCategory(input: CreateStoreCategoryDto, actor?: StoreActor) {
+    return this.mapDatabaseError(
+      this.databaseService.db.transaction(async (tx) => {
+        const [category] = await tx
+          .insert(storeCategories)
+          .values(input)
+          .returning(categoryColumns);
+        await this.audit(
+          tx,
+          actor,
+          'CATEGORY_CREATED',
+          'STORE_CATEGORY',
+          category.id,
+          null,
+          category,
+        );
+        return category;
       }),
     );
-    return category;
   }
 
-  async updateCategory(id: string, input: UpdateStoreCategoryDto) {
+  async updateCategory(
+    id: string,
+    input: UpdateStoreCategoryDto,
+    actor?: StoreActor,
+  ) {
     this.assertHasValue(input);
-    const [category] = await this.mapDatabaseError(
-      this.databaseService.db
-        .update(storeCategories)
-        .set({ ...input, updatedAt: new Date().toISOString() })
-        .where(eq(storeCategories.id, id))
-        .returning({
-          id: storeCategories.id,
-          name: storeCategories.name,
-          slug: storeCategories.slug,
-        }),
+    return this.mapDatabaseError(
+      this.databaseService.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select(categoryColumns)
+          .from(storeCategories)
+          .where(eq(storeCategories.id, id))
+          .for('update');
+        if (!before) throw new NotFoundException('Category not found');
+        const [category] = await tx
+          .update(storeCategories)
+          .set({ ...input, updatedAt: new Date().toISOString() })
+          .where(eq(storeCategories.id, id))
+          .returning(categoryColumns);
+        await this.audit(
+          tx,
+          actor,
+          'CATEGORY_UPDATED',
+          'STORE_CATEGORY',
+          id,
+          before,
+          category,
+        );
+        return category;
+      }),
     );
-    if (!category) throw new NotFoundException('Category not found');
-    return category;
+  }
+
+  /** NV10-F01: one audit row per catalog or sales-settings change, in its transaction. */
+  private async audit(
+    tx: Transaction,
+    actor: StoreActor | undefined,
+    action: string,
+    entityType: 'STORE_PRODUCT' | 'STORE_CATEGORY' | 'STORE_SETTINGS',
+    entityId: string,
+    before: object | null,
+    after: object | null,
+  ) {
+    await tx.insert(auditLogs).values({
+      farmId: actor?.farmId ?? null,
+      userId: actor
+        ? sql`(SELECT id FROM users WHERE auth_provider_user_id = ${actor.clerkUserId})`
+        : null,
+      action,
+      entityType,
+      entityId,
+      oldData: before,
+      newData: after,
+    });
+  }
+
+  /**
+   * Product audit data without its free text: a pasted link may carry a token,
+   * so the description is only flagged as changed, never copied.
+   */
+  private productAudit(
+    product: typeof storeProducts.$inferSelect,
+    before?: typeof storeProducts.$inferSelect,
+  ) {
+    const fields = {
+      id: product.id,
+      categoryId: product.categoryId,
+      name: product.name,
+      slug: product.slug,
+      status: product.status,
+    };
+    return before
+      ? {
+          ...fields,
+          descriptionChanged: product.description !== before.description,
+        }
+      : { ...fields, hasDescription: Boolean(product.description) };
+  }
+
+  /** Image audit data without the file URL or storage id. */
+  private imageAudit(image: { id: string; alt: string; position: number }) {
+    return { imageId: image.id, alt: image.alt, position: image.position };
   }
 
   private async requireProduct(id: string) {

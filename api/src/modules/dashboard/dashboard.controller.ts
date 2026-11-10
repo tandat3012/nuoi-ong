@@ -81,7 +81,7 @@ export class DashboardController {
   @ApiFarmIdQuery()
   @ApiOkResponse({
     description:
-      'Giá trị tồn (VND) = giá trị cuối kỳ hôm nay theo bình quân gia quyền di động của từng kho, cùng cách tính với báo cáo nhập–xuất–tồn; unpricedItems = mặt hàng còn tồn ở một kho nhưng giá trị tại kho đó là 0 đ (chưa có giá). Chỉ tính các kho người gọi được xem; số lô hết hạn trong 30 ngày tới; đơn hôm nay tính theo giờ Việt Nam.',
+      'Giá trị tồn (VND) = giá trị cuối kỳ hôm nay theo bình quân gia quyền di động của từng kho, cùng cách tính với báo cáo nhập–xuất–tồn; stockValue chỉ gồm phần tồn đã định giá; unpricedItems = số mặt hàng còn tồn chưa có giá ở ít nhất một kho — phần đó không tính (không phải 0 đ), nên khi unpricedItems > 0 stockValue chưa phải tổng giá trị đầy đủ. Đơn giá 0 trên phiếu nhập nghĩa là chưa có giá. Chỉ tính các kho người gọi được xem; số lô hết hạn trong 30 ngày tới; đơn hôm nay tính theo giờ Việt Nam.',
     schema: {
       type: 'object',
       properties: {
@@ -134,7 +134,7 @@ export class DashboardController {
     description: 'Một kho; bỏ trống = toàn trang trại.',
   })
   @ApiOkResponse({
-    description: `Gom theo ngày (≤31 ngày), tuần (≤92 ngày, bắt đầu thứ Hai) hoặc tháng; tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Nhập = phiếu nhập + điều chỉnh tăng; xuất = phiếu xuất + điều chỉnh giảm; chuyển kho chỉ tính khi chọn một kho; cấp phát/hoàn trả tài sản không tính. Giá trị (VND) theo giá bình quân gia quyền di động của từng kho. Chi phí bảo trì tính toàn trang trại theo ngày hoàn thành.`,
+    description: `Gom theo ngày (≤31 ngày), tuần (≤92 ngày, bắt đầu thứ Hai) hoặc tháng; tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Nhập = phiếu nhập + điều chỉnh tăng; xuất = phiếu xuất + điều chỉnh giảm; chuyển kho chỉ tính khi chọn một kho; cấp phát/hoàn trả tài sản không tính. Giá trị (VND) theo giá bình quân gia quyền di động của từng kho. Chi phí bảo trì tính theo ngày hoàn thành và không lọc theo kho đã chọn: maintenanceScope = FARM (toàn trang trại) hoặc ASSIGNED_WAREHOUSES (chỉ tài sản thuộc các kho người xem được phân công).`,
     schema: {
       type: 'object',
       properties: {
@@ -143,6 +143,10 @@ export class DashboardController {
           properties: {
             granularity: { type: 'string', enum: ['day', 'week', 'month'] },
             unpricedMovements: { type: 'integer', example: 0 },
+            maintenanceScope: {
+              type: 'string',
+              enum: ['FARM', 'ASSIGNED_WAREHOUSES'],
+            },
             periods: {
               type: 'array',
               items: {
@@ -208,7 +212,7 @@ export class DashboardController {
     description: 'Một kho; bỏ trống = mọi kho của trang trại.',
   })
   @ApiOkResponse({
-    description: `Mỗi dòng là một vật tư trong một kho (gộp các lô): tồn đầu kỳ, từng loại biến động trong kỳ và tồn cuối kỳ, số lượng và VND. Tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Giá trị theo giá bình quân gia quyền di động của từng kho; unpriced = có hàng chưa có giá (tính 0 đ). Bỏ các dòng không có tồn và không phát sinh.`,
+    description: `Mỗi dòng là một vật tư trong một kho (gộp các lô): tồn đầu kỳ, từng loại biến động trong kỳ và tồn cuối kỳ, số lượng và VND. Tối đa ${TIMESERIES_MAX_DAYS} ngày, giờ Việt Nam. Giá trị theo giá bình quân gia quyền di động của từng kho; unpriced = có hàng chưa có giá: giá trị của dòng chỉ gồm phần đã định giá, phần chưa có giá không tính (không phải 0 đ). Bỏ các dòng không có tồn và không phát sinh.`,
     schema: {
       type: 'object',
       properties: {

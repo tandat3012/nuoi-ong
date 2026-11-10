@@ -51,6 +51,11 @@ describe('Asset transfer requests', () => {
     creator: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     peer: { id: randomUUID(), member: randomUUID(), role: 'EMPLOYEE' },
     guest: { id: randomUUID(), member: randomUUID(), role: 'GUEST' },
+    manager: {
+      id: randomUUID(),
+      member: randomUUID(),
+      role: 'WAREHOUSE_MANAGER',
+    },
   };
   type Actor = keyof typeof actors;
   const userIds = Object.values(actors).map((actor) => actor.id);
@@ -161,7 +166,7 @@ describe('Asset transfer requests', () => {
       ]);
       // Employees work in both warehouses.
       await tx.insert(schema.farmMemberWarehouses).values(
-        [actors.creator, actors.peer].flatMap((actor) =>
+        [actors.creator, actors.peer, actors.manager].flatMap((actor) =>
           [source, target].map((warehouseId) => ({
             farmMemberId: actor.member,
             warehouseId,
@@ -431,11 +436,13 @@ describe('Asset transfer requests', () => {
       condition: 'DAMAGED',
       note: 'Móp vỏ khi vận chuyển',
     });
+    // A2: a damaged arrival is recorded but stays open for the owner.
     expect(received.request).toMatchObject({
-      status: 'CONFIRMED',
+      status: 'DISCREPANCY',
       receivedByMemberId: actors.owner.member,
       receivedCondition: 'DAMAGED',
       receiveNote: 'Móp vỏ khi vận chuyển',
+      resolvedAt: null,
     });
     // Damaged on arrival: in the destination stock, out of use.
     expect(await assetRow()).toEqual({
@@ -450,7 +457,51 @@ describe('Asset transfer requests', () => {
     expect(await quantity(target)).toBe('1.000');
     expect(
       (await notificationsFor(actors.creator.id)).map((n) => n.type),
-    ).toContain('ASSET_TRANSFER_REQUEST_CONFIRMED');
+    ).toContain('ASSET_TRANSFER_REQUEST_DISCREPANCY');
+    expect(
+      (await notificationsFor(actors.manager.id)).map((n) => n.title),
+    ).toContain('Tài sản điều chuyển đến bị hỏng, cần xử lý');
+
+    // Only the owner/admin settles it, with a note; no stock or asset change, once.
+    await expect(
+      requests.resolve(request.id, farm, clerk('manager'), 'Đã gửi sửa'),
+    ).rejects.toThrow();
+    await expect(
+      requests.resolve(request.id, farm, clerk('owner'), '  '),
+    ).rejects.toThrow('A resolution needs a note');
+    const resolved = await requests.resolve(
+      request.id,
+      farm,
+      clerk('owner'),
+      'Đã lập yêu cầu bảo trì',
+    );
+    expect(resolved).toMatchObject({
+      status: 'CONFIRMED',
+      resolvedByMemberId: actors.owner.member,
+      resolutionNote: 'Đã lập yêu cầu bảo trì',
+    });
+    const retried = await requests.resolve(
+      request.id,
+      farm,
+      clerk('owner'),
+      'Lần hai',
+    );
+    expect(retried.resolutionNote).toBe('Đã lập yêu cầu bảo trì');
+    expect(
+      (await notificationsFor(actors.creator.id)).map((n) => n.title),
+    ).toContain('Sai lệch điều chuyển tài sản đã được xử lý');
+    expect(await assetRow()).toEqual({
+      status: 'DAMAGED',
+      current_location_id: targetShelf,
+    });
+    expect(await quantity(target)).toBe('1.000');
+    // A discrepancy needs a damaged receipt behind it.
+    await expect(
+      pool.query(
+        "UPDATE asset_transfer_requests SET status='DISCREPANCY', resolved_at=NULL, resolved_by_member_id=NULL, resolution_note=NULL, received_at=NULL, received_by_member_id=NULL, received_condition=NULL, receive_note=NULL WHERE id=$1",
+        [request.id],
+      ),
+    ).rejects.toThrow('ck_asset_transfer_discrepancy');
     // The database refuses a receipt without its condition.
     await expect(
       pool.query(

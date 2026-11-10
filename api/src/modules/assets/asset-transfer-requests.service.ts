@@ -37,7 +37,10 @@ import {
   scopeCondition,
   type WarehouseScope,
 } from '../warehouses/warehouse-scope';
-import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  FARM_ADMIN_ROLES,
+  WAREHOUSE_MANAGE_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 import { AssetLifecycleService } from './asset-lifecycle.service';
 import {
   CreateAssetTransferRequestDto,
@@ -69,6 +72,8 @@ const NOTIFICATION_TITLES = {
   REJECTED: 'Yêu cầu chuyển tài sản bị từ chối',
   RECEIVE: 'Tài sản đang chuyển đến kho, cần xác nhận nhận',
   RECEIVED: 'Kho đích đã nhận tài sản điều chuyển',
+  DISCREPANCY: 'Tài sản điều chuyển đến bị hỏng, cần xử lý',
+  RESOLVED: 'Sai lệch điều chuyển tài sản đã được xử lý',
 };
 
 /**
@@ -308,10 +313,12 @@ export class AssetTransferRequestsService {
         { ...input, note },
       );
       const now = new Date().toISOString();
+      // A damaged arrival is in stock (DAMAGED, not usable) but the request stays open for the owner.
+      const damaged = input.condition === 'DAMAGED';
       const [updated] = await tx
         .update(assetTransferRequests)
         .set({
-          status: 'CONFIRMED',
+          status: damaged ? 'DISCREPANCY' : 'CONFIRMED',
           receivedByMemberId: reviewer.memberId,
           receivedAt: now,
           receivedCondition: input.condition,
@@ -323,13 +330,91 @@ export class AssetTransferRequestsService {
       await this.audit(tx, reviewer.memberId, 'RECEIVE', request, updated);
       await notifyDocumentCreator(
         tx,
+        damaged
+          ? {
+              ...this.notification(request, asset.assetCode, 'DISCREPANCY'),
+              title: NOTIFICATION_TITLES.DISCREPANCY,
+            }
+          : {
+              ...this.notification(request, asset.assetCode, 'CONFIRMED'),
+              title: NOTIFICATION_TITLES.RECEIVED,
+            },
+        request.requestedByMemberId,
+      );
+      if (damaged)
+        await notifyFarmApprovers(
+          tx,
+          {
+            ...this.notification(request, asset.assetCode, 'DISCREPANCY'),
+            title: NOTIFICATION_TITLES.DISCREPANCY,
+          },
+          reviewer.memberId,
+          request.toWarehouseId,
+        );
+      return { request: updated, asset };
+    });
+  }
+
+  /**
+   * A2/P1-02: the farm owner/admin records how a damaged arrival was handled
+   * (repair, write-off, claim…). Stock and the asset already moved on receive.
+   */
+  async resolve(id: string, farmId: string, clerkUserId: string, note: string) {
+    const { memberId } = await this.warehousesService.assertScopedAccess(
+      farmId,
+      clerkUserId,
+      true,
+      FARM_ADMIN_ROLES,
+    );
+    const resolutionNote = note.trim();
+    if (!resolutionNote)
+      throw new BadRequestException('A resolution needs a note');
+    return this.databaseService.db.transaction(async (tx) => {
+      const [request] = await tx
+        .select()
+        .from(assetTransferRequests)
+        .where(
+          and(
+            eq(assetTransferRequests.id, id),
+            eq(assetTransferRequests.farmId, farmId),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!request)
+        throw new NotFoundException('Asset transfer request not found');
+      // A retried click: already settled.
+      if (request.status === 'CONFIRMED' && request.resolvedAt) return request;
+      if (request.status !== 'DISCREPANCY')
+        throw new ConflictException(
+          'Only DISCREPANCY asset transfers can be resolved',
+        );
+      const now = new Date().toISOString();
+      const [updated] = await tx
+        .update(assetTransferRequests)
+        .set({
+          status: 'CONFIRMED',
+          resolvedByMemberId: memberId,
+          resolvedAt: now,
+          resolutionNote,
+          updatedAt: now,
+        })
+        .where(eq(assetTransferRequests.id, id))
+        .returning();
+      await this.audit(tx, memberId, 'RESOLVE', request, updated);
+      const [asset] = await tx
+        .select({ assetCode: assets.assetCode })
+        .from(assets)
+        .where(eq(assets.id, request.assetId));
+      await notifyDocumentCreator(
+        tx,
         {
-          ...this.notification(request, asset.assetCode, 'CONFIRMED'),
-          title: NOTIFICATION_TITLES.RECEIVED,
+          ...this.notification(request, asset?.assetCode ?? '', 'CONFIRMED'),
+          title: NOTIFICATION_TITLES.RESOLVED,
         },
         request.requestedByMemberId,
       );
-      return { request: updated, asset };
+      return updated;
     });
   }
 
@@ -568,7 +653,12 @@ export class AssetTransferRequestsService {
   private notification(
     request: TransferRequest,
     assetCode: string,
-    status: 'PENDING_APPROVAL' | 'IN_TRANSIT' | 'CONFIRMED' | 'REJECTED',
+    status:
+      | 'PENDING_APPROVAL'
+      | 'IN_TRANSIT'
+      | 'DISCREPANCY'
+      | 'CONFIRMED'
+      | 'REJECTED',
   ) {
     return {
       farmId: request.farmId,
@@ -585,7 +675,8 @@ export class AssetTransferRequestsService {
   private async audit(
     tx: Transaction,
     actorMemberId: string,
-    action: 'CREATE' | 'CONFIRM' | 'REJECT' | 'DISPATCH' | 'RECEIVE',
+    action:
+      'CREATE' | 'CONFIRM' | 'REJECT' | 'DISPATCH' | 'RECEIVE' | 'RESOLVE',
     before: TransferRequest | null,
     after: TransferRequest,
   ) {
@@ -600,6 +691,7 @@ export class AssetTransferRequestsService {
       rejectionReason: request.rejectionReason,
       receivedCondition: request.receivedCondition,
       receiveNote: request.receiveNote,
+      resolutionNote: request.resolutionNote,
     });
     await tx.insert(auditLogs).values({
       farmId: after.farmId,

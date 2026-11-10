@@ -69,6 +69,7 @@ export interface ProductListFilters {
   minPrice?: number;
   maxPrice?: number;
   sort?: 'price_asc' | 'price_desc';
+  inStock?: boolean;
 }
 
 type Db = DatabaseService['db'];
@@ -96,6 +97,8 @@ type ProductRow = {
 type ProductExtras = {
   inStock: boolean;
   availability: Availability;
+  maxPrice?: number;
+  variantCount?: number;
   image?: {
     src: string;
     alt: string;
@@ -145,6 +148,18 @@ export class CommerceService {
     }
     if (maxPrice !== undefined) {
       conditions.push(lte(catalog.price, String(maxPrice)));
+    }
+    if (filters.inStock) {
+      const inRegion = filters.region && this.servesRegion(filters.region);
+      conditions.push(
+        sql`EXISTS (
+          SELECT 1 FROM ${storeProductVariants}
+          JOIN ${units} ON "units"."id" = "store_product_variants"."unit_id"
+          WHERE "store_product_variants"."product_id" = ${catalog.id}
+            AND ${this.eligibleVariantConditions()}
+            AND ${this.variantInStock(sql`${storeProductVariants.quantityStep}`, inRegion)}
+        )`,
+      );
     }
 
     const where = and(...conditions);
@@ -259,6 +274,18 @@ export class CommerceService {
           id: storeCategories.id,
           name: storeCategories.name,
           slug: storeCategories.slug,
+          productCount: sql<number>`(
+            SELECT COUNT(*)::int
+            FROM ${storeProducts} sp
+            WHERE sp.category_id = "store_categories"."id"
+              AND sp.status = 'PUBLISHED'
+              AND EXISTS (
+                SELECT 1 FROM ${storeProductVariants}
+                JOIN ${units} ON "units"."id" = "store_product_variants"."unit_id"
+                WHERE "store_product_variants"."product_id" = sp.id
+                  AND ${this.eligibleVariantConditions()}
+              )
+          )`.as('product_count'),
         })
         .from(storeCategories)
         .orderBy(asc(storeCategories.name), asc(storeCategories.id))
@@ -733,6 +760,12 @@ export class CommerceService {
       db
         .select({
           productId: storeProductVariants.productId,
+          maxPrice: sql<string>`MAX(${storeProductVariants.price})`.as(
+            'max_price',
+          ),
+          variantCount: sql<number>`COUNT(${storeProductVariants.id})::int`.as(
+            'variant_count',
+          ),
           ...this.availabilityFlags(region, quantity, true),
         })
         .from(storeProductVariants)
@@ -750,9 +783,13 @@ export class CommerceService {
       images.map(({ productId, src, alt }) => [productId, { src, alt }]),
     );
     const stockByProduct = new Map(
-      availability.map(({ productId, ...flags }) => [
+      availability.map(({ productId, maxPrice, variantCount, ...flags }) => [
         productId,
-        this.toAvailability(flags, region),
+        {
+          ...this.toAvailability(flags, region),
+          maxPrice: this.toPrice(maxPrice),
+          variantCount,
+        },
       ]),
     );
 

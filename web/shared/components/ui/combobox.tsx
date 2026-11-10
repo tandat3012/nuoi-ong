@@ -53,9 +53,11 @@ export function Combobox({
   "aria-label": ariaLabel,
 }: ComboboxProps) {
   const listId = React.useId();
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [active, setActive] = React.useState(0);
+  const [dropUp, setDropUp] = React.useState(false);
   const selectedText =
     options.find((option) => option.value === value)?.label ??
     (value ? selectedLabel : undefined);
@@ -69,11 +71,31 @@ export function Combobox({
   const visible = matches.slice(0, MAX_RESULTS);
 
   function openList() {
+    // Flip above the input when the list (max-h-60 = 240px + gap) would be cut off by the viewport.
+    const rect = inputRef.current?.getBoundingClientRect();
+    if (rect) {
+      const below = window.innerHeight - rect.bottom;
+      setDropUp(below < 260 && rect.top > below);
+    }
     setOpen(true);
     setQuery("");
     setActive(0);
     onSearchChange?.("");
   }
+
+  React.useEffect(() => {
+    if (autoFocus && !disabled && inputRef.current) {
+      const el = inputRef.current;
+      el.focus();
+      openList();
+      const frame = requestAnimationFrame(() => {
+        if (document.activeElement !== el) {
+          el.focus();
+        }
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [autoFocus, disabled]);
 
   function choose(option: ComboboxOption) {
     onChange(option.value);
@@ -106,8 +128,9 @@ export function Combobox({
   }
 
   return (
-    <div className="relative w-full">
+    <div className={cn("relative w-full", open && "z-30")}>
       <input
+        ref={inputRef}
         type="text"
         role="combobox"
         aria-expanded={open}
@@ -150,7 +173,10 @@ export function Combobox({
         <ul
           id={listId}
           role="listbox"
-          className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-md border bg-popover py-1 text-sm font-normal shadow-lg"
+          className={cn(
+            "absolute left-0 right-0 z-50 max-h-60 w-full overflow-y-auto rounded-md border border-border bg-popover py-1 text-sm font-normal shadow-xl",
+            dropUp ? "bottom-full mb-1" : "top-full mt-1",
+          )}
         >
           {visible.map((option, index) => (
             <li

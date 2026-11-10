@@ -6,7 +6,7 @@ import { ApiError } from "@/shared/api/client";
 import { getIssueLotSuggestions } from "../api/issues.api";
 import type { IssueLotSuggestion } from "../types/issue";
 import { selectableIssueLotSuggestions } from "./issue-draft.logic";
-import { Button } from "@/shared/components/ui/button";
+import { Combobox } from "@/shared/components/ui/combobox";
 import { formatInventoryQuantity } from "@/features/inventory";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
 
@@ -31,7 +31,6 @@ export function IssueLotPicker({
   onSelect: (lot: IssueLotChoice) => void;
 }) {
   const request = useAuthenticatedRequest();
-  const [open, setOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     farmId: string;
@@ -88,99 +87,86 @@ export function IssueLotPicker({
       )
     : [];
   const selectedSuggestion = choices.find(({ lot }) => lot.id === selected?.id);
+  const options = choices.map(({ lot, balance }) => ({
+    value: lot.id,
+    label: lot.supplierLotNumber
+      ? `${lot.lotCode} · ${lot.supplierLotNumber}`
+      : lot.lotCode,
+    hint: `Tồn ${formatInventoryQuantity(balance.quantityOnHand)} · HSD ${formatExpiry(lot.expiryDate)}`,
+  }));
+  const ready = Boolean(warehouseId && current && !current.error);
 
   return (
-    <section
-      aria-label={`Lô cho vật tư ${itemId}`}
-      className="space-y-2 rounded-lg border p-3"
-    >
-      <p>
-        Lô đã chọn: {selected ? selected.lotCode || selected.id : "Chưa chọn"}
-      </p>
+    <section aria-label={`Lô cho vật tư ${itemId}`} className="space-y-1.5">
+      <Combobox
+        aria-label="Chọn lô xuất"
+        options={options}
+        value={selected?.id ?? ""}
+        selectedLabel={selected?.lotCode}
+        placeholder={
+          !warehouseId
+            ? "Chọn kho xuất trước"
+            : !current
+              ? "Đang tải lô..."
+              : "Tìm theo mã lô hoặc số lô nhà cung cấp..."
+        }
+        emptyText="Không có lô khả dụng trong kho này."
+        disabled={!ready}
+        onChange={(id) => {
+          const entry = choices.find(({ lot }) => lot.id === id);
+          if (entry)
+            onSelect({
+              id: entry.lot.id,
+              lotCode: entry.lot.lotCode,
+              expiryDate: entry.lot.expiryDate,
+              quantityOnHand: entry.balance.quantityOnHand,
+            });
+        }}
+      />
+      {warehouseId && !current && (
+        <BeeLoader size="sm" label="Đang tải lô khả dụng..." />
+      )}
       {selected && (
-        <p className="text-sm text-muted-foreground">
-          Hạn dùng: {selected.expiryDate ?? "Không có hạn"}
+        <p className="text-xs text-muted-foreground">
+          HSD {formatExpiry(selected.expiryDate)}
           {selectedSuggestion
-            ? ` · Tồn hiện tại: ${formatInventoryQuantity(selectedSuggestion.balance.quantityOnHand)}`
+            ? ` · Tồn hiện tại ${formatInventoryQuantity(selectedSuggestion.balance.quantityOnHand)}`
             : current?.error && selected.quantityOnHand
-              ? ` · Số tồn lần chọn trước: ${formatInventoryQuantity(selected.quantityOnHand)}`
+              ? ` · Tồn lần chọn trước ${formatInventoryQuantity(selected.quantityOnHand)}`
               : ""}
         </p>
       )}
-      {!warehouseId ? (
-        <p role="status">Chọn kho xuất trước khi chọn lô.</p>
-      ) : !current ? (
-        <BeeLoader
-          size="sm"
-          label={
-            selected
-              ? "Đang kiểm tra tình trạng lô đã lưu..."
-              : "Đang tải lô khả dụng..."
-          }
-        />
-      ) : current.error ? (
-        <div role="status" className="space-y-1">
-          <p>{current.error}</p>
-          {selected && (
-            <p>Chưa xác định được lô đã lưu còn khả dụng hay không.</p>
-          )}
+      {current?.error && (
+        <p role="status" className="text-xs text-destructive">
+          {current.error}{" "}
           <button
             type="button"
             onClick={() => setAttempt((previous) => previous + 1)}
-            className="underline"
+            className="font-medium underline"
           >
             Thử lại
           </button>
-        </div>
-      ) : selected && !selectedSuggestion ? (
-        <p role="status" className="text-sm text-warning">
-          Lô {selected.lotCode || selected.id} đã hết hạn, hết tồn hoặc không
-          còn ở kho. Phiếu nháp vẫn giữ lô đã lưu; tình trạng sẽ được kiểm tra
-          khi xác nhận.
-        </p>
-      ) : null}
-      {warehouseId && current?.suggestions && (
-        <p className="text-xs text-muted-foreground">
-          Tồn hiển thị chỉ để tham khảo; tồn được kiểm tra khi xác nhận.
         </p>
       )}
-      <Button type="button" variant="outline"
-        disabled={!warehouseId}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {open ? "Ẩn danh sách lô" : selected ? "Thay lô" : "Chọn lô"}
-      </Button>
-      {open && current && !current.error && (
-        <>
-          {choices.length === 0 ? (
-            <p role="status">Không có lô khả dụng trong kho này.</p>
-          ) : (
-            <ul className="space-y-2">
-              {choices.map(({ lot, balance }) => (
-                <li key={lot.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelect({
-                        id: lot.id,
-                        lotCode: lot.lotCode,
-                        expiryDate: lot.expiryDate,
-                        quantityOnHand: balance.quantityOnHand,
-                      });
-                      setOpen(false);
-                    }}
-                    className="text-left underline"
-                  >
-                    {lot.lotCode}
-                    {lot.supplierLotNumber && ` · Số lô ${lot.supplierLotNumber}`} · Hạn: {lot.expiryDate ?? "Không có hạn"} ·
-                    Tồn: {formatInventoryQuantity(balance.quantityOnHand)}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
+      {ready && selected && !selectedSuggestion && (
+        <p role="status" className="text-xs text-warning">
+          Lô {selected.lotCode || selected.id} đã hết hạn, hết tồn hoặc không
+          còn ở kho. Phiếu nháp vẫn giữ lô đã lưu; sẽ kiểm tra lại khi xác
+          nhận.
+        </p>
+      )}
+      {ready && (
+        <p className="text-xs text-muted-foreground">
+          {choices.length} lô khả dụng, xuất trước lô hết hạn sớm. Tồn chỉ để
+          tham khảo, kiểm tra lại khi xác nhận.
+        </p>
       )}
     </section>
   );
+}
+
+function formatExpiry(date: string | null) {
+  if (!date) return "không có";
+  const [year, month, day] = date.split("-");
+  return `${day}/${month}/${year}`;
 }

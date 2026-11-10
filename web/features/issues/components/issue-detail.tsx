@@ -14,6 +14,7 @@ import { supportsIssueDraftEdit } from "./issue-draft.logic";
 import { formatInventoryQuantity } from "@/features/inventory/inventory.logic";
 import { IssueMaintenancePicker } from "./issue-maintenance-picker";
 import { IssueReceipt } from "./issue-receipt";
+import { IssueReturn } from "./issue-return";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
@@ -152,9 +153,31 @@ export function IssueDetail({
             <PageHeader
               title={`Phiếu xuất ${documentCodeLabel(detail.issue.issueCode, detail.issue.id, "PX")}`}
               badge={
-                <Badge variant="outline">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                    detail.issue.status === "CONFIRMED"
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                      : detail.issue.status === "DRAFT"
+                        ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                        : detail.issue.status === "PENDING_APPROVAL"
+                          ? "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-400"
+                          : "border-border bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <span
+                    className={`size-1.5 shrink-0 rounded-full ${
+                      detail.issue.status === "CONFIRMED"
+                        ? "bg-emerald-500"
+                        : detail.issue.status === "DRAFT"
+                          ? "bg-amber-500"
+                          : detail.issue.status === "PENDING_APPROVAL"
+                            ? "bg-sky-500"
+                            : "bg-zinc-400"
+                    }`}
+                    aria-hidden="true"
+                  />
                   {ISSUE_STATUS_LABELS[detail.issue.status]}
-                </Badge>
+                </span>
               }
               actions={
                 <>
@@ -283,6 +306,7 @@ export function IssueDetail({
               viewer={viewer}
               onChanged={refresh}
             />
+            <IssueReturn farmId={farmId} detail={detail} roles={viewer.roles} />
             {detail.items.length === 0 ? (
               <p role="status">Phiếu xuất chưa có dòng hàng.</p>
             ) : (
@@ -372,6 +396,11 @@ export function IssueDetail({
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           {formatInventoryQuantity(line.quantity)}
+                          {Number(line.returnedQuantity ?? 0) > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Đã hoàn trả {formatInventoryQuantity(line.returnedQuantity!)}
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           {line.unitSymbol || line.unitName || "—"}

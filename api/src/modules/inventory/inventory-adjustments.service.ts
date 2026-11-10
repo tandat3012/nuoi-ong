@@ -250,11 +250,11 @@ export class InventoryAdjustmentsService {
   }
 
   async list(filters: AdjustmentListFilters) {
-    const { memberId, scope } = await this.warehousesService.assertScopedAccess(
-      filters.farmId,
-      filters.clerkUserId,
-      false,
-    );
+    const { memberId, viewerId, scope } =
+      await this.warehousesService.documentReadScope(
+        filters.farmId,
+        filters.clerkUserId,
+      );
     const requesterMember = alias(farmMembers, 'requester_member');
     const requesterUser = alias(users, 'requester_user');
     const reviewerMember = alias(farmMembers, 'reviewer_member');
@@ -273,8 +273,8 @@ export class InventoryAdjustmentsService {
     if (filters.itemId) {
       predicates.push(eq(inventoryAdjustments.itemId, filters.itemId));
     }
-    if (filters.mine) {
-      predicates.push(eq(inventoryAdjustments.requestedByMemberId, memberId));
+    if (memberId || filters.mine) {
+      predicates.push(eq(inventoryAdjustments.requestedByMemberId, viewerId));
     }
     const where = and(...predicates);
 
@@ -429,6 +429,8 @@ export class InventoryAdjustmentsService {
           eq(warehouses.status, 'ACTIVE'),
         ),
       )
+      // Shares the row lock deactivation takes, so it waits for this move (NV08).
+      .for('share')
       .limit(1);
     if (!warehouse) {
       throw new ConflictException('Warehouse must exist and be ACTIVE');

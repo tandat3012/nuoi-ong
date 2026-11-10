@@ -12,6 +12,7 @@ import {
   eq,
   getTableColumns,
   gte,
+  inArray,
   lte,
   sql,
 } from 'drizzle-orm';
@@ -22,6 +23,9 @@ import {
   inventoryLots,
   inventoryTransactions,
   assets,
+  stockIssueItems,
+  stockIssues,
+  storeWarrantyRequests,
   items,
   locations,
   stockReceiptItems,
@@ -33,6 +37,7 @@ import {
 } from '../../db/schema';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
+import { CreateIssueReturnDto } from './dto/create-issue-return.dto';
 import { assertInScope, inScope, scopeCondition } from './warehouse-scope';
 import { StockReceiptHooks } from './stock-transfer-hooks';
 import { assertOwnDocument, WarehousesService } from './warehouses.service';
@@ -48,6 +53,7 @@ import {
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import { quantityMillis } from '../store-orders/store-order.rules';
 
 export interface StockReceiptListFilters extends PaginationParams {
   farmId: string;
@@ -153,6 +159,7 @@ export class StockReceiptsService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
+      true,
     );
     const { memberId } = writer;
     assertInScope(writer.scope, input.warehouseId);
@@ -218,6 +225,88 @@ export class StockReceiptsService {
     return this.getReceiptWithItems(result, farmId);
   }
 
+  /**
+   * NV02 internal return: a DRAFT receipt for goods given back from a confirmed
+   * QUANTITY/LOT issue. Only `acceptedQuantity` goes back to stock, on confirm.
+   */
+  async createIssueReturn(
+    farmId: string,
+    clerkUserId: string,
+    issueId: string,
+    input: CreateIssueReturnDto,
+  ) {
+    const writer = await this.warehousesService.assertDocumentWriter(
+      farmId,
+      clerkUserId,
+    );
+    const id = await this.databaseService.db.transaction(async (tx) => {
+      const issue = await this.lockReturnableIssue(tx, farmId, issueId);
+      assertInScope(writer.scope, issue.warehouseId);
+      await this.assertActiveWarehouse(tx, issue.warehouseId, farmId);
+      const issueLines = await tx
+        .select()
+        .from(stockIssueItems)
+        .where(eq(stockIssueItems.stockIssueId, issueId));
+      const byId = new Map(issueLines.map((line) => [line.id, line] as const));
+      const rows = input.items.map((item) => {
+        const line = byId.get(item.issueItemId);
+        // Assets come back through the asset return flow, as themselves.
+        if (!line || line.assetId)
+          throw new BadRequestException(
+            'issueItemId must be a QUANTITY or LOT line of this issue',
+          );
+        byId.delete(line.id);
+        const rejected = item.rejectedQuantity ?? '0';
+        if (Number(item.acceptedQuantity) + Number(rejected) <= 0)
+          throw new BadRequestException('A return line needs a quantity');
+        const reason = item.rejectionReason?.trim();
+        if (Number(rejected) > 0 && !reason)
+          throw new BadRequestException(
+            'rejectionReason is required for a rejected quantity',
+          );
+        return {
+          itemId: line.itemId,
+          lotId: line.lotId,
+          sourceIssueItemId: line.id,
+          quantity: item.acceptedQuantity,
+          rejectedQuantity: rejected,
+          rejectionReason: Number(rejected) > 0 ? reason : null,
+          // 0 = unpriced: valuation brings the stock back at its average cost.
+          unitPrice: '0',
+        };
+      });
+      if (rows.length !== input.items.length)
+        throw new BadRequestException('Each issue line is returned once');
+      await this.assertReturnFits(tx, issueId, rows);
+      const [receipt] = await tx
+        .insert(stockReceipts)
+        .values({
+          farmId,
+          warehouseId: issue.warehouseId,
+          sourceIssueId: issueId,
+          receiptDate: input.receiptDate,
+          note: input.note,
+          createdByMemberId: writer.memberId,
+          status: 'DRAFT',
+        })
+        .returning();
+      await tx
+        .insert(stockReceiptItems)
+        .values(rows.map((row) => ({ ...row, stockReceiptId: receipt.id })));
+      await auditStockDocument(
+        tx,
+        writer.memberId,
+        'STOCK_RECEIPT',
+        'CREATE',
+        null,
+        receipt,
+        { after: input.items },
+      );
+      return receipt.id;
+    });
+    return this.getReceiptWithItems(id, farmId);
+  }
+
   async updateReceipt(
     id: string,
     farmId: string,
@@ -227,14 +316,19 @@ export class StockReceiptsService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
+      true,
     );
     const numbering = numberingOptionChanges(input, writer);
     const transaction = this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
       assertOwnDocument(writer, receipt.createdByMemberId, receipt.warehouseId);
+      if (receipt.sourceIssueId)
+        throw new ConflictException(
+          'An internal return cannot be edited; cancel it and record it again',
+        );
       // An order return may end up with nothing usable to take back.
-      if (input.items && !(await this.isOrderReturn(tx, id)))
-        this.validateItems(input.items);
+      const orderReturn = await this.isOrderReturn(tx, id);
+      if (input.items && !orderReturn) this.validateItems(input.items);
       if (input.warehouseId) assertInScope(writer.scope, input.warehouseId);
       if (receipt.status !== 'DRAFT') {
         throw new ConflictException('Only DRAFT receipts can be edited');
@@ -281,8 +375,33 @@ export class StockReceiptsService {
           legacyByLine.delete(source.id);
           return source;
         };
-        const rows = input.items.map((item) => {
-          const source = sourceOf(item);
+        const sources = input.items.map(sourceOf);
+        // P1-08: an order return only takes back the shipped assets, each by its
+        // line id; anything else would silently drop the asset link and condition.
+        if (orderReturn) {
+          const unmatched = input.items
+            .filter((_, index) => !sources[index]?.assetId)
+            .map((item) => item.itemId);
+          const [asset] = unmatched.length
+            ? await tx
+                .select({ id: items.id })
+                .from(items)
+                .where(
+                  and(
+                    eq(items.farmId, farmId),
+                    inArray(items.id, unmatched),
+                    eq(items.trackingMode, 'ASSET'),
+                  ),
+                )
+                .limit(1)
+            : [];
+          if (asset)
+            throw new BadRequestException(
+              'An order return line of an asset must keep the lineId of a shipped asset',
+            );
+        }
+        const rows = input.items.map((item, index) => {
+          const source = sources[index];
           const assetId = source?.assetId ?? null;
           if (item.assetCondition && !assetId)
             throw new BadRequestException(
@@ -294,19 +413,29 @@ export class StockReceiptsService {
             stockReceiptId: id,
             itemId: item.itemId,
             quantity: item.quantity,
-            unitPrice: item.unitPrice ?? '0',
+            // Fields a client leaves out keep the line's saved value (P1-08).
+            unitPrice: item.unitPrice ?? source?.unitPrice ?? '0',
             lotId: item.lotId,
             supplierLotNumber: item.supplierLotNumber,
             legacyLotNumber:
               source && !item.lotId ? source.legacyLotNumber : null,
-            locationId: item.locationId,
+            locationId:
+              item.locationId === undefined
+                ? (source?.locationId ?? null)
+                : item.locationId,
             manufacturedDate: item.manufacturedDate,
             expiryDate: item.expiryDate,
             assetId,
             assetCode: assetId ? source!.assetCode : item.assetCode,
             serialNumber: assetId ? source!.serialNumber : item.serialNumber,
-            assetCondition: assetId ? (item.assetCondition ?? null) : null,
-            note: item.note,
+            // P1-08: a client that does not send the field (old mobile) keeps the
+            // inspected condition; only an explicit null clears it.
+            assetCondition: assetId
+              ? item.assetCondition === undefined
+                ? source!.assetCondition
+                : item.assetCondition
+              : null,
+            note: item.note === undefined ? (source?.note ?? null) : item.note,
           };
         });
         await tx
@@ -338,6 +467,7 @@ export class StockReceiptsService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
+      true,
     );
     await this.databaseService.db.transaction(async (tx) => {
       await this.hooks.run('lock', tx, id);
@@ -373,6 +503,7 @@ export class StockReceiptsService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       clerkUserId,
+      true,
     );
     await this.databaseService.db.transaction(async (tx) => {
       const receipt = await this.getReceiptOnly(id, farmId, tx, true);
@@ -496,12 +627,26 @@ export class StockReceiptsService {
         .where(eq(stockReceiptItems.stockReceiptId, id));
       if (lines.length === 0 && !(await this.isOrderReturn(tx, id)))
         throw new BadRequestException('Receipt must contain at least one item');
+      // Returns of different issues lock the same lots and balances: same order as stock issues.
+      if (receipt.sourceIssueId)
+        lines.sort(
+          (a, b) =>
+            a.itemId.localeCompare(b.itemId) ||
+            (a.lotId ?? '').localeCompare(b.lotId ?? ''),
+        );
+      // The issue lock serializes returns of one issue, so they never exceed it.
+      if (receipt.sourceIssueId) {
+        await this.lockReturnableIssue(tx, farmId, receipt.sourceIssueId);
+        await this.assertReturnFits(tx, receipt.sourceIssueId, lines);
+      }
       for (const line of lines) {
         const [item] = await tx
           .select({ trackingMode: items.trackingMode })
           .from(items)
           .where(and(eq(items.id, line.itemId), eq(items.farmId, farmId)));
         if (!item) throw new NotFoundException('Receipt item not found');
+        // A return line that failed inspection entirely moves no stock.
+        if (Number(line.quantity) === 0) continue;
         if (line.locationId) {
           if (item.trackingMode !== 'ASSET')
             throw new BadRequestException(
@@ -857,6 +1002,89 @@ export class StockReceiptsService {
     return !!order;
   }
 
+  /** A confirmed QUANTITY/LOT issue to the farm's own use, locked. */
+  private async lockReturnableIssue(
+    tx: Pick<DatabaseService['db'], 'select'>,
+    farmId: string,
+    issueId: string,
+  ) {
+    const [issue] = await tx
+      .select({
+        warehouseId: stockIssues.warehouseId,
+        status: stockIssues.status,
+        issueType: stockIssues.issueType,
+      })
+      .from(stockIssues)
+      .where(and(eq(stockIssues.id, issueId), eq(stockIssues.farmId, farmId)))
+      .for('update');
+    if (!issue) throw new NotFoundException('Stock issue not found');
+    const [exchange] = await tx
+      .select({ id: storeWarrantyRequests.id })
+      .from(storeWarrantyRequests)
+      .where(eq(storeWarrantyRequests.exchangeIssueId, issueId))
+      .limit(1);
+    // Sold, damaged or disposed goods do not come back as an internal return.
+    if (
+      issue.status !== 'CONFIRMED' ||
+      !['CONSUMPTION', 'OTHER', 'MAINTENANCE'].includes(issue.issueType) ||
+      exchange
+    )
+      throw new ConflictException({
+        code: 'ISSUE_NOT_RETURNABLE',
+        message:
+          'Only a confirmed CONSUMPTION, OTHER or MAINTENANCE issue can be returned',
+      });
+    return issue;
+  }
+
+  /** Returned (accepted + rejected) never exceeds what each issue line handed out. */
+  private async assertReturnFits(
+    tx: Pick<DatabaseService['db'], 'select'>,
+    issueId: string,
+    lines: {
+      sourceIssueItemId: string | null;
+      quantity: string;
+      rejectedQuantity: string;
+    }[],
+  ) {
+    const ids = lines.map((line) => line.sourceIssueItemId!);
+    const rows = await tx
+      .select({
+        id: stockIssueItems.id,
+        issued: stockIssueItems.quantity,
+        returned: sql<string>`coalesce((
+          SELECT sum(ri.quantity + ri.rejected_quantity)
+          FROM stock_receipt_items ri
+          JOIN stock_receipts r ON r.id = ri.stock_receipt_id
+          WHERE ri.source_issue_item_id = "stock_issue_items"."id"
+            AND r.status = 'CONFIRMED'
+        ), 0)`,
+      })
+      .from(stockIssueItems)
+      .where(
+        and(
+          eq(stockIssueItems.stockIssueId, issueId),
+          inArray(stockIssueItems.id, ids),
+        ),
+      );
+    const byId = new Map(rows.map((row) => [row.id, row] as const));
+    for (const line of lines) {
+      const row = byId.get(line.sourceIssueItemId!);
+      if (!row)
+        throw new BadRequestException('Return line is not on the source issue');
+      if (
+        quantityMillis(row.returned) +
+          quantityMillis(line.quantity) +
+          quantityMillis(line.rejectedQuantity) >
+        quantityMillis(row.issued)
+      )
+        throw new ConflictException({
+          code: 'RETURN_EXCEEDS_ISSUED',
+          message: 'Returned quantity exceeds what the issue handed out',
+        });
+    }
+  }
+
   private validateItems(items: CreateStockReceiptDto['items']) {
     if (!items?.length)
       throw new BadRequestException('Receipt must contain at least one item');
@@ -876,7 +1104,9 @@ export class StockReceiptsService {
           eq(warehouses.farmId, farmId),
           eq(warehouses.status, 'ACTIVE'),
         ),
-      );
+      )
+      // Shares the row lock deactivation takes, so it waits for this move (NV08).
+      .for('share');
     if (!warehouse)
       throw new ConflictException('Warehouse must exist and be ACTIVE');
   }

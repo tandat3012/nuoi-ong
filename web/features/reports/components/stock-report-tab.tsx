@@ -190,7 +190,7 @@ export function StockReportTab({
         tài sản mất, thanh lý). Chuyển kho ± = chuyển đến − chuyển đi. Cấp phát/thu hồi ± = thu hồi và nhận lại sau bảo
         trì − cấp phát và mang đi bảo trì. Giá trị theo giá bình quân gia quyền di động của từng kho; dòng tổng chỉ cộng
         tiền vì các vật tư khác đơn vị.
-        {view.unpriced > 0 && ` ${view.unpriced} dòng có hàng chưa có giá nhập, tính 0 đ.`}
+        {view.unpriced > 0 && ` ${view.unpriced} dòng có hàng chưa có giá: giá trị của các dòng này (và dòng tổng) chỉ gồm phần đã định giá, chưa đầy đủ.`}
       </p>
     </section>
   );

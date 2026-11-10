@@ -97,11 +97,6 @@ export function HomePromotions({ className }: { className?: string } = {}) {
             );
           })}
         </div>
-
-        {/* Thông báo minh họa bản xem trước */}
-        <p className="mt-6 text-center text-xs text-muted-foreground/70 select-none">
-          * Nội dung ưu đãi mang tính chất minh họa cho bản xem trước.
-        </p>
       </div>
     </section>
   );

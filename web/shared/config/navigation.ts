@@ -36,7 +36,7 @@ export type NavigationItem = {
   storeOnly?: boolean;
 };
 
-type NavigationRequirement = 'manageFarm' | 'manageWarehouse' | 'manageStore' | 'deliver' | 'farmArea' | 'history';
+type NavigationRequirement = 'manageFarm' | 'manageWarehouse' | 'manageStore' | 'deliver' | 'farmArea' | 'masterData' | 'history';
 
 export type NavigationSection = {
   title: string;
@@ -74,9 +74,9 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
   {
     title: 'Danh mục',
     items: [
-      { href: '/materials', label: 'Vật tư', icon: Boxes, requires: 'farmArea', description: 'Danh mục vật tư, đơn vị và mức tồn tối thiểu.' },
-      { href: '/warehouses', label: 'Kho', icon: Warehouse, requires: 'farmArea', description: 'Danh sách kho và vị trí lưu trữ.' },
-      { href: '/catalog', label: 'Danh mục chung', icon: Tags, requires: 'farmArea', description: 'Nhà cung cấp, vị trí, mẫu thiết bị/dụng cụ, nhóm hàng và đơn vị tính.' },
+      { href: '/materials', label: 'Vật tư', icon: Boxes, requires: 'masterData', description: 'Danh mục vật tư, đơn vị và mức tồn tối thiểu.' },
+      { href: '/warehouses', label: 'Kho', icon: Warehouse, requires: 'masterData', description: 'Danh sách kho và vị trí lưu trữ.' },
+      { href: '/catalog', label: 'Danh mục chung', icon: Tags, requires: 'masterData', description: 'Nhà cung cấp, vị trí, mẫu thiết bị/dụng cụ, nhóm hàng và đơn vị tính.' },
     ],
   },
   {
@@ -106,6 +106,7 @@ export type NavigationAccess = {
   canManageStore: boolean;
   canDeliver: boolean;
   canAccessFarmArea: boolean;
+  canAccessMasterData: boolean;
   canViewHistory: boolean;
   isStoreFarm: boolean;
 };
@@ -116,6 +117,7 @@ const requirementAccess = {
   manageStore: 'canManageStore',
   deliver: 'canDeliver',
   farmArea: 'canAccessFarmArea',
+  masterData: 'canAccessMasterData',
   history: 'canViewHistory',
 } as const satisfies Record<NavigationRequirement, keyof NavigationAccess>;
 

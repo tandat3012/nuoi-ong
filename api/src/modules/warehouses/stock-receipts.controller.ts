@@ -18,6 +18,7 @@ import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { RejectStockDocumentDto } from './dto/reject-stock-document.dto';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
+import { CreateIssueReturnDto } from './dto/create-issue-return.dto';
 import { StockReceiptsService } from './stock-receipts.service';
 import {
   ApiBearerAuth,
@@ -53,6 +54,12 @@ const receiptSchema = {
     farmId: { type: 'string', format: 'uuid' },
     warehouseId: { type: 'string', format: 'uuid' },
     supplierId: { type: 'string', format: 'uuid', nullable: true },
+    sourceIssueId: {
+      type: 'string',
+      format: 'uuid',
+      nullable: true,
+      description: 'Phiếu hoàn trả nội bộ: phiếu xuất nguồn.',
+    },
     receiptCode: {
       type: 'string',
       nullable: true,
@@ -116,6 +123,12 @@ const receiptItemSchema = {
     assetId: { type: 'string', format: 'uuid', nullable: true },
     assetCode: { type: 'string', nullable: true },
     serialNumber: { type: 'string', nullable: true },
+    sourceIssueItemId: { type: 'string', format: 'uuid', nullable: true },
+    rejectedQuantity: {
+      ...OPENAPI_DECIMAL_STRING,
+      description: 'Hoàn trả nội bộ: lượng không đạt, không cộng tồn.',
+    },
+    rejectionReason: { type: 'string', nullable: true },
     note: { type: 'string', nullable: true },
     createdAt: { type: 'string', format: 'date-time' },
   },
@@ -131,8 +144,9 @@ const receiptDetailSchema = {
 
 @Controller('stock-receipts')
 @UseGuards(FarmAccessGuard)
-// Store-only managers have no access to warehouse, asset or maintenance modules.
-@FarmRoles(...FARM_AREA_ROLES)
+// Store-only managers have no access to warehouse, asset or maintenance modules,
+// except receipts into the sales warehouse (the service limits them to it).
+@FarmRoles(...FARM_AREA_ROLES, 'STORE_MANAGER')
 @ApiTags('Phiếu nhập kho')
 @ApiBearerAuth('clerk-jwt')
 export class StockReceiptsController {
@@ -251,6 +265,39 @@ export class StockReceiptsController {
       data: await this.stockReceiptsService.createReceipt(
         requireUuid(farmId, 'farmId'),
         auth.clerkUserId,
+        input,
+      ),
+    };
+  }
+
+  @Post('from-issue/:issueId')
+  @ApiOperation({
+    summary: 'Lập phiếu nhập hoàn trả nội bộ từ phiếu xuất',
+    description:
+      'Phiếu xuất CONSUMPTION/OTHER/MAINTENANCE đã xác nhận, dòng QUANTITY/LOT. Mỗi dòng ghi lượng đạt (acceptedQuantity, cộng tồn khi xác nhận) và lượng không đạt (rejectedQuantity, chỉ ghi nhận, cần lý do). Tổng đã trả không vượt lượng đã xuất. Phiếu tạo ở DRAFT, đi tiếp như phiếu nhập; không sửa được, muốn đổi thì huỷ và lập lại.',
+  })
+  @ApiUuidParam('issueId', 'ID phiếu xuất nguồn.')
+  @ApiFarmIdQuery()
+  @ApiCreatedResponse({
+    schema: { type: 'object', properties: { data: receiptDetailSchema } },
+  })
+  @ApiBadRequestResponse({ description: 'Dòng trả không hợp lệ.' })
+  @ApiConflictResponse({
+    description:
+      'ISSUE_NOT_RETURNABLE hoặc RETURN_EXCEEDS_ISSUED (trả vượt lượng đã xuất).',
+  })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu xuất.' })
+  async createIssueReturn(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId: string | undefined,
+    @Param('issueId') issueId: string,
+    @Body() input: CreateIssueReturnDto,
+  ) {
+    return {
+      data: await this.stockReceiptsService.createIssueReturn(
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+        requireUuid(issueId, 'issueId'),
         input,
       ),
     };

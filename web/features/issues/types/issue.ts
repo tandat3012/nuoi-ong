@@ -35,6 +35,8 @@ export interface Issue {
   issueType: IssueType;
   maintenanceRecordId: string | null;
   orderId: string | null;
+  /** Warranty exchange issue: goods went to a customer. */
+  warrantyRequestId?: string | null;
   status: IssueStatus;
   reason: string | null;
   note: string | null;
@@ -71,6 +73,8 @@ export interface IssueLine {
   lotExpiryDate: string | null;
   assetCode: string | null;
   serialNumber: string | null;
+  /** NV02: already given back on confirmed internal returns (accepted + rejected). */
+  returnedQuantity?: string;
 }
 
 export interface IssueDetail {

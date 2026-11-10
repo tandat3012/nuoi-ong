@@ -33,7 +33,7 @@ const STATUS_LABELS: Record<
   { label: string; variant: "warning" | "success" | "destructive" }
 > = {
   PENDING_APPROVAL: { label: "Chờ duyệt", variant: "warning" },
-  CONFIRMED: { label: "Đã ghi nhận", variant: "success" },
+  CONFIRMED: { label: "Đã duyệt", variant: "success" },
   REJECTED: { label: "Từ chối", variant: "destructive" },
 };
 
@@ -41,21 +41,21 @@ function loadError(error: unknown) {
   if (error instanceof ApiError && error.status === 401)
     return "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.";
   if (error instanceof ApiError && error.status === 403)
-    return "Bạn không có quyền xem đề xuất điều chỉnh của trang trại này.";
-  return "Không thể tải danh sách đề xuất. Vui lòng thử lại.";
+    return "Bạn không có quyền xem báo cáo chênh lệch của trang trại này.";
+  return "Không thể tải danh sách báo cáo. Vui lòng thử lại.";
 }
 
 function reviewError(error: unknown) {
   if (error instanceof ApiError) {
     if ((error.details as { code?: string } | undefined)?.code === "SELF_APPROVAL")
-      return "Không tự duyệt đề xuất của chính mình: cần một người duyệt khác.";
+      return "Không tự duyệt báo cáo của chính mình: cần một người duyệt khác.";
     if (error.status === 403)
-      return "Chỉ chủ trại hoặc quản trị viên được duyệt đề xuất.";
-    if (error.status === 404) return "Không tìm thấy đề xuất này nữa.";
+      return "Bạn cần quyền quản lý kho trong phạm vi được phân công, chủ trại hoặc quản trị viên để xét duyệt báo cáo.";
+    if (error.status === 404) return "Không tìm thấy báo cáo này nữa.";
     if (error.status === 409)
       return error.message.toLowerCase().includes("reviewed")
-        ? "Đề xuất đã được người khác xử lý. Danh sách đã được tải lại."
-        : "Không thể ghi nhận: tồn kho, kho, vật tư hoặc lô đã thay đổi. Hãy kiểm tra lại hoặc từ chối đề xuất.";
+        ? "Báo cáo đã được người khác xử lý. Danh sách đã được tải lại."
+        : "Không thể ghi nhận: tồn kho, kho, vật tư hoặc lô đã thay đổi. Hãy kiểm tra lại hoặc từ chối báo cáo.";
   }
   return "Chưa xác nhận được kết quả. Tải lại danh sách để kiểm tra trước khi thử lại.";
 }
@@ -95,7 +95,7 @@ export function InventoryAdjustmentsView({
   const [rejectReason, setRejectReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const key = JSON.stringify([farmId, filters, page, attempt, refreshToken]);
+  const key = JSON.stringify([farmId, canApprove, filters, page, attempt, refreshToken]);
   const { status } = filters;
 
   function changeFilters(next: Partial<typeof filters>) {
@@ -109,7 +109,7 @@ export function InventoryAdjustmentsView({
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}),
       ...(filters.itemId ? { itemId: filters.itemId } : {}),
-      ...(filters.mine ? { mine: true } : {}),
+      ...(!canApprove || filters.mine ? { mine: true } : {}),
       page,
     })
       .then((response) => {
@@ -121,7 +121,7 @@ export function InventoryAdjustmentsView({
     return () => {
       cancelled = true;
     };
-  }, [farmId, filters, key, page, request]);
+  }, [canApprove, farmId, filters, key, page, request]);
 
   const current = result?.key === key ? result : null;
   const rows = current?.response?.data ?? [];
@@ -152,11 +152,11 @@ export function InventoryAdjustmentsView({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Đề xuất điều chỉnh tồn"
+        title="Báo cáo chênh lệch tồn"
         description={
           canApprove
-            ? "Duyệt hoặc từ chối các đề xuất điều chỉnh; đề xuất của chính bạn cần người khác duyệt."
-            : "Theo dõi trạng thái các đề xuất điều chỉnh tồn kho."
+            ? "Xem xét, duyệt hoặc từ chối báo cáo chênh lệch; báo cáo của chính bạn cần người khác duyệt."
+            : "Theo dõi báo cáo chênh lệch của bạn, người xử lý và lý do từ chối. Tồn kho chỉ thay đổi khi được duyệt."
         }
         actions={
           <Button variant="outline" onClick={onReviewed} disabled={!current}>
@@ -166,7 +166,7 @@ export function InventoryAdjustmentsView({
       />
 
       <section
-        aria-label="Lọc đề xuất điều chỉnh"
+        aria-label="Lọc báo cáo chênh lệch"
         className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4"
       >
         <label className="grid gap-1.5 text-sm font-medium">
@@ -224,15 +224,17 @@ export function InventoryAdjustmentsView({
             className="font-normal"
           />
         </label>
-        <label className="flex items-center gap-2 self-end pb-2.5 text-sm font-medium">
-          <input
-            type="checkbox"
-            checked={filters.mine}
-            onChange={(event) => changeFilters({ mine: event.target.checked })}
-            className="size-4"
-          />
-          Chỉ đề xuất của tôi
-        </label>
+        {canApprove && (
+          <label className="flex items-center gap-2 self-end pb-2.5 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={filters.mine}
+              onChange={(event) => changeFilters({ mine: event.target.checked })}
+              className="size-4"
+            />
+            Chỉ báo cáo của tôi
+          </label>
+        )}
       </section>
       {references.error && (
         <p role="alert" className="text-sm text-destructive">
@@ -257,7 +259,7 @@ export function InventoryAdjustmentsView({
       )}
 
       {!current ? (
-        <BeeLoader label="Đang tải đề xuất điều chỉnh..." />
+        <BeeLoader label="Đang tải báo cáo chênh lệch..." />
       ) : current.error ? (
         <div
           role="alert"
@@ -278,8 +280,8 @@ export function InventoryAdjustmentsView({
           !filters.warehouseId &&
           !filters.itemId &&
           !filters.mine
-            ? "Không có đề xuất nào đang chờ duyệt."
-            : "Không có đề xuất phù hợp."}
+            ? "Không có báo cáo nào đang chờ duyệt."
+            : "Không có báo cáo phù hợp."}
         </p>
       ) : (
         <ul className="grid gap-3">
@@ -302,7 +304,7 @@ export function InventoryAdjustmentsView({
                       {row.note ? `: ${row.note}` : ""}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Đề xuất bởi {row.requester.displayName ?? "—"} lúc{" "}
+                      Báo cáo bởi {row.requester.displayName ?? "—"} lúc{" "}
                       {new Date(row.createdAt).toLocaleString("vi-VN")}
                       {row.reviewer &&
                         ` · Xử lý bởi ${row.reviewer.displayName ?? "—"}`}
@@ -406,12 +408,12 @@ export function InventoryAdjustmentsView({
 
       {pageInfo && pageInfo.totalPages > 1 && (
         <nav
-          aria-label="Phân trang đề xuất điều chỉnh"
+          aria-label="Phân trang báo cáo chênh lệch"
           className="flex flex-wrap items-center justify-between gap-3"
         >
           <p className="text-sm text-muted-foreground">
             Trang {pageInfo.number} / {pageInfo.totalPages} (
-            {pageInfo.totalItems} đề xuất)
+            {pageInfo.totalItems} báo cáo)
           </p>
           <div className="flex gap-2">
             <Button
@@ -435,7 +437,7 @@ export function InventoryAdjustmentsView({
       <ConfirmDialog
         open={approving !== null}
         onOpenChange={(open) => !open && !busy && setApproving(null)}
-        title="Duyệt đề xuất điều chỉnh?"
+        title="Duyệt báo cáo chênh lệch?"
         description={
           approving &&
           `${approving.item.code} · ${approving.item.name}: ${formatInventoryMovement(

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
   AlertCircle,
+  Check,
   ChevronLeft,
   ChevronRight,
   RotateCcw,
@@ -9,6 +10,7 @@ import {
 } from 'lucide-react';
 import { getProductsStore } from '../api/product.api';
 import { getStoreRegion } from '../../region/region.server';
+import { storeRegionLabels } from '../../region/region.logic';
 import { getAllCategoriesStore } from '../../categories/api/category.api';
 import { ProductCard } from './product-card';
 import { ProductsSidebar } from './products-sidebar';
@@ -22,7 +24,6 @@ import {
   getPaginationItems,
 } from './products-page.logic';
 import { STOREFRONT_CONFIG } from '@/features/commerce/storefront/config/storefront-config';
-import { StoreSearchBar } from '@/features/commerce/storefront/components/store-search-bar';
 import { cn } from '@/shared/lib/utils';
 
 export interface ProductsPageProps {
@@ -34,14 +35,15 @@ export async function ProductsPage({
   criteria,
   validationError,
 }: ProductsPageProps) {
-  const { category, q, sort } = criteria;
+  const { category, q, sort, inStock } = criteria;
   const page = criteria.page ?? 1;
+  const currentRegion = await getStoreRegion();
 
   const [categoriesResult, productsResult] = await Promise.allSettled([
     getAllCategoriesStore(),
     validationError
       ? Promise.resolve(null)
-      : getProductsStore({ ...criteria, region: await getStoreRegion() }),
+      : getProductsStore({ ...criteria, region: currentRegion }),
   ]);
   const categories =
     categoriesResult.status === 'fulfilled' ? categoriesResult.value : [];
@@ -305,34 +307,44 @@ export async function ProductsPage({
         />
 
         {/* Vùng hiển thị kết quả sản phẩm */}
-        <div className="w-full flex-1">
-          <div className="mb-5 max-w-lg">
-            <p className="mb-2 text-sm font-medium text-foreground">
-              Tìm kiếm sản phẩm
-            </p>
-            <StoreSearchBar idSuffix="products" />
-          </div>
-
-          {/* Thanh công cụ: đếm sản phẩm, bộ lọc di động và chọn sắp xếp */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
-            <p className="text-sm font-medium text-muted-foreground">
+        <div className="w-full min-w-0 flex-1">
+          {/* Các thao tác chính nằm cạnh nhau; lọc còn hàng ở hàng kế trên mobile. */}
+          <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 border-b border-border/60 pb-3 sm:flex sm:flex-wrap sm:gap-3">
+            <p className="text-xs font-medium text-muted-foreground sm:mr-auto sm:text-sm">
               <span className="font-semibold text-foreground">
                 {pageInfo.totalItems}
               </span>{' '}
               sản phẩm
             </p>
 
-            <div className="flex max-w-full flex-wrap items-center gap-2 sm:gap-3">
-              {/* Tùy chọn sắp xếp giá */}
-              <ProductsSortSelect currentSort={sort} />
+            <ProductsMobileFilter
+              categories={categories}
+              categoriesError={categoriesError}
+              criteria={criteria}
+            />
+            <ProductsSortSelect currentSort={sort} />
 
-              {/* Nút lọc danh mục & giá trên thiết bị di động */}
-              <ProductsMobileFilter
-                categories={categories}
-                categoriesError={categoriesError}
-                criteria={criteria}
-                selectedCategoryName={selectedCategoryName}
-              />
+            <div className="col-span-3 sm:w-auto">
+              <Link
+                href={buildProductsHref(
+                  { ...criteria, page: 1 },
+                  { inStock: inStock ? undefined : true },
+                )}
+                aria-pressed={Boolean(inStock)}
+                className={cn(
+                  'inline-flex min-h-9 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs sm:text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-primary',
+                  inStock
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 font-semibold'
+                    : 'border-border bg-card text-foreground hover:bg-muted',
+                )}
+              >
+                {inStock && <Check className="size-3.5 shrink-0" aria-hidden="true" />}
+                <span>
+                  {currentRegion
+                    ? `Còn hàng tại ${storeRegionLabels[currentRegion]}`
+                    : 'Chỉ hiện hàng còn sẵn'}
+                </span>
+              </Link>
             </div>
           </div>
 

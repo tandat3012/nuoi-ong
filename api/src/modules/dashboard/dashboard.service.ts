@@ -332,7 +332,10 @@ export class DashboardService {
         maintenanceOtherCost: row.maintenanceOtherCost,
       };
     });
-    return { granularity, periods, unpricedMovements };
+    // NV09-F02: maintenance costs ignore the selected warehouse; say what they cover.
+    const maintenanceScope =
+      scope === null ? ('FARM' as const) : ('ASSIGNED_WAREHOUSES' as const);
+    return { granularity, periods, unpricedMovements, maintenanceScope };
   }
 
   /**
@@ -382,6 +385,8 @@ export class DashboardService {
         moves: Record<MoveKind, { quantity: number; value: number }>;
         moved: boolean;
         unpriced: boolean;
+        openingUnpriced: number;
+        closingUnpriced: number;
       }
     >();
     const valued = valueMoves(ledger);
@@ -399,10 +404,12 @@ export class DashboardService {
           ) as Record<MoveKind, { quantity: number; value: number }>,
           moved: false,
           unpriced: false,
+          openingUnpriced: 0,
+          closingUnpriced: 0,
         };
         totals.set(key, row);
       }
-      const { value, unpriced } = valued[index];
+      const { value, unpriced, unpricedQuantity } = valued[index];
       if (move.period) {
         row.moves[move.kind].quantity += Math.abs(move.quantity);
         row.moves[move.kind].value += Math.abs(value);
@@ -411,7 +418,9 @@ export class DashboardService {
       } else {
         row.opening.quantity += move.quantity;
         row.opening.value += value;
+        row.openingUnpriced += unpricedQuantity;
       }
+      row.closingUnpriced += unpricedQuantity;
       row.closing.quantity += move.quantity;
       row.closing.value += value;
     });
@@ -436,8 +445,6 @@ export class DashboardService {
       const empty = (stock: Amount) =>
         stock.quantity === '0' && stock.value === '0';
       if (!row.moved && empty(opening) && empty(closing)) continue;
-      const noValue = (stock: Amount) =>
-        stock.quantity !== '0' && stock.value === '0';
       rows.push({
         ...name,
         opening,
@@ -445,7 +452,11 @@ export class DashboardService {
         moves: Object.fromEntries(
           MOVE_KINDS.map((kind) => [kind, amount(row.moves[kind])]),
         ) as Record<MoveKind, Amount>,
-        unpriced: row.unpriced || noValue(opening) || noValue(closing),
+        // Values cover the priced part only; unpriced stock is unknown, not 0 VND.
+        unpriced:
+          row.unpriced ||
+          Math.round(row.openingUnpriced * 1000) > 0 ||
+          Math.round(row.closingUnpriced * 1000) > 0,
       });
     }
     rows.sort(
@@ -463,29 +474,19 @@ export class DashboardService {
     const ledger = await this.ledger(farmId, today, today, 'day');
     const valued = valueMoves(ledger);
     const shown = inWarehouses(undefined, scope);
-    const stocks = new Map<
-      string,
-      { itemId: string; quantity: number; value: number }
-    >();
+    const stocks = new Map<string, { itemId: string; unpriced: number }>();
     let total = 0;
     ledger.forEach((move, index) => {
       if (!shown(move.warehouseId)) return;
       const key = `${move.warehouseId}:${move.itemId}`;
-      const stock = stocks.get(key) ?? {
-        itemId: move.itemId,
-        quantity: 0,
-        value: 0,
-      };
-      stock.quantity += move.quantity;
-      stock.value += valued[index].value;
+      const stock = stocks.get(key) ?? { itemId: move.itemId, unpriced: 0 };
+      stock.unpriced += valued[index].unpricedQuantity;
       stocks.set(key, stock);
       total += valued[index].value;
     });
     const unpriced = new Set(
       [...stocks.values()]
-        .filter(
-          (stock) => Math.round(stock.quantity * 1000) > 0 && stock.value === 0,
-        )
+        .filter((stock) => Math.round(stock.unpriced * 1000) > 0)
         .map((stock) => stock.itemId),
     );
     return { stockValue: String(total), unpricedItems: unpriced.size };
@@ -520,19 +521,25 @@ export class DashboardService {
       document: string;
       quantity: string;
       ownPrice: string | null;
+      pricedShare: string;
       transferKey: string | null;
       otherWarehouseId: string | null;
       period: string | null;
     }>(sql`
-      -- Several priced lines of the item on one receipt: quantity-weighted price.
+      -- Several priced lines of the item on one receipt: quantity-weighted price,
+      -- covering only the priced share of the item's quantity on that receipt.
       -- Aggregated once and joined: stock_receipt_items has no index for a per-row lookup.
       WITH receipt_price AS (
         SELECT ri.stock_receipt_id, ri.item_id,
-          SUM(ri.quantity * ri.unit_price) / SUM(ri.quantity) AS unit_price
+          SUM(ri.quantity * ri.unit_price) FILTER (WHERE ri.unit_price > 0)
+            / SUM(ri.quantity) FILTER (WHERE ri.unit_price > 0) AS unit_price,
+          SUM(ri.quantity) FILTER (WHERE ri.unit_price > 0)
+            / NULLIF(SUM(ri.quantity), 0) AS priced_share
         FROM stock_receipt_items ri
         JOIN stock_receipts r ON r.id = ri.stock_receipt_id
-        WHERE r.farm_id = ${farmId} AND ri.unit_price > 0
+        WHERE r.farm_id = ${farmId}
         GROUP BY ri.stock_receipt_id, ri.item_id
+        HAVING SUM(ri.quantity) FILTER (WHERE ri.unit_price > 0) > 0
       )
       SELECT t.warehouse_id AS "warehouseId", t.item_id AS "itemId",
         t.transaction_type AS "transactionType", t.source_type AS "sourceType",
@@ -540,7 +547,10 @@ export class DashboardService {
         t.quantity_change::text AS "quantity",
         -- Unit price 0 is the column default, so it means "not priced".
         COALESCE(rp.unit_price, NULLIF(a.purchase_price, 0))::text AS "ownPrice",
+        COALESCE(rp.priced_share, 1)::text AS "pricedShare",
+        -- A discrepancy returned to the source takes back what is left in transit.
         CASE WHEN t.transaction_type IN ('TRANSFER_IN', 'TRANSFER_OUT')
+            OR (t.transaction_type = 'RETURN_IN' AND t.source_type = 'STOCK_TRANSFER')
           THEN concat_ws(':', t.source_id, t.item_id, t.lot_id, t.asset_id)
         END AS "transferKey",
         CASE WHEN t.transaction_type IN ('TRANSFER_IN', 'TRANSFER_OUT') THEN COALESCE(
@@ -569,6 +579,7 @@ export class DashboardService {
       kind: moveKind(row.transactionType, row.sourceType),
       quantity: Number(row.quantity),
       ownPrice: row.ownPrice === null ? null : Number(row.ownPrice),
+      pricedShare: Number(row.pricedShare),
       transferKey: row.transferKey,
       otherWarehouseId: row.otherWarehouseId,
       document: row.document,

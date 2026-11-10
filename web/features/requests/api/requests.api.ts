@@ -110,6 +110,18 @@ export function receiveTransferRequest(
   );
 }
 
+export function resolveTransferRequest(
+  request: AuthenticatedRequest,
+  farmId: string,
+  id: string,
+  note: string,
+) {
+  return request<{ data: TransferRequestRecord }>(
+    `${PATHS.transfer}/${encodeURIComponent(id)}/resolve`,
+    { method: "POST", params: { farmId }, data: { note } },
+  );
+}
+
 export function rejectRequest(
   request: AuthenticatedRequest,
   farmId: string,

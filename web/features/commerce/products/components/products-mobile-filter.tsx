@@ -25,19 +25,15 @@ export interface ProductsMobileFilterProps {
   categories: readonly StorefrontCategory[];
   categoriesError?: boolean;
   criteria: ProductsQueryCriteria;
-  selectedCategoryName?: string;
 }
 
 export function ProductsMobileFilter({
   categories,
   categoriesError,
   criteria,
-  selectedCategoryName,
 }: ProductsMobileFilterProps) {
   const [open, setOpen] = React.useState(false);
   const selectedCategory = criteria.category;
-  const hasActivePrice =
-    criteria.minPrice !== undefined || criteria.maxPrice !== undefined;
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -46,14 +42,11 @@ export function ProductsMobileFilter({
           type="button"
           variant="outline"
           size="sm"
-          className="lg:hidden inline-flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-xs sm:text-sm font-medium shadow-2xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+          className="lg:hidden inline-flex h-11 min-w-0 items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs sm:text-sm font-medium shadow-2xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
           aria-label="Mở bộ lọc sản phẩm"
         >
           <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">
-            Bộ lọc{selectedCategory ? `: ${selectedCategoryName}` : ''}
-            {hasActivePrice ? ' · Giá' : ''}
-          </span>
+          <span>Lọc</span>
         </Button>
       </SheetTrigger>
       <SheetContent
@@ -118,19 +111,33 @@ export function ProductsMobileFilter({
                     )}
                     onClick={() => setOpen(false)}
                     className={cn(
-                      'flex items-center justify-between rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
+                      'flex items-center justify-between gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
                       isSelected
                         ? 'bg-store-category-selected text-store-category-selected-foreground font-semibold shadow-2xs'
                         : 'text-foreground hover:bg-[#faf4ea] dark:hover:bg-muted',
                     )}
                   >
                     <span className="min-w-0 break-words">{cat.name}</span>
-                    {isSelected && (
-                      <Check
-                        className="size-4 shrink-0 text-amber-400"
-                        aria-hidden="true"
-                      />
-                    )}
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {typeof cat.productCount === 'number' && (
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-[0.6875rem] font-medium tabular-nums',
+                            isSelected
+                              ? 'bg-background/20 text-store-category-selected-foreground'
+                              : 'bg-muted text-muted-foreground',
+                          )}
+                        >
+                          {cat.productCount}
+                        </span>
+                      )}
+                      {isSelected && (
+                        <Check
+                          className="size-4 shrink-0 text-amber-400"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </span>
                   </Link>
                 );
               })}

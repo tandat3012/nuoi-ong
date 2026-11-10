@@ -117,3 +117,17 @@ export function formatCompactVnd(value: number) {
   if (abs >= 1e3) return `${+(value / 1e3).toFixed(0)} N`;
   return String(value);
 }
+
+/** NV09-F02: maintenance costs are never filtered by the selected warehouse; say what they cover. */
+export function maintenanceScopeNote(
+  scope: "FARM" | "ASSIGNED_WAREHOUSES" | undefined,
+  warehouseSelected: boolean,
+) {
+  const covers =
+    scope === "ASSIGNED_WAREHOUSES"
+      ? "chỉ tài sản thuộc các kho bạn được phân công"
+      : "toàn trang trại";
+  return `Bảo trì tính theo ngày hoàn thành, cho ${covers}${
+    warehouseSelected ? " (không lọc theo kho đã chọn)" : ""
+  }.`;
+}
