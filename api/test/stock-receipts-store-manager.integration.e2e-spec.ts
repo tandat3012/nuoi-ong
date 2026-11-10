@@ -89,6 +89,10 @@ describe('Store manager receipts', () => {
         { id: sales, farmId: farm, code: 'SALES', name: tag },
         { id: working, farmId: farm, code: 'WORK', name: tag },
       ]);
+      await tx.insert(schema.farmMemberWarehouses).values({
+        farmMemberId: actors.manager.member,
+        warehouseId: sales,
+      });
       await tx.insert(schema.storeSettings).values({
         farmId: farm,
         salesWarehouseId: sales,
@@ -112,6 +116,10 @@ describe('Store manager receipts', () => {
         ]);
         await pool.query('DELETE FROM store_settings WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM items WHERE id=$1', [item]);
+        await pool.query(
+          'DELETE FROM farm_member_warehouses WHERE farm_member_id=ANY($1::uuid[])',
+          [memberIds],
+        );
         await pool.query('DELETE FROM warehouses WHERE farm_id=$1', [farm]);
         await pool.query('DELETE FROM categories WHERE id=$1', [category]);
         await pool.query('DELETE FROM units WHERE id=$1', [unit]);
