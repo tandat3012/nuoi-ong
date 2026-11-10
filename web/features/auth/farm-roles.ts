@@ -23,6 +23,8 @@ export const FARM_AREA_ROLES = [
   ...MAINTENANCE_WORK_ROLES,
   "GUEST",
 ];
+/** Materials, warehouses and shared catalog pages: farm area minus maintenance staff. */
+export const MASTER_DATA_ROLES = [...STOCK_WRITE_ROLES, "GUEST"];
 /** Staff with dashboard metrics and change history (own documents unless farm admin). */
 export const HISTORY_ROLES = [...STOCK_WRITE_ROLES, "STORE_MANAGER"];
 
