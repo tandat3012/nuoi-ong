@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuthContext, useAuthenticatedRequest } from "@/features/auth";
 import { formatInventoryQuantity } from "@/features/inventory/inventory.logic";
 import { Badge } from "@/shared/components/ui/badge";
+import { Button } from "@/shared/components/ui/button";
 import { BeeLoader } from "@/shared/components/ui/bee-loader";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
 import { Input } from "@/shared/components/ui/input";
@@ -26,7 +27,8 @@ import {
   summarizeSalesStock,
   type SalesStockState,
 } from "../store-admin.logic";
-import type { StoreSalesStock } from "../types/store-admin";
+import type { StoreSalesStock, StoreSalesStockRow } from "../types/store-admin";
+import { StoreRestockDialog } from "./store-restock-dialog";
 
 /** Staff-only view of the sales warehouse; customers only ever see labels. */
 export function StoreSalesStockScreen() {
@@ -40,6 +42,8 @@ export function StoreSalesStockScreen() {
   const [error, setError] = useState<{ farmId: string; message: string }>();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"ALL" | SalesStockState>("ALL");
+  const [restock, setRestock] = useState<StoreSalesStockRow>();
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!selectedFarmId) return;
@@ -91,6 +95,11 @@ export function StoreSalesStockScreen() {
         title="Tồn bán hàng"
         description="Tồn của kho bán hàng theo từng quy cách sản phẩm."
       />
+      {notice && (
+        <p role="status" className="rounded-lg border border-success/30 bg-success/10 px-4 py-2.5 text-sm text-foreground">
+          {notice}
+        </p>
+      )}
       {!salesWarehouse ? (
         <ErrorAlert message="Chưa cấu hình kho bán hàng. Vào Sản phẩm cửa hàng để chọn kho bán." />
       ) : (
@@ -183,7 +192,7 @@ export function StoreSalesStockScreen() {
               </div>
             </div>
 
-            <Table className="min-w-[760px]">
+            <Table className="min-w-[860px]">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   {["Sản phẩm / quy cách", "Vật tư"].map((label) => (
@@ -197,12 +206,13 @@ export function StoreSalesStockScreen() {
                     </TableHead>
                   ))}
                   <TableHead className={headClass}>Trạng thái bán</TableHead>
+                  <TableHead className={cn(headClass, "text-right")}>Nhập hàng</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visible.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
                       {rows.length === 0
                         ? "Trại chưa gắn vật tư nào vào quy cách bán."
                         : "Không có dòng phù hợp."}
@@ -243,6 +253,15 @@ export function StoreSalesStockScreen() {
                             {state === "ON" ? "Đang bán" : state === "OUT" ? "Hết hàng" : "Không bán"}
                           </Badge>
                         </TableCell>
+                        <TableCell className="py-3 text-right">
+                          <Button
+                            size="sm"
+                            variant={state === "OUT" ? "default" : "outline"}
+                            onClick={() => setRestock(row)}
+                          >
+                            Nhập thêm
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     );
                   })
@@ -255,6 +274,17 @@ export function StoreSalesStockScreen() {
             </p>
           </div>
         </>
+      )}
+      {restock && salesWarehouse && selectedFarmId && (
+        <StoreRestockDialog
+          farmId={selectedFarmId}
+          warehouseId={salesWarehouse.id}
+          row={restock}
+          onClose={() => setRestock(undefined)}
+          onSent={(code) =>
+            setNotice(`Đã gửi phiếu nhập${code ? ` ${code}` : ""} cho ${restock.itemCode}, chờ kho duyệt. Tồn sẽ tăng sau khi kho xác nhận.`)
+          }
+        />
       )}
     </div>
   );

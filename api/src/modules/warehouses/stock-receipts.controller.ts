@@ -144,8 +144,9 @@ const receiptDetailSchema = {
 
 @Controller('stock-receipts')
 @UseGuards(FarmAccessGuard)
-// Store-only managers have no access to warehouse, asset or maintenance modules.
-@FarmRoles(...FARM_AREA_ROLES)
+// Store-only managers have no access to warehouse, asset or maintenance modules,
+// except receipts into the sales warehouse (the service limits them to it).
+@FarmRoles(...FARM_AREA_ROLES, 'STORE_MANAGER')
 @ApiTags('Phiếu nhập kho')
 @ApiBearerAuth('clerk-jwt')
 export class StockReceiptsController {

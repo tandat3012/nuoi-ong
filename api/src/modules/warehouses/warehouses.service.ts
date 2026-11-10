@@ -19,6 +19,7 @@ import {
   locations,
   recordStatus,
   roles,
+  storeSettings,
   users,
   warehouses,
 } from '../../db/schema';
@@ -320,7 +321,9 @@ export class WarehousesService {
     return {
       memberId: hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES) ? null : memberId,
       viewerId: memberId,
-      scope: await this.scopeFor(memberId, roleCodes),
+      scope:
+        (await this.storeOnlyScope(farmId, roleCodes)) ??
+        (await this.scopeFor(memberId, roleCodes)),
     };
   }
 
@@ -379,23 +382,48 @@ export class WarehousesService {
     return rows.map((row) => row.id);
   }
 
-  /** Stock documents: approvers act on any document, employees create and submit their own drafts. */
+  /** Store managers without a stock role see and write only the sales warehouse; undefined for everyone else. */
+  private async storeOnlyScope(
+    farmId: string,
+    roleCodes: string[],
+  ): Promise<string[] | undefined> {
+    if (
+      !roleCodes.includes('STORE_MANAGER') ||
+      hasAnyRole(roleCodes, STOCK_WRITE_ROLES)
+    )
+      return undefined;
+    const [settings] = await this.databaseService.db
+      .select({ id: storeSettings.salesWarehouseId })
+      .from(storeSettings)
+      .where(eq(storeSettings.farmId, farmId))
+      .limit(1);
+    return settings?.id ? [settings.id] : [];
+  }
+
+  /**
+   * Stock documents: approvers act on any document, employees create and submit their own drafts.
+   * `allowStoreSales` lets a store manager write documents of the sales warehouse (receipts only).
+   */
   async assertDocumentWriter(
     farmId: string,
     clerkUserId: string,
+    allowStoreSales = false,
   ): Promise<DocumentWriter> {
     const { memberId, roleCodes } = await this.getActiveMembership(
       farmId,
       clerkUserId,
     );
     const canApprove = hasAnyRole(roleCodes, WAREHOUSE_MANAGE_ROLES);
-    if (!hasAnyRole(roleCodes, STOCK_WRITE_ROLES)) {
+    const storeScope = allowStoreSales
+      ? await this.storeOnlyScope(farmId, roleCodes)
+      : undefined;
+    if (!storeScope && !hasAnyRole(roleCodes, STOCK_WRITE_ROLES)) {
       throw new ForbiddenException('Stock document permission is required');
     }
     return {
       memberId,
       canApprove,
-      scope: await this.scopeFor(memberId, roleCodes),
+      scope: storeScope ?? (await this.scopeFor(memberId, roleCodes)),
       isOwner: roleCodes.includes('FARM_OWNER'),
     };
   }
