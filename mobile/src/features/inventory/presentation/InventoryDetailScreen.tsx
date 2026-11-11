@@ -7,8 +7,9 @@ import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { formatQuantity } from '@/src/shared/format-quantity';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
-import { apiRequest, MobileApiError } from '@/src/shared/api/client';
-import { filterAvailableAssetsForScope, filterPositiveBalancesForScope, listAvailableAssets, listItems, listWarehouses, type InventoryBalance, type Item, type Warehouse } from '@/src/features/inventory/api';
+import { clearApiCache, isAbortError, MobileApiError } from '@/src/shared/api/client';
+import { filterAvailableAssetsForScope, filterPositiveBalancesForScope, getInventoryLot, getItemById, listAssetsPage, listBalancesPage, listWarehouses, type InventoryBalance, type Item, type Warehouse } from '@/src/features/inventory/api';
+import { toThumbnailUrl } from '@/src/shared/cloudinary-url';
 
 export default function InventoryDetailScreen() {
   const router = useRouter();
@@ -25,25 +26,41 @@ export default function InventoryDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const lotId = item?.trackingMode === 'LOT' ? routeLotId : undefined;
 
   useEffect(() => {
-    if (!currentFarmId || (!itemId && !lotId)) { setLoading(false); return; }
+    if (!currentFarmId || (!itemId && !routeLotId)) { setLoading(false); return; }
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
     setWarehouses([]);
     setSelectedWarehouseId(null);
     setBalances([]);
-    void getAccessToken().then((token) => {
+    void getAccessToken().then(async (token) => {
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
+      let resolvedItemId = itemId;
+      if (!resolvedItemId && routeLotId) {
+        const lotDetail = await getInventoryLot(token, currentFarmId, routeLotId, controller.signal).catch((cause: unknown) => {
+          if (cause instanceof MobileApiError && cause.status === 404) return null;
+          throw cause;
+        });
+        resolvedItemId = lotDetail?.itemId;
+      }
+      const itemPromise = resolvedItemId
+        ? getItemById(token, currentFarmId, resolvedItemId, controller.signal).catch((cause: unknown) => {
+          if (cause instanceof MobileApiError && cause.status === 404) return null;
+          throw cause;
+        })
+        : Promise.resolve(null);
       return Promise.all([
-        listItems(token, currentFarmId),
+        itemPromise,
         listWarehouses(token, currentFarmId),
       ]);
-    }).then(([itemResponse, warehouseResponse]) => {
+    }).then(([loadedItem, warehouseResponse]) => {
       if (cancelled) return;
-      setItem(itemResponse.data.find((candidate) => candidate.id === itemId) ?? null);
+      setItem(loadedItem && loadedItem.farmId === currentFarmId ? loadedItem : null);
       const farmWarehouses = warehouseResponse.data.filter((warehouse) => warehouse.farmId === currentFarmId);
       setWarehouses(farmWarehouses);
       setSelectedWarehouseId((current) => {
@@ -51,9 +68,12 @@ export default function InventoryDetailScreen() {
         if (current && farmWarehouses.some((warehouse) => warehouse.id === current)) return current;
         return farmWarehouses[0]?.id ?? null;
       });
-    }).catch((cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : 'Không thể tải chi tiết tồn kho.'); }).finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [currentFarmId, getAccessToken, itemId, lotId, routeWarehouseId]);
+    }).catch((cause: unknown) => {
+      if (cancelled || isAbortError(cause)) return;
+      setError(cause instanceof Error ? cause.message : 'Không thể tải chi tiết tồn kho.');
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; controller.abort(); };
+  }, [currentFarmId, getAccessToken, itemId, reloadNonce, routeLotId, routeWarehouseId]);
 
   useEffect(() => {
     if (!currentFarmId || !selectedWarehouseId || !warehouses.some((warehouse) => warehouse.id === selectedWarehouseId)) {
@@ -63,34 +83,58 @@ export default function InventoryDetailScreen() {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
+    const effectiveItemId = item?.id ?? itemId;
     setBalanceLoading(true);
     setBalances([]);
     setHasAvailableAsset(false);
     setError(null);
     void getAccessToken().then((token) => {
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
-      const balanceRequest = apiRequest<{ data: InventoryBalance[] }>('/inventory', {
+      const balanceRequest = listBalancesPage(
         token,
-        params: { farmId: currentFarmId, warehouseId: selectedWarehouseId, itemId, lotId },
-        skipCache: true,
-      });
-      const assetRequest = item?.trackingMode === 'ASSET'
-        ? listAvailableAssets(token, currentFarmId, selectedWarehouseId)
+        currentFarmId,
+        {
+          warehouseId: selectedWarehouseId,
+          itemId: effectiveItemId,
+          lotId,
+          positiveOnly: true,
+          page: 1,
+          pageSize: 100,
+          skipCache: true,
+        },
+        controller.signal,
+      );
+      const assetRequest = item?.trackingMode === 'ASSET' && effectiveItemId
+        ? listAssetsPage(
+          token,
+          currentFarmId,
+          {
+            warehouseId: selectedWarehouseId,
+            itemId: effectiveItemId,
+            status: 'AVAILABLE',
+            page: 1,
+            pageSize: 1,
+            skipCache: true,
+          },
+          controller.signal,
+        )
         : Promise.resolve(null);
       return Promise.all([balanceRequest, assetRequest]);
     }).then(([response, assetResponse]) => {
       if (!cancelled) {
         setBalances(filterPositiveBalancesForScope(response.data, currentFarmId, selectedWarehouseId)
-          .filter(({ balance }) => (!itemId || balance.itemId === itemId)
+          .filter(({ balance }) => (!effectiveItemId || balance.itemId === effectiveItemId)
             && (!lotId || balance.lotId === lotId)));
-        setHasAvailableAsset(Boolean(assetResponse && filterAvailableAssetsForScope(assetResponse, currentFarmId, selectedWarehouseId)
-          .some(({ asset }) => asset.itemId === itemId)));
+        setHasAvailableAsset(Boolean(assetResponse && filterAvailableAssetsForScope(assetResponse.data, currentFarmId, selectedWarehouseId)
+          .some(({ asset }) => asset.itemId === effectiveItemId)));
       }
     }).catch((cause: unknown) => {
-      if (!cancelled) setError(cause instanceof Error ? cause.message : 'Không thể tải số dư của kho đã chọn.');
+      if (cancelled || isAbortError(cause)) return;
+      setError(cause instanceof Error ? cause.message : 'Không thể tải số dư của kho đã chọn.');
     }).finally(() => { if (!cancelled) setBalanceLoading(false); });
-    return () => { cancelled = true; };
-  }, [currentFarmId, getAccessToken, item?.trackingMode, itemId, lotId, selectedWarehouseId, warehouses]);
+    return () => { cancelled = true; controller.abort(); };
+  }, [currentFarmId, getAccessToken, item?.id, item?.trackingMode, itemId, lotId, reloadNonce, selectedWarehouseId, warehouses]);
 
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
   const selectedWarehouse = warehouses.find((warehouse) => warehouse.id === selectedWarehouseId);
@@ -98,14 +142,15 @@ export default function InventoryDetailScreen() {
   const farmName = data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.farm.name ?? (data?.memberships.length === 1 ? data.memberships[0]?.farm.name : undefined) ?? 'Chưa chọn trang trại';
   const trackingLabel = item?.trackingMode === 'LOT' ? 'THEO LÔ' : item?.trackingMode === 'ASSET' ? 'TÀI SẢN' : 'SỐ LƯỢNG';
   const canIssueOrTransfer = item?.trackingMode === 'ASSET' ? hasAvailableAsset : balances.length > 0;
+  const heroImageUrl = toThumbnailUrl(item?.imageUrl, 256);
 
   return <AppShell active="inventory">
-    <PageHeader title={farmName} subtitle="Chi tiết tồn kho" onBack={() => router.back()} action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={() => Alert.alert('Đồng bộ', 'Dữ liệu đang được đồng bộ.')} style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}><Icon name="sync" color={colors.primary} /></Pressable></View>} />
+    <PageHeader title={farmName} subtitle="Chi tiết tồn kho" onBack={() => router.back()} action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={() => { clearApiCache(); setReloadNonce((v) => v + 1); Alert.alert('Đồng bộ', 'Dữ liệu đang được đồng bộ.'); }} style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}><Icon name="sync" color={colors.primary} /></Pressable></View>} />
     <View style={styles.breadcrumb}><Text style={styles.crumbMuted}>Tồn kho</Text><Icon name="chevron-right" size={16} color={colors.outline} /><Text style={styles.crumbStrong}>Chi tiết tồn kho</Text><Pill tone="amber"><Text style={styles.track}>{trackingLabel}</Text></Pill></View>
     <View style={styles.warehouseSelect}><View style={styles.warehouseSelectCopy}><Text style={styles.warehouseSelectLabel}>KHO ĐANG XEM</Text><Text style={styles.warehouseSelectValue}>{selectedWarehouse ? `${selectedWarehouse.code} • ${selectedWarehouse.name}` : loading ? 'Đang tải kho...' : 'Chưa xác định kho từ màn hình tồn kho'}</Text></View></View>
 
     {loading || balanceLoading ? <Text style={styles.message}>Đang tải tồn kho của kho đã chọn...</Text> : error ? <Text style={styles.error}>{error}</Text> : <>
-      <Card style={styles.productCard}><HoneycombDecor muted size={46} /><View style={styles.productHead}><View style={styles.productIcon}>{item?.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="cover" /> : <Icon name={trackingLabel === 'TÀI SẢN' ? 'inventory-2' : trackingLabel === 'THEO LÔ' ? 'hive' : 'grain'} size={34} color={colors.primary} />}</View><View style={styles.productCopy}><Pill tone={totalQuantity > 0 ? 'success' : 'amber'}><Text style={styles.status}>{totalQuantity > 0 ? '● Đang lưu kho tại kho này' : '● Chưa có tồn tại kho này'}</Text></Pill><Text style={styles.productTitle}>{item?.name ?? 'Vật tư không còn trong danh mục'}</Text><View style={styles.codeBox}><Text style={styles.codeLabel}>Mã vật tư</Text><Text style={styles.codeValue}>{item?.code ?? itemId ?? 'Chưa có mã'}</Text></View></View></View><View style={styles.metaRow}><Text style={styles.metaText}>Theo dõi: {trackingLabel}</Text><Text style={styles.metaBullet}>•</Text><Text style={styles.metaText}>Tồn kho này: {formatQuantity(totalQuantity)} {item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị'}</Text></View>{lotId ? <Text style={styles.lotText}>Mã lô: {lotId}</Text> : null}</Card>
+      <Card style={styles.productCard}><HoneycombDecor muted size={46} /><View style={styles.productHead}><View style={styles.productIcon}>{heroImageUrl ? <Image source={{ uri: heroImageUrl }} style={styles.productImage} resizeMode="cover" /> : <Icon name={trackingLabel === 'TÀI SẢN' ? 'inventory-2' : trackingLabel === 'THEO LÔ' ? 'hive' : 'grain'} size={34} color={colors.primary} />}</View><View style={styles.productCopy}><Pill tone={totalQuantity > 0 ? 'success' : 'amber'}><Text style={styles.status}>{totalQuantity > 0 ? '● Đang lưu kho tại kho này' : '● Chưa có tồn tại kho này'}</Text></Pill><Text style={styles.productTitle}>{item?.name ?? 'Vật tư không còn trong danh mục'}</Text><View style={styles.codeBox}><Text style={styles.codeLabel}>Mã vật tư</Text><Text style={styles.codeValue}>{item?.code ?? itemId ?? 'Chưa có mã'}</Text></View></View></View><View style={styles.metaRow}><Text style={styles.metaText}>Theo dõi: {trackingLabel}</Text><Text style={styles.metaBullet}>•</Text><Text style={styles.metaText}>Tồn kho này: {formatQuantity(totalQuantity)} {item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị'}</Text></View>{lotId ? <Text style={styles.lotText}>Mã lô: {lotId}</Text> : null}</Card>
       <Card style={styles.storageCard}><View style={styles.storageHeader}><Icon name="warehouse" color={colors.primary} /><Text style={styles.storageTitle}>Tồn kho & vị trí lưu trữ</Text><Pill tone={balances.length > 0 ? 'success' : 'amber'}><Text style={styles.status}>{balances.length > 0 ? 'Có tồn kho' : 'Chưa có tồn'}</Text></Pill></View>{balances.length === 0 ? <Text style={styles.message}>{selectedWarehouse ? `Kho ${selectedWarehouse.name} chưa có số dư dương cho vật tư này.` : 'Chưa xác định được kho đang xem.'}</Text> : balances.map((entry) => <View key={entry.balance.id} style={styles.location}><View style={styles.locationCopy}><Text style={styles.locationName}>{warehouseById.get(entry.balance.warehouseId)?.name ?? 'Kho không xác định'}</Text><Text style={styles.locationMeta}>{warehouseById.get(entry.balance.warehouseId)?.code ?? entry.balance.warehouseId}</Text></View><Text style={styles.locationValue}>{formatQuantity(entry.balance.quantityOnHand)} {item?.unitSymbol ?? item?.unitName ?? item?.itemType ?? 'đơn vị'}</Text></View>)}</Card>
       <SectionTitle title="Thông tin chi tiết" /><Card style={styles.infoCard}><Info label="Trạng thái danh mục" value={item?.status ?? 'Chưa có dữ liệu'} /><Info label="Mã vật tư" value={item?.code ?? itemId ?? 'Chưa có dữ liệu'} /><Info label="Farm hiện tại" value={farmName} /></Card>
       <View style={styles.actions}>

@@ -234,7 +234,10 @@ describe('MaterialsService', () => {
     const rows = [{ item: { code: 'MAT-TEST' }, quantityOnHand: '12' }];
     select
       .mockReturnValueOnce(queryReturning(rows))
-      .mockReturnValueOnce(queryReturning([{ value: '1' }]));
+      .mockReturnValueOnce(queryReturning([{ value: '1' }]))
+      .mockReturnValueOnce(
+        queryReturning([{ lotCount: 1, activeCount: 1, lowStockCount: 0 }]),
+      );
 
     await expect(
       service.listMaterials({
@@ -246,6 +249,7 @@ describe('MaterialsService', () => {
       }),
     ).resolves.toEqual({
       data: rows,
+      summary: { lotCount: 1, activeCount: 1, lowStockCount: 0 },
       page: { number: 1, size: 20, totalItems: 1, totalPages: 1 },
     });
   });
@@ -253,12 +257,14 @@ describe('MaterialsService', () => {
   it('returns no materials when the filtered result is empty', async () => {
     select
       .mockReturnValueOnce(queryReturning([]))
+      .mockReturnValueOnce(queryReturning([]))
       .mockReturnValueOnce(queryReturning([]));
 
     await expect(
       service.listMaterials({ farmId, page: 1, pageSize: 20, offset: 0 }),
     ).resolves.toEqual({
       data: [],
+      summary: { lotCount: 0, activeCount: 0, lowStockCount: 0 },
       page: { number: 1, size: 20, totalItems: 0, totalPages: 0 },
     });
   });

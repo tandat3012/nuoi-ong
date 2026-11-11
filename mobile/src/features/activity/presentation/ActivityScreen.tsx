@@ -7,13 +7,14 @@ import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { clearApiCache } from '@/src/shared/api/client';
 import { listAuditLogs, type AuditLog, type AuditLogPage } from '@/src/features/activity/api';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
-import { actionLabel, actionLabels, entityLabel, entityLabels, formatDateTime, getStatus, recordLabel, statusLabel, statusTone } from '../model';
-import { AppShell, Card, Icon, PageHeader, Pill } from '@/src/shared/ui/MobileShell';
+import { actionLabel, actionLabels, entityLabel, entityLabels, formatDateTime, getStatus, normalizeEntity, recordLabel, statusLabel, statusTone } from '../model';
+import { AppShell, Card, Icon, PageHeader, Pill, type IconName } from '@/src/shared/ui/MobileShell';
 
 export default function ActivityScreen() {
   const router = useRouter();
   const { data, currentFarmId, selectFarm, getAccessToken } = useAuthContext();
   const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [references, setReferences] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -33,6 +34,7 @@ export default function ActivityScreen() {
   useEffect(() => {
     if (!currentFarmId) {
       setLogs([]);
+      setReferences({});
       setPagination(null);
       setLoading(false);
       setError('Chưa chọn trang trại để xem lịch sử.');
@@ -50,6 +52,7 @@ export default function ActivityScreen() {
       .then((response) => {
         if (cancelled) return;
         setLogs(response.data);
+        setReferences(response.references ?? {});
         setPagination(response.page);
         setScope(response.scope);
         setError(null);
@@ -101,18 +104,18 @@ export default function ActivityScreen() {
     <Filter label="Đối tượng" value={entityType} options={entityLabels} onChange={(value) => { setEntityType(value); setPageNumber(1); }} />
     {!currentFarmId ? <Card><Text style={styles.message}>Chọn trang trại để xem lịch sử.</Text></Card> : loading || loadedKey !== requestKey ? <Card style={styles.messageCard}><Icon name="sync" color={colors.primary} /><Text style={styles.message}>Đang tải lịch sử thao tác...</Text></Card> : error ? <Card style={styles.errorCard}><Icon name="error-outline" color={colors.error} /><View style={styles.copy}><Text style={styles.errorTitle}>Không tải được lịch sử</Text><Text style={styles.errorText}>{error}</Text></View><Pressable onPress={reload} style={({ pressed }) => [styles.retry, pressed && styles.pressed]}><Text style={styles.retryText}>Thử lại</Text></Pressable></Card> : <>
 
-      {logs.length === 0 ? <Card style={styles.emptyCard}><Icon name="history" color={colors.primary} /><View style={styles.copy}><Text style={styles.emptyTitle}>Chưa có lịch sử phù hợp</Text><Text style={styles.emptyText}>{scope === 'FARM' ? 'Thử đổi bộ lọc hoặc làm mới lịch sử trang trại.' : 'Bạn chưa có thao tác phù hợp trong trại này.'}</Text></View></Card> : <View style={styles.list}>{logs.map((log) => <AuditCard key={log.id} log={log} onPress={() => router.push(`/activity/${encodeURIComponent(log.id)}` as never)} />)}</View>}
+      {logs.length === 0 ? <Card style={styles.emptyCard}><Icon name="history" color={colors.primary} /><View style={styles.copy}><Text style={styles.emptyTitle}>Chưa có lịch sử phù hợp</Text><Text style={styles.emptyText}>{scope === 'FARM' ? 'Thử đổi bộ lọc hoặc làm mới lịch sử trang trại.' : 'Bạn chưa có thao tác phù hợp trong trại này.'}</Text></View></Card> : <View style={styles.list}>{logs.map((log) => <AuditCard key={log.id} log={log} references={references} onPress={() => router.push(`/activity/${encodeURIComponent(log.id)}` as never)} />)}</View>}
       {pagination ? <View style={styles.pagination}><Text style={styles.meta}>{pagination.totalItems} thao tác • Trang {pagination.number}/{Math.max(pagination.totalPages, 1)}</Text><View style={styles.pageActions}><Pressable accessibilityRole="button" disabled={pageNumber <= 1} onPress={() => setPageNumber((page) => page - 1)} style={[styles.pageButton, pageNumber <= 1 && styles.disabled]}><Text style={styles.link}>Trang trước</Text></Pressable><Pressable accessibilityRole="button" disabled={pageNumber >= pagination.totalPages} onPress={() => setPageNumber((page) => page + 1)} style={[styles.pageButton, pageNumber >= pagination.totalPages && styles.disabled]}><Text style={styles.link}>Trang tiếp</Text></Pressable></View></View> : null}
     </>}
     <Modal visible={farmPickerOpen} transparent animationType="slide" onRequestClose={() => setFarmPickerOpen(false)}><View style={styles.modalBackdrop}><View style={styles.modalSheet}><View style={styles.modalHead}><Text style={styles.modalTitle}>Chọn trang trại cần xem</Text><Pressable accessibilityRole="button" accessibilityLabel="Đóng" onPress={() => setFarmPickerOpen(false)} style={styles.modalClose}><Icon name="close" color={colors.onSurfaceVariant} /></Pressable></View><ScrollView>{(data?.memberships ?? []).map(({ farm }) => <Pressable key={farm.id} accessibilityRole="radio" accessibilityState={{ checked: pendingFarmId === farm.id }} onPress={() => setPendingFarmId(farm.id)} style={[styles.farmOption, pendingFarmId === farm.id && styles.farmOptionActive]}><Icon name={pendingFarmId === farm.id ? 'radio-button-checked' : 'radio-button-unchecked'} color={pendingFarmId === farm.id ? colors.primary : colors.outline} /><View style={styles.copy}><Text style={styles.farmName}>{farm.name}</Text><Text style={styles.meta}>{farm.code}</Text></View></Pressable>)}</ScrollView><Pressable accessibilityRole="button" disabled={!pendingFarmId} onPress={() => void confirmFarmSelection()} style={({ pressed }) => [styles.confirmFarm, !pendingFarmId && styles.disabled, pressed && styles.pressed]}><Text style={styles.confirmFarmText}>Xác nhận trang trại</Text></Pressable></View></View></Modal>
   </AppShell>;
 }
 
-function AuditCard({ log, onPress }: { log: AuditLog; onPress: () => void }) {
+function AuditCard({ log, references, onPress }: { log: AuditLog; references: Record<string, string>; onPress: () => void }) {
   const status = getStatus(log.newData) ?? getStatus(log.oldData);
   return <Pressable accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${actionLabel(log.action)} ${entityLabel(log.entityType)}`} onPress={onPress} style={({ pressed }) => pressed && styles.pressed}><Card style={styles.auditCard}>
-    <View style={styles.auditHead}><View style={styles.iconBox}><Icon name={iconForEntity(log.entityType.toUpperCase())} color={colors.primary} /></View><View style={styles.copy}><Text style={styles.action}>{actionLabel(log.action)}</Text><Text style={styles.target}>{entityLabel(log.entityType)}</Text></View><Pill tone={statusTone(status)}><Text style={styles.status}>{statusLabel(status)}</Text></Pill></View>
-    <Text selectable style={styles.target}>{recordLabel(log)}</Text>
+    <View style={styles.auditHead}><View style={styles.iconBox}><Icon name={iconForEntity(log.entityType)} color={colors.primary} /></View><View style={styles.copy}><Text style={styles.action}>{actionLabel(log.action)}</Text><Text style={styles.target}>{entityLabel(log.entityType)}</Text></View><Pill tone={statusTone(status)}><Text style={styles.status}>{statusLabel(status)}</Text></Pill></View>
+    <Text selectable style={styles.target}>{recordLabel(log, references)}</Text>
     <View style={styles.auditMeta}><Text style={styles.meta}>{log.actor?.name ?? log.actor?.email ?? 'Chưa có thông tin người thực hiện'}</Text><Text style={styles.meta}>{formatDateTime(log.createdAt)}</Text></View>
     <View style={styles.detailAction}><Text style={styles.link}>Xem chi tiết</Text><Icon name="chevron-right" color={colors.primary} size={18} /></View>
   </Card></Pressable>;
@@ -122,10 +125,14 @@ function Filter({ label, value, options, onChange }: { label: string; value: str
   return <View style={styles.filter}><Text style={styles.meta}>{label}</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterOptions}>{[['', 'Tất cả'], ...Object.entries(options)].map(([key, title]) => <Pressable key={key} accessibilityRole="button" accessibilityState={{ selected: value === key }} onPress={() => onChange(key)} style={[styles.filterButton, value === key && styles.selectedFilter]}><Text style={styles.link}>{title}</Text></Pressable>)}</ScrollView></View>;
 }
 
-function iconForEntity(entityType: string): Parameters<typeof Icon>[0]['name'] {
-  if (entityType.includes('STOCK') || entityType === 'INVENTORY') return 'inventory-2';
-  if (entityType === 'ASSET') return 'build';
-  if (entityType === 'MAINTENANCE') return 'build';
+function iconForEntity(entityType: string): IconName {
+  const normalized = normalizeEntity(entityType);
+  if (normalized === 'STOCK_TRANSFER') return 'swap-horiz';
+  if (normalized.includes('STOCK') || normalized === 'INVENTORY' || normalized === 'ITEM') return 'inventory-2';
+  if (normalized === 'ASSET' || normalized.includes('MAINTENANCE') || normalized === 'ASSET_TRANSFER_REQUEST') return 'build';
+  if (normalized === 'WAREHOUSE') return 'warehouse';
+  if (normalized === 'PERSONNEL') return 'groups';
+  if (normalized.startsWith('STORE_')) return 'storefront';
   return 'history';
 }
 

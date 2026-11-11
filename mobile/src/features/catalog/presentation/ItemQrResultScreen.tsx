@@ -6,8 +6,9 @@ import { AppShell, Card, Icon, PageHeader, Pill, PrimaryButton } from '@/src/sha
 import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
-import { apiRequest, MobileApiError } from '@/src/shared/api/client';
-import { balanceMatchesTrackingMode, filterAvailableAssetsForScope, filterPositiveBalancesForScope, listAvailableAssets, listBalances, listItems, listWarehouses } from '@/src/features/inventory/api';
+import { apiRequest, isAbortError, MobileApiError } from '@/src/shared/api/client';
+import { balanceMatchesTrackingMode, filterAvailableAssetsForScope, filterPositiveBalancesForScope, getItemById, listAssetsPage, listBalancesPage, listWarehouses } from '@/src/features/inventory/api';
+import { toThumbnailUrl } from '@/src/shared/cloudinary-url';
 
 type ItemQrResponse = { data: { itemId: string; itemCode: string; itemName: string; itemImageUrl: string | null; qrUrl: string; format: string } };
 
@@ -34,6 +35,7 @@ export default function ItemQrResultScreen() {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setResult(null);
     setHasPositiveStockInScope(false);
@@ -44,25 +46,51 @@ export default function ItemQrResultScreen() {
         return apiRequest<ItemQrResponse>(`/items/${encodeURIComponent(itemId)}/qr`, {
           token,
           params: { farmId: currentFarmId },
+          signal: controller.signal,
         }).then(async (qrResponse) => {
           const targetWarehouseId = warehouseId || (await listWarehouses(token, currentFarmId)).data.find((entry) => entry.farmId === currentFarmId)?.id;
           if (!targetWarehouseId) return { qrResponse, hasPositiveStock: false, targetWarehouseId: undefined };
-          const [balanceResponse, itemResponse] = await Promise.all([
-            listBalances(token, currentFarmId, targetWarehouseId, true, true),
-            listItems(token, currentFarmId),
-          ]);
-          const item = itemResponse.data.find((entry) => entry.id === itemId && entry.farmId === currentFarmId);
-          if (!item) return { qrResponse, hasPositiveStock: false, targetWarehouseId };
+          const item = await getItemById(token, currentFarmId, itemId, controller.signal).catch((cause: unknown) => {
+            if (cause instanceof MobileApiError && cause.status === 404) return null;
+            throw cause;
+          });
+          if (!item || item.farmId !== currentFarmId) return { qrResponse, hasPositiveStock: false, targetWarehouseId };
           if (item.trackingMode === 'ASSET') {
-            const availableAssets = await listAvailableAssets(token, currentFarmId, targetWarehouseId);
+            const availableAssets = await listAssetsPage(
+              token,
+              currentFarmId,
+              {
+                warehouseId: targetWarehouseId,
+                itemId,
+                status: 'AVAILABLE',
+                page: 1,
+                pageSize: 1,
+                skipCache: true,
+              },
+              controller.signal,
+            );
             return {
               qrResponse,
               isAsset: true,
               targetWarehouseId,
-              hasPositiveStock: filterAvailableAssetsForScope(availableAssets, currentFarmId, targetWarehouseId)
+              hasPositiveStock: filterAvailableAssetsForScope(availableAssets.data, currentFarmId, targetWarehouseId)
                 .some(({ asset }) => asset.itemId === itemId),
             };
           }
+          const balanceResponse = await listBalancesPage(
+            token,
+            currentFarmId,
+            {
+              warehouseId: targetWarehouseId,
+              itemId,
+              trackingMode: item.trackingMode,
+              positiveOnly: true,
+              page: 1,
+              pageSize: 1,
+              skipCache: true,
+            },
+            controller.signal,
+          );
           return {
             qrResponse,
             targetWarehouseId,
@@ -83,13 +111,15 @@ export default function ItemQrResultScreen() {
         }
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Không thể xác thực mã vật tư.');
+        if (cancelled || isAbortError(cause)) return;
+        setError(cause instanceof Error ? cause.message : 'Không thể xác thực mã vật tư.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [currentFarmId, getAccessToken, itemId, warehouseId]);
 
@@ -102,7 +132,7 @@ export default function ItemQrResultScreen() {
     {loading ? <Card style={styles.messageCard}><Icon name="sync" color={colors.primary} /><Text style={styles.message}>Đang xác thực mã vật tư...</Text></Card> : error ? <Card style={styles.errorCard}><Icon name="error-outline" color={colors.error} /><View style={styles.copy}><Text style={styles.errorTitle}>QR vật tư không hợp lệ</Text><Text style={styles.errorText}>{error}</Text></View><Pressable onPress={startNewScan} style={({ pressed }) => [styles.errorAction, pressed && styles.pressed]}><Text style={styles.errorActionText}>Quét lại</Text></Pressable></Card> : result ? <>
 
       <Card style={styles.successCard}><View style={styles.successIcon}><Icon name="check-circle" size={28} color={colors.statusSuccessStrong} /></View><View style={styles.copy}><Text style={styles.eyebrow}>KẾT QUẢ QUÉT QR</Text><Text style={styles.title}>Mã vật tư hợp lệ</Text><Text style={styles.subtitle}>Đây là mã của danh mục vật tư, không gắn riêng với kho hoặc lô.</Text></View><Pill tone="success"><Text style={styles.successLabel}>ĐÃ XÁC NHẬN</Text></Pill></Card>
-      <Card style={styles.detailCard}><View style={styles.iconBox}>{result.itemImageUrl ? <Image source={{ uri: result.itemImageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name="inventory-2" size={32} color={colors.primary} />}</View><Text style={styles.itemName}>{result.itemName}</Text><View style={styles.codeBox}><Text style={styles.codeLabel}>Mã vật tư</Text><Text style={styles.codeValue}>{result.itemCode}</Text></View><Info label="Loại mã" value="ITEM MASTER" /><Info label="QR URL" value={result.qrUrl} /></Card>
+      <Card style={styles.detailCard}><View style={styles.iconBox}>{toThumbnailUrl(result.itemImageUrl, 256) ? <Image source={{ uri: toThumbnailUrl(result.itemImageUrl, 256)! }} style={styles.itemImage} resizeMode="cover" /> : <Icon name="inventory-2" size={32} color={colors.primary} />}</View><Text style={styles.itemName}>{result.itemName}</Text><View style={styles.codeBox}><Text style={styles.codeLabel}>Mã vật tư</Text><Text style={styles.codeValue}>{result.itemCode}</Text></View><Info label="Loại mã" value="ITEM MASTER" /><Info label="QR URL" value={result.qrUrl} /></Card>
       <View style={styles.actions}>
         <PrimaryButton label="Mở tồn kho vật tư" icon="inventory-2" onPress={() => router.push(`/inventory-detail?itemId=${encodeURIComponent(result.itemId)}${resolvedWarehouseId ? `&warehouseId=${encodeURIComponent(resolvedWarehouseId)}` : ''}` as never)} />
         <View style={styles.actionRow}>

@@ -35,7 +35,7 @@ export function useMaterials() {
     onReloadReferences,
   } = useMaterialReferences(request);
 
-  const { materials, pageInfo, isLoading, errorMessage } = useMaterialList(
+  const { materials, summary, pageInfo, isLoading, errorMessage } = useMaterialList(
     request,
     selectedFarmId,
     filters,
@@ -85,6 +85,7 @@ export function useMaterials() {
     selectedMaterial,
     filters,
     materials,
+    summary,
     pageInfo,
     isLoading,
     errorMessage,

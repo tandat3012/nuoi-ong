@@ -36,6 +36,11 @@ export function clearApiCache() {
   inFlightGets.clear();
 }
 
+export function isAbortError(cause: unknown): boolean {
+  if (!cause || typeof cause !== 'object') return false;
+  return 'name' in cause && (cause as { name?: unknown }).name === 'AbortError';
+}
+
 export class MobileApiError extends Error {
   constructor(
     message: string,
@@ -57,6 +62,12 @@ type RequestOptions = Omit<RequestInit, 'headers' | 'body'> & {
 
 export async function apiRequest<T>(path: string, options: RequestOptions) {
   const { token, params, body, cacheTtlMs, skipCache, ...requestInit } = options;
+  if (requestInit.signal?.aborted) {
+    const abortError = new Error('The operation was aborted.');
+    abortError.name = 'AbortError';
+    throw abortError;
+  }
+
   const url = new URL(path.replace(/^\/+/, ''), `${API_BASE_URL.replace(/\/$/, '')}/`);
   Object.entries(params ?? {}).forEach(([key, value]) => {
     if (value !== undefined) url.searchParams.set(key, String(value));
@@ -65,14 +76,17 @@ export async function apiRequest<T>(path: string, options: RequestOptions) {
   const method = (requestInit.method ?? 'GET').toUpperCase();
   const isAuthMe = url.pathname.endsWith('/auth/me');
   const shouldCache = method === 'GET' && !skipCache && !isAuthMe;
+  const canDedupe = shouldCache && !requestInit.signal;
   const cacheKey = `${token}\n${url.href}`;
 
   if (shouldCache) {
     const cached = responseCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.value as T;
     if (cached) responseCache.delete(cacheKey);
-    const inFlight = inFlightGets.get(cacheKey);
-    if (inFlight) return inFlight as Promise<T>;
+    if (canDedupe) {
+      const inFlight = inFlightGets.get(cacheKey);
+      if (inFlight) return inFlight as Promise<T>;
+    }
   }
 
   const performRequest = async () => {
@@ -88,6 +102,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions) {
         },
       });
     } catch (cause) {
+      if (isAbortError(cause)) throw cause;
       throw new MobileApiError('Không thể kết nối máy chủ API.', 0, cause);
     }
 
@@ -128,8 +143,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions) {
       return value;
     })
     .finally(() => {
-      if (inFlightGets.get(cacheKey) === request) inFlightGets.delete(cacheKey);
+      if (canDedupe && inFlightGets.get(cacheKey) === request) inFlightGets.delete(cacheKey);
     });
-  inFlightGets.set(cacheKey, request);
+  if (canDedupe) inFlightGets.set(cacheKey, request);
   return (await request) as T;
 }

@@ -1,7 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
-import type { AssetView } from '../types/asset';
+import type { AssetListSummary, AssetView } from '../types/asset';
 import {
   Package,
   CheckCircle2,
@@ -12,34 +11,13 @@ import {
 export function AssetSummaryBar({
   assets,
   totalItems,
+  summary,
 }: {
   assets: AssetView[];
   totalItems?: number;
+  summary?: AssetListSummary;
 }) {
-  const summary = useMemo(() => {
-    const total = totalItems ?? assets.length;
-    let available = 0;
-    let inUse = 0;
-    let attention = 0;
-
-    for (const item of assets) {
-      const status = item.asset.status;
-      if (status === 'AVAILABLE') {
-        available++;
-      } else if (status === 'ASSIGNED' || status === 'IN_USE') {
-        inUse++;
-      } else if (
-        status === 'MAINTENANCE' ||
-        status === 'DAMAGED' ||
-        status === 'LOST' ||
-        status === 'TRANSFER_PENDING'
-      ) {
-        attention++;
-      }
-    }
-
-    return { total, available, inUse, attention };
-  }, [assets, totalItems]);
+  const total = totalItems ?? assets.length;
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -50,7 +28,7 @@ export function AssetSummaryBar({
           <Package className="size-4 text-primary" aria-hidden="true" />
         </div>
         <p className="mt-1.5 text-xl font-bold tracking-tight text-foreground tabular-nums">
-          {summary.total}
+          {total}
         </p>
         <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">Thiết bị quản lý trong trại</p>
       </div>
@@ -62,7 +40,7 @@ export function AssetSummaryBar({
           <CheckCircle2 className="size-4 text-emerald-500" aria-hidden="true" />
         </div>
         <p className="mt-1.5 text-xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400 tabular-nums">
-          {summary.available}
+          {summary?.available ?? '—'}
         </p>
         <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">Đang ở kho, sẵn sàng cấp phát</p>
       </div>
@@ -74,7 +52,7 @@ export function AssetSummaryBar({
           <UserCheck className="size-4 text-blue-500" aria-hidden="true" />
         </div>
         <p className="mt-1.5 text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400 tabular-nums">
-          {summary.inUse}
+          {summary?.inUse ?? '—'}
         </p>
         <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">Nhân viên / tổ đội đang giữ</p>
       </div>
@@ -86,7 +64,7 @@ export function AssetSummaryBar({
           <AlertTriangle className="size-4 text-amber-500" aria-hidden="true" />
         </div>
         <p className="mt-1.5 text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400 tabular-nums">
-          {summary.attention}
+          {summary?.attention ?? '—'}
         </p>
         <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">Đang bảo trì, hỏng hoặc thất lạc</p>
       </div>

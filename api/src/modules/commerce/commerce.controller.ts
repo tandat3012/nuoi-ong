@@ -104,7 +104,8 @@ export class CommerceController {
     name: 'inStock',
     required: false,
     enum: ['true', 'false'],
-    description: 'Chỉ lấy sản phẩm đang còn hàng (theo miền nếu có chọn region).',
+    description:
+      'Chỉ lấy sản phẩm đang còn hàng (theo miền nếu có chọn region).',
   })
   @ApiQuery(REGION_QUERY)
   @ApiOkResponse({

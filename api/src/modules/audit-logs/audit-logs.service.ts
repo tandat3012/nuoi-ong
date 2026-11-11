@@ -16,9 +16,12 @@ import {
 import type { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
+  assetAssignments,
+  assetIncidents,
   assets,
   assetTransferRequests,
   auditLogs,
+  categories,
   farmMembers,
   farms,
   inventoryLots,
@@ -31,9 +34,12 @@ import {
   stockReceipts,
   stockTransfers,
   storeCategories,
+  storeOrders,
   storeProductVariants,
   storeProducts,
+  storeWarrantyRequests,
   suppliers,
+  units,
   users,
   warehouses,
 } from '../../db/schema';
@@ -53,6 +59,8 @@ export interface AuditLogFilters extends PaginationParams {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_GLOBAL =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 const auditLogFields = {
   id: auditLogs.id,
@@ -126,6 +134,14 @@ export class AuditLogsService {
     return this.present(row);
   }
 
+  async getDetail(id: string, farmId: string, clerkUserId: string) {
+    const data = await this.get(id, farmId, clerkUserId);
+    return {
+      data,
+      references: await this.references(farmId, [data]),
+    };
+  }
+
   /** Admins and owners read farm history; other staff read only actions they performed. */
 
   private async scope(
@@ -159,12 +175,15 @@ export class AuditLogsService {
     const collect = (value: unknown): void => {
       if (typeof value === 'string') {
         if (UUID.test(value)) found.add(value);
+        else if (value.length >= 36) {
+          for (const match of value.match(UUID_GLOBAL) ?? []) found.add(match);
+        }
       } else if (Array.isArray(value)) value.forEach(collect);
       else if (value && typeof value === 'object')
         Object.values(value).forEach(collect);
     };
     for (const row of rows) {
-      if (row.entityId) found.add(row.entityId);
+      if (row.entityId && UUID.test(row.entityId)) found.add(row.entityId);
       collect(row.oldData);
       collect(row.newData);
     }
@@ -313,6 +332,80 @@ export class AuditLogsService {
         .select({ id: farms.id, label: farms.name })
         .from(farms)
         .where(and(eq(farms.id, farmId), inArray(farms.id, ids))),
+      db
+        .select({
+          id: categories.id,
+          label: codeName(categories.code, categories.name),
+        })
+        .from(categories)
+        .where(inArray(categories.id, ids)),
+      db
+        .select({
+          id: units.id,
+          label: sql<string>`case when nullif(${units.symbol}, '') is not null then ${units.name} || ' (' || ${units.symbol} || ')' else ${units.name} end`,
+        })
+        .from(units)
+        .where(inArray(units.id, ids)),
+      db
+        .select({
+          id: users.id,
+          label: sql<string>`coalesce(nullif(${users.fullName}, ''), ${users.email})`,
+        })
+        .from(users)
+        .innerJoin(farmMembers, eq(farmMembers.userId, users.id))
+        .where(and(eq(farmMembers.farmId, farmId), inArray(users.id, ids))),
+      db
+        .select({
+          id: assetIncidents.id,
+          label: sql<string>`'Sự cố ' || ${assets.assetCode}`,
+        })
+        .from(assetIncidents)
+        .innerJoin(assets, eq(assets.id, assetIncidents.assetId))
+        .where(
+          and(
+            eq(assetIncidents.farmId, farmId),
+            inArray(assetIncidents.id, ids),
+          ),
+        ),
+      db
+        .select({
+          id: assetAssignments.id,
+          label: sql<string>`'Cấp phát ' || ${assets.assetCode} || ' — ' || coalesce(nullif(${users.fullName}, ''), ${users.email})`,
+        })
+        .from(assetAssignments)
+        .innerJoin(assets, eq(assets.id, assetAssignments.assetId))
+        .innerJoin(
+          farmMembers,
+          eq(farmMembers.id, assetAssignments.assignedToMemberId),
+        )
+        .innerJoin(users, eq(users.id, farmMembers.userId))
+        .where(
+          and(
+            eq(assetAssignments.farmId, farmId),
+            inArray(assetAssignments.id, ids),
+          ),
+        ),
+      db
+        .select({
+          id: storeOrders.id,
+          label: sql<string>`'DH' || lpad(${storeOrders.orderNumber}::text, 6, '0')`,
+        })
+        .from(storeOrders)
+        .where(
+          and(eq(storeOrders.farmId, farmId), inArray(storeOrders.id, ids)),
+        ),
+      db
+        .select({
+          id: storeWarrantyRequests.id,
+          label: sql<string>`'BH' || lpad(${storeWarrantyRequests.requestNumber}::text, 6, '0')`,
+        })
+        .from(storeWarrantyRequests)
+        .where(
+          and(
+            eq(storeWarrantyRequests.farmId, farmId),
+            inArray(storeWarrantyRequests.id, ids),
+          ),
+        ),
     ]);
     return Object.fromEntries(
       groups

@@ -1,3 +1,5 @@
+import type { PaginatedResponse } from "@/shared/api/contracts";
+
 export type MaterialKind =
   | "FEED"
   | "TREATMENT"
@@ -75,6 +77,16 @@ export interface MaterialListRow {
   unitSymbol: string | null;
   quantityOnHand: string;
 }
+
+export interface MaterialListSummary {
+  lotCount: number;
+  activeCount: number;
+  lowStockCount: number;
+}
+
+export type MaterialListResponse = PaginatedResponse<MaterialListRow> & {
+  summary?: MaterialListSummary;
+};
 
 export interface MaterialDetail {
   item: MaterialItem;

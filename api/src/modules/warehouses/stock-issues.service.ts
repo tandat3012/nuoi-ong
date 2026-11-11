@@ -12,6 +12,7 @@ import {
   eq,
   getTableColumns,
   gte,
+  ilike,
   inArray,
   isNull,
   lte,
@@ -71,6 +72,7 @@ type Filters = PaginationParams & {
   status?: typeof stockIssues.$inferSelect.status;
   dateFrom?: string;
   dateTo?: string;
+  search?: string;
 };
 type Db = DatabaseService['db'];
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -108,6 +110,15 @@ export class StockIssuesService {
       conditions.push(gte(stockIssues.issueDate, filters.dateFrom));
     if (filters.dateTo)
       conditions.push(lte(stockIssues.issueDate, filters.dateTo));
+    if (filters.search) {
+      const pattern = `%${filters.search.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(
+        or(
+          ilike(stockIssues.issueCode, pattern),
+          ilike(stockIssues.reason, pattern),
+        )!,
+      );
+    }
 
     const where = and(...conditions);
     const [data, totals] = await Promise.all([
@@ -938,6 +949,7 @@ export class StockIssuesService {
         ...getTableColumns(stockIssueItems),
         itemCode: items.code,
         itemName: items.name,
+        itemImageUrl: items.imageUrl,
         trackingMode: items.trackingMode,
         unitName: units.name,
         unitSymbol: units.symbol,

@@ -1,121 +1,317 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
+import { colors, dimensions, radius, spacing, typography } from '@/src/core/theme/tokens';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
-import { findLowStockItems, listBalances, listItems, listWarehouses, type Item, type LowStockItem, type Warehouse } from '@/src/features/inventory/api';
+import { listInventorySummaryPage, listWarehouses, type InventorySummaryRow, type Warehouse } from '@/src/features/inventory/api';
 import { AppShell, Card, Icon, PageHeader, SectionTitle } from '@/src/shared/ui/MobileShell';
-import { MobileApiError } from '@/src/shared/api/client';
+import { clearApiCache, isAbortError, MobileApiError } from '@/src/shared/api/client';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { formatQuantity } from '@/src/shared/format-quantity';
+import { toThumbnailUrl } from '@/src/shared/cloudinary-url';
+
+const LOW_STOCK_PAGE_SIZE = 20;
+
+const LowStockRowCard = memo(function LowStockRowCard({
+  item,
+  warehouseName,
+  onPress,
+}: {
+  item: InventorySummaryRow;
+  warehouseName?: string;
+  onPress: (row: InventorySummaryRow) => void;
+}) {
+  const thumbUrl = toThumbnailUrl(item.itemImageUrl, 128);
+  return (
+    <Pressable
+      onPress={() => onPress(item)}
+      accessibilityRole="button"
+      accessibilityLabel={`Xem chi tiết ${item.itemName}${warehouseName ? ` tại ${warehouseName}` : ''}`}
+      android_ripple={{ color: colors.primaryFixed }}
+      style={({ pressed }) => [pressed && styles.pressed]}
+    >
+      <Card style={styles.itemCard}>
+        <View style={styles.itemIcon}>
+          {thumbUrl
+            ? <Image source={{ uri: thumbUrl }} style={styles.itemImage} resizeMode="cover" />
+            : <Icon name={item.trackingMode === 'ASSET' ? 'inventory-2' : item.trackingMode === 'LOT' ? 'hive' : 'grain'} size={21} color={colors.primary} />}
+        </View>
+        <View style={styles.itemCopy}>
+          <Text style={styles.itemName} numberOfLines={2}>{item.itemName}</Text>
+          <Text style={styles.itemCode}>{item.itemCode}</Text>
+          <Text style={styles.itemMeta}>
+            {item.categoryName ?? 'Vật tư'} · {item.trackingMode === 'LOT' ? 'Theo lô' : item.trackingMode === 'ASSET' ? 'Tài sản' : 'Số lượng'}
+          </Text>
+        </View>
+        <View style={styles.quantityCopy}>
+          <Text style={styles.quantity}>
+            {formatQuantity(item.quantityOnHand)} / {formatQuantity(Number(item.minStockLevel ?? 0))}
+          </Text>
+          <Text style={styles.unit}>{item.unitSymbol ?? item.unitName ?? 'đơn vị'}</Text>
+          <Icon name="chevron-right" size={18} color={colors.outline} />
+        </View>
+      </Card>
+    </Pressable>
+  );
+});
 
 export default function LowStockScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ warehouseId?: string | string[] }>();
   const requestedWarehouseId = Array.isArray(params.warehouseId) ? params.warehouseId[0] : params.warehouseId;
   const { data, currentFarmId, getAccessToken } = useAuthContext();
-  const [items, setItems] = useState<Item[]>([]);
-  const [balances, setBalances] = useState<Awaited<ReturnType<typeof listBalances>>['data']>([]);
+  const [alerts, setAlerts] = useState<InventorySummaryRow[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
   const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const loadMoreControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    loadMoreControllerRef.current?.abort();
+    loadMoreControllerRef.current = null;
+    setLoadingMore(false);
+
     if (!currentFarmId || !requestedWarehouseId) {
+      setWarehouse(null);
+      setAlerts([]);
+      setTotalItems(0);
+      setPage(1);
+      setTotalPages(0);
       setLoading(false);
       setError('Thiếu trang trại hoặc kho cần xem cảnh báo.');
       return;
     }
+
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setAlerts([]);
+    setPage(1);
+    setTotalPages(0);
+
     void getAccessToken()
-      .then((token) => {
+      .then(async (token) => {
         if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
-        return Promise.all([
-          listWarehouses(token, currentFarmId),
-          listBalances(token, currentFarmId),
-          listItems(token, currentFarmId),
-        ]);
-      })
-      .then(([warehouseResponse, balanceResponse, itemResponse]) => {
-        if (cancelled) return;
-        const selected = warehouseResponse.data.find((entry) =>
-          entry.id === requestedWarehouseId && entry.farmId === currentFarmId,
+        const warehouseResponse = await listWarehouses(token, currentFarmId, false, controller.signal);
+        const selected = warehouseResponse.data.find(
+          (entry) => entry.id === requestedWarehouseId && entry.farmId === currentFarmId,
         );
         if (!selected) {
+          return { selected: null, summaryResponse: null };
+        }
+        const summaryResponse = await listInventorySummaryPage(
+          token,
+          currentFarmId,
+          {
+            warehouseId: selected.id,
+            lowStockOnly: true,
+            page: 1,
+            pageSize: LOW_STOCK_PAGE_SIZE,
+            skipCache: reloadNonce > 0,
+          },
+          controller.signal,
+        );
+        return { selected, summaryResponse };
+      })
+      .then(({ selected, summaryResponse }) => {
+        if (cancelled) return;
+        if (!selected || !summaryResponse) {
           setError('Kho không thuộc trang trại đang chọn hoặc không còn hoạt động.');
           setWarehouse(null);
-          setItems([]);
-          setBalances([]);
+          setAlerts([]);
+          setTotalItems(0);
+          setTotalPages(0);
           return;
         }
         setWarehouse(selected);
-        setItems(itemResponse.data.filter((item) => item.farmId === currentFarmId));
-        setBalances(balanceResponse.data.filter(({ balance }) => balance.farmId === currentFarmId));
+        setAlerts(summaryResponse.data);
+        setTotalItems(summaryResponse.page.totalItems);
+        setPage(1);
+        setTotalPages(summaryResponse.page.totalPages);
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Không thể tải cảnh báo tồn kho.');
+        if (cancelled || isAbortError(cause)) return;
+        setError(cause instanceof Error ? cause.message : 'Không thể tải cảnh báo tồn kho.');
       })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      loadMoreControllerRef.current?.abort();
+    };
   }, [currentFarmId, getAccessToken, reloadNonce, requestedWarehouseId]);
 
-  const alerts: LowStockItem[] = useMemo(() => currentFarmId && warehouse
-    ? findLowStockItems(items, balances, currentFarmId, warehouse.id)
-    : [], [balances, currentFarmId, items, warehouse]);
+  const loadMore = useCallback(() => {
+    if (!currentFarmId || !warehouse || loading || loadingMore || page >= totalPages) return;
+    loadMoreControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadMoreControllerRef.current = controller;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+
+    void getAccessToken()
+      .then((token) => {
+        if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
+        return listInventorySummaryPage(
+          token,
+          currentFarmId,
+          {
+            warehouseId: warehouse.id,
+            lowStockOnly: true,
+            page: nextPage,
+            pageSize: LOW_STOCK_PAGE_SIZE,
+            skipCache: reloadNonce > 0,
+          },
+          controller.signal,
+        );
+      })
+      .then((response) => {
+        if (loadMoreControllerRef.current !== controller) return;
+        setAlerts((current) => {
+          const existing = new Set(current.map((entry) => entry.itemId));
+          const merged = [...current];
+          for (const row of response.data) {
+            if (!existing.has(row.itemId)) merged.push(row);
+          }
+          return merged;
+        });
+        setTotalItems(response.page.totalItems);
+        setPage(nextPage);
+        setTotalPages(response.page.totalPages);
+      })
+      .catch((cause: unknown) => {
+        if (isAbortError(cause)) return;
+        setError(cause instanceof Error ? cause.message : 'Không thể tải thêm cảnh báo tồn kho.');
+      })
+      .finally(() => {
+        if (loadMoreControllerRef.current === controller) {
+          loadMoreControllerRef.current = null;
+          setLoadingMore(false);
+        }
+      });
+  }, [currentFarmId, getAccessToken, loading, loadingMore, page, reloadNonce, totalPages, warehouse]);
+
   const farmName = data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.farm.name ?? 'Trang trại';
 
-  function openItem(item: Item) {
+  const openItem = useCallback((item: InventorySummaryRow) => {
     if (!warehouse) return;
-    router.push(`/inventory-detail?itemId=${encodeURIComponent(item.id)}&warehouseId=${encodeURIComponent(warehouse.id)}` as never);
-  }
+    router.push(`/inventory-detail?itemId=${encodeURIComponent(item.itemId)}&warehouseId=${encodeURIComponent(warehouse.id)}` as never);
+  }, [router, warehouse]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: InventorySummaryRow }) => (
+      <LowStockRowCard item={item} warehouseName={warehouse?.name} onPress={openItem} />
+    ),
+    [openItem, warehouse?.name],
+  );
+
+  const listHeaderElement = (
+    <View style={styles.sectionGap}>
+      <Card style={styles.overview}>
+        <View style={styles.overviewIcon}><Icon name="warning-amber" size={22} color={colors.error} /></View>
+        <View style={styles.overviewCopy}>
+          <Text style={styles.overviewTitle}>{loading ? 'Đang kiểm tra tồn kho' : `${totalItems} vật tư dưới định mức`}</Text>
+          <Text style={styles.overviewSubtitle}>{warehouse ? `${warehouse.code} · ${warehouse.name}` : 'Kho thuộc trang trại đang chọn'}</Text>
+        </View>
+      </Card>
+      <SectionTitle title="Danh sách cảnh báo" count={`${totalItems} vật tư`} />
+    </View>
+  );
+
+  const listFooterElement = (
+    <View style={styles.footerWrap}>
+      {!loading && !error && page < totalPages ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={loadMore}
+          disabled={loadingMore}
+          style={({ pressed }) => [styles.loadMoreButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.loadMoreText}>
+            {loadingMore ? 'Đang tải thêm...' : `Tải thêm (${alerts.length}/${totalItems})`}
+          </Text>
+        </Pressable>
+      ) : null}
+      <Text style={styles.footerHint}>Số tồn được tính riêng cho kho đang chọn. Chạm vào vật tư để mở chi tiết.</Text>
+    </View>
+  );
 
   return (
-    <AppShell active="inventory">
+    <AppShell active="inventory" scroll={false}>
       <PageHeader
         title="Vật tư dưới định mức"
         subtitle={`${farmName}${warehouse ? ` · ${warehouse.name}` : ''}`}
         onBack={() => router.back()}
-        action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={() => setReloadNonce((value) => value + 1)} accessibilityRole="button" accessibilityLabel="Tải lại cảnh báo" style={styles.reload}><Icon name="sync" color={colors.primary} /></Pressable></View>}
+        action={(
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <NotificationBell />
+            <Pressable
+              onPress={() => {
+                clearApiCache();
+                setReloadNonce((value) => value + 1);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Tải lại cảnh báo"
+              style={styles.reload}
+            >
+              <Icon name="sync" color={colors.primary} />
+            </Pressable>
+          </View>
+        )}
       />
-      <Card style={styles.overview}>
-        <View style={styles.overviewIcon}><Icon name="warning-amber" size={22} color={colors.error} /></View>
-        <View style={styles.overviewCopy}>
-          <Text style={styles.overviewTitle}>{loading ? 'Đang kiểm tra tồn kho' : `${alerts.length} vật tư dưới định mức`}</Text>
-          <Text style={styles.overviewSubtitle}>{warehouse ? `${warehouse.code} · ${warehouse.name}` : 'Kho thuộc trang trại đang chọn'}</Text>
-        </View>
-      </Card>
-      <SectionTitle title="Danh sách cảnh báo" count={`${alerts.length} vật tư`} />
-      {loading ? <Text style={styles.stateText}>Đang tải tồn kho và định mức...</Text> : error ? (
-        <Card style={styles.errorCard}><Text style={styles.errorText}>{error}</Text><Pressable onPress={() => setReloadNonce((value) => value + 1)} style={styles.retry}><Text style={styles.retryText}>Thử lại</Text></Pressable></Card>
-      ) : alerts.length === 0 ? (
-        <Card style={styles.emptyCard}><View style={styles.emptyIcon}><Icon name="check-circle" size={28} color={colors.statusSuccess} /></View><Text style={styles.emptyTitle}>Kho đang đạt định mức</Text><Text style={styles.emptyText}>Không có vật tư nào thấp hơn mức tối thiểu tại kho này.</Text></Card>
-      ) : alerts.map((item) => (
-        <Pressable key={item.id} onPress={() => openItem(item)} accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${item.name} tại ${warehouse?.name}`} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [pressed && styles.pressed]}>
-          <Card style={styles.itemCard}>
-            <View style={styles.itemIcon}>{item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name={item.trackingMode === 'ASSET' ? 'inventory-2' : item.trackingMode === 'LOT' ? 'hive' : 'grain'} size={21} color={colors.primary} />}</View>
-            <View style={styles.itemCopy}>
-              <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
-              <Text style={styles.itemCode}>{item.code}</Text>
-              <Text style={styles.itemMeta}>{item.categoryName ?? 'Vật tư'} · {item.trackingMode === 'LOT' ? 'Theo lô' : item.trackingMode === 'ASSET' ? 'Tài sản' : 'Số lượng'}</Text>
-            </View>
-            <View style={styles.quantityCopy}>
-              <Text style={styles.quantity}>{formatQuantity(item.quantityOnHand)} / {formatQuantity(Number(item.minStockLevel ?? 0))}</Text>
-              <Text style={styles.unit}>{item.unitSymbol ?? item.unitName ?? 'đơn vị'}</Text>
-              <Icon name="chevron-right" size={18} color={colors.outline} />
-            </View>
-          </Card>
-        </Pressable>
-      ))}
-      <Text style={styles.footerHint}>Số tồn được tính riêng cho kho đang chọn. Chạm vào vật tư để mở chi tiết.</Text>
+      <FlatList
+        data={loading || error ? [] : alerts}
+        keyExtractor={(item) => item.itemId}
+        renderItem={renderItem}
+        style={styles.flatList}
+        contentContainerStyle={{
+          paddingHorizontal: spacing.gutterMobile,
+          gap: spacing.spaceSm,
+          paddingBottom: dimensions.bottomNavHeight + insets.bottom + spacing.spaceLg,
+        }}
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        ListHeaderComponent={listHeaderElement}
+        ListEmptyComponent={
+          loading ? (
+            <Text style={styles.stateText}>Đang tải tồn kho và định mức...</Text>
+          ) : error ? (
+            <Card style={styles.errorCard}>
+              <Text style={styles.errorText}>{error}</Text>
+              <Pressable onPress={() => setReloadNonce((value) => value + 1)} style={styles.retry}>
+                <Text style={styles.retryText}>Thử lại</Text>
+              </Pressable>
+            </Card>
+          ) : (
+            <Card style={styles.emptyCard}>
+              <View style={styles.emptyIcon}><Icon name="check-circle" size={28} color={colors.statusSuccess} /></View>
+              <Text style={styles.emptyTitle}>Kho đang đạt định mức</Text>
+              <Text style={styles.emptyText}>Không có vật tư nào thấp hơn mức tối thiểu tại kho này.</Text>
+            </Card>
+          )
+        }
+        ListFooterComponent={listFooterElement}
+      />
     </AppShell>
   );
 }
 
 const styles = StyleSheet.create({
+  flatList: { flex: 1, marginHorizontal: -spacing.gutterMobile },
+  sectionGap: { gap: spacing.spaceMd, marginBottom: spacing.spaceXs },
+  footerWrap: { gap: spacing.spaceSm, paddingTop: spacing.spaceXs },
   reload: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.full, backgroundColor: colors.surfaceContainer },
   overview: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, borderColor: colors.errorContainer, backgroundColor: colors.parchmentWarm },
   overviewIcon: { width: 42, height: 42, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.errorContainer },
@@ -141,6 +337,8 @@ const styles = StyleSheet.create({
   quantityCopy: { minWidth: 70, alignItems: 'flex-end', gap: 1 },
   quantity: { ...typography.labelMd, color: colors.error, textAlign: 'right' },
   unit: { ...typography.bodySm, color: colors.onSurfaceVariant, textAlign: 'right' },
+  loadMoreButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.default, borderWidth: 1, borderColor: colors.outlineVariant, backgroundColor: colors.parchment },
+  loadMoreText: { ...typography.labelMd, color: colors.primary },
   footerHint: { ...typography.bodySm, color: colors.onSurfaceVariant, textAlign: 'center', paddingVertical: spacing.spaceMd },
   pressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
 });

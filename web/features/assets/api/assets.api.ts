@@ -11,8 +11,9 @@ import type {
   Asset,
   AssetChoice,
   AssetFilters,
-  AssetLookupKind,
+  AssetListResponse,
   AssetView,
+  AssetLookupKind,
   ReturnAssetInput,
   AssetHistoryEntry,
   AssetHistoryKind,
@@ -26,7 +27,7 @@ export function getAssets(
   farmId: string,
   filters: AssetFilters,
 ) {
-  return request<PaginatedResponse<AssetView>>("/assets", {
+  return request<AssetListResponse>("/assets", {
     params: { ...filters, search: filters.search?.trim() || undefined, farmId },
   });
 }

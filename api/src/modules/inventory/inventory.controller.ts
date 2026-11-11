@@ -1,10 +1,18 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
+  BadRequestException,
+  Controller,
+  Get,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  normalizeSearch,
   parseOptionalEnum,
   parsePagination,
   requireUuid,
 } from '../../common/query-params';
-import { inventoryTransactionType } from '../../db/schema';
+import { inventoryTransactionType, trackingMode } from '../../db/schema';
 import { parseDateRange } from '../../common/date-range';
 import { CurrentAuth } from '../auth/clerk/current-auth.decorator';
 import { InventoryService } from './inventory.service';
@@ -12,6 +20,7 @@ import {
   ApiBearerAuth,
   ApiBadRequestResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -23,6 +32,8 @@ import {
   ApiEnumQuery,
   ApiFarmIdQuery,
   ApiPageQueries,
+  ApiSearchQuery,
+  ApiUuidParam,
   ApiUuidQuery,
   LOT_IDENTITY_PROPERTIES,
   OPENAPI_DECIMAL_STRING,
@@ -141,6 +152,20 @@ export class InventoryController {
             },
           },
         },
+        summary: {
+          type: 'object',
+          description:
+            'Thống kê trên toàn bộ dòng tồn khớp phạm vi quyền và bộ lọc, không giới hạn theo trang.',
+          properties: {
+            lotBalanceRows: { type: 'integer' },
+            assetBalanceRows: { type: 'integer' },
+            lotRowsWithoutLot: { type: 'integer' },
+            lotsWithoutExpiry: { type: 'integer' },
+            expiredLots: { type: 'integer' },
+            expiringLots: { type: 'integer' },
+            healthyLots: { type: 'integer' },
+          },
+        },
         page: OPENAPI_PAGE,
       },
     },
@@ -154,6 +179,24 @@ export class InventoryController {
   @ApiForbiddenResponse({
     description: 'Người dùng không có quyền đọc tồn kho của trang trại.',
   })
+  @ApiSearchQuery()
+  @ApiUuidQuery('categoryId', 'Lọc theo danh mục mặt hàng.')
+  @ApiEnumQuery(
+    'trackingMode',
+    trackingMode.enumValues,
+    'Lọc theo cách theo dõi.',
+  )
+  @ApiEnumQuery(
+    'excludeTrackingMode',
+    trackingMode.enumValues,
+    'Loại trừ cách theo dõi.',
+  )
+  @ApiQuery({
+    name: 'itemIds',
+    required: false,
+    type: String,
+    description: 'Danh sách itemId phân tách bởi dấu phẩy.',
+  })
   listBalances(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId?: string,
@@ -163,7 +206,36 @@ export class InventoryController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('assetId') assetId?: string,
+    @Query('search') searchValue?: string,
+    @Query('categoryId') categoryIdValue?: string,
+    @Query('trackingMode') trackingModeValue?: string,
+    @Query('excludeTrackingMode') excludeTrackingModeValue?: string,
+    @Query('itemIds') itemIdsValue?: string,
   ) {
+    const search = normalizeSearch(searchValue);
+    const categoryId = categoryIdValue
+      ? requireUuid(categoryIdValue, 'categoryId')
+      : undefined;
+    const mode = parseOptionalEnum(
+      trackingModeValue,
+      trackingMode.enumValues,
+      'trackingMode',
+    );
+    const excludeMode = parseOptionalEnum(
+      excludeTrackingModeValue,
+      trackingMode.enumValues,
+      'excludeTrackingMode',
+    );
+    const itemIdParts = itemIdsValue
+      ? itemIdsValue
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean)
+      : [];
+    const itemIds = itemIdParts.length
+      ? itemIdParts.map((part) => requireUuid(part, 'itemIds'))
+      : undefined;
+
     return this.inventoryService.listBalances({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
@@ -173,6 +245,111 @@ export class InventoryController {
       itemId: itemId ? requireUuid(itemId, 'itemId') : undefined,
       lotId: lotId ? requireUuid(lotId, 'lotId') : undefined,
       assetId: assetId ? requireUuid(assetId, 'assetId') : undefined,
+      ...parsePagination(page, pageSize),
+      ...(search ? { search } : {}),
+      ...(categoryId ? { categoryId } : {}),
+      ...(mode ? { trackingMode: mode } : {}),
+      ...(excludeMode ? { excludeTrackingMode: excludeMode } : {}),
+      ...(itemIds ? { itemIds } : {}),
+    });
+  }
+
+  @Get('inventory/items-summary')
+  @ApiOperation({
+    summary:
+      'Tổng hợp tồn kho gộp theo mặt hàng (có phân trang & cảnh báo dưới định mức)',
+  })
+  @ApiFarmIdQuery()
+  @ApiPageQueries()
+  @ApiUuidQuery('warehouseId', 'Lọc theo kho.')
+  @ApiSearchQuery()
+  @ApiUuidQuery('categoryId', 'Lọc theo danh mục.')
+  @ApiEnumQuery(
+    'trackingMode',
+    trackingMode.enumValues,
+    'Lọc theo cách theo dõi.',
+  )
+  @ApiEnumQuery(
+    'excludeTrackingMode',
+    trackingMode.enumValues,
+    'Loại trừ cách theo dõi.',
+  )
+  @ApiQuery({
+    name: 'lowStockOnly',
+    required: false,
+    type: Boolean,
+    description:
+      'Chỉ trả về vật tư ACTIVE có minStockLevel > 0 và tồn hiện tại < minStockLevel.',
+  })
+  @ApiOkResponse({
+    description: 'Danh sách mặt hàng đã gộp tồn và thống kê tổng hợp.',
+  })
+  getItemsSummary(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId?: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') searchValue?: string,
+    @Query('categoryId') categoryIdValue?: string,
+    @Query('trackingMode') trackingModeValue?: string,
+    @Query('excludeTrackingMode') excludeTrackingModeValue?: string,
+    @Query('lowStockOnly') lowStockOnlyValue?: string,
+  ) {
+    if (
+      lowStockOnlyValue !== undefined &&
+      lowStockOnlyValue !== '' &&
+      lowStockOnlyValue !== 'true' &&
+      lowStockOnlyValue !== 'false'
+    ) {
+      throw new BadRequestException('lowStockOnly must be true or false');
+    }
+    return this.inventoryService.getItemsSummary({
+      clerkUserId: auth.clerkUserId,
+      farmId: requireUuid(farmId, 'farmId'),
+      warehouseId: warehouseId
+        ? requireUuid(warehouseId, 'warehouseId')
+        : undefined,
+      ...parsePagination(page, pageSize),
+      search: normalizeSearch(searchValue),
+      categoryId: categoryIdValue
+        ? requireUuid(categoryIdValue, 'categoryId')
+        : undefined,
+      trackingMode: parseOptionalEnum(
+        trackingModeValue,
+        trackingMode.enumValues,
+        'trackingMode',
+      ),
+      excludeTrackingMode: parseOptionalEnum(
+        excludeTrackingModeValue,
+        trackingMode.enumValues,
+        'excludeTrackingMode',
+      ),
+      lowStockOnly: lowStockOnlyValue === 'true',
+    });
+  }
+
+  @Get('inventory/forecast')
+  @ApiOperation({
+    summary: 'Dự báo số ngày còn lại theo tốc độ xuất kho 30 ngày gần nhất',
+  })
+  @ApiFarmIdQuery()
+  @ApiPageQueries()
+  @ApiUuidQuery('warehouseId', 'Kho cần dự báo (bắt buộc).')
+  @ApiOkResponse({
+    description: 'Danh sách mặt hàng sắp xếp theo ngày còn lại tăng dần.',
+  })
+  getForecast(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Query('farmId') farmId?: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.inventoryService.getForecast({
+      clerkUserId: auth.clerkUserId,
+      farmId: requireUuid(farmId, 'farmId'),
+      warehouseId: requireUuid(warehouseId, 'warehouseId'),
       ...parsePagination(page, pageSize),
     });
   }
@@ -445,6 +622,7 @@ export class InventoryController {
     description:
       'Khớp chính xác số lô in trên hàng; dùng để gợi ý lô có sẵn, không dùng làm định danh.',
   })
+  @ApiSearchQuery()
   @ApiOkResponse({
     description: 'Trang các lô của trang trại.',
     schema: {
@@ -501,13 +679,38 @@ export class InventoryController {
     @Query('supplierLotNumber') supplierLotNumber?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('search') searchValue?: string,
   ) {
+    const search = normalizeSearch(searchValue);
     return this.inventoryService.listLots({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
       itemId: itemId ? requireUuid(itemId, 'itemId') : undefined,
       supplierLotNumber: supplierLotNumber?.trim() || undefined,
       ...parsePagination(page, pageSize),
+      ...(search ? { search } : {}),
     });
+  }
+
+  @Get('lots/:id')
+  @ApiOperation({ summary: 'Chi tiết một lô hàng' })
+  @ApiUuidParam('id', 'ID lô hàng.')
+  @ApiFarmIdQuery()
+  @ApiOkResponse({
+    description: 'Thông tin lô hàng kèm mặt hàng và nhà cung cấp nguồn.',
+  })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy lô trong trang trại.' })
+  async getLot(
+    @CurrentAuth() auth: { clerkUserId: string },
+    @Param('id') id?: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    return {
+      data: await this.inventoryService.getLot(
+        requireUuid(id, 'id'),
+        requireUuid(farmId, 'farmId'),
+        auth.clerkUserId,
+      ),
+    };
   }
 }

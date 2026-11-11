@@ -1,3 +1,5 @@
+import type { PaginatedResponse } from "@/shared/api/contracts";
+
 export const ASSET_STATUS_LABELS = {
   AVAILABLE: "Sẵn sàng",
   ASSIGNED: "Đã cấp phát",
@@ -55,6 +57,16 @@ export interface AssetView {
   locationName: string | null;
   locationWarehouseId: string | null;
 }
+
+export interface AssetListSummary {
+  available: number;
+  inUse: number;
+  attention: number;
+}
+
+export type AssetListResponse = PaginatedResponse<AssetView> & {
+  summary?: AssetListSummary;
+};
 
 export interface AssetFilters {
   page: number;

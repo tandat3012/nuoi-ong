@@ -185,7 +185,7 @@ function NotificationCard({ notification, onPress }: { notification: AppNotifica
           <Text style={styles.notificationBody}>{notificationBodyText(notification)}</Text>
           <View style={styles.notificationMeta}>
             <Text style={styles.time}>{new Date(notification.createdAt).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
-            {status ? <Pill tone={tone}><Text style={styles.status}>{statusLabel(status, entityType)}</Text></Pill> : null}
+            {status ? <Pill tone={tone}><Text style={styles.status}>{statusLabel(status, entityType, notification.title)}</Text></Pill> : null}
           </View>
           {notificationDocumentCode(notification) ? <Text style={styles.documentCode}>{notificationDocumentCode(notification)}</Text> : null}
         </View>
@@ -204,7 +204,9 @@ function iconForNotification(notification: AppNotification): 'build' | 'inventor
   return 'notifications-none';
 }
 
-function statusLabel(status: string, entityType?: string | null) {
+function statusLabel(status: string, entityType?: string | null, title?: string) {
+  if (entityType === 'MAINTENANCE_REQUEST' && status === 'PENDING_APPROVAL') return 'ĐÃ GỬI';
+  if (entityType === 'MAINTENANCE_REQUEST' && (title?.includes('Kết quả bảo trì') || title?.includes('quyết định cuối'))) return 'CẬP NHẬT';
   switch (status) {
     case 'PENDING_APPROVAL': return 'Chờ duyệt';
     case 'IN_TRANSIT': return 'Đang chuyển';

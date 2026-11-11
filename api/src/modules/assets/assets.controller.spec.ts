@@ -112,4 +112,41 @@ describe('AssetsController', () => {
     expect(historyService.history).not.toHaveBeenCalled();
     expect(historyService.label).not.toHaveBeenCalled();
   });
+
+  it('parses excludeStatuses filter and rejects unknown statuses', async () => {
+    assetsService.listAssets.mockResolvedValueOnce({ data: [], page: {} });
+    await controller.listAssets(
+      auth,
+      farmId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'LOST,RETIRED,MAINTENANCE',
+    );
+    expect(assetsService.listAssets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        farmId,
+        excludeStatuses: ['LOST', 'RETIRED', 'MAINTENANCE'],
+      }),
+    );
+
+    expect(() =>
+      controller.listAssets(
+        auth,
+        farmId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'LOST,UNKNOWN',
+      ),
+    ).toThrow(BadRequestException);
+  });
 });

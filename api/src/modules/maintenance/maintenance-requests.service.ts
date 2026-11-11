@@ -5,7 +5,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, getTableColumns, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  ilike,
+  or,
+  sql,
+} from 'drizzle-orm';
 import { activeMaintenanceCondition } from './maintenance-state';
 import { alias } from 'drizzle-orm/pg-core';
 import { PaginationParams } from '../../common/query-params';
@@ -23,6 +32,7 @@ import {
 import {
   notifyDocumentCreator,
   notifyFarmApprovers,
+  notifyMaintenanceStaff,
 } from '../notifications/notification-events';
 import { WarehousesService } from '../warehouses/warehouses.service';
 
@@ -40,6 +50,7 @@ export interface MaintenanceRequestFilters extends PaginationParams {
   clerkUserId: string;
   status?: (typeof documentStatus.enumValues)[number];
   assetId?: string;
+  search?: string;
 }
 
 const requesterMembers = alias(farmMembers, 'maintenance_requesters');
@@ -94,6 +105,16 @@ export class MaintenanceRequestsService {
       conditions.push(eq(maintenanceRequests.status, filters.status));
     if (filters.assetId)
       conditions.push(eq(maintenanceRequests.assetId, filters.assetId));
+    if (filters.search) {
+      const pattern = `%${filters.search.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(
+        or(
+          ilike(assets.assetCode, pattern),
+          ilike(items.name, pattern),
+          ilike(maintenanceRequests.description, pattern),
+        )!,
+      );
+    }
     const where = and(...conditions);
     const [data, [total]] = await Promise.all([
       this.databaseService.db
@@ -101,6 +122,19 @@ export class MaintenanceRequestsService {
           ...getTableColumns(maintenanceRequests),
           assetCode: assets.assetCode,
           itemName: items.name,
+          maintenanceScheduledAt: maintenanceRecords.scheduledAt,
+          maintenanceRecordStatus: maintenanceRecords.status,
+          maintenanceStartedAt: maintenanceRecords.startedAt,
+          maintenanceReceivedAt: maintenanceRecords.receivedAt,
+          maintenanceCompletedAt: maintenanceRecords.completedAt,
+          maintenanceResultNote: maintenanceRecords.resultNote,
+          maintenanceReturnStatus: maintenanceRecords.returnStatus,
+          maintenanceReturnRejectionReason:
+            maintenanceRecords.returnRejectionReason,
+          maintenanceFinalDecision: maintenanceRecords.finalDecision,
+          maintenanceFinalDecisionNote: maintenanceRecords.finalDecisionNote,
+          maintenanceNextDueDate: maintenanceRecords.nextDueDate,
+          maintenanceExpectedReturnAt: maintenanceRecords.expectedReturnAt,
         })
         .from(maintenanceRequests)
         .innerJoin(
@@ -111,6 +145,13 @@ export class MaintenanceRequestsService {
           ),
         )
         .innerJoin(items, eq(items.id, assets.itemId))
+        .leftJoin(
+          maintenanceRecords,
+          and(
+            eq(maintenanceRecords.id, maintenanceRequests.maintenanceRecordId),
+            eq(maintenanceRecords.farmId, maintenanceRequests.farmId),
+          ),
+        )
         .where(where)
         .orderBy(
           desc(maintenanceRequests.createdAt),
@@ -121,6 +162,14 @@ export class MaintenanceRequestsService {
       this.databaseService.db
         .select({ value: count() })
         .from(maintenanceRequests)
+        .innerJoin(
+          assets,
+          and(
+            eq(assets.id, maintenanceRequests.assetId),
+            eq(assets.farmId, maintenanceRequests.farmId),
+          ),
+        )
+        .innerJoin(items, eq(items.id, assets.itemId))
         .where(where),
     ]);
     const totalItems = Number(total?.value ?? 0);
@@ -148,6 +197,21 @@ export class MaintenanceRequestsService {
         reviewedByEmail: reviewerUsers.email,
         maintenanceScheduledAt: maintenanceRecords.scheduledAt,
         maintenanceRecordStatus: maintenanceRecords.status,
+        maintenanceStartedAt: maintenanceRecords.startedAt,
+        maintenanceReceivedAt: maintenanceRecords.receivedAt,
+        maintenanceCompletedAt: maintenanceRecords.completedAt,
+        maintenanceResultNote: maintenanceRecords.resultNote,
+        maintenanceLaborCost: maintenanceRecords.laborCost,
+        maintenanceMaterialCost: maintenanceRecords.materialCost,
+        maintenanceOtherCost: maintenanceRecords.otherCost,
+        maintenanceReturnStatus: maintenanceRecords.returnStatus,
+        maintenanceReturnRejectionReason:
+          maintenanceRecords.returnRejectionReason,
+        maintenanceReturnReviewedAt: maintenanceRecords.returnReviewedAt,
+        maintenanceFinalDecision: maintenanceRecords.finalDecision,
+        maintenanceFinalDecisionNote: maintenanceRecords.finalDecisionNote,
+        maintenanceNextDueDate: maintenanceRecords.nextDueDate,
+        maintenanceExpectedReturnAt: maintenanceRecords.expectedReturnAt,
       })
       .from(maintenanceRequests)
       .innerJoin(
@@ -248,6 +312,13 @@ export class MaintenanceRequestsService {
           this.notification(request, asset.assetCode, 'PENDING_APPROVAL'),
           memberId,
           assetWarehouse?.warehouseId,
+        );
+        await notifyMaintenanceStaff(
+          tx,
+          this.notification(request, asset.assetCode, 'PENDING_APPROVAL'),
+          assetWarehouse?.warehouseId,
+          undefined,
+          memberId,
         );
         return request;
       })
@@ -358,26 +429,33 @@ export class MaintenanceRequestsService {
 
   /** Approvers see every request of the farm; anyone else only their own; both only for assets of their warehouses. */
   private async scope(farmId: string, clerkUserId: string) {
-    const { memberId, scope } = await this.warehousesService.documentReadScope(
+    const { memberId, roleCodes } =
+      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    const scope = await this.warehousesService.warehouseScope(
       farmId,
       clerkUserId,
     );
     const conditions = [eq(maintenanceRequests.farmId, farmId)];
 
-    if (memberId)
+    const canReview = roleCodes.some((role) =>
+      [...FARM_ADMIN_ROLES, 'WAREHOUSE_MANAGER', 'MAINTENANCE_STAFF'].includes(
+        role,
+      ),
+    );
+    if (memberId && !canReview)
       conditions.push(eq(maintenanceRequests.requestedByMemberId, memberId));
     const scoped = assetInScope(maintenanceRequests.assetId, scope);
     if (scoped) conditions.push(scoped);
     return conditions;
   }
 
-  // NV04: only the farm owner/admin approves and assigns maintenance.
+  // Maintenance staff and the assigned warehouse manager may process requests in scope.
   private async reviewer(farmId: string, clerkUserId: string) {
     const { memberId, scope } = await this.warehousesService.assertScopedAccess(
       farmId,
       clerkUserId,
       true,
-      FARM_ADMIN_ROLES,
+      [...FARM_ADMIN_ROLES, 'WAREHOUSE_MANAGER', 'MAINTENANCE_STAFF'],
     );
     const [member] = await this.databaseService.db
       .select({ userId: farmMembers.userId })

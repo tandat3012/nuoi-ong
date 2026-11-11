@@ -1,34 +1,55 @@
 'use client';
 
-import * as React from 'react';
 import { Package, Layers, Wrench, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import type { InventoryBalance } from '../types/inventory';
-import { getExpiryStatus } from '../inventory.logic';
+import type { InventorySummary } from '../types/inventory';
 
 interface InventorySummaryBarProps {
-  balances: InventoryBalance[];
   totalItems?: number;
+  summary?: InventorySummary;
   isLoading?: boolean;
 }
 
-export function InventorySummaryBar({ balances, totalItems, isLoading }: InventorySummaryBarProps) {
-  if (isLoading || balances.length === 0) return null;
+export function InventorySummaryBar({ totalItems, summary, isLoading }: InventorySummaryBarProps) {
+  if (isLoading || totalItems === undefined || totalItems === 0) return null;
 
-  const lotCount = balances.filter((b) => b.item.trackingMode === 'LOT').length;
-  const assetCount = balances.filter((b) => b.item.trackingMode === 'ASSET').length;
-
-  let expiredCount = 0;
-  let expiringSoonCount = 0;
-
-  for (const b of balances) {
-    if (b.lot?.expiryDate) {
-      const { status } = getExpiryStatus(b.lot.expiryDate);
-      if (status === 'EXPIRED') expiredCount++;
-      else if (status === 'WARNING' || status === 'CRITICAL') expiringSoonCount++;
-    }
-  }
-
-  const hasAlerts = expiredCount > 0 || expiringSoonCount > 0;
+  const hasExpiryIssues = Boolean(
+    summary &&
+      (summary.expiredLots > 0 ||
+        summary.expiringLots > 0 ||
+        summary.lotRowsWithoutLot > 0 ||
+        summary.lotsWithoutExpiry > 0),
+  );
+  const hasExpiryData = Boolean(summary && summary.lotBalanceRows > 0);
+  const expiryToneClass = hasExpiryIssues
+    ? 'text-amber-700 dark:text-amber-300'
+    : hasExpiryData
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : 'text-muted-foreground';
+  const expiryIconClass = hasExpiryIssues
+    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+    : hasExpiryData
+      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+      : 'bg-muted/60 text-muted-foreground';
+  const expiryParts = summary
+    ? [
+        summary.expiredLots > 0 ? `${summary.expiredLots} lô hết hạn` : null,
+        summary.expiringLots > 0 ? `${summary.expiringLots} lô cận HSD` : null,
+        summary.lotRowsWithoutLot > 0
+          ? `${summary.lotRowsWithoutLot} dòng thiếu hồ sơ lô`
+          : null,
+        summary.lotsWithoutExpiry > 0
+          ? `${summary.lotsWithoutExpiry} lô thiếu HSD`
+          : null,
+        summary.healthyLots > 0 ? `${summary.healthyLots} lô còn hạn` : null,
+      ].filter((part): part is string => Boolean(part))
+    : [];
+  const expiryMessage = summary
+    ? expiryParts.length
+      ? expiryParts.join(' · ')
+      : summary.lotBalanceRows === 0
+        ? 'Chưa có dòng tồn theo lô'
+        : 'Không có lô cận hoặc hết hạn'
+    : '—';
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -42,7 +63,7 @@ export function InventorySummaryBar({ balances, totalItems, isLoading }: Invento
             Dòng tồn kho
           </p>
           <p className="text-lg font-bold tabular-nums text-foreground">
-            {totalItems ?? balances.length}
+            {totalItems ?? '—'}
           </p>
         </div>
       </div>
@@ -54,10 +75,10 @@ export function InventorySummaryBar({ balances, totalItems, isLoading }: Invento
         </span>
         <div className="min-w-0">
           <p className="text-[0.7rem] font-medium text-muted-foreground uppercase tracking-wider">
-            Theo dõi theo lô
+            Dòng tồn theo lô
           </p>
           <p className="text-lg font-bold tabular-nums text-foreground">
-            {lotCount}
+            {summary?.lotBalanceRows ?? '—'}
           </p>
         </div>
       </div>
@@ -69,39 +90,33 @@ export function InventorySummaryBar({ balances, totalItems, isLoading }: Invento
         </span>
         <div className="min-w-0">
           <p className="text-[0.7rem] font-medium text-muted-foreground uppercase tracking-wider">
-            Theo dõi tài sản
+            Dòng tồn tài sản
           </p>
           <p className="text-lg font-bold tabular-nums text-foreground">
-            {assetCount}
+            {summary?.assetBalanceRows ?? '—'}
           </p>
         </div>
       </div>
 
       {/* Expiry alerts */}
       <div className={`flex items-center gap-3 rounded-xl border p-3 shadow-2xs ${
-        hasAlerts
+        hasExpiryIssues
           ? 'border-amber-500/30 bg-amber-500/5 text-amber-800 dark:text-amber-300'
           : 'border-border bg-card'
       }`}>
-        <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${
-          hasAlerts
-            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-        }`}>
-          {hasAlerts ? <AlertTriangle className="size-4.5" /> : <CheckCircle2 className="size-4.5" />}
+        <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${expiryIconClass}`}>
+          {hasExpiryIssues ? (
+            <AlertTriangle className="size-4.5" />
+          ) : (
+            <CheckCircle2 className="size-4.5" />
+          )}
         </span>
         <div className="min-w-0">
           <p className="text-[0.7rem] font-medium text-muted-foreground uppercase tracking-wider">
             Tình trạng HSD
           </p>
-          <p className="text-sm font-semibold truncate">
-            {expiredCount > 0 ? (
-              <span className="text-destructive font-bold">{expiredCount} lô hết hạn</span>
-            ) : expiringSoonCount > 0 ? (
-              <span className="text-amber-600 dark:text-amber-400 font-bold">{expiringSoonCount} lô cận date</span>
-            ) : (
-              <span className="text-emerald-600 dark:text-emerald-400">100% an toàn</span>
-            )}
+          <p className="text-xs font-semibold leading-4">
+            <span className={expiryToneClass}>{expiryMessage}</span>
           </p>
         </div>
       </div>

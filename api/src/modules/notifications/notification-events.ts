@@ -34,6 +34,8 @@ type DocumentNotification = {
     | 'CONFIRMED'
     | 'REJECTED';
   rejectionReason?: string;
+  /** Optional event-specific copy for workflow milestones. */
+  body?: string;
   /** Overrides the default stock-document title ("Phiếu …"). */
   title?: string;
 };
@@ -167,7 +169,7 @@ async function insertForUsers(
         farmId: notification.farmId,
         type: labels.type,
         title: notification.title ?? labels.title,
-        body: labels.body,
+        body: notification.body ?? labels.body,
         entityType: notification.entityType,
         entityId: notification.entityId,
         data: {

@@ -169,8 +169,10 @@ test("transfer destinations use joined names with code fallbacks", () => {
   assert.equal(transferDestination({ toWarehouseName: null, toWarehouseCode: "K1", toLocationName: null, toLocationCode: "A" }), "K1 — A");
 });
 
-test("only the owner or admin approves a maintenance request (P1-05)", () => {
-  assert.equal(requestActions(["WAREHOUSE_MANAGER"], "PENDING_APPROVAL", true).approve, false);
+test("owner, admin, warehouse manager and maintenance staff approve a maintenance request", () => {
+  assert.equal(requestActions(["WAREHOUSE_MANAGER"], "PENDING_APPROVAL", true).approve, true);
+  assert.equal(requestActions(["MAINTENANCE_STAFF"], "PENDING_APPROVAL", true).approve, true);
+  assert.equal(requestActions(["EMPLOYEE"], "PENDING_APPROVAL", true).approve, false);
   assert.equal(requestActions(["WAREHOUSE_MANAGER"], "PENDING_APPROVAL").approve, true);
   assert.equal(requestActions(["FARM_OWNER"], "PENDING_APPROVAL", true).approve, true);
 });

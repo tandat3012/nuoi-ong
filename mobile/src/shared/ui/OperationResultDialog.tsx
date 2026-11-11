@@ -37,8 +37,12 @@ export function OperationResultDialog({
       statusBarTranslucent
       onRequestClose={onAction}
     >
-      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.brandRow}>
             <View style={styles.brandIcon}><Icon name="hive" size={20} color={colors.primary} filled /></View>
             <Text style={styles.brand}>MỘC ONG</Text>
@@ -84,17 +88,21 @@ export function OperationResultDialog({
               </View>
             )}
           </View>
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={onAction}
-            android_ripple={{ color: colors.primaryContainer }}
-            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-          >
-            <Text style={styles.actionText}>{actionLabel}</Text>
-            <Icon name="arrow-forward" size={20} color={colors.onPrimary} />
-          </Pressable>
         </ScrollView>
+
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.spaceLg) }]}>
+          <View style={styles.footerInner}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onAction}
+              android_ripple={{ color: colors.primaryContainer }}
+              style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            >
+              <Text style={styles.actionText}>{actionLabel}</Text>
+              <Icon name="arrow-forward" size={20} color={colors.onPrimary} />
+            </Pressable>
+          </View>
+        </View>
       </View>
     </Modal>
   );
@@ -105,6 +113,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.surface,
   },
+  scroll: {
+    flex: 1,
+  },
   content: {
     flexGrow: 1,
     width: '100%',
@@ -112,7 +123,19 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: spacing.spaceLg,
     paddingTop: spacing.spaceLg,
-    paddingBottom: spacing.spaceLg,
+    paddingBottom: spacing.spaceXl,
+  },
+  footer: {
+    borderTopWidth: 1,
+    borderTopColor: colors.outlineVariant,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.spaceLg,
+    paddingTop: spacing.spaceMd,
+  },
+  footerInner: {
+    width: '100%',
+    maxWidth: 440,
+    alignSelf: 'center',
   },
   brandRow: {
     flexDirection: 'row',

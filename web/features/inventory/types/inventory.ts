@@ -22,6 +22,16 @@ export interface InventoryBalance {
   } | null;
 }
 
+export interface InventorySummary {
+  lotBalanceRows: number;
+  assetBalanceRows: number;
+  lotRowsWithoutLot: number;
+  lotsWithoutExpiry: number;
+  expiredLots: number;
+  expiringLots: number;
+  healthyLots: number;
+}
+
 export interface InventoryFilters {
   assetId?: string;
   warehouseId?: string;
@@ -83,6 +93,7 @@ export interface InventoryTransaction {
 export type InventoryLedgerResponse = PaginatedResponse<InventoryTransaction>;
 
 export type InventoryListResponse = PaginatedResponse<InventoryBalance> & {
+  summary?: InventorySummary;
   selectedAsset?: {
     id: string;
     assetCode: string;

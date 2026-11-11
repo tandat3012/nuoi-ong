@@ -78,6 +78,7 @@ export function useInventoryList(
     balances: current?.response?.data ?? [],
     selectedAsset: current?.response?.selectedAsset,
     pageInfo: current?.response?.page,
+    summary: current?.response?.summary,
     isLoading: !current,
     error: current?.error,
     changeWarehouse: (warehouseId?: string) =>

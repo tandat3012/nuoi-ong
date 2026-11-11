@@ -4,7 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, count, eq, ilike, isNull, or, sql, SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  eq,
+  ilike,
+  isNull,
+  notInArray,
+  or,
+  sql,
+  SQL,
+} from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -48,6 +59,7 @@ export interface AssetListFilters extends PaginationParams {
   itemId?: string;
   locationId?: string;
   warehouseId?: string;
+  excludeStatuses?: AssetStatus[];
 }
 
 @Injectable()
@@ -300,6 +312,9 @@ export class AssetsService {
     if (filters.status) {
       predicates.push(eq(assets.status, filters.status));
     }
+    if (filters.excludeStatuses?.length) {
+      predicates.push(notInArray(assets.status, filters.excludeStatuses));
+    }
     if (filters.itemId) {
       predicates.push(eq(assets.itemId, filters.itemId));
     }
@@ -311,7 +326,7 @@ export class AssetsService {
     }
 
     const where = and(...predicates);
-    const [data, totalRows] = await Promise.all([
+    const [data, totalRows, summaryRows] = await Promise.all([
       this.databaseService.db
         .select({
           asset: assets,
@@ -354,12 +369,34 @@ export class AssetsService {
           ),
         )
         .where(where),
+      this.databaseService.db
+        .select({
+          available: sql<number>`COUNT(*) FILTER (WHERE ${assets.status} = 'AVAILABLE')::int`,
+          inUse: sql<number>`COUNT(*) FILTER (WHERE ${assets.status} IN ('ASSIGNED', 'IN_USE'))::int`,
+          attention: sql<number>`COUNT(*) FILTER (WHERE ${assets.status} IN ('MAINTENANCE', 'DAMAGED', 'LOST', 'TRANSFER_PENDING'))::int`,
+        })
+        .from(assets)
+        .innerJoin(items, eq(assets.itemId, items.id))
+        .leftJoin(
+          locations,
+          and(
+            eq(assets.currentLocationId, locations.id),
+            eq(locations.farmId, assets.farmId),
+          ),
+        )
+        .where(where),
     ]);
 
     const totalItems = Number(totalRows[0]?.value ?? 0);
+    const summary = summaryRows[0] ?? {
+      available: 0,
+      inUse: 0,
+      attention: 0,
+    };
 
     return {
       data,
+      summary,
       page: {
         number: filters.page,
         size: filters.pageSize,

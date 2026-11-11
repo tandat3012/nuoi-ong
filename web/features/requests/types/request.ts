@@ -51,11 +51,20 @@ export interface MaintenanceRequestRow
   extends MaintenanceRequestRecord, Partial<RequestPeople> {
   assetCode: string;
   itemName: string;
+  maintenanceScheduledAt?: string | null;
+  maintenanceRecordStatus?: string | null;
+  maintenanceStartedAt?: string | null;
+  maintenanceReceivedAt?: string | null;
+  maintenanceCompletedAt?: string | null;
+  maintenanceResultNote?: string | null;
+  maintenanceReturnStatus?: string | null;
+  maintenanceReturnRejectionReason?: string | null;
+  maintenanceFinalDecision?: string | null;
+  maintenanceFinalDecisionNote?: string | null;
+  maintenanceNextDueDate?: string | null;
 }
 
 export type MaintenanceRequestDetail = MaintenanceRequestRow & RequestPeople & {
-  maintenanceScheduledAt: string | null;
-  maintenanceRecordStatus: string | null;
 };
 
 export interface TransferRequestRow extends TransferRequestRecord, RequestPeople {

@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { ApiRequestOptions } from '@/shared/api/client';
-import type { PaginatedResponse } from '@/shared/api/contracts';
-import type { MaterialFilterParams, MaterialListRow } from '../types/material';
+import type { MaterialFilterParams, MaterialListResponse } from '../types/material';
 import { getMaterials } from '../api/materials.api';
 import { formatApiError } from './format-api-error';
 
@@ -20,7 +19,7 @@ export function useMaterialList(
 ) {
   const [list, setList] = useState<{
     filters: MaterialFilterParams;
-    response?: PaginatedResponse<MaterialListRow>;
+    response?: MaterialListResponse;
     error?: string;
   } | null>(null);
 
@@ -50,6 +49,7 @@ export function useMaterialList(
 
   return {
     materials: currentList?.response?.data ?? [],
+    summary: currentList?.response?.summary,
     pageInfo: currentList?.response?.page ?? {
       number: filters.page,
       size: filters.pageSize,
