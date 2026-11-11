@@ -849,6 +849,11 @@ describe('External maintenance, inspection and warehouse receipt', () => {
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(await balance()).toBe(original);
+    // UIUX-WEB-023: the record names who scheduled it and who approved the return.
+    expect(await service.get(r.id, farm, manager)).toMatchObject({
+      scheduledByName: `${manager}@example.local`,
+      returnReviewedByName: `${manager}@example.local`,
+    });
     // In stock at the location, out of use until the owner decides.
     expect(await assetRow()).toMatchObject({
       id: asset,

@@ -160,3 +160,10 @@ test("history filters cover all current document, request, asset, personnel, del
     ["Phí miền Bắc", "Phí miền Nam"],
   );
 });
+
+test("every maintenance audit action and its return status have a readable label (UIUX-WEB-023)", () => {
+  // Actions written by api/src/modules/maintenance/maintenance.service.ts.
+  for (const step of ["SCHEDULED", "STARTED", "RECEIVED", "COMPLETED", "CANCELLED", "RETURN_SUBMITTED", "RETURN_APPROVED", "RETURN_REJECTED", "FINAL_DECISION"])
+    assert.ok(HISTORY_ACTION_LABELS[`ASSET_MAINTENANCE_${step}`], step);
+  assert.equal(HISTORY_FIELD_LABELS.returnStatus, "Nhập lại kho");
+});

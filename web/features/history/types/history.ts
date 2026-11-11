@@ -16,6 +16,8 @@ export type AuditLog = {
 export type AuditLogPage = PaginatedResponse<AuditLog> & {
   /** Codes or names for the ids in this page, keyed by id. */
   references: Record<string, string>;
+  /** PERFORMED_BY_ME: staff other than farm admins only see their own actions. */
+  scope?: "FARM" | "PERFORMED_BY_ME";
 };
 
 export type HistoryQuery = {

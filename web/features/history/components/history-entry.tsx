@@ -6,6 +6,7 @@ import { ISSUE_TYPE_LABELS } from "@/features/issues/types/issue";
 import { ROLE_LABELS } from "@/features/personnel/types";
 import { notificationHref } from "@/features/notifications/notifications.logic";
 import { RECEIPT_STATUS_LABELS } from "@/features/receipts/types/receipt";
+import { RETURN_STATUSES } from "@/features/maintenance/maintenance.logic";
 import { REQUEST_MAINTENANCE_LABELS, REQUEST_STATUS_LABELS } from "@/features/requests/requests.logic";
 import { Badge } from "@/shared/components/ui/badge";
 import {
@@ -33,6 +34,7 @@ export function HistoryEntry({ log, references, showEntity }: {
     membershipStatus: { ACTIVE: "Đang hoạt động", INACTIVE: "Ngừng hoạt động" },
     issueType: ISSUE_TYPE_LABELS,
     maintenanceType: REQUEST_MAINTENANCE_LABELS,
+    returnStatus: RETURN_STATUSES,
     roleCodes: ROLE_LABELS,
   };
   const changes = historyChanges(log, {

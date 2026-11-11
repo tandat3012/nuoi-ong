@@ -120,6 +120,17 @@ const maintenanceExtraColumns = {
   )`,
   receivedByName: memberNameSql(maintenanceRecords.receivedByMemberId),
   inspectedByName: memberNameSql(maintenanceRecords.inspectedByMemberId),
+  returnReviewedByName: memberNameSql(
+    maintenanceRecords.returnReviewedByMemberId,
+  ),
+  // The record has no creator column; schedule() audits who created it.
+  scheduledByName: sql<string | null>`(SELECT COALESCE(u.full_name, u.email)
+    FROM audit_logs l JOIN users u ON u.id = l.user_id
+    WHERE l.farm_id = ${maintenanceRecords.farmId} AND l.entity_type = 'ASSET'
+      AND l.entity_id = ${maintenanceRecords.assetId}
+      AND l.action = 'ASSET_MAINTENANCE_SCHEDULED'
+      AND l.new_data->>'referenceId' = ${maintenanceRecords.id}::text
+    ORDER BY l.created_at LIMIT 1)`,
 };
 
 @Injectable()

@@ -16,6 +16,7 @@ import {
 import { Badge, type BadgeProps } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { formatAssetPrice } from "@/features/assets/asset.logic";
+import { HISTORY_ROLES, hasAnyRole } from "@/features/auth/farm-roles";
 import { HistoryPanel } from "@/features/history";
 import {
   MAINTENANCE_STATUSES,
@@ -54,6 +55,9 @@ export type MaintenanceRecord = MaintenanceWorkflow & {
   issuedByName: string | null;
   receivedByName?: string | null;
   inspectedByName?: string | null;
+  scheduledByName?: string | null;
+  returnReviewedByName?: string | null;
+  returnReviewedAt?: string | null;
   returnWarehouseName: string | null;
   returnLocationName: string | null;
   resultNote: string | null;
@@ -277,6 +281,20 @@ export function MaintenanceRecordCard({
                   .join(" · ")}
               </p>
             )}
+            {record.returnReviewedByName && (
+              <p className="break-words text-sm">
+                <span className="text-muted-foreground">
+                  {record.returnStatus === "REJECTED"
+                    ? "Người từ chối"
+                    : "Người duyệt"}
+                </span>{" "}
+                <span className="font-medium">
+                  {record.returnReviewedByName}
+                </span>
+                {record.returnReviewedAt &&
+                  ` · ${maintenanceDate(record.returnReviewedAt)}`}
+              </p>
+            )}
             <p className="break-all text-xs text-muted-foreground">
               Phiếu {record.returnCode}
             </p>
@@ -354,6 +372,14 @@ export function MaintenanceRecordCard({
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">
+                  Người lập lịch
+                </dt>
+                <dd className="mt-1 break-words font-medium">
+                  {record.scheduledByName || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
                   Nhân sự phụ trách
                 </dt>
                 <dd className="mt-1 break-words font-medium">
@@ -404,7 +430,14 @@ export function MaintenanceRecordCard({
                 </dd>
               </div>
             </dl>
-            {farmId && (
+            {farmId && !hasAnyRole(roles, HISTORY_ROLES) && (
+              // Mirrors the audit-logs guard: these roles get 403, so say why instead of calling it.
+              <p className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
+                Vai trò của bạn không xem được lịch sử thay đổi. Người thực
+                hiện từng bước được ghi ở các mục phía trên.
+              </p>
+            )}
+            {farmId && hasAnyRole(roles, HISTORY_ROLES) && (
               <HistoryPanel
                 key={`${farmId}:ASSET:${record.assetId}`}
                 farmId={farmId}
