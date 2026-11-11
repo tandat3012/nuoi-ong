@@ -129,7 +129,8 @@ export class MaintenanceRequestsService {
           maintenanceCompletedAt: maintenanceRecords.completedAt,
           maintenanceResultNote: maintenanceRecords.resultNote,
           maintenanceReturnStatus: maintenanceRecords.returnStatus,
-          maintenanceReturnRejectionReason: maintenanceRecords.returnRejectionReason,
+          maintenanceReturnRejectionReason:
+            maintenanceRecords.returnRejectionReason,
           maintenanceFinalDecision: maintenanceRecords.finalDecision,
           maintenanceFinalDecisionNote: maintenanceRecords.finalDecisionNote,
           maintenanceNextDueDate: maintenanceRecords.nextDueDate,
@@ -204,7 +205,8 @@ export class MaintenanceRequestsService {
         maintenanceMaterialCost: maintenanceRecords.materialCost,
         maintenanceOtherCost: maintenanceRecords.otherCost,
         maintenanceReturnStatus: maintenanceRecords.returnStatus,
-        maintenanceReturnRejectionReason: maintenanceRecords.returnRejectionReason,
+        maintenanceReturnRejectionReason:
+          maintenanceRecords.returnRejectionReason,
         maintenanceReturnReviewedAt: maintenanceRecords.returnReviewedAt,
         maintenanceFinalDecision: maintenanceRecords.finalDecision,
         maintenanceFinalDecisionNote: maintenanceRecords.finalDecisionNote,
@@ -425,14 +427,21 @@ export class MaintenanceRequestsService {
     });
   }
 
-
   /** Approvers see every request of the farm; anyone else only their own; both only for assets of their warehouses. */
   private async scope(farmId: string, clerkUserId: string) {
-    const { memberId, roleCodes } = await this.warehousesService.getActiveMembership(farmId, clerkUserId);
-    const scope = await this.warehousesService.warehouseScope(farmId, clerkUserId);
+    const { memberId, roleCodes } =
+      await this.warehousesService.getActiveMembership(farmId, clerkUserId);
+    const scope = await this.warehousesService.warehouseScope(
+      farmId,
+      clerkUserId,
+    );
     const conditions = [eq(maintenanceRequests.farmId, farmId)];
 
-    const canReview = roleCodes.some((role) => [...FARM_ADMIN_ROLES, 'WAREHOUSE_MANAGER', 'MAINTENANCE_STAFF'].includes(role));
+    const canReview = roleCodes.some((role) =>
+      [...FARM_ADMIN_ROLES, 'WAREHOUSE_MANAGER', 'MAINTENANCE_STAFF'].includes(
+        role,
+      ),
+    );
     if (memberId && !canReview)
       conditions.push(eq(maintenanceRequests.requestedByMemberId, memberId));
     const scoped = assetInScope(maintenanceRequests.assetId, scope);

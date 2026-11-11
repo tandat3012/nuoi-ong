@@ -181,7 +181,11 @@ export class InventoryController {
   })
   @ApiSearchQuery()
   @ApiUuidQuery('categoryId', 'Lọc theo danh mục mặt hàng.')
-  @ApiEnumQuery('trackingMode', trackingMode.enumValues, 'Lọc theo cách theo dõi.')
+  @ApiEnumQuery(
+    'trackingMode',
+    trackingMode.enumValues,
+    'Lọc theo cách theo dõi.',
+  )
   @ApiEnumQuery(
     'excludeTrackingMode',
     trackingMode.enumValues,
@@ -252,14 +256,19 @@ export class InventoryController {
 
   @Get('inventory/items-summary')
   @ApiOperation({
-    summary: 'Tổng hợp tồn kho gộp theo mặt hàng (có phân trang & cảnh báo dưới định mức)',
+    summary:
+      'Tổng hợp tồn kho gộp theo mặt hàng (có phân trang & cảnh báo dưới định mức)',
   })
   @ApiFarmIdQuery()
   @ApiPageQueries()
   @ApiUuidQuery('warehouseId', 'Lọc theo kho.')
   @ApiSearchQuery()
   @ApiUuidQuery('categoryId', 'Lọc theo danh mục.')
-  @ApiEnumQuery('trackingMode', trackingMode.enumValues, 'Lọc theo cách theo dõi.')
+  @ApiEnumQuery(
+    'trackingMode',
+    trackingMode.enumValues,
+    'Lọc theo cách theo dõi.',
+  )
   @ApiEnumQuery(
     'excludeTrackingMode',
     trackingMode.enumValues,
@@ -269,9 +278,12 @@ export class InventoryController {
     name: 'lowStockOnly',
     required: false,
     type: Boolean,
-    description: 'Chỉ trả về vật tư ACTIVE có minStockLevel > 0 và tồn hiện tại < minStockLevel.',
+    description:
+      'Chỉ trả về vật tư ACTIVE có minStockLevel > 0 và tồn hiện tại < minStockLevel.',
   })
-  @ApiOkResponse({ description: 'Danh sách mặt hàng đã gộp tồn và thống kê tổng hợp.' })
+  @ApiOkResponse({
+    description: 'Danh sách mặt hàng đã gộp tồn và thống kê tổng hợp.',
+  })
   getItemsSummary(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId?: string,
@@ -324,7 +336,9 @@ export class InventoryController {
   @ApiFarmIdQuery()
   @ApiPageQueries()
   @ApiUuidQuery('warehouseId', 'Kho cần dự báo (bắt buộc).')
-  @ApiOkResponse({ description: 'Danh sách mặt hàng sắp xếp theo ngày còn lại tăng dần.' })
+  @ApiOkResponse({
+    description: 'Danh sách mặt hàng sắp xếp theo ngày còn lại tăng dần.',
+  })
   getForecast(
     @CurrentAuth() auth: { clerkUserId: string },
     @Query('farmId') farmId?: string,
@@ -682,7 +696,9 @@ export class InventoryController {
   @ApiOperation({ summary: 'Chi tiết một lô hàng' })
   @ApiUuidParam('id', 'ID lô hàng.')
   @ApiFarmIdQuery()
-  @ApiOkResponse({ description: 'Thông tin lô hàng kèm mặt hàng và nhà cung cấp nguồn.' })
+  @ApiOkResponse({
+    description: 'Thông tin lô hàng kèm mặt hàng và nhà cung cấp nguồn.',
+  })
   @ApiNotFoundResponse({ description: 'Không tìm thấy lô trong trang trại.' })
   async getLot(
     @CurrentAuth() auth: { clerkUserId: string },

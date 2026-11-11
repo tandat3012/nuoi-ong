@@ -504,7 +504,6 @@ export class AssetTransferRequestsService {
       .$dynamic();
   }
 
-
   /**
    * Approvers see every request of the farm; anyone else only their own. Members
    * limited to warehouses see requests leaving or entering those warehouses.

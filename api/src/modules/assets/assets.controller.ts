@@ -241,13 +241,8 @@ export class AssetsController {
       .map((part) => part.trim())
       .filter(Boolean);
     const excludeStatuses = excludeStatusParts.length
-      ? excludeStatusParts.map(
-          (part) =>
-            parseOptionalEnum(
-              part,
-              assetStatus.enumValues,
-              'excludeStatuses',
-            )!,
+      ? excludeStatusParts.map((part) =>
+          parseOptionalEnum(part, assetStatus.enumValues, 'excludeStatuses')!,
         )
       : undefined;
     return this.assetsService.listAssets({

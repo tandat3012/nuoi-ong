@@ -260,7 +260,15 @@ describe('InventoryController transactions query', () => {
       BadRequestException,
     );
 
-    await controller.listLots(auth, farmId, itemId, undefined, '1', '20', 'LOT-001');
+    await controller.listLots(
+      auth,
+      farmId,
+      itemId,
+      undefined,
+      '1',
+      '20',
+      'LOT-001',
+    );
     expect(service.listLots).toHaveBeenCalledWith(
       expect.objectContaining({ farmId, itemId, search: 'LOT-001' }),
     );
@@ -270,6 +278,10 @@ describe('InventoryController transactions query', () => {
     await expect(controller.getLot(auth, lotId, farmId)).resolves.toEqual({
       data: { id: lotId },
     });
-    expect(service.getLot).toHaveBeenCalledWith(lotId, farmId, auth.clerkUserId);
+    expect(service.getLot).toHaveBeenCalledWith(
+      lotId,
+      farmId,
+      auth.clerkUserId,
+    );
   });
 });

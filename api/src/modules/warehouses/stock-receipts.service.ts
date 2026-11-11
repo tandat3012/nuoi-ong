@@ -77,7 +77,6 @@ export class StockReceiptsService {
   ) {}
 
   async listReceipts(filters: StockReceiptListFilters) {
-
     const { memberId: readMemberId, scope } =
       await this.warehousesService.documentReadScope(
         filters.farmId,
@@ -151,7 +150,6 @@ export class StockReceiptsService {
   }
 
   async getReceipt(id: string, farmId: string, clerkUserId: string) {
-
     const { memberId: readMemberId, scope } =
       await this.warehousesService.documentReadScope(farmId, clerkUserId);
     const result = await this.getReceiptWithItems(id, farmId);

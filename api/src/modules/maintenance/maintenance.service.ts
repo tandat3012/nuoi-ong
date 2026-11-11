@@ -301,31 +301,40 @@ export class MaintenanceService {
       const [pendingRequest] = await tx
         .select()
         .from(maintenanceRequests)
-        .where(and(
-          eq(maintenanceRequests.farmId, farmId),
-          eq(maintenanceRequests.assetId, input.assetId),
-          eq(maintenanceRequests.status, 'PENDING_APPROVAL'),
-        ))
+        .where(
+          and(
+            eq(maintenanceRequests.farmId, farmId),
+            eq(maintenanceRequests.assetId, input.assetId),
+            eq(maintenanceRequests.status, 'PENDING_APPROVAL'),
+          ),
+        )
         .for('update')
         .limit(1);
       if (pendingRequest) {
         const now = new Date().toISOString();
-        await tx.update(maintenanceRequests).set({
-          status: 'CONFIRMED',
-          reviewedByMemberId: actor.memberId,
-          reviewedAt: now,
-          maintenanceRecordId: record.id,
-          updatedAt: now,
-        }).where(eq(maintenanceRequests.id, pendingRequest.id));
-        await notifyDocumentCreator(tx, {
-          farmId,
-          entityType: 'MAINTENANCE_REQUEST',
-          entityId: pendingRequest.id,
-          documentCode: `MNT-${pendingRequest.id.slice(0, 8)}`,
-          documentKind: 'Yêu cầu bảo trì tài sản',
-          status: 'CONFIRMED',
-          title: 'Yêu cầu bảo trì đã được lên lịch',
-        }, pendingRequest.requestedByMemberId);
+        await tx
+          .update(maintenanceRequests)
+          .set({
+            status: 'CONFIRMED',
+            reviewedByMemberId: actor.memberId,
+            reviewedAt: now,
+            maintenanceRecordId: record.id,
+            updatedAt: now,
+          })
+          .where(eq(maintenanceRequests.id, pendingRequest.id));
+        await notifyDocumentCreator(
+          tx,
+          {
+            farmId,
+            entityType: 'MAINTENANCE_REQUEST',
+            entityId: pendingRequest.id,
+            documentCode: `MNT-${pendingRequest.id.slice(0, 8)}`,
+            documentKind: 'Yêu cầu bảo trì tài sản',
+            status: 'CONFIRMED',
+            title: 'Yêu cầu bảo trì đã được lên lịch',
+          },
+          pendingRequest.requestedByMemberId,
+        );
       }
       return record;
     });
@@ -845,7 +854,10 @@ export class MaintenanceService {
         },
       );
       await this.notifyMaintenanceRequestOwner(
-        tx, farmId, id, 'Kết quả bảo trì đã cập nhật',
+        tx,
+        farmId,
+        id,
+        'Kết quả bảo trì đã cập nhật',
         `${updated.status === 'COMPLETED' ? 'Nghiệm thu đạt' : 'Bảo trì không đạt'}: ${updated.resultNote}`,
       );
       return updated;
@@ -1033,29 +1045,43 @@ export class MaintenanceService {
         .where(eq(maintenanceRecords.id, id))
         .returning();
       const [linkedRequest] = await tx
-        .select({ requestedByMemberId: maintenanceRequests.requestedByMemberId })
+        .select({
+          requestedByMemberId: maintenanceRequests.requestedByMemberId,
+        })
         .from(maintenanceRequests)
-        .where(and(
-          eq(maintenanceRequests.maintenanceRecordId, record.id),
-          eq(maintenanceRequests.farmId, farmId),
-        ))
+        .where(
+          and(
+            eq(maintenanceRequests.maintenanceRecordId, record.id),
+            eq(maintenanceRequests.farmId, farmId),
+          ),
+        )
         .limit(1);
       if (linkedRequest) {
         const notification = {
-          ...this.returnNotification(updated, approve ? 'CONFIRMED' : 'REJECTED'),
+          ...this.returnNotification(
+            updated,
+            approve ? 'CONFIRMED' : 'REJECTED',
+          ),
           rejectionReason: updated.returnRejectionReason ?? undefined,
         };
-        const recipients = [...new Set([
-          linkedRequest.requestedByMemberId,
-          record.performedByMemberId ?? record.returnCreatedByMemberId,
-        ].filter((memberId): memberId is string => Boolean(memberId)))];
+        const recipients = [
+          ...new Set(
+            [
+              linkedRequest.requestedByMemberId,
+              record.performedByMemberId ?? record.returnCreatedByMemberId,
+            ].filter((memberId): memberId is string => Boolean(memberId)),
+          ),
+        ];
         for (const memberId of recipients)
           await notifyDocumentCreator(tx, notification, memberId);
       } else {
         await notifyDocumentCreator(
           tx,
           {
-            ...this.returnNotification(updated, approve ? 'CONFIRMED' : 'REJECTED'),
+            ...this.returnNotification(
+              updated,
+              approve ? 'CONFIRMED' : 'REJECTED',
+            ),
             rejectionReason: updated.returnRejectionReason ?? undefined,
           },
           record.returnCreatedByMemberId,
@@ -1063,7 +1089,10 @@ export class MaintenanceService {
         await notifyMaintenanceStaff(
           tx,
           {
-            ...this.returnNotification(updated, approve ? 'CONFIRMED' : 'REJECTED'),
+            ...this.returnNotification(
+              updated,
+              approve ? 'CONFIRMED' : 'REJECTED',
+            ),
             rejectionReason: updated.returnRejectionReason ?? undefined,
           },
           await this.assetWarehouse(tx, updated.assetId),
@@ -1153,8 +1182,13 @@ export class MaintenanceService {
         },
       );
       await this.notifyMaintenanceRequestOwner(
-        tx, farmId, id, 'Đã có quyết định cuối về tài sản',
-        decision === 'REUSE' ? 'Tài sản đã được cho phép sử dụng lại.' : `Tài sản được tạm giữ${decisionNote ? `: ${decisionNote}` : '.'}`,
+        tx,
+        farmId,
+        id,
+        'Đã có quyết định cuối về tài sản',
+        decision === 'REUSE'
+          ? 'Tài sản đã được cho phép sử dụng lại.'
+          : `Tài sản được tạm giữ${decisionNote ? `: ${decisionNote}` : '.'}`,
       );
       return updated;
     });
@@ -1177,24 +1211,33 @@ export class MaintenanceService {
     body: string,
   ) {
     const [request] = await tx
-      .select({ id: maintenanceRequests.id, requestedByMemberId: maintenanceRequests.requestedByMemberId })
+      .select({
+        id: maintenanceRequests.id,
+        requestedByMemberId: maintenanceRequests.requestedByMemberId,
+      })
       .from(maintenanceRequests)
-      .where(and(
-        eq(maintenanceRequests.farmId, farmId),
-        eq(maintenanceRequests.maintenanceRecordId, recordId),
-      ))
+      .where(
+        and(
+          eq(maintenanceRequests.farmId, farmId),
+          eq(maintenanceRequests.maintenanceRecordId, recordId),
+        ),
+      )
       .limit(1);
     if (!request) return;
-    await notifyDocumentCreator(tx, {
-      farmId,
-      entityType: 'MAINTENANCE_REQUEST',
-      entityId: request.id,
-      documentCode: `MNT-${request.id.slice(0, 8)}`,
-      documentKind: 'Yêu cầu bảo trì tài sản',
-      status: 'CONFIRMED',
-      title,
-      body,
-    }, request.requestedByMemberId);
+    await notifyDocumentCreator(
+      tx,
+      {
+        farmId,
+        entityType: 'MAINTENANCE_REQUEST',
+        entityId: request.id,
+        documentCode: `MNT-${request.id.slice(0, 8)}`,
+        documentKind: 'Yêu cầu bảo trì tài sản',
+        status: 'CONFIRMED',
+        title,
+        body,
+      },
+      request.requestedByMemberId,
+    );
   }
 
   private recordNotification(

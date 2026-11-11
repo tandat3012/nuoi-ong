@@ -42,7 +42,11 @@ import {
   warehouses,
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { inScope, scopeCondition, type WarehouseScope } from '../warehouses/warehouse-scope';
+import {
+  inScope,
+  scopeCondition,
+  type WarehouseScope,
+} from '../warehouses/warehouse-scope';
 
 const transactionAssetTable = sql`${assets} AS transaction_asset`;
 const assetReturnSourceTable = sql`${assets} AS asset_return_source`;
