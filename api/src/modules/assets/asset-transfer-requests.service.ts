@@ -663,7 +663,7 @@ export class AssetTransferRequestsService {
       farmId: request.farmId,
       entityType: 'ASSET_TRANSFER_REQUEST',
       entityId: request.id,
-      documentCode: `ATR-${request.id.slice(0, 8)}`,
+      documentCode: assetCode,
       documentKind: 'Yêu cầu chuyển tài sản',
       status,
       title: NOTIFICATION_TITLES[status],

@@ -521,7 +521,7 @@ export class MaintenanceRequestsService {
       farmId: request.farmId,
       entityType: 'MAINTENANCE_REQUEST',
       entityId: request.id,
-      documentCode: `MNT-${request.id.slice(0, 8)}`,
+      documentCode: assetCode,
       documentKind: 'Yêu cầu bảo trì tài sản',
       status,
       title: NOTIFICATION_TITLES[status],
