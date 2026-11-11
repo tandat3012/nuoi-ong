@@ -37,6 +37,14 @@ export type Warehouse = {
   status: string;
 };
 
+export type Category = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  status: string;
+};
+
 export type Item = {
   id: string;
   farmId: string;
@@ -73,11 +81,58 @@ export type InventoryBalance = {
   itemName: string;
   itemType: string;
   trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' | string;
+  itemImageUrl?: string | null;
+  minStockLevel?: string;
+  categoryName?: string | null;
   item?: {
-    unit?: { name?: string | null; symbol?: string | null };
+    id?: string;
+    code?: string;
+    name?: string;
+    trackingMode?: string;
+    imageUrl?: string | null;
+    minStockLevel?: string;
+    categoryName?: string | null;
+    unit?: { id?: string; name?: string | null; symbol?: string | null };
+  };
+  warehouse?: {
+    id: string;
+    code: string;
+    name: string;
   };
   lot?: { id: string; lotCode: string; supplierLotNumber?: string | null; legacyLotNumber?: string | null; expiryDate?: string | null } | null;
   lotCode?: string | null;
+};
+
+export type InventorySummaryRow = {
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  itemType: string;
+  trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' | string;
+  itemImageUrl?: string | null;
+  minStockLevel: string;
+  categoryId: string;
+  categoryName: string;
+  unitId: string;
+  unitName: string;
+  unitSymbol?: string | null;
+  quantityOnHand: string;
+  lotCount: number;
+  singleLotId?: string | null;
+  singleLotCode?: string | null;
+};
+
+export type InventorySummaryTotals = {
+  stockedItemCount: number;
+  lotItemCount: number;
+  totalQuantity: string;
+  belowMinimumCount: number;
+};
+
+export type InventoryItemsSummaryResponse = {
+  data: InventorySummaryRow[];
+  summary: InventorySummaryTotals;
+  page: Page;
 };
 
 export type InventoryLot = {
@@ -215,12 +270,67 @@ export type AvailableAsset = {
     itemId: string;
     currentLocationId: string | null;
     assetCode: string;
+    serialNumber?: string | null;
     status: string;
   };
   locationWarehouseId: string | null;
+  locationCode?: string | null;
   itemCode: string;
   itemName: string;
+  itemImageUrl?: string | null;
   locationName: string | null;
+};
+
+export type AssetDetailRecord = AvailableAsset & {
+  asset: AvailableAsset['asset'] & {
+    qrToken?: string;
+    purchaseDate?: string | null;
+    warrantyExpiryDate?: string | null;
+    lastMaintenanceDate?: string | null;
+    nextMaintenanceDate?: string | null;
+    note?: string | null;
+  };
+  maintenanceRetryEligible?: boolean;
+  latestMaintenanceStatus?: string | null;
+  latestMaintenanceReturnStatus?: string | null;
+};
+
+export type InventoryLotDetail = InventoryLot & {
+  sourceSupplierId?: string | null;
+  itemCode: string;
+  itemName: string;
+  itemType: string;
+  trackingMode: 'QUANTITY' | 'LOT' | 'ASSET' | string;
+  itemImageUrl?: string | null;
+  unitId?: string | null;
+  unitName?: string | null;
+  unitSymbol?: string | null;
+};
+
+export type MaintenanceRecord = {
+  id: string;
+  assetId: string;
+  maintenanceType: string;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  issuedByMemberId: string | null;
+  issuedByName: string | null;
+  completedAt: string | null;
+  receivedAt?: string | null;
+  returnStatus?: string | null;
+  returnRejectionReason?: string | null;
+  finalDecision?: string | null;
+  finalDecisionNote?: string | null;
+  status: string;
+  description: string | null;
+  resultNote: string | null;
+  performedByMemberId: string | null;
+  supplierId: string | null;
+  laborCost: string;
+  materialCost: string;
+  otherCost: string;
+  totalCost?: string | null;
+  createdAt: string;
 };
 
 export type StockDocumentStatus =
@@ -284,6 +394,13 @@ export type StockCount = {
 export type StockDocumentLine = {
   id: string;
   itemId: string;
+  itemCode?: string | null;
+  itemName?: string | null;
+  itemImageUrl?: string | null;
+  itemType?: string | null;
+  trackingMode?: string | null;
+  unitName?: string | null;
+  unitSymbol?: string | null;
   quantity?: string;
   actualQuantity?: string;
   systemQuantity?: string;
@@ -296,6 +413,10 @@ export type StockDocumentLine = {
   locationId?: string | null;
   locationCode?: string | null;
   locationName?: string | null;
+  assetCondition?: 'GOOD' | 'DAMAGED' | null;
+  foundLocationId?: string | null;
+  foundLocationCode?: string | null;
+  foundLocationName?: string | null;
   lotCode?: string | null;
   supplierLotNumber?: string | null;
   legacyLotNumber?: string | null;
@@ -343,6 +464,36 @@ export type WarehouseLocation = {
   status: string;
 };
 
+export type LocationPageFilters = {
+  warehouseId?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  skipCache?: boolean;
+};
+
+export function listLocationsPage(
+  token: string,
+  farmId: string,
+  filters: LocationPageFilters = {},
+  signal?: AbortSignal,
+) {
+  return apiRequest<Paginated<WarehouseLocation>>('/locations', {
+    token,
+    params: {
+      farmId,
+      warehouseId: filters.warehouseId || undefined,
+      status: filters.status ?? 'ACTIVE',
+      search: filters.search?.trim() || undefined,
+      page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? 20,
+    },
+    skipCache: filters.skipCache,
+    signal,
+  });
+}
+
 export async function listActiveLocations(token: string, farmId: string, warehouseId: string) {
   const firstPage = await apiRequest<Paginated<WarehouseLocation>>('/locations', {
     token,
@@ -362,41 +513,98 @@ export async function listActiveLocations(token: string, farmId: string, warehou
     .filter((row) => row.warehouseId === warehouseId && row.status === 'ACTIVE');
 }
 
-export async function listWarehouses(token: string, farmId: string, destination = false) {
+export async function listWarehouses(token: string, farmId: string, destination = false, signal?: AbortSignal) {
   return apiRequest<Paginated<Warehouse>>('/warehouses', {
     token,
     params: { farmId, page: 1, pageSize: 100, status: 'ACTIVE', destination: destination ? 'true' : undefined },
+    signal,
   });
 }
 
-async function listItemsPage(token: string, farmId: string, page: number, search?: string) {
-  return apiRequest<Paginated<ItemApiRow>>('/items', {
+export function listCategories(token: string, signal?: AbortSignal) {
+  return apiRequest<{ data: Category[] }>('/categories', {
     token,
-    params: { farmId, page, pageSize: 100, search: search || undefined, status: 'ACTIVE' },
+    signal,
   });
+}
+
+export type ItemPageFilters = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  categoryId?: string;
+  itemType?: string;
+  trackingMode?: string;
+  excludeTrackingMode?: string;
+  status?: string;
+  skipCache?: boolean;
+};
+
+function normalizeItemRow(row: ItemApiRow): Item {
+  if ('item' in row) {
+    return {
+      ...row.item,
+      categoryName: row.categoryName,
+      unitName: row.unitName,
+      unitSymbol: row.unitSymbol,
+    };
+  }
+  return row;
 }
 
 function normalizeItems(response: Paginated<ItemApiRow>): Paginated<Item> {
   return {
     ...response,
-    data: response.data.map((row) => {
-      if ('item' in row) {
-        return {
-          ...row.item,
-          categoryName: row.categoryName,
-          unitName: row.unitName,
-          unitSymbol: row.unitSymbol,
-        };
-      }
-      return row;
-    }),
+    data: response.data.map(normalizeItemRow),
   } satisfies Paginated<Item>;
 }
 
+export async function listItemsPage(
+  token: string,
+  farmId: string,
+  filters: ItemPageFilters = {},
+  signal?: AbortSignal,
+): Promise<Paginated<Item>> {
+  const response = await apiRequest<Paginated<ItemApiRow>>('/items', {
+    token,
+    params: {
+      farmId,
+      page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? 20,
+      search: filters.search?.trim() || undefined,
+      categoryId: filters.categoryId || undefined,
+      itemType: filters.itemType || undefined,
+      trackingMode: filters.trackingMode || undefined,
+      excludeTrackingMode: filters.excludeTrackingMode || undefined,
+      status: filters.status ?? 'ACTIVE',
+    },
+    skipCache: filters.skipCache,
+    signal,
+  });
+  return normalizeItems(response);
+}
+
+export async function getItemById(
+  token: string,
+  farmId: string,
+  itemId: string,
+  signal?: AbortSignal,
+): Promise<Item> {
+  const response = await apiRequest<{ data: ItemApiRow }>(
+    `/items/${encodeURIComponent(itemId)}`,
+    {
+      token,
+      params: { farmId },
+      signal,
+    },
+  );
+  return normalizeItemRow(unwrap(response));
+}
+
 export async function listItems(token: string, farmId: string, search?: string) {
-  const firstPage = normalizeItems(await listItemsPage(token, farmId, 1, search));
+  const firstPage = await listItemsPage(token, farmId, { page: 1, pageSize: 100, search, status: 'ACTIVE' });
   const remainingPages = await loadRemainingPages(firstPage.page.totalPages, async (page) =>
-    normalizeItems(await listItemsPage(token, farmId, page, search)).data);
+    (await listItemsPage(token, farmId, { page, pageSize: 100, search, status: 'ACTIVE' })).data);
   const data = [firstPage.data, ...remainingPages].flat();
 
   return {
@@ -408,6 +616,288 @@ export async function listItems(token: string, farmId: string, search?: string) 
       totalPages: firstPage.page.totalPages,
     },
   } satisfies Paginated<Item>;
+}
+
+export type BalancePageFilters = {
+  warehouseId?: string;
+  itemId?: string;
+  lotId?: string;
+  assetId?: string;
+  search?: string;
+  categoryId?: string;
+  trackingMode?: string;
+  excludeTrackingMode?: string;
+  itemIds?: string[];
+  positiveOnly?: boolean;
+  page?: number;
+  pageSize?: number;
+  skipCache?: boolean;
+};
+
+export type BalancePageResponse = {
+  data: InventoryBalance[];
+  page: Page;
+  summary?: {
+    lotBalanceRows: number;
+    assetBalanceRows: number;
+    lotRowsWithoutLot: number;
+    lotsWithoutExpiry: number;
+    expiredLots: number;
+    expiringLots: number;
+    healthyLots: number;
+  };
+};
+
+export function listBalancesPage(
+  token: string,
+  farmId: string,
+  filters: BalancePageFilters = {},
+  signal?: AbortSignal,
+) {
+  return apiRequest<BalancePageResponse>('/inventory', {
+    token,
+    params: {
+      farmId,
+      warehouseId: filters.warehouseId || undefined,
+      itemId: filters.itemId || undefined,
+      lotId: filters.lotId || undefined,
+      assetId: filters.assetId || undefined,
+      search: filters.search?.trim() || undefined,
+      categoryId: filters.categoryId || undefined,
+      trackingMode: filters.trackingMode || undefined,
+      excludeTrackingMode: filters.excludeTrackingMode || undefined,
+      itemIds: filters.itemIds?.length ? filters.itemIds.join(',') : undefined,
+      positiveOnly: filters.positiveOnly ? 'true' : undefined,
+      page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? 20,
+    },
+    skipCache: filters.skipCache,
+    signal,
+  });
+}
+
+export async function listPositiveBalancesForItems(
+  token: string,
+  farmId: string,
+  warehouseId: string,
+  itemIds: string[],
+  signal?: AbortSignal,
+): Promise<InventoryBalance[]> {
+  if (itemIds.length === 0) return [];
+  const collected: InventoryBalance[] = [];
+  for (let i = 0; i < itemIds.length; i += 50) {
+    const chunk = itemIds.slice(i, i + 50);
+    const firstPage = await listBalancesPage(
+      token,
+      farmId,
+      { warehouseId, itemIds: chunk, positiveOnly: true, page: 1, pageSize: 100, skipCache: true },
+      signal,
+    );
+    collected.push(...firstPage.data);
+    const remainingPages = await loadRemainingPages(firstPage.page.totalPages, async (page) => {
+      const nextPage = await listBalancesPage(
+        token,
+        farmId,
+        { warehouseId, itemIds: chunk, positiveOnly: true, page, pageSize: 100, skipCache: true },
+        signal,
+      );
+      return nextPage.data;
+    });
+    collected.push(...remainingPages.flat());
+  }
+  return filterPositiveBalancesForScope(collected, farmId, warehouseId);
+}
+
+export type InventorySummaryFilters = {
+  warehouseId?: string;
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  categoryId?: string;
+  trackingMode?: string;
+  excludeTrackingMode?: string;
+  lowStockOnly?: boolean;
+  skipCache?: boolean;
+};
+
+export function listInventorySummaryPage(
+  token: string,
+  farmId: string,
+  filters: InventorySummaryFilters = {},
+  signal?: AbortSignal,
+) {
+  return apiRequest<InventoryItemsSummaryResponse>('/inventory/items-summary', {
+    token,
+    params: {
+      farmId,
+      warehouseId: filters.warehouseId || undefined,
+      page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? 20,
+      search: filters.search?.trim() || undefined,
+      categoryId: filters.categoryId || undefined,
+      trackingMode: filters.trackingMode || undefined,
+      excludeTrackingMode: filters.excludeTrackingMode || undefined,
+      lowStockOnly: filters.lowStockOnly ? 'true' : undefined,
+    },
+    skipCache: filters.skipCache,
+    signal,
+  });
+}
+
+export function getInventoryForecastPage(
+  token: string,
+  farmId: string,
+  warehouseId: string,
+  page = 1,
+  pageSize = 20,
+  signal?: AbortSignal,
+) {
+  return apiRequest<Paginated<InventoryForecast>>('/inventory/forecast', {
+    token,
+    params: {
+      farmId,
+      warehouseId,
+      page,
+      pageSize,
+    },
+    signal,
+  });
+}
+
+export type LotPageFilters = {
+  itemId?: string;
+  supplierLotNumber?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  skipCache?: boolean;
+};
+
+export function listLotsPage(
+  token: string,
+  farmId: string,
+  filters: LotPageFilters = {},
+  signal?: AbortSignal,
+) {
+  return apiRequest<Paginated<InventoryLot>>('/lots', {
+    token,
+    params: {
+      farmId,
+      itemId: filters.itemId || undefined,
+      supplierLotNumber: filters.supplierLotNumber?.trim() || undefined,
+      search: filters.search?.trim() || undefined,
+      page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? 20,
+    },
+    skipCache: filters.skipCache,
+    signal,
+  });
+}
+
+export async function getInventoryLot(
+  token: string,
+  farmId: string,
+  lotId: string,
+  signal?: AbortSignal,
+): Promise<InventoryLotDetail> {
+  const response = await apiRequest<{ data: InventoryLotDetail }>(
+    `/lots/${encodeURIComponent(lotId)}`,
+    {
+      token,
+      params: { farmId },
+      signal,
+    },
+  );
+  return unwrap(response);
+}
+
+export type AssetPageFilters = {
+  warehouseId?: string;
+  itemId?: string;
+  locationId?: string;
+  status?: string;
+  excludeStatuses?: string[];
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  skipCache?: boolean;
+};
+
+export function listAssetsPage(
+  token: string,
+  farmId: string,
+  filters: AssetPageFilters = {},
+  signal?: AbortSignal,
+) {
+  return apiRequest<{
+    data: AvailableAsset[];
+    summary?: { available: number; inUse: number; attention: number };
+    page: Page;
+  }>('/assets', {
+    token,
+    params: {
+      farmId,
+      warehouseId: filters.warehouseId || undefined,
+      itemId: filters.itemId || undefined,
+      locationId: filters.locationId || undefined,
+      status: filters.status || undefined,
+      excludeStatuses: filters.excludeStatuses?.length
+        ? filters.excludeStatuses.join(',')
+        : undefined,
+      search: filters.search?.trim() || undefined,
+      page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? 20,
+    },
+    skipCache: filters.skipCache,
+    signal,
+  });
+}
+
+export async function getAssetById(
+  token: string,
+  farmId: string,
+  assetId: string,
+  signal?: AbortSignal,
+): Promise<AssetDetailRecord> {
+  const response = await apiRequest<{ data: AssetDetailRecord }>(
+    `/assets/${encodeURIComponent(assetId)}`,
+    {
+      token,
+      params: { farmId },
+      signal,
+    },
+  );
+  return unwrap(response);
+}
+
+export function listMaintenanceRecordsPage(
+  token: string,
+  farmId: string,
+  filters: {
+    assetId?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+    skipCache?: boolean;
+  } = {},
+  signal?: AbortSignal,
+) {
+  return apiRequest<Paginated<MaintenanceRecord>>('/maintenance-records', {
+    token,
+    params: {
+      farmId,
+      assetId: filters.assetId || undefined,
+      status: filters.status || undefined,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
+      page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? 20,
+    },
+    skipCache: filters.skipCache,
+    signal,
+  });
 }
 
 export async function listBalances(token: string, farmId: string, warehouseId?: string, positiveOnly = false, skipCache = false) {

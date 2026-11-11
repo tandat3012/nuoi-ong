@@ -11,7 +11,9 @@ import {
   count,
   desc,
   eq,
+  ilike,
   isNull,
+  or,
   SQL,
   getTableColumns,
   sql,
@@ -60,6 +62,7 @@ type Filters = {
   pageSize: number;
   offset: number;
   status?: typeof stockCounts.$inferSelect.status;
+  search?: string;
 };
 type SnapshotLine = {
   itemId: string;
@@ -106,6 +109,15 @@ export class StockCountsService {
     if (readMemberId)
       conditions.push(eq(stockCounts.createdByMemberId, readMemberId));
     if (f.status) conditions.push(eq(stockCounts.status, f.status));
+    if (f.search) {
+      const pattern = `%${f.search.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(
+        or(
+          ilike(stockCounts.countCode, pattern),
+          ilike(stockCounts.note, pattern),
+        )!,
+      );
+    }
     const where = and(...conditions);
     const [data, totals] = await Promise.all([
       this.dbService.db
@@ -552,6 +564,7 @@ export class StockCountsService {
         ...getTableColumns(stockCountItems),
         itemCode: items.code,
         itemName: items.name,
+        itemImageUrl: items.imageUrl,
         trackingMode: items.trackingMode,
         unitName: units.name,
         unitSymbol: units.symbol,

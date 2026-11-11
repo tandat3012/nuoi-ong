@@ -96,4 +96,54 @@ describe('CatalogController', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(catalogService.getItem).not.toHaveBeenCalled();
   });
+
+  it('forwards validated categoryId and excludeTrackingMode filters', async () => {
+    const categoryId = '11111111-1111-4111-8111-111111111111';
+    catalogService.listItems.mockResolvedValueOnce({ data: [] });
+
+    await controller.listItems(
+      farmId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      categoryId,
+      'ASSET',
+    );
+    expect(catalogService.listItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        farmId,
+        categoryId,
+        excludeTrackingMode: 'ASSET',
+      }),
+    );
+
+    await expect(
+      controller.listItems(
+        farmId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'bad-uuid',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.listItems(
+        farmId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'UNKNOWN',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });

@@ -55,6 +55,7 @@ function FarmMaterialsPage() {
     filters,
     pageInfo,
     materials,
+    summary,
     categories,
     units,
     isLoading,
@@ -227,6 +228,7 @@ function FarmMaterialsPage() {
           <MaterialSummaryBar
             materials={materials}
             totalItems={pageInfo?.totalItems}
+            summary={summary}
           />
 
           {errorMessage && (

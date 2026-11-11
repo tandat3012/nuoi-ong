@@ -1,79 +1,54 @@
 "use client";
 
-import { useMemo } from "react";
 import {
   Boxes,
   CalendarClock,
   CheckCircle2,
   AlertTriangle,
 } from "lucide-react";
-import type { MaterialListRow } from "../types/material";
+import type { MaterialListRow, MaterialListSummary } from "../types/material";
 
 interface MaterialSummaryBarProps {
   materials: MaterialListRow[];
   totalItems?: number;
+  summary?: MaterialListSummary;
 }
 
 export function MaterialSummaryBar({
   materials,
   totalItems,
+  summary,
 }: MaterialSummaryBarProps) {
-  const stats = useMemo(() => {
-    const total = totalItems ?? materials.length;
-    let lotCount = 0;
-    let activeCount = 0;
-    let lowStockCount = 0;
-
-    for (const m of materials) {
-      if (m.item.trackingMode === "LOT") {
-        lotCount++;
-      }
-      if (m.item.status === "ACTIVE") {
-        activeCount++;
-      }
-      const qty = parseFloat(m.quantityOnHand) || 0;
-      const minStock = parseFloat(m.item.minStockLevel) || 0;
-      if (qty <= 0 || (minStock > 0 && qty <= minStock)) {
-        lowStockCount++;
-      }
-    }
-
-    return {
-      total,
-      lotCount,
-      activeCount,
-      lowStockCount,
-    };
-  }, [materials, totalItems]);
+  const total = totalItems ?? materials.length;
 
   const cards = [
     {
       title: "Tổng danh mục vật tư",
-      value: stats.total,
+      value: total,
       subtext: "Mặt hàng đã đăng ký",
       icon: Boxes,
       dotClass: "bg-primary",
     },
     {
       title: "Theo dõi theo Lô (Lot)",
-      value: stats.lotCount,
+      value: summary?.lotCount ?? "—",
       subtext: "Kiểm soát hạn dùng & xuất xứ",
       icon: CalendarClock,
       dotClass: "bg-blue-500",
     },
     {
       title: "Đang hoạt động",
-      value: stats.activeCount,
+      value: summary?.activeCount ?? "—",
       subtext: "Sẵn sàng nhập / xuất kho",
       icon: CheckCircle2,
       dotClass: "bg-emerald-500",
     },
     {
       title: "Cần chú ý tồn kho",
-      value: stats.lowStockCount,
+      value: summary?.lowStockCount ?? "—",
       subtext: "Hết hàng hoặc dưới định mức",
       icon: AlertTriangle,
-      dotClass: stats.lowStockCount > 0 ? "bg-amber-500" : "bg-muted-foreground",
+      dotClass: (summary?.lowStockCount ?? 0) > 0 ? "bg-amber-500" : "bg-muted-foreground",
     },
   ];
 

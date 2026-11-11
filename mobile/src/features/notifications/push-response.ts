@@ -9,10 +9,21 @@ const documentTypes = new Set([
   'STOCK_TRANSFER',
   'STOCK_COUNT',
   'MAINTENANCE_REQUEST',
+  'MAINTENANCE_RETURN',
+  'MAINTENANCE_RECORD',
   'ASSET_TRANSFER_REQUEST',
 ]);
 
-const statuses = ['PENDING_APPROVAL', 'CONFIRMED', 'REJECTED'] as const;
+const statusesByType: Record<string, readonly string[]> = {
+  STOCK_RECEIPT: ['PENDING_APPROVAL', 'CONFIRMED', 'REJECTED'],
+  STOCK_ISSUE: ['PENDING_APPROVAL', 'CONFIRMED', 'REJECTED'],
+  STOCK_TRANSFER: ['PENDING_APPROVAL', 'IN_TRANSIT', 'CONFIRMED', 'REJECTED'],
+  STOCK_COUNT: ['PENDING_APPROVAL', 'CONFIRMED', 'REJECTED'],
+  MAINTENANCE_REQUEST: ['PENDING_APPROVAL', 'CONFIRMED', 'REJECTED'],
+  MAINTENANCE_RETURN: ['PENDING_APPROVAL', 'CONFIRMED', 'REJECTED'],
+  MAINTENANCE_RECORD: ['UPCOMING', 'DUE', 'OVERDUE', 'RETURN_OVERDUE'],
+  ASSET_TRANSFER_REQUEST: ['PENDING_APPROVAL', 'IN_TRANSIT', 'DISCREPANCY', 'CONFIRMED', 'REJECTED'],
+};
 
 export type PushResponsePayload = {
   version: 1;
@@ -47,7 +58,7 @@ export function parsePushResponsePayload(value: unknown): PushResponsePayload | 
     typeof payload.entityType !== 'string' ||
     !documentTypes.has(payload.entityType) ||
     typeof payload.type !== 'string' ||
-    !statuses.some((status) => payload.type === `${payload.entityType}_${status}`)
+    !statusesByType[payload.entityType]?.some((status) => payload.type === `${payload.entityType}_${status}`)
   ) {
     return null;
   }

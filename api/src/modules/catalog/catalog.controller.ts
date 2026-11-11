@@ -186,6 +186,12 @@ export class CatalogController {
     'Cách theo dõi tồn kho.',
   )
   @ApiEnumQuery('status', recordStatus.enumValues, 'Trạng thái mặt hàng.')
+  @ApiUuidQuery('categoryId', 'Lọc theo danh mục.')
+  @ApiEnumQuery(
+    'excludeTrackingMode',
+    trackingMode.enumValues,
+    'Loại trừ cách theo dõi tồn kho.',
+  )
   @ApiOkResponse({
     description: 'Trang kết quả; ngưỡng minStockLevel là chuỗi thập phân.',
     schema: {
@@ -232,7 +238,17 @@ export class CatalogController {
     @Query('itemType') itemTypeValue?: string | string[],
     @Query('trackingMode') trackingModeValue?: string,
     @Query('status') statusValue?: string,
+    @Query('categoryId') categoryIdValue?: string,
+    @Query('excludeTrackingMode') excludeTrackingModeValue?: string,
   ) {
+    const categoryId = categoryIdValue
+      ? requireUuid(categoryIdValue, 'categoryId')
+      : undefined;
+    const excludeTrackingMode = parseOptionalEnum(
+      excludeTrackingModeValue,
+      trackingMode.enumValues,
+      'excludeTrackingMode',
+    );
     return this.catalogService.listItems({
       farmId: requireUuid(farmIdValue, 'farmId'),
       ...parsePagination(pageValue, pageSizeValue),
@@ -244,6 +260,8 @@ export class CatalogController {
         'trackingMode',
       ),
       status: parseOptionalEnum(statusValue, recordStatus.enumValues, 'status'),
+      ...(categoryId ? { categoryId } : {}),
+      ...(excludeTrackingMode ? { excludeTrackingMode } : {}),
     });
   }
 

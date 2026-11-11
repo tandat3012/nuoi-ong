@@ -6,7 +6,8 @@ import { AppShell, Card, Icon, PageHeader, Pill, PrimaryButton } from '@/src/sha
 import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
-import { apiRequest, MobileApiError } from '@/src/shared/api/client';
+import { apiRequest, isAbortError, MobileApiError } from '@/src/shared/api/client';
+import { toThumbnailUrl } from '@/src/shared/cloudinary-url';
 import { formatQuantity } from '@/src/shared/format-quantity';
 
 type InventoryQrResponse = {
@@ -49,7 +50,7 @@ export default function InventoryQrResultScreen() {
       setError('Thiếu mã tồn kho hoặc chưa chọn trang trại.');
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     void getAccessToken()
       .then((token) => {
@@ -57,22 +58,24 @@ export default function InventoryQrResultScreen() {
         return apiRequest<InventoryQrResponse>(`/inventory/${encodeURIComponent(balanceId)}/qr`, {
           token,
           params: { farmId: currentFarmId },
+          signal: controller.signal,
         });
       })
       .then((response) => {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setResult(response.data);
           setError(null);
         }
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Không thể xác thực mã tồn kho.');
+        if (isAbortError(cause) || controller.signal.aborted) return;
+        setError(cause instanceof Error ? cause.message : 'Không thể xác thực mã tồn kho.');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [balanceId, currentFarmId, getAccessToken]);
 
@@ -80,12 +83,14 @@ export default function InventoryQrResultScreen() {
     router.replace('/scan' as never);
   }
 
+  const thumbUrl = toThumbnailUrl(result?.itemImageUrl, 256);
+
   return <AppShell active="scan">
     <PageHeader title={farmName} subtitle="Kết quả quét mã tồn kho" onBack={startNewScan} action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={startNewScan} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}><Icon name="qr-code-scanner" color={colors.primary} /></Pressable></View>} />
     {loading ? <Card style={styles.messageCard}><Icon name="sync" color={colors.primary} /><Text style={styles.message}>Đang xác thực mã tồn kho...</Text></Card> : error ? <Card style={styles.errorCard}><Icon name="error-outline" color={colors.error} /><View style={styles.copy}><Text style={styles.errorTitle}>QR tồn kho không hợp lệ</Text><Text style={styles.errorText}>{error}</Text></View><Pressable onPress={startNewScan} style={({ pressed }) => [styles.errorAction, pressed && styles.pressed]}><Text style={styles.errorActionText}>Quét lại</Text></Pressable></Card> : result ? <Card style={styles.successCard}><View style={styles.successIcon}><Icon name="check-circle" size={28} color={colors.statusSuccessStrong} /></View><View style={styles.copy}><Text style={styles.eyebrow}>KẾT QUẢ QUÉT QR</Text><Text style={styles.title}>Mã tồn kho hợp lệ</Text><Text style={styles.subtitle}>Mã thuộc trang trại đang chọn.</Text></View><Pill tone="success"><Text style={styles.successLabel}>ĐÃ XÁC NHẬN</Text></Pill><Pressable onPress={startNewScan} style={({ pressed }) => [styles.successRescan, pressed && styles.pressed]}><Icon name="qr-code-scanner" size={15} color={colors.statusSuccessStrong} /><Text style={styles.successRescanText}>Quét lại</Text></Pressable></Card> : null}
     <View style={styles.tabs}><Pressable onPress={startNewScan} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.tab, pressed && styles.pressed]}><Icon name="qr-code-scanner" size={17} color={colors.deepAmber} /><Text style={styles.tabText} numberOfLines={2}>Quét mã</Text></Pressable><View style={styles.activeTab}><Icon name="assignment" size={17} color={colors.onPrimary} /><Text style={styles.activeTabText} numberOfLines={2}>Kết quả</Text><Pill tone="cream"><Text style={styles.percent}>100%</Text></Pill></View></View>
     {result ? <>
-      <Card style={styles.detailCard}><View style={styles.detailHeader}><View style={styles.iconBox}>{result.itemImageUrl ? <Image source={{ uri: result.itemImageUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name={result.trackingMode === 'LOT' ? 'hive' : 'inventory-2'} size={28} color={colors.primary} />}</View><View style={styles.copy}><Text style={styles.itemName}>{result.itemName}</Text><Text style={styles.itemCode}>{result.itemCode}</Text></View></View><Info label="Kho lưu trữ" value={`${result.warehouseCode} - ${result.warehouseName}`} /><Info label="Mã lô nội bộ" value={result.lotCode ?? 'Không theo lô'} />{result.supplierLotNumber ? <Info label="Số lô trên hàng" value={result.supplierLotNumber} /> : null}{result.legacyLotNumber ? <Info label="Số lô cũ (tham khảo)" value={result.legacyLotNumber} /> : null}<Info label="Số lượng tồn" value={`${formatQuantity(result.balance.quantityOnHand)} ${result.itemType}`} strong /><Info label="Theo dõi" value={result.trackingMode} /></Card>
+      <Card style={styles.detailCard}><View style={styles.detailHeader}><View style={styles.iconBox}>{thumbUrl ? <Image source={{ uri: thumbUrl }} style={styles.itemImage} resizeMode="cover" /> : <Icon name={result.trackingMode === 'LOT' ? 'hive' : 'inventory-2'} size={28} color={colors.primary} />}</View><View style={styles.copy}><Text style={styles.itemName}>{result.itemName}</Text><Text style={styles.itemCode}>{result.itemCode}</Text></View></View><Info label="Kho lưu trữ" value={`${result.warehouseCode} - ${result.warehouseName}`} /><Info label="Mã lô nội bộ" value={result.lotCode ?? 'Không theo lô'} />{result.supplierLotNumber ? <Info label="Số lô trên hàng" value={result.supplierLotNumber} /> : null}{result.legacyLotNumber ? <Info label="Số lô cũ (tham khảo)" value={result.legacyLotNumber} /> : null}<Info label="Số lượng tồn" value={`${formatQuantity(result.balance.quantityOnHand)} ${result.itemType}`} strong /><Info label="Theo dõi" value={result.trackingMode} /></Card>
       <View style={styles.actions}>
         <PrimaryButton label="Mở chi tiết tồn kho" icon="inventory-2" onPress={() => router.push(`/inventory-detail?itemId=${encodeURIComponent(result.balance.itemId)}&warehouseId=${encodeURIComponent(result.balance.warehouseId)}${result.balance.lotId ? `&lotId=${encodeURIComponent(result.balance.lotId)}` : ''}` as never)} />
         <View style={styles.actionRow}>

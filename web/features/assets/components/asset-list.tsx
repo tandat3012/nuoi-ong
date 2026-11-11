@@ -14,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 import { useAuthenticatedRequest } from "@/features/auth";
-import type { PaginatedResponse } from "@/shared/api/contracts";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { ErrorAlert } from "@/shared/components/ui/error-alert";
@@ -36,7 +35,7 @@ import {
   type AssetChoice,
   type AssetFilters,
   type AssetStatus,
-  type AssetView,
+  type AssetListResponse,
 } from "../types/asset";
 import { AssetLookup } from "./asset-lookup";
 import { AssetStatusBadge } from "./asset-status-badge";
@@ -69,7 +68,7 @@ export function AssetList({
   }>({ item: null, warehouse: null, location: null });
   const [result, setResult] = useState<{
     filters: AssetFilters;
-    response?: PaginatedResponse<AssetView>;
+    response?: AssetListResponse;
     error?: string;
   } | null>(null);
 
@@ -160,6 +159,7 @@ export function AssetList({
       <AssetSummaryBar
         assets={current?.response?.data ?? []}
         totalItems={current?.response?.page.totalItems}
+        summary={current?.response?.summary}
       />
 
       {created && (

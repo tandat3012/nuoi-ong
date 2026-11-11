@@ -97,7 +97,7 @@ export function documentPushEligibility() {
         AND push_request.farm_id = ${notifications.farmId}
         AND (
           (${notifications.type} = ${type + '_PENDING_APPROVAL'}
-            AND push_request.status = 'PENDING_APPROVAL' AND ${isApprover})
+            AND push_request.status = 'PENDING_APPROVAL' AND (${isApprover} OR (${type === 'MAINTENANCE_REQUEST' ? sql`EXISTS (SELECT 1 FROM farm_members pm JOIN farm_member_roles pl ON pl.farm_member_id=pm.id JOIN roles pr ON pr.id=pl.role_id WHERE pm.user_id=${notifications.userId} AND pm.farm_id=${notifications.farmId} AND pm.status='ACTIVE' AND pr.code='MAINTENANCE_STAFF')` : sql`FALSE`})))
           -- A2: a damaged arrival waits for the owner/admin.
           OR (${notifications.type} = ${type + '_DISCREPANCY'}
             AND push_request.status::text = 'DISCREPANCY' AND ${isApprover})
@@ -117,11 +117,15 @@ export function documentPushEligibility() {
   )`,
   );
   const maintenanceMember = sql`EXISTS (SELECT 1 FROM farm_members mm JOIN farm_member_roles mr ON mr.farm_member_id=mm.id JOIN roles rr ON rr.id=mr.role_id WHERE mm.user_id=${notifications.userId} AND mm.farm_id=${notifications.farmId} AND mm.status='ACTIVE' AND rr.code IN ('ADMIN','FARM_OWNER','WAREHOUSE_MANAGER','MAINTENANCE_STAFF'))`;
-  const maintenanceCondition = sql`(${maintenanceMember} AND (
+  const linkedRequestCreator = sql`(${notifications.entityType}='MAINTENANCE_RETURN' AND ${notifications.type} IN ('MAINTENANCE_RETURN_CONFIRMED','MAINTENANCE_RETURN_REJECTED') AND EXISTS (SELECT 1 FROM ${maintenanceRequests} mr JOIN farm_members requester ON requester.id=mr.requested_by_member_id WHERE mr.maintenance_record_id=${notifications.entityId} AND mr.farm_id=${notifications.farmId} AND requester.user_id=${notifications.userId} AND requester.status='ACTIVE'))`;
+  const maintenanceCondition = sql`((${maintenanceMember} OR ${linkedRequestCreator}) AND (
     (${notifications.entityType} = 'MAINTENANCE_RETURN' AND EXISTS (
       SELECT 1 FROM ${maintenanceRecords} m WHERE m.id=${notifications.entityId} AND m.farm_id=${notifications.farmId}
       AND ((m.return_status='PENDING_APPROVAL' AND ${notifications.type}='MAINTENANCE_RETURN_PENDING_APPROVAL' AND ${isApprover})
-      OR (m.return_status::text IN ('CONFIRMED','REJECTED') AND ${notifications.type}='MAINTENANCE_RETURN_' || m.return_status::text AND EXISTS (SELECT 1 FROM farm_members c WHERE c.id=m.return_created_by_member_id AND c.user_id=${notifications.userId} AND c.status='ACTIVE')))))
+      OR (m.return_status::text IN ('CONFIRMED','REJECTED') AND ${notifications.type}='MAINTENANCE_RETURN_' || m.return_status::text AND (
+        EXISTS (SELECT 1 FROM maintenance_requests mr JOIN farm_members c ON c.id=mr.requested_by_member_id WHERE mr.maintenance_record_id=m.id AND mr.farm_id=m.farm_id AND c.user_id=${notifications.userId} AND c.status='ACTIVE')
+        OR EXISTS (SELECT 1 FROM farm_members c WHERE c.id=m.performed_by_member_id AND c.user_id=${notifications.userId} AND c.status='ACTIVE')
+        OR (NOT EXISTS (SELECT 1 FROM maintenance_requests mr WHERE mr.maintenance_record_id=m.id AND mr.farm_id=m.farm_id) AND EXISTS (SELECT 1 FROM farm_members c WHERE c.id=m.return_created_by_member_id AND c.user_id=${notifications.userId} AND c.status='ACTIVE'))))))
     OR (${notifications.entityType} = 'MAINTENANCE_RECORD' AND EXISTS (
       SELECT 1 FROM maintenance_records m JOIN assets a ON a.id=m.asset_id WHERE m.id=${notifications.entityId} AND m.farm_id=${notifications.farmId}
       AND ${notifications.data}->>'milestone' = CASE WHEN m.status='SCHEDULED' THEN m.scheduled_at::text WHEN m.status='IN_PROGRESS' THEN m.expected_return_at::text ELSE NULL END

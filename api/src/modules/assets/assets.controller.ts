@@ -171,6 +171,11 @@ export class AssetsController {
   @ApiUuidQuery('itemId', 'Lọc theo mặt hàng.')
   @ApiUuidQuery('locationId', 'Lọc theo vị trí hiện tại.')
   @ApiUuidQuery('warehouseId', 'Lọc theo kho của vị trí hiện tại.')
+  @ApiEnumQuery(
+    'excludeStatuses',
+    assetStatus.enumValues,
+    'Loại trừ trạng thái tài sản (phân tách dấu phẩy, ví dụ LOST,RETIRED,MAINTENANCE).',
+  )
   @ApiOkResponse({
     description: 'Tài sản kèm mặt hàng và vị trí nếu có.',
     schema: {
@@ -193,6 +198,16 @@ export class AssetsController {
                 nullable: true,
               },
             },
+          },
+        },
+        summary: {
+          type: 'object',
+          description:
+            'Thống kê trạng thái trên toàn bộ tài sản khớp phạm vi quyền và bộ lọc.',
+          properties: {
+            available: { type: 'integer' },
+            inUse: { type: 'integer' },
+            attention: { type: 'integer' },
           },
         },
         page: OPENAPI_PAGE,
@@ -218,7 +233,23 @@ export class AssetsController {
     @Query('itemId') itemIdValue?: string,
     @Query('locationId') locationIdValue?: string,
     @Query('warehouseId') warehouseIdValue?: string,
+    @Query('excludeStatuses') excludeStatusesValue?: string | string[],
   ) {
+    const excludeStatusParts = [excludeStatusesValue ?? []]
+      .flat()
+      .flatMap((part) => part.split(','))
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const excludeStatuses = excludeStatusParts.length
+      ? excludeStatusParts.map(
+          (part) =>
+            parseOptionalEnum(
+              part,
+              assetStatus.enumValues,
+              'excludeStatuses',
+            )!,
+        )
+      : undefined;
     return this.assetsService.listAssets({
       farmId: requireUuid(farmIdValue, 'farmId'),
       clerkUserId: auth.clerkUserId,
@@ -232,6 +263,7 @@ export class AssetsController {
       warehouseId: warehouseIdValue
         ? requireUuid(warehouseIdValue, 'warehouseId')
         : undefined,
+      ...(excludeStatuses?.length ? { excludeStatuses } : {}),
     });
   }
 

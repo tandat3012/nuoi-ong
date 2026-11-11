@@ -7,7 +7,9 @@ import { AppShell, Card, Icon, PageHeader, Pill, PrimaryButton } from '@/src/sha
 import { colors, dimensions, radius, shadows, spacing, typography } from '@/src/core/theme/tokens';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
-import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
+import { listMaintenanceRecordsPage, type MaintenanceRecord } from '@/src/features/inventory/api';
+import { apiRequest, clearApiCache, isAbortError, MobileApiError } from '@/src/shared/api/client';
+import { toThumbnailUrl } from '@/src/shared/cloudinary-url';
 
 type AssetLookup = {
   data: {
@@ -32,16 +34,6 @@ type AssetLookup = {
   };
 };
 
-type MaintenanceRecord = {
-  id: string;
-  maintenanceType: string;
-  scheduledAt: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  status: string;
-  description: string | null;
-  resultNote: string | null;
-};
 type MaintenanceRequestPage = { data: Array<{ id: string; status: string }> };
 type TransferRequestPage = { data: Array<{ id: string; status: string }> };
 
@@ -52,7 +44,8 @@ export default function AssetDetailScreen() {
   const { data, currentFarmId, getAccessToken } = useAuthContext();
   const [lookup, setLookup] = useState<AssetLookup['data'] | null>(null);
   const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
-  const [hasPendingMaintenanceRequest, setHasPendingMaintenanceRequest] = useState(false);
+  const [maintenanceTotal, setMaintenanceTotal] = useState(0);
+  const [pendingMaintenanceRequestId, setPendingMaintenanceRequestId] = useState<string | null>(null);
   const [pendingTransferRequestId, setPendingTransferRequestId] = useState<string | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -67,9 +60,10 @@ export default function AssetDetailScreen() {
   }, []));
   useEffect(() => {
     if (!currentFarmId || !token) return;
-    let cancelled = false;
+    const controller = new AbortController();
     setLookup(null);
     setMaintenanceRecords([]);
+    setMaintenanceTotal(0);
     setPendingTransferRequestId(null);
     setLookupError(null);
     void getAccessToken()
@@ -78,37 +72,45 @@ export default function AssetDetailScreen() {
         return apiRequest<AssetLookup>(`/assets/by-code/${encodeURIComponent(token)}`, {
           token: accessToken,
           params: { farmId: currentFarmId },
+          signal: controller.signal,
         }).then(async (assetResponse) => {
-          const maintenanceResponse = await apiRequest<{ data: MaintenanceRecord[] }>('/maintenance-records', {
-            token: accessToken,
-            params: { farmId: currentFarmId, assetId: assetResponse.data.asset.id, page: 1, pageSize: 100 },
-          });
-          const requestResponse = await apiRequest<MaintenanceRequestPage>('/maintenance-requests', {
-            token: accessToken,
-            params: { farmId: currentFarmId, assetId: assetResponse.data.asset.id, page: 1, pageSize: 1, status: 'PENDING_APPROVAL' },
-            skipCache: true,
-          });
-          const transferResponse = assetResponse.data.asset.status === 'TRANSFER_PENDING'
-            ? await apiRequest<TransferRequestPage>('/asset-transfer-requests', {
+          const [maintenanceResponse, requestResponse, transferResponse] = await Promise.all([
+            listMaintenanceRecordsPage(
+              accessToken,
+              currentFarmId,
+              { assetId: assetResponse.data.asset.id, page: 1, pageSize: 20 },
+              controller.signal,
+            ),
+            apiRequest<MaintenanceRequestPage>('/maintenance-requests', {
               token: accessToken,
               params: { farmId: currentFarmId, assetId: assetResponse.data.asset.id, page: 1, pageSize: 1, status: 'PENDING_APPROVAL' },
               skipCache: true,
-            })
-            : null;
+              signal: controller.signal,
+            }),
+            assetResponse.data.asset.status === 'TRANSFER_PENDING'
+              ? apiRequest<TransferRequestPage>('/asset-transfer-requests', {
+                token: accessToken,
+                params: { farmId: currentFarmId, assetId: assetResponse.data.asset.id, page: 1, pageSize: 1, status: 'PENDING_APPROVAL' },
+                skipCache: true,
+                signal: controller.signal,
+              })
+              : Promise.resolve(null),
+          ]);
           return { assetResponse, maintenanceResponse, requestResponse, transferResponse };
         });
       })
       .then(({ assetResponse, maintenanceResponse, requestResponse, transferResponse }) => {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setLookup(assetResponse.data);
           setMaintenanceRecords(maintenanceResponse.data);
-          setHasPendingMaintenanceRequest(requestResponse.data.some((request) => request.status === 'PENDING_APPROVAL'));
+          setMaintenanceTotal(maintenanceResponse.page.totalItems);
+          setPendingMaintenanceRequestId(requestResponse.data.find((request) => request.status === 'PENDING_APPROVAL')?.id ?? null);
           setPendingTransferRequestId(transferResponse?.data.find((request) => request.status === 'PENDING_APPROVAL')?.id ?? null);
           setLookupError(null);
         }
       })
       .catch((cause: unknown) => {
-        if (cancelled) return;
+        if (isAbortError(cause) || controller.signal.aborted) return;
         setLookupError(
           cause instanceof MobileApiError && cause.status === 404
             ? 'Asset không còn tồn tại'
@@ -118,7 +120,7 @@ export default function AssetDetailScreen() {
         );
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [currentFarmId, getAccessToken, reloadNonce, token]);
   function sync() {
@@ -129,31 +131,33 @@ export default function AssetDetailScreen() {
   }
   const latestMaintenance = maintenanceRecords[0];
   const currentMembership = data?.memberships.find(({ farm }) => farm.id === currentFarmId);
-  const hasActiveMaintenance = maintenanceRecords.some((record) => ['SCHEDULED', 'IN_PROGRESS'].includes(record.status));
+  const hasActiveMaintenance = maintenanceRecords.some((record) => ['SCHEDULED', 'IN_PROGRESS', 'RECEIVED'].includes(record.status));
   const canRequestMaintenance = Boolean(currentMembership?.roles.includes('EMPLOYEE'))
     && ['AVAILABLE', 'ASSIGNED', 'IN_USE'].includes(lookup?.asset.status ?? '')
     && !hasActiveMaintenance
-    && !hasPendingMaintenanceRequest;
+    && !pendingMaintenanceRequestId;
   const canTransferAsset = Boolean(currentMembership?.roles.includes('EMPLOYEE'))
     && lookup?.asset.status === 'AVAILABLE'
     && Boolean(lookup.locationWarehouseId)
     && !hasActiveMaintenance
-    && !hasPendingMaintenanceRequest;
+    && !pendingMaintenanceRequestId;
   const canIssueAsset = lookup?.asset.status === 'AVAILABLE' && Boolean(lookup.locationWarehouseId);
   const nextMaintenance = maintenanceRecords.find((record) => record.status === 'SCHEDULED');
   const purchaseDate = lookup?.asset.purchaseDate ? formatDate(lookup.asset.purchaseDate) : 'Chưa có dữ liệu';
   const warrantyExpiry = lookup?.asset.warrantyExpiryDate ? formatDate(lookup.asset.warrantyExpiryDate) : 'Chưa có dữ liệu';
-  const maintenanceSummary = maintenanceRecords.length ? `${maintenanceRecords.length} bản ghi` : 'Chưa có bản ghi';
+  const totalMaintenanceCount = Math.max(maintenanceTotal, maintenanceRecords.length);
+  const maintenanceSummary = totalMaintenanceCount ? `${totalMaintenanceCount} bản ghi` : 'Chưa có bản ghi';
+  const heroImageUrl = toThumbnailUrl(lookup?.itemImageUrl, 256);
   const syncTransform = { transform: [{ rotate: syncRotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] };
   return <AppShell active="scan">
     <PageHeader title={data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.farm.name ?? (data?.memberships.length === 1 ? data.memberships[0]?.farm.name : undefined) ?? 'Chưa chọn trang trại'} subtitle="Thông tin tài sản" onBack={() => router.back()} action={<View style={{ flexDirection: 'row', alignItems: 'center' }}><NotificationBell /><Pressable onPress={sync} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.sync, pressed && styles.pressed]} accessibilityLabel="Đồng bộ tài sản"><Animated.View style={syncTransform}><Icon name="sync" color={colors.primary} /></Animated.View></Pressable></View>} />
     {lookupError ? <Card style={styles.errorCard}><Icon name="error-outline" color={colors.error} /><View style={styles.errorCopy}><Text style={styles.invalidTitle}>QR không hợp lệ</Text><Text style={styles.errorText}>{lookupError}</Text></View><Pressable onPress={() => router.replace('/scan' as never)} android_ripple={{ color: colors.errorContainer }} style={({ pressed }) => [styles.invalidRescan, pressed && styles.pressed]}><Text style={styles.invalidRescanText}>Quét lại</Text></Pressable></Card> : lookup ? <Card style={styles.verified}><View style={styles.verifiedIcon}><Icon name="check-circle" color={colors.statusSuccessStrong} size={22} /></View><View style={styles.verifiedCopy}><Text style={styles.verifiedTitle} numberOfLines={2}>Mã QR hợp lệ! <Text style={styles.ok}>ĐÃ XÁC NHẬN</Text></Text><Text style={styles.verifiedText} numberOfLines={3}>Tài sản thuộc trang trại đang chọn.</Text></View><Pressable onPress={() => router.replace('/scan' as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.rescan, pressed && styles.pressed]}><Icon name="qr-code-scanner" size={15} color={colors.statusSuccessStrong} /><Text style={styles.rescanText}>Quét lại</Text></Pressable></Card> : <Card style={styles.loadingCard}><Icon name="qr-code-2" color={colors.primary} /><View style={styles.errorCopy}><Text style={styles.loadingTitle}>Đang kiểm tra QR...</Text><Text style={styles.loadingText}>Đang kiểm tra mã tài sản.</Text></View></Card>}
     <View style={styles.tabs}><Pressable onPress={() => router.replace('/scan' as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.tab, pressed && styles.pressed]}><Icon name="qr-code-scanner" size={17} color={colors.deepAmber} /><Text style={styles.tabText} numberOfLines={2}>Quét mã</Text></Pressable><View style={styles.activeTab}><Icon name="assignment" size={17} color={colors.onPrimary} /><Text style={styles.activeTabText} numberOfLines={2}>Kết quả</Text><Pill tone="cream"><Text style={styles.percent}>100%</Text></Pill></View></View>
     {lookup ? <>
-    <Card style={styles.assetCard}><LinearGradient colors={[colors.honeyChip, colors.surfaceContainerLow, colors.surfaceContainer]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.assetHero}><View style={styles.assetHead}><View style={styles.statusPill}><Pill tone="success"><Text style={styles.success} numberOfLines={2}>● {lookup.asset.status}</Text></Pill></View><View style={styles.statusPill}><Pill tone="amber"><Text style={styles.codeText} numberOfLines={2}>{lookup.itemCode}</Text></Pill></View></View><View style={styles.assetEmblem}>{lookup.itemImageUrl ? <Image source={{ uri: lookup.itemImageUrl }} style={styles.assetImage} resizeMode="cover" /> : <><View style={styles.assetIconWash} /><View style={styles.assetIconGlow}><Icon name="whatshot" size={42} color={colors.primaryContainer} /></View></>}<View style={styles.assetSeal}><Icon name="verified" size={18} color={colors.onPrimary} /></View></View><View style={styles.assetCode}><Text style={styles.assetCodeText} numberOfLines={3}>Mã tài sản: {lookup.asset.assetCode}</Text></View><Text style={styles.assetName} numberOfLines={4}>{lookup.itemName}</Text><View style={styles.uuidRow}><Icon name="fingerprint" size={13} color={colors.outline} /><Text style={styles.uuid} numberOfLines={3}>UUID: {lookup.asset.id}</Text></View></LinearGradient></Card>
+    <Card style={styles.assetCard}><LinearGradient colors={[colors.honeyChip, colors.surfaceContainerLow, colors.surfaceContainer]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={styles.assetHero}><View style={styles.assetHead}><View style={styles.statusPill}><Pill tone="success"><Text style={styles.success} numberOfLines={2}>● {lookup.asset.status}</Text></Pill></View><View style={styles.statusPill}><Pill tone="amber"><Text style={styles.codeText} numberOfLines={2}>{lookup.itemCode}</Text></Pill></View></View><View style={styles.assetEmblem}>{heroImageUrl ? <Image source={{ uri: heroImageUrl }} style={styles.assetImage} resizeMode="cover" /> : <><View style={styles.assetIconWash} /><View style={styles.assetIconGlow}><Icon name="whatshot" size={42} color={colors.primaryContainer} /></View></>}<View style={styles.assetSeal}><Icon name="verified" size={18} color={colors.onPrimary} /></View></View><View style={styles.assetCode}><Text style={styles.assetCodeText} numberOfLines={3}>Mã tài sản: {lookup.asset.assetCode}</Text></View><Text style={styles.assetName} numberOfLines={4}>{lookup.itemName}</Text><View style={styles.uuidRow}><Icon name="fingerprint" size={13} color={colors.outline} /><Text style={styles.uuid} numberOfLines={3}>UUID: {lookup.asset.id}</Text></View></LinearGradient></Card>
 
     <Card style={[styles.sectionCard, styles.locationCard]}><SectionHeading icon="warehouse" title="VỊ TRÍ & SỞ HỮU HIỆN TẠI" action="Khớp GPS\nTrại" /><InfoRow icon="storefront" label="Kho lưu trữ" value={lookup?.locationName ?? 'Chưa có vị trí'} /><InfoRow icon="shelves" label="Vị trí chi tiết" value={lookup?.locationCode ?? 'Chưa có vị trí chi tiết'} /><InfoRow icon="verified-user" label="Tình trạng sở hữu" value={data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.farm.name ?? (data?.memberships.length === 1 ? data.memberships[0]?.farm.name : undefined) ?? 'Chưa chọn trang trại'} valueTone="success" /></Card>
-    <Card style={[styles.sectionCard, styles.historyCard]}><SectionHeading icon="manage-history" title="LỊCH SỬ KỸ THUẬT & BẢO DƯỠNG" action={maintenanceSummary} /><View style={styles.ownerAndUse}><View style={[styles.owner, styles.ownerCard]}><Icon name="badge" color={colors.primary} /><View style={styles.ownerCopy}><Text numberOfLines={1} style={styles.metaLabel}>NGƯỜI THỰC HIỆN GẦN NHẤT</Text><Text numberOfLines={2} style={styles.metaValue}>Chưa có dữ liệu phân công</Text><Text numberOfLines={2} style={styles.metaSub}>Chưa có thông tin người thực hiện</Text></View></View><View style={[styles.owner, styles.ownerCard]}><Icon name="calendar-today" color={colors.primary} /><View style={styles.ownerCopy}><Text numberOfLines={1} style={styles.metaLabel}>NGÀY MUA</Text><Text numberOfLines={1} style={styles.metaValue}>{purchaseDate}</Text><Text numberOfLines={2} style={styles.metaSub}>Hạn bảo hành: {warrantyExpiry}</Text></View></View></View><View style={styles.maintenance}><View style={styles.maintenanceHead}><Text numberOfLines={2} style={styles.maintenanceTitle}>TIẾN TRÌNH BẢO DƯỠNG</Text><Text numberOfLines={2} style={styles.maintenanceSync}>Lịch sử bảo dưỡng</Text></View>{maintenanceRecords.length ? maintenanceRecords.slice(0, 2).map((record, index) => <Timeline key={record.id} color={index === 0 ? colors.statusSuccess : colors.secondaryContainer} title={`${record.maintenanceType} • ${formatDate(record.completedAt ?? record.scheduledAt)}`} badge={record.status} detail={record.resultNote ?? record.description ?? 'Chưa có mô tả'} />) : <Text style={styles.emptyText}>Chưa có bản ghi bảo dưỡng.</Text>}<Pressable onPress={() => router.push(`/maintenance/history?assetId=${encodeURIComponent(lookup.asset.id)}&assetCode=${encodeURIComponent(lookup.asset.assetCode)}&itemName=${encodeURIComponent(lookup.itemName)}` as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.historyAction, pressed && styles.pressed]}><Text style={styles.historyActionText}>Mở toàn bộ lịch sử ({maintenanceRecords.length})</Text><Icon name="chevron-right" size={18} color={colors.primary} /></Pressable></View><View style={styles.log}><Icon name="history-edu" color={colors.secondary} /><View style={styles.logCopy}><Text numberOfLines={2} style={styles.logTitle}>Nhật ký vận hành gần nhất</Text><Text numberOfLines={3} style={styles.logText}>{lookup?.asset.note ?? 'Chưa có ghi chú vận hành.'}</Text></View></View></Card>
+    <Card style={[styles.sectionCard, styles.historyCard]}><SectionHeading icon="manage-history" title="LỊCH SỬ KỸ THUẬT & BẢO DƯỠNG" action={maintenanceSummary} /><View style={styles.ownerAndUse}><View style={[styles.owner, styles.ownerCard]}><Icon name="badge" color={colors.primary} /><View style={styles.ownerCopy}><Text numberOfLines={1} style={styles.metaLabel}>NGƯỜI THỰC HIỆN GẦN NHẤT</Text><Text numberOfLines={2} style={styles.metaValue}>Chưa có dữ liệu phân công</Text><Text numberOfLines={2} style={styles.metaSub}>Chưa có thông tin người thực hiện</Text></View></View><View style={[styles.owner, styles.ownerCard]}><Icon name="calendar-today" color={colors.primary} /><View style={styles.ownerCopy}><Text numberOfLines={1} style={styles.metaLabel}>NGÀY MUA</Text><Text numberOfLines={1} style={styles.metaValue}>{purchaseDate}</Text><Text numberOfLines={2} style={styles.metaSub}>Hạn bảo hành: {warrantyExpiry}</Text></View></View></View><View style={styles.maintenance}><View style={styles.maintenanceHead}><Text numberOfLines={2} style={styles.maintenanceTitle}>TIẾN TRÌNH BẢO DƯỠNG</Text><Text numberOfLines={2} style={styles.maintenanceSync}>Lịch sử bảo dưỡng</Text></View>{maintenanceRecords.length ? maintenanceRecords.slice(0, 2).map((record, index) => <Timeline key={record.id} color={index === 0 ? colors.statusSuccess : colors.secondaryContainer} title={`${record.maintenanceType} • ${formatDate(record.completedAt ?? record.scheduledAt)}`} badge={record.status} detail={record.resultNote ?? record.description ?? 'Chưa có mô tả'} />) : <Text style={styles.emptyText}>Chưa có bản ghi bảo dưỡng.</Text>}<Pressable onPress={() => router.push(`/maintenance/history?assetId=${encodeURIComponent(lookup.asset.id)}&assetCode=${encodeURIComponent(lookup.asset.assetCode)}&itemName=${encodeURIComponent(lookup.itemName)}` as never)} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.historyAction, pressed && styles.pressed]}><Text style={styles.historyActionText}>Mở toàn bộ lịch sử ({totalMaintenanceCount})</Text><Icon name="chevron-right" size={18} color={colors.primary} /></Pressable></View><View style={styles.log}><Icon name="history-edu" color={colors.secondary} /><View style={styles.logCopy}><Text numberOfLines={2} style={styles.logTitle}>Nhật ký vận hành gần nhất</Text><Text numberOfLines={3} style={styles.logText}>{lookup?.asset.note ?? 'Chưa có ghi chú vận hành.'}</Text></View></View></Card>
     <View style={styles.operationsHeading}><Icon name="bolt" size={19} color={colors.primary} /><Text style={styles.operationsTitle}>Thông tin vận hành tài sản</Text></View><View style={styles.operations}><Card style={styles.operationCard}><Icon name="badge" color={colors.primary} /><Text numberOfLines={1} style={styles.metaLabel}>NGƯỜI PHỤ TRÁCH</Text><Text numberOfLines={2} style={styles.operationName}>Chưa có dữ liệu phân công</Text><Text numberOfLines={2} style={styles.metaSub}>Thông tin tài sản</Text><Pill tone="amber"><Text numberOfLines={1} style={styles.operationPill}>{lookup?.asset.status ?? 'Đang tải'}</Text></Pill></Card><Card style={styles.operationCard}><Icon name="event" color={colors.primary} /><Text numberOfLines={1} style={styles.metaLabel}>BẢO DƯỠNG TIẾP THEO</Text><Text numberOfLines={1} style={styles.operationName}>{nextMaintenance?.scheduledAt ? formatDate(nextMaintenance.scheduledAt) : (lookup?.asset.nextMaintenanceDate ? formatDate(lookup.asset.nextMaintenanceDate) : 'Chưa có dữ liệu')}</Text><Text numberOfLines={2} style={styles.metaSub}>{nextMaintenance?.description ?? 'Chưa có lịch bảo dưỡng'}</Text><Pill tone="success"><Text numberOfLines={1} style={styles.depreciation}>{latestMaintenance?.status ?? 'Chưa có trạng thái'}</Text></Pill></Card></View>
     <View style={styles.actionMatrix}>
       <Text style={styles.actionSectionTitle}>Thao tác khả dụng</Text>
@@ -174,7 +178,8 @@ export default function AssetDetailScreen() {
           <Icon name="swap-horiz" size={18} color={colors.primary} /><Text style={styles.secondaryOperationText} numberOfLines={2}>Yêu cầu chuyển tài sản</Text>
         </Pressable> : null}
       </View>
-      {!canRequestMaintenance && !canTransferAsset ? <Text style={styles.noActionText}>{lookup.asset.status === 'TRANSFER_PENDING' ? 'Tài sản đang chờ duyệt yêu cầu chuyển.' : hasPendingMaintenanceRequest ? 'Tài sản đã có yêu cầu bảo trì đang chờ duyệt.' : 'Không có thao tác phù hợp với trạng thái tài sản và quyền của tài khoản hiện tại.'}</Text> : null}
+      {!canRequestMaintenance && !canTransferAsset ? <Text style={styles.noActionText}>{lookup.asset.status === 'TRANSFER_PENDING' ? 'Tài sản đang chờ duyệt yêu cầu chuyển.' : pendingMaintenanceRequestId ? 'Tài sản đã có yêu cầu bảo trì đang được xử lý.' : 'Không có thao tác phù hợp với trạng thái tài sản và quyền của tài khoản hiện tại.'}</Text> : null}
+      {pendingMaintenanceRequestId ? <Pressable onPress={() => router.push(`/maintenance/requests/${encodeURIComponent(pendingMaintenanceRequestId)}` as never)} style={styles.historyAction}><Text style={styles.historyActionText}>Theo dõi yêu cầu bảo trì đang xử lý</Text><Icon name="chevron-right" size={18} color={colors.primary} /></Pressable> : null}
       {pendingTransferRequestId ? <Pressable accessibilityRole="button" onPress={() => router.push(`/assets/transfer-requests/${encodeURIComponent(pendingTransferRequestId)}` as never)} style={styles.historyAction}><Text style={styles.historyActionText}>Xem yêu cầu chuyển đang chờ duyệt</Text><Icon name="chevron-right" size={18} color={colors.primary} /></Pressable> : null}
       <Pressable onPress={() => router.replace('/scan' as never)} android_ripple={{ color: colors.statusSuccessBorder }} style={({ pressed }) => [styles.nextScanAction, pressed && styles.pressed]}>
         <Icon name="qr-code-scanner" size={16} color={colors.statusSuccessStrong} /><Text style={styles.nextScanText} numberOfLines={2}>Quét mã tiếp theo</Text>

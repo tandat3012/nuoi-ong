@@ -1,4 +1,4 @@
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { Animated, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useCallback, useRef, useState } from 'react';
 
@@ -7,6 +7,7 @@ import { formatQuantity } from '@/src/shared/format-quantity';
 import { formatApiDateTime } from '@/src/shared/format-date-time';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { documentCodeLabel, formatDate, statusLabel, type Paginated, type Warehouse } from '@/src/features/inventory/api';
+import { navigateToReceiptList } from '@/src/features/inventory/receipt-list.logic';
 import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
 import { OperationResultDialog } from '@/src/shared/ui/OperationResultDialog';
 import { AppShell, Card, HoneycombDecor, Icon, PageHeader, Pill, PrimaryButton, SectionTitle } from '@/src/shared/ui/MobileShell';
@@ -34,6 +35,7 @@ function statusTone(status: string): 'success' | 'amber' | 'danger' | 'cream' {
 
 export default function TransferNotificationDetailScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { data, currentFarmId, getAccessToken } = useAuthContext();
   const [detail, setDetail] = useState<TransferDetail | null>(null);
@@ -149,8 +151,11 @@ export default function TransferNotificationDetailScreen() {
         name: line.itemName || 'Vật tư',
         quantity: `${formatQuantity(line.quantity)} ${line.unitSymbol || line.unitName || ''}`,
       }))}
-      actionLabel="Xem phiếu"
-      onAction={() => setSubmitted(false)}
+      actionLabel="Về danh sách phiếu"
+      onAction={() => {
+        setSubmitted(false);
+        navigateToReceiptList(router, navigation, 'TRANSFER');
+      }}
     />
   </>;
 }

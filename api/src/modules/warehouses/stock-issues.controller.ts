@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  normalizeSearch,
   parseOptionalEnum,
   parsePagination,
   requireUuid,
@@ -170,13 +171,16 @@ export class StockIssuesController {
     @Query('status') status?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
   ) {
+    const normalizedSearch = normalizeSearch(search);
     return this.service.list({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
       ...parsePagination(page, pageSize),
       status: parseOptionalEnum(status, documentStatus.enumValues, 'status'),
       ...parseDateRange(dateFrom, dateTo),
+      ...(normalizedSearch ? { search: normalizedSearch } : {}),
     });
   }
   @ApiOperation({ summary: 'Tạo phiếu xuất kho nháp' })

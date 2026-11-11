@@ -13,6 +13,20 @@ function RequestTime({ value }: { value: string | null }) {
   return value ? <time dateTime={value}>{new Date(value).toLocaleString("vi-VN")}</time> : <>—</>;
 }
 
+function maintenanceProgress(row: RequestRow | RequestDetail): string | null {
+  if (!("maintenanceType" in row)) return null;
+  if (row.status !== "CONFIRMED" || !row.maintenanceRecordStatus) return REQUEST_STATUS_LABELS[row.status];
+  if (row.maintenanceReturnStatus === "PENDING_APPROVAL") return "Chờ quản lý kho duyệt nhập lại";
+  if (row.maintenanceReturnStatus === "REJECTED") return "Phiếu nhập lại bị từ chối · cần gửi lại";
+  if (row.maintenanceReturnStatus === "CONFIRMED") {
+    if (row.maintenanceRecordStatus === "FAILED") return "Đã nhập kho · bảo trì không đạt";
+    if (row.maintenanceFinalDecision === "REUSE") return "Hoàn tất · được dùng lại";
+    if (row.maintenanceFinalDecision === "HOLD") return "Đã nhập kho · tạm giữ";
+    if (row.maintenanceRecordStatus === "COMPLETED") return "Chờ quyết định cho dùng lại";
+  }
+  return ({ SCHEDULED: "Đã lên lịch", IN_PROGRESS: "Đang bảo trì", RECEIVED: "Đã nhận về · chờ nghiệm thu", COMPLETED: "Chờ nhập lại kho", FAILED: "Bảo trì không đạt", CANCELLED: "Lịch bảo trì đã hủy" } as Record<string, string>)[row.maintenanceRecordStatus] ?? row.maintenanceRecordStatus;
+}
+
 export function RequestCard({ row, href, detail = false, children }: {
   row: RequestRow | RequestDetail;
   href?: string;
@@ -20,6 +34,7 @@ export function RequestCard({ row, href, detail = false, children }: {
   children?: ReactNode;
 }) {
   const maintenance = "maintenanceType" in row;
+  const maintenanceStatus = maintenanceProgress(row);
   const person = (name: string | null | undefined, email: string | null | undefined) =>
     name || email || (href ? <Link href={href} className="text-primary underline">Xem trong chi tiết</Link> : "Chưa có tên");
   return (
@@ -34,7 +49,7 @@ export function RequestCard({ row, href, detail = false, children }: {
           </p>
         </div>
         <Badge variant={row.status === "PENDING_APPROVAL" || row.status === "IN_TRANSIT" || row.status === "DISCREPANCY" ? "warning" : row.status === "CONFIRMED" ? "success" : "destructive"}>
-          {REQUEST_STATUS_LABELS[row.status]}
+          {maintenanceStatus ?? REQUEST_STATUS_LABELS[row.status]}
         </Badge>
       </div>
       <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
@@ -89,6 +104,7 @@ export function RequestCard({ row, href, detail = false, children }: {
             <dd className="mt-1"><RequestTime value={row.maintenanceScheduledAt} /></dd>
           </div>
         )}
+        {detail && maintenance && row.maintenanceRecordStatus && <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">Kết quả bảo trì</dt><dd className="mt-1 break-words">{row.maintenanceResultNote || "Chưa có kết quả nghiệm thu."}{row.maintenanceReturnRejectionReason ? ` · Phiếu nhập lại bị từ chối: ${row.maintenanceReturnRejectionReason}` : ""}{row.maintenanceFinalDecisionNote ? ` · ${row.maintenanceFinalDecisionNote}` : ""}</dd></div>}
       </dl>
       {detail && (
         <p className="whitespace-pre-wrap break-words text-sm">

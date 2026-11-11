@@ -20,6 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import {
+  normalizeSearch,
   parseOptionalEnum,
   parsePagination,
   requireUuid,
@@ -72,13 +73,16 @@ export class MaintenanceRequestsController {
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
   ) {
+    const normalizedSearch = normalizeSearch(search);
     return this.service.list({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
       assetId: assetId ? requireUuid(assetId, 'assetId') : undefined,
       status: parseOptionalEnum(status, documentStatus.enumValues, 'status'),
       ...parsePagination(page, pageSize),
+      ...(normalizedSearch ? { search: normalizedSearch } : {}),
     });
   }
 

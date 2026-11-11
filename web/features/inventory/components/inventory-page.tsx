@@ -230,7 +230,7 @@ function CurrentBalancesView({
 }) {
   const inventory = useInventoryList(farmId, initialFilters, refreshToken);
   const references = useInventoryReferences(farmId, inventory.filters.itemId);
-  const { filters, pageInfo, isLoading, error, reload } = inventory;
+  const { filters, pageInfo, summary, isLoading, error, reload } = inventory;
   const [searchQuery, setSearchQuery] = useState("");
 
   const itemKnown = references.items.some(
@@ -288,8 +288,8 @@ function CurrentBalancesView({
 
       {/* Tầng 1: Summary Bar */}
       <InventorySummaryBar
-        balances={inventory.balances}
         totalItems={pageInfo?.totalItems}
+        summary={summary}
         isLoading={isLoading}
       />
 

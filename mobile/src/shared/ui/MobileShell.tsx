@@ -133,7 +133,7 @@ export function AppShell({ active, children, scroll = true, showScrollIndicator 
   const { data, currentFarmId } = useAuthContext();
   const canOperate = canUseMobileOperations(data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.roles);
   const insets = useSafeAreaInsets();
-  const content = <View style={styles.contentWidth} collapsable={false}>{children}</View>;
+  const content = <View style={[styles.contentWidth, !scroll && styles.contentWidthFlex]} collapsable={false}>{children}</View>;
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]} collapsable={false}> 
       <View style={styles.mobileFrame} collapsable={false}>
@@ -169,6 +169,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.canvasCreamAlt },
   mobileFrame: { flex: 1, width: '100%', maxWidth: dimensions.screenMaxWidth, alignSelf: 'center', backgroundColor: colors.surface, borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.outlineVariant, overflow: 'hidden', ...shadows.floating },
   contentWidth: { width: '100%', maxWidth: dimensions.screenMaxWidth, alignSelf: 'center', paddingHorizontal: spacing.gutterMobile, paddingTop: 0, gap: spacing.spaceMd, position: 'relative' },
+  contentWidthFlex: { flex: 1 },
   header: { minHeight: dimensions.headerHeight, marginHorizontal: -spacing.gutterMobile, paddingHorizontal: spacing.spaceMd, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.outlineVariant, flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm },
   brandMark: { width: 40, height: 40, borderRadius: radius.default, backgroundColor: colors.honeyChip, borderWidth: 1, borderColor: colors.secondaryContainer, alignItems: 'center', justifyContent: 'center' },
   headerCopy: { flex: 1, minWidth: 0 },

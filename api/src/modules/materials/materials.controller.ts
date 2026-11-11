@@ -190,6 +190,16 @@ export class MaterialsController {
             },
           },
         },
+        summary: {
+          type: 'object',
+          description:
+            'Thống kê trên toàn bộ danh mục vật tư khớp phạm vi trang trại và bộ lọc.',
+          properties: {
+            lotCount: { type: 'integer' },
+            activeCount: { type: 'integer' },
+            lowStockCount: { type: 'integer' },
+          },
+        },
         page: OPENAPI_PAGE,
       },
     },

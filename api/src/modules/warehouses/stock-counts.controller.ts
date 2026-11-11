@@ -30,6 +30,7 @@ import {
   OPENAPI_PAGE,
 } from '../../common/swagger-docs';
 import {
+  normalizeSearch,
   parseOptionalEnum,
   parsePagination,
   requireUuid,
@@ -139,12 +140,15 @@ export class StockCountsController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('status') status?: string,
+    @Query('search') search?: string,
   ) {
+    const normalizedSearch = normalizeSearch(search);
     return this.service.list({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
       ...parsePagination(page, pageSize),
       status: parseOptionalEnum(status, stockCountStatus.enumValues, 'status'),
+      ...(normalizedSearch ? { search: normalizedSearch } : {}),
     });
   }
 

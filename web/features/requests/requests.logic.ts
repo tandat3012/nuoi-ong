@@ -1,5 +1,5 @@
 import type { RequestsQuery, RequestStatus, TransferRequestRow } from "./types/request";
-import { FARM_ADMIN_ROLES, WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
+import { FARM_ADMIN_ROLES, MAINTENANCE_SCHEDULE_ROLES, WAREHOUSE_MANAGE_ROLES, hasAnyRole } from "../auth/farm-roles.ts";
 
 // These mirror the approver and reload rules in features/stock-documents/stock-document.logic.ts.
 function canApproveRequests(roles: readonly string[]) {
@@ -23,10 +23,9 @@ export const REQUEST_MAINTENANCE_LABELS = {
   INSPECTION: "Kiểm tra",
 } as const;
 
-/** Maintenance requests are approved and assigned by the owner/admin only (NV04). */
 export function requestActions(roles: readonly string[], status: RequestStatus, maintenance = false) {
   const review =
-    (maintenance ? hasAnyRole(roles, FARM_ADMIN_ROLES) : canApproveRequests(roles)) &&
+    (maintenance ? hasAnyRole(roles, MAINTENANCE_SCHEDULE_ROLES) : canApproveRequests(roles)) &&
     status === "PENDING_APPROVAL";
   // P1-02: across warehouses, approval only dispatches; a warehouse manager of the destination receives.
   const receive = !maintenance && canApproveRequests(roles) && status === "IN_TRANSIT";

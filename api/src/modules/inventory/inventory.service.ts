@@ -8,8 +8,11 @@ import {
   getTableColumns,
   gt,
   gte,
+  ilike,
+  inArray,
   isNull,
   isNotNull,
+  ne,
   or,
   sql,
   SQL,
@@ -19,6 +22,7 @@ import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
   assets,
+  categories,
   farmMembers,
   inventoryBalances,
   inventoryLots,
@@ -32,15 +36,18 @@ import {
   stockReceipts,
   stockTransfers,
   suppliers,
+  trackingMode,
   units,
   users,
   warehouses,
 } from '../../db/schema';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { scopeCondition } from '../warehouses/warehouse-scope';
+import { inScope, scopeCondition, type WarehouseScope } from '../warehouses/warehouse-scope';
 
 const transactionAssetTable = sql`${assets} AS transaction_asset`;
 const assetReturnSourceTable = sql`${assets} AS asset_return_source`;
+
+type TrackingMode = (typeof trackingMode.enumValues)[number];
 
 type Filters = {
   clerkUserId: string;
@@ -49,6 +56,28 @@ type Filters = {
   itemId?: string;
   lotId?: string;
   assetId?: string;
+  search?: string;
+  categoryId?: string;
+  trackingMode?: TrackingMode;
+  excludeTrackingMode?: TrackingMode;
+  itemIds?: string[];
+};
+
+type ItemSummaryFilters = {
+  clerkUserId: string;
+  farmId: string;
+  warehouseId?: string;
+  search?: string;
+  categoryId?: string;
+  trackingMode?: TrackingMode;
+  excludeTrackingMode?: TrackingMode;
+  lowStockOnly?: boolean;
+};
+
+type ForecastFilters = {
+  clerkUserId: string;
+  farmId: string;
+  warehouseId: string;
 };
 
 type TransactionFilters = Filters & {
@@ -63,6 +92,16 @@ export class InventoryService {
     private readonly databaseService: DatabaseService,
     private readonly warehousesService: WarehousesService,
   ) {}
+
+  private escapeLike(value: string) {
+    return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+  }
+
+  private scopeSql(column: string, scope: WarehouseScope) {
+    if (scope === null) return sql``;
+    if (scope.length === 0) return sql`AND FALSE`;
+    return sql`AND ${sql.raw(column)} IN ${scope}`;
+  }
 
   async listBalances(filters: Filters & PaginationParams) {
     const scope = await this.warehousesService.warehouseScope(
@@ -121,8 +160,28 @@ export class InventoryService {
       predicates.push(eq(inventoryBalances.warehouseId, filters.warehouseId));
     if (filters.itemId)
       predicates.push(eq(inventoryBalances.itemId, filters.itemId));
+    if (filters.itemIds?.length)
+      predicates.push(inArray(inventoryBalances.itemId, filters.itemIds));
     if (filters.lotId)
       predicates.push(eq(inventoryBalances.lotId, filters.lotId));
+    if (filters.categoryId)
+      predicates.push(eq(items.categoryId, filters.categoryId));
+    if (filters.trackingMode)
+      predicates.push(eq(items.trackingMode, filters.trackingMode));
+    if (filters.excludeTrackingMode)
+      predicates.push(ne(items.trackingMode, filters.excludeTrackingMode));
+    if (filters.search) {
+      const pattern = `%${this.escapeLike(filters.search)}%`;
+      predicates.push(
+        or(
+          ilike(items.code, pattern),
+          ilike(items.name, pattern),
+          ilike(items.barcode, pattern),
+          ilike(lotCodeColumn, pattern),
+          ilike(lotSupplierNumberColumn, pattern),
+        )!,
+      );
+    }
     if (filters.assetId) {
       predicates.push(
         eq(items.trackingMode, 'ASSET'),
@@ -147,7 +206,8 @@ export class InventoryService {
     )!;
     predicates.push(validLot);
     const where = and(...predicates);
-    const [rows, totals] = await Promise.all([
+    const localToday = sql`(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`;
+    const [rows, totals, summaryRows] = await Promise.all([
       this.databaseService.db
         .select({
           id: inventoryBalances.id,
@@ -159,6 +219,9 @@ export class InventoryService {
           itemName: items.name,
           itemType: items.itemType,
           trackingMode: items.trackingMode,
+          itemImageUrl: items.imageUrl,
+          itemMinStockLevel: items.minStockLevel,
+          categoryName: categories.name,
           unitId: units.id,
           unitName: units.name,
           unitSymbol: units.symbol,
@@ -173,6 +236,7 @@ export class InventoryService {
         })
         .from(inventoryBalances)
         .innerJoin(items, eq(inventoryBalances.itemId, items.id))
+        .leftJoin(categories, eq(items.categoryId, categories.id))
         .innerJoin(units, eq(items.unitId, units.id))
         .innerJoin(warehouses, eq(inventoryBalances.warehouseId, warehouses.id))
         .leftJoin(inventoryLots, eq(inventoryBalances.lotId, lotIdColumn))
@@ -194,8 +258,33 @@ export class InventoryService {
         .innerJoin(warehouses, eq(inventoryBalances.warehouseId, warehouses.id))
         .leftJoin(inventoryLots, eq(inventoryBalances.lotId, lotIdColumn))
         .where(where),
+      this.databaseService.db
+        .select({
+          lotBalanceRows: sql<number>`COUNT(*) FILTER (WHERE ${items.trackingMode} = 'LOT')::int`,
+          assetBalanceRows: sql<number>`COUNT(*) FILTER (WHERE ${items.trackingMode} = 'ASSET')::int`,
+          lotRowsWithoutLot: sql<number>`COUNT(*) FILTER (WHERE ${items.trackingMode} = 'LOT' AND ${inventoryBalances.lotId} IS NULL)::int`,
+          lotsWithoutExpiry: sql<number>`COUNT(DISTINCT ${inventoryBalances.lotId}) FILTER (WHERE ${items.trackingMode} = 'LOT' AND ${inventoryBalances.lotId} IS NOT NULL AND ${lotExpiryDateColumn} IS NULL)::int`,
+          expiredLots: sql<number>`COUNT(DISTINCT ${inventoryBalances.lotId}) FILTER (WHERE ${items.trackingMode} = 'LOT' AND ${lotExpiryDateColumn} < ${localToday})::int`,
+          expiringLots: sql<number>`COUNT(DISTINCT ${inventoryBalances.lotId}) FILTER (WHERE ${items.trackingMode} = 'LOT' AND ${lotExpiryDateColumn} >= ${localToday} AND ${lotExpiryDateColumn} <= (${localToday} + 30))::int`,
+          healthyLots: sql<number>`COUNT(DISTINCT ${inventoryBalances.lotId}) FILTER (WHERE ${items.trackingMode} = 'LOT' AND ${lotExpiryDateColumn} > (${localToday} + 30))::int`,
+        })
+        .from(inventoryBalances)
+        .innerJoin(items, eq(inventoryBalances.itemId, items.id))
+        .innerJoin(units, eq(items.unitId, units.id))
+        .innerJoin(warehouses, eq(inventoryBalances.warehouseId, warehouses.id))
+        .leftJoin(inventoryLots, eq(inventoryBalances.lotId, lotIdColumn))
+        .where(where),
     ]);
     const totalItems = Number(totals[0]?.value ?? 0);
+    const summary = summaryRows[0] ?? {
+      lotBalanceRows: 0,
+      assetBalanceRows: 0,
+      lotRowsWithoutLot: 0,
+      lotsWithoutExpiry: 0,
+      expiredLots: 0,
+      expiringLots: 0,
+      healthyLots: 0,
+    };
     return {
       ...(selectedAsset ? { selectedAsset } : {}),
       data: rows.map((row) => ({
@@ -215,11 +304,17 @@ export class InventoryService {
         itemName: row.itemName,
         itemType: row.itemType,
         trackingMode: row.trackingMode,
+        itemImageUrl: row.itemImageUrl,
+        minStockLevel: row.itemMinStockLevel,
+        categoryName: row.categoryName,
         item: {
           id: row.itemId,
           code: row.itemCode,
           name: row.itemName,
           trackingMode: row.trackingMode,
+          imageUrl: row.itemImageUrl,
+          minStockLevel: row.itemMinStockLevel,
+          categoryName: row.categoryName,
           unit: { id: row.unitId, name: row.unitName, symbol: row.unitSymbol },
         },
         warehouse: {
@@ -239,6 +334,7 @@ export class InventoryService {
           : null,
         updatedAt: row.updatedAt,
       })),
+      summary,
       page: {
         number: filters.page,
         size: filters.pageSize,
@@ -612,7 +708,7 @@ export class InventoryService {
 
   async listLots(
     filters: Pick<Filters, 'clerkUserId' | 'farmId' | 'itemId'> &
-      PaginationParams & { supplierLotNumber?: string },
+      PaginationParams & { supplierLotNumber?: string; search?: string },
   ) {
     await this.warehousesService.assertFarmAccess(
       filters.farmId,
@@ -627,6 +723,16 @@ export class InventoryService {
       predicates.push(
         eq(inventoryLots.supplierLotNumber, filters.supplierLotNumber),
       );
+    if (filters.search) {
+      const pattern = `%${this.escapeLike(filters.search)}%`;
+      predicates.push(
+        or(
+          ilike(inventoryLots.lotCode, pattern),
+          ilike(inventoryLots.supplierLotNumber, pattern),
+          ilike(inventoryLots.legacyLotNumber, pattern),
+        )!,
+      );
+    }
     const [data, totals] = await Promise.all([
       this.databaseService.db
         .select({
@@ -670,6 +776,379 @@ export class InventoryService {
     const totalItems = Number(totals[0]?.value ?? 0);
     return {
       data,
+      page: {
+        number: filters.page,
+        size: filters.pageSize,
+        totalItems,
+        totalPages: Math.ceil(totalItems / filters.pageSize),
+      },
+    };
+  }
+
+  async getLot(id: string, farmId: string, clerkUserId: string) {
+    await this.warehousesService.assertFarmAccess(farmId, clerkUserId, false);
+    const [lot] = await this.databaseService.db
+      .select({
+        ...getTableColumns(inventoryLots),
+        lotNumber: inventoryLots.lotCode,
+        sourceSupplierId: suppliers.id,
+        sourceSupplierName: suppliers.name,
+        itemCode: items.code,
+        itemName: items.name,
+        itemType: items.itemType,
+        trackingMode: items.trackingMode,
+        itemImageUrl: items.imageUrl,
+        unitId: units.id,
+        unitName: units.name,
+        unitSymbol: units.symbol,
+      })
+      .from(inventoryLots)
+      .innerJoin(
+        items,
+        and(eq(items.id, inventoryLots.itemId), eq(items.farmId, farmId)),
+      )
+      .leftJoin(units, eq(units.id, items.unitId))
+      .leftJoin(
+        stockReceiptItems,
+        eq(stockReceiptItems.id, inventoryLots.sourceReceiptItemId),
+      )
+      .leftJoin(
+        stockReceipts,
+        and(
+          eq(stockReceipts.id, stockReceiptItems.stockReceiptId),
+          eq(stockReceipts.farmId, farmId),
+        ),
+      )
+      .leftJoin(
+        suppliers,
+        and(
+          eq(suppliers.id, stockReceipts.supplierId),
+          eq(suppliers.farmId, farmId),
+        ),
+      )
+      .where(and(eq(inventoryLots.id, id), eq(inventoryLots.farmId, farmId)))
+      .limit(1);
+    if (!lot) throw new NotFoundException('Inventory lot not found');
+    return lot;
+  }
+
+  async getItemsSummary(filters: ItemSummaryFilters & PaginationParams) {
+    const scope = await this.warehousesService.warehouseScope(
+      filters.farmId,
+      filters.clerkUserId,
+    );
+    if (
+      (scope !== null && scope.length === 0) ||
+      (filters.warehouseId && !inScope(scope, filters.warehouseId))
+    ) {
+      return {
+        data: [],
+        summary: {
+          stockedItemCount: 0,
+          lotItemCount: 0,
+          totalQuantity: '0',
+          belowMinimumCount: 0,
+        },
+        page: {
+          number: filters.page,
+          size: filters.pageSize,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    const warehouseSql = filters.warehouseId
+      ? sql`AND ib.warehouse_id = ${filters.warehouseId}`
+      : sql``;
+    const scopeSql = this.scopeSql('ib.warehouse_id', scope);
+    const searchPattern = filters.search
+      ? `%${this.escapeLike(filters.search)}%`
+      : null;
+    const itemFilterSql = sql`
+      ${searchPattern ? sql`AND (i.code ILIKE ${searchPattern} OR i.name ILIKE ${searchPattern} OR i.barcode ILIKE ${searchPattern})` : sql``}
+      ${filters.categoryId ? sql`AND i.category_id = ${filters.categoryId}` : sql``}
+      ${filters.trackingMode ? sql`AND i.tracking_mode = ${filters.trackingMode}` : sql``}
+      ${filters.excludeTrackingMode ? sql`AND i.tracking_mode <> ${filters.excludeTrackingMode}` : sql``}
+    `;
+
+    const stockCte = sql`
+      WITH stock_by_item AS (
+        SELECT
+          ib.item_id,
+          SUM(ib.quantity_on_hand) AS quantity_on_hand,
+          COUNT(DISTINCT ib.lot_id) FILTER (WHERE ib.lot_id IS NOT NULL)::int AS lot_count,
+          CASE
+            WHEN COUNT(DISTINCT ib.lot_id) FILTER (WHERE ib.lot_id IS NOT NULL) = 1
+            THEN MAX(ib.lot_id::text)
+            ELSE NULL
+          END AS single_lot_id,
+          CASE
+            WHEN COUNT(DISTINCT ib.lot_id) FILTER (WHERE ib.lot_id IS NOT NULL) = 1
+            THEN MAX(il.lot_code)
+            ELSE NULL
+          END AS single_lot_code
+        FROM inventory_balances ib
+        INNER JOIN items i ON i.id = ib.item_id AND i.farm_id = ib.farm_id
+        INNER JOIN warehouses w ON w.id = ib.warehouse_id AND w.farm_id = ib.farm_id
+        LEFT JOIN inventory_lots il
+          ON il.id = ib.lot_id
+          AND il.farm_id = ib.farm_id
+          AND il.item_id = ib.item_id
+        WHERE ib.farm_id = ${filters.farmId}
+          AND ib.quantity_on_hand > 0
+          ${scopeSql}
+          ${warehouseSql}
+          AND (
+            (i.tracking_mode = 'LOT' AND ib.lot_id IS NOT NULL AND il.id IS NOT NULL)
+            OR (i.tracking_mode <> 'LOT' AND ib.lot_id IS NULL)
+          )
+        GROUP BY ib.item_id
+      )
+    `;
+
+    type SummaryRow = {
+      itemId: string;
+      itemCode: string;
+      itemName: string;
+      itemType: string;
+      trackingMode: TrackingMode;
+      itemImageUrl: string | null;
+      minStockLevel: string;
+      categoryId: string;
+      categoryName: string;
+      unitId: string;
+      unitName: string;
+      unitSymbol: string | null;
+      quantityOnHand: string;
+      lotCount: number;
+      singleLotId: string | null;
+      singleLotCode: string | null;
+    };
+
+    type MetaRow = {
+      stockedItemCount: number;
+      lotItemCount: number;
+      totalQuantity: string;
+      belowMinimumCount: number;
+      totalItems: number;
+    };
+
+    const dataQuery = filters.lowStockOnly
+      ? sql`
+          ${stockCte}
+          SELECT
+            i.id AS "itemId",
+            i.code AS "itemCode",
+            i.name AS "itemName",
+            i.item_type AS "itemType",
+            i.tracking_mode AS "trackingMode",
+            i.image_url AS "itemImageUrl",
+            i.min_stock_level::text AS "minStockLevel",
+            c.id AS "categoryId",
+            c.name AS "categoryName",
+            u.id AS "unitId",
+            u.name AS "unitName",
+            u.symbol AS "unitSymbol",
+            COALESCE(s.quantity_on_hand, 0)::text AS "quantityOnHand",
+            COALESCE(s.lot_count, 0)::int AS "lotCount",
+            s.single_lot_id AS "singleLotId",
+            s.single_lot_code AS "singleLotCode"
+          FROM items i
+          LEFT JOIN stock_by_item s ON s.item_id = i.id
+          INNER JOIN categories c ON c.id = i.category_id
+          INNER JOIN units u ON u.id = i.unit_id
+          WHERE i.farm_id = ${filters.farmId}
+            AND i.status = 'ACTIVE'
+            AND i.min_stock_level > 0
+            AND COALESCE(s.quantity_on_hand, 0) < i.min_stock_level
+            ${itemFilterSql}
+          ORDER BY i.code ASC, i.id ASC
+          LIMIT ${filters.pageSize} OFFSET ${filters.offset}
+        `
+      : sql`
+          ${stockCte}
+          SELECT
+            i.id AS "itemId",
+            i.code AS "itemCode",
+            i.name AS "itemName",
+            i.item_type AS "itemType",
+            i.tracking_mode AS "trackingMode",
+            i.image_url AS "itemImageUrl",
+            i.min_stock_level::text AS "minStockLevel",
+            c.id AS "categoryId",
+            c.name AS "categoryName",
+            u.id AS "unitId",
+            u.name AS "unitName",
+            u.symbol AS "unitSymbol",
+            s.quantity_on_hand::text AS "quantityOnHand",
+            s.lot_count AS "lotCount",
+            s.single_lot_id AS "singleLotId",
+            s.single_lot_code AS "singleLotCode"
+          FROM stock_by_item s
+          INNER JOIN items i ON i.id = s.item_id AND i.farm_id = ${filters.farmId}
+          INNER JOIN categories c ON c.id = i.category_id
+          INNER JOIN units u ON u.id = i.unit_id
+          WHERE TRUE
+            ${itemFilterSql}
+          ORDER BY i.code ASC, i.id ASC
+          LIMIT ${filters.pageSize} OFFSET ${filters.offset}
+        `;
+
+    const totalItemsSubquery = filters.lowStockOnly
+      ? sql`(SELECT COUNT(*)::int FROM items i LEFT JOIN stock_by_item s ON s.item_id = i.id WHERE i.farm_id = ${filters.farmId} AND i.status = 'ACTIVE' AND i.min_stock_level > 0 AND COALESCE(s.quantity_on_hand, 0) < i.min_stock_level ${itemFilterSql})`
+      : sql`(SELECT COUNT(*)::int FROM stock_by_item s INNER JOIN items i ON i.id = s.item_id AND i.farm_id = ${filters.farmId} WHERE TRUE ${itemFilterSql})`;
+
+    const metaQuery = sql`
+      ${stockCte}
+      SELECT
+        (SELECT COUNT(*)::int FROM stock_by_item) AS "stockedItemCount",
+        (SELECT COUNT(*) FILTER (WHERE i.tracking_mode = 'LOT')::int
+          FROM stock_by_item s
+          INNER JOIN items i ON i.id = s.item_id AND i.farm_id = ${filters.farmId}) AS "lotItemCount",
+        (SELECT COALESCE(SUM(quantity_on_hand), 0)::text FROM stock_by_item) AS "totalQuantity",
+        (SELECT COUNT(*)::int
+          FROM items i
+          LEFT JOIN stock_by_item s ON s.item_id = i.id
+          WHERE i.farm_id = ${filters.farmId}
+            AND i.status = 'ACTIVE'
+            AND i.min_stock_level > 0
+            AND COALESCE(s.quantity_on_hand, 0) < i.min_stock_level) AS "belowMinimumCount",
+        ${totalItemsSubquery} AS "totalItems"
+    `;
+
+    const [rowsResult, metaResult] = await Promise.all([
+      this.databaseService.db.execute<SummaryRow>(dataQuery),
+      this.databaseService.db.execute<MetaRow>(metaQuery),
+    ]);
+
+    const meta = metaResult.rows[0] ?? {
+      stockedItemCount: 0,
+      lotItemCount: 0,
+      totalQuantity: '0',
+      belowMinimumCount: 0,
+      totalItems: 0,
+    };
+    const totalItems = Number(meta.totalItems ?? 0);
+
+    return {
+      data: rowsResult.rows.map((row) => ({
+        ...row,
+        lotCount: Number(row.lotCount ?? 0),
+      })),
+      summary: {
+        stockedItemCount: Number(meta.stockedItemCount ?? 0),
+        lotItemCount: Number(meta.lotItemCount ?? 0),
+        totalQuantity: meta.totalQuantity ?? '0',
+        belowMinimumCount: Number(meta.belowMinimumCount ?? 0),
+      },
+      page: {
+        number: filters.page,
+        size: filters.pageSize,
+        totalItems,
+        totalPages: Math.ceil(totalItems / filters.pageSize),
+      },
+    };
+  }
+
+  async getForecast(filters: ForecastFilters & PaginationParams) {
+    const scope = await this.warehousesService.warehouseScope(
+      filters.farmId,
+      filters.clerkUserId,
+    );
+    if (!inScope(scope, filters.warehouseId)) {
+      return {
+        data: [],
+        page: {
+          number: filters.page,
+          size: filters.pageSize,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    type ForecastRow = {
+      itemId: string;
+      code: string;
+      name: string;
+      unit: string;
+      quantityOnHand: number;
+      averageDailyOutflow: number;
+      estimatedDaysRemaining: number;
+    };
+
+    const cte = sql`
+      WITH outflow AS (
+        SELECT
+          t.item_id,
+          SUM(ABS(t.quantity_change)) AS total_outflow,
+          MIN(t.created_at) AS oldest_created_at
+        FROM inventory_transactions t
+        WHERE t.farm_id = ${filters.farmId}
+          AND t.warehouse_id = ${filters.warehouseId}
+          AND t.created_at >= (now() - interval '30 days')
+          AND t.created_at <= now()
+          AND t.transaction_type IN ('ISSUE', 'TRANSFER_OUT', 'ADJUSTMENT_OUT', 'ASSIGNMENT_OUT', 'MAINTENANCE_ISSUE')
+          AND t.quantity_change < 0
+        GROUP BY t.item_id
+        HAVING SUM(ABS(t.quantity_change)) > 0
+      ),
+      stock AS (
+        SELECT
+          b.item_id,
+          SUM(b.quantity_on_hand) AS quantity_on_hand
+        FROM inventory_balances b
+        WHERE b.farm_id = ${filters.farmId}
+          AND b.warehouse_id = ${filters.warehouseId}
+          AND b.quantity_on_hand > 0
+        GROUP BY b.item_id
+        HAVING SUM(b.quantity_on_hand) > 0
+      )
+    `;
+
+    const [rowsResult, totalResult] = await Promise.all([
+      this.databaseService.db.execute<ForecastRow>(sql`
+        ${cte},
+        forecast AS (
+          SELECT
+            i.id AS "itemId",
+            i.code AS "code",
+            i.name AS "name",
+            COALESCE(NULLIF(u.symbol, ''), u.name, '') AS "unit",
+            s.quantity_on_hand::double precision AS "quantityOnHand",
+            (o.total_outflow::double precision / GREATEST(1.0, LEAST(30.0, EXTRACT(EPOCH FROM (now() - o.oldest_created_at)) / 86400.0))) AS "averageDailyOutflow",
+            (s.quantity_on_hand::double precision / NULLIF((o.total_outflow::double precision / GREATEST(1.0, LEAST(30.0, EXTRACT(EPOCH FROM (now() - o.oldest_created_at)) / 86400.0))), 0)) AS "estimatedDaysRemaining"
+          FROM outflow o
+          INNER JOIN stock s ON s.item_id = o.item_id
+          INNER JOIN items i ON i.id = o.item_id AND i.farm_id = ${filters.farmId}
+          LEFT JOIN units u ON u.id = i.unit_id
+        )
+        SELECT *
+        FROM forecast
+        WHERE "estimatedDaysRemaining" IS NOT NULL
+        ORDER BY "estimatedDaysRemaining" ASC, "code" ASC
+        LIMIT ${filters.pageSize} OFFSET ${filters.offset}
+      `),
+      this.databaseService.db.execute<{ value: number }>(sql`
+        ${cte}
+        SELECT COUNT(*)::int AS value
+        FROM outflow o
+        INNER JOIN stock s ON s.item_id = o.item_id
+      `),
+    ]);
+
+    const totalItems = Number(totalResult.rows[0]?.value ?? 0);
+    return {
+      data: rowsResult.rows.map((row) => ({
+        itemId: row.itemId,
+        code: row.code,
+        name: row.name,
+        unit: row.unit,
+        quantityOnHand: Number(row.quantityOnHand),
+        averageDailyOutflow: Number(row.averageDailyOutflow),
+        estimatedDaysRemaining: Number(row.estimatedDaysRemaining),
+      })),
       page: {
         number: filters.page,
         size: filters.pageSize,

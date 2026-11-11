@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { apiRequest } from '@/src/shared/api/client';
-import { balanceMatchesTrackingMode, calculateInventoryForecast, documentCodeLabel, filterAvailableAssetsForScope, filterPositiveBalancesForScope, findInventoryLotsBySupplierNumber, findLowStockItems, listBalances, listInventoryTransactions, listRecentInventoryTransactions, type AvailableAsset, type InventoryBalance, type InventoryTransaction, type Item } from './api';
+import { balanceMatchesTrackingMode, calculateInventoryForecast, documentCodeLabel, filterAvailableAssetsForScope, filterPositiveBalancesForScope, findInventoryLotsBySupplierNumber, findLowStockItems, getAssetById, getInventoryForecastPage, getInventoryLot, getItemById, listAssetsPage, listBalances, listBalancesPage, listCategories, listInventorySummaryPage, listInventoryTransactions, listItemsPage, listLocationsPage, listLotsPage, listMaintenanceRecordsPage, listPositiveBalancesForItems, listRecentInventoryTransactions, type AvailableAsset, type InventoryBalance, type InventoryTransaction, type Item } from './api';
 
 jest.mock('@/src/shared/api/client', () => ({ apiRequest: jest.fn() }));
 
@@ -215,6 +215,150 @@ describe('lot suggestion lookup', () => {
     expect(lots.map((lot) => lot.id)).toEqual(['lot-a']);
     expect(request).toHaveBeenCalledWith('/lots', expect.objectContaining({
       params: { farmId: 'farm-a', itemId: 'item-a', supplierLotNumber: '001', page: 1, pageSize: 100 },
+    }));
+  });
+});
+
+
+describe('server-paginated & single-record inventory helpers', () => {
+  it('requests categories and single-page items with server filter params', async () => {
+    const request = jest.mocked(apiRequest);
+    request.mockReset();
+    request.mockResolvedValueOnce({ data: [{ id: 'cat-1', code: 'FEED', name: 'Thức ăn', status: 'ACTIVE' }] } as never);
+    request.mockResolvedValueOnce({
+      data: [{
+        item: { id: 'item-1', farmId: 'farm-a', code: 'FEED-01', name: 'Đường', itemType: 'MATERIAL', trackingMode: 'QUANTITY', status: 'ACTIVE' },
+        categoryName: 'Thức ăn',
+        unitName: 'Kilogram',
+        unitSymbol: 'kg',
+      }],
+      page: { number: 2, size: 20, totalItems: 25, totalPages: 2 },
+    } as never);
+
+    const categories = await listCategories('token');
+    expect(categories.data).toHaveLength(1);
+    expect(request).toHaveBeenNthCalledWith(1, '/categories', { token: 'token', signal: undefined });
+
+    const page = await listItemsPage('token', 'farm-a', {
+      page: 2,
+      pageSize: 20,
+      search: ' đường ',
+      categoryId: 'cat-1',
+      excludeTrackingMode: 'ASSET',
+    });
+    expect(page.data[0]).toMatchObject({ id: 'item-1', categoryName: 'Thức ăn', unitSymbol: 'kg' });
+    expect(request).toHaveBeenNthCalledWith(2, '/items', expect.objectContaining({
+      params: expect.objectContaining({
+        farmId: 'farm-a',
+        page: 2,
+        pageSize: 20,
+        search: 'đường',
+        categoryId: 'cat-1',
+        excludeTrackingMode: 'ASSET',
+        status: 'ACTIVE',
+      }),
+    }));
+  });
+
+  it('fetches single item, lot, and asset detail records cleanly', async () => {
+    const request = jest.mocked(apiRequest);
+    request.mockReset();
+    request
+      .mockResolvedValueOnce({ data: { item: { id: 'item-1', farmId: 'farm-a', code: 'C1', name: 'N1', itemType: 'MATERIAL', trackingMode: 'LOT', status: 'ACTIVE' }, categoryName: 'Cat', unitName: 'Chai', unitSymbol: null } } as never)
+      .mockResolvedValueOnce({ data: { id: 'lot-1', farmId: 'farm-a', itemId: 'item-1', lotCode: 'LOT-1', initialQuantity: '10', createdAt: '2026-10-01', itemCode: 'C1', itemName: 'N1', itemType: 'MATERIAL', trackingMode: 'LOT' } } as never)
+      .mockResolvedValueOnce({ data: { asset: { id: 'asset-1', farmId: 'farm-a', itemId: 'item-2', currentLocationId: 'loc-1', assetCode: 'A1', status: 'AVAILABLE' }, locationWarehouseId: 'wh-1', itemCode: 'I2', itemName: 'N2', locationName: 'Loc 1' } } as never);
+
+    const item = await getItemById('token', 'farm-a', 'item-1');
+    const lot = await getInventoryLot('token', 'farm-a', 'lot-1');
+    const asset = await getAssetById('token', 'farm-a', 'asset-1');
+
+    expect(item).toMatchObject({ id: 'item-1', unitName: 'Chai' });
+    expect(lot).toMatchObject({ id: 'lot-1', lotCode: 'LOT-1' });
+    expect(asset).toMatchObject({ asset: { id: 'asset-1' }, locationWarehouseId: 'wh-1' });
+  });
+
+  it('forwards comma-joined itemIds, excludeStatuses, summary, forecast, lots, and maintenance pages', async () => {
+    const request = jest.mocked(apiRequest);
+    request.mockReset();
+    request.mockResolvedValue({ data: [], page: { number: 1, size: 20, totalItems: 0, totalPages: 0 } } as never);
+
+    await listBalancesPage('token', 'farm-a', { warehouseId: 'wh-1', itemIds: ['i1', 'i2'], excludeTrackingMode: 'ASSET', pageSize: 20 });
+    await listInventorySummaryPage('token', 'farm-a', { warehouseId: 'wh-1', lowStockOnly: true, page: 1, pageSize: 8 });
+    await getInventoryForecastPage('token', 'farm-a', 'wh-1', 1, 3);
+    await listLotsPage('token', 'farm-a', { itemId: 'i1', search: 'L1', page: 1, pageSize: 20 });
+    await listAssetsPage('token', 'farm-a', { warehouseId: 'wh-1', excludeStatuses: ['LOST', 'RETIRED'], page: 1, pageSize: 20 });
+    await listMaintenanceRecordsPage('token', 'farm-a', { assetId: 'asset-1', page: 2, pageSize: 20 });
+
+    expect(request).toHaveBeenNthCalledWith(1, '/inventory', expect.objectContaining({
+      params: expect.objectContaining({ farmId: 'farm-a', warehouseId: 'wh-1', itemIds: 'i1,i2', excludeTrackingMode: 'ASSET', pageSize: 20 }),
+    }));
+    expect(request).toHaveBeenNthCalledWith(2, '/inventory/items-summary', expect.objectContaining({
+      params: expect.objectContaining({ farmId: 'farm-a', warehouseId: 'wh-1', lowStockOnly: 'true', pageSize: 8 }),
+    }));
+    expect(request).toHaveBeenNthCalledWith(3, '/inventory/forecast', expect.objectContaining({
+      params: { farmId: 'farm-a', warehouseId: 'wh-1', page: 1, pageSize: 3 },
+    }));
+    expect(request).toHaveBeenNthCalledWith(4, '/lots', expect.objectContaining({
+      params: expect.objectContaining({ farmId: 'farm-a', itemId: 'i1', search: 'L1', page: 1, pageSize: 20 }),
+    }));
+    expect(request).toHaveBeenNthCalledWith(5, '/assets', expect.objectContaining({
+      params: expect.objectContaining({ farmId: 'farm-a', warehouseId: 'wh-1', excludeStatuses: 'LOST,RETIRED', page: 1, pageSize: 20 }),
+    }));
+    expect(request).toHaveBeenNthCalledWith(6, '/maintenance-records', expect.objectContaining({
+      params: expect.objectContaining({ farmId: 'farm-a', assetId: 'asset-1', page: 2, pageSize: 20 }),
+    }));
+  });
+
+  it('requests paginated active locations and scoped balances for specific items', async () => {
+    const request = jest.mocked(apiRequest);
+    request.mockReset();
+    request
+      .mockResolvedValueOnce({
+        data: [{ id: 'loc-1', warehouseId: 'wh-1', code: 'A1', name: 'Kệ A1', status: 'ACTIVE' }],
+        page: { number: 1, size: 20, totalItems: 1, totalPages: 1 },
+      } as never)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            balance: { id: 'b1', farmId: 'farm-a', warehouseId: 'wh-1', itemId: 'item-1', lotId: null, quantityOnHand: '5' },
+            itemCode: 'I1',
+            itemName: 'Đường',
+            itemType: 'MATERIAL',
+            trackingMode: 'QUANTITY',
+          },
+        ],
+        page: { number: 1, size: 100, totalItems: 1, totalPages: 1 },
+      } as never);
+
+    const locPage = await listLocationsPage('token', 'farm-a', {
+      warehouseId: 'wh-1',
+      search: ' Kệ ',
+      page: 1,
+      pageSize: 20,
+    });
+    expect(locPage.data).toHaveLength(1);
+    expect(request).toHaveBeenNthCalledWith(1, '/locations', expect.objectContaining({
+      params: expect.objectContaining({
+        farmId: 'farm-a',
+        warehouseId: 'wh-1',
+        status: 'ACTIVE',
+        search: 'Kệ',
+        page: 1,
+        pageSize: 20,
+      }),
+    }));
+
+    const balances = await listPositiveBalancesForItems('token', 'farm-a', 'wh-1', ['item-1']);
+    expect(balances).toHaveLength(1);
+    expect(request).toHaveBeenNthCalledWith(2, '/inventory', expect.objectContaining({
+      params: expect.objectContaining({
+        farmId: 'farm-a',
+        warehouseId: 'wh-1',
+        itemIds: 'item-1',
+        positiveOnly: 'true',
+        page: 1,
+        pageSize: 100,
+      }),
     }));
   });
 });

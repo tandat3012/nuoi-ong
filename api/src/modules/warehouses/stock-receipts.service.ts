@@ -12,8 +12,10 @@ import {
   eq,
   getTableColumns,
   gte,
+  ilike,
   inArray,
   lte,
+  or,
   sql,
 } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
@@ -62,6 +64,7 @@ export interface StockReceiptListFilters extends PaginationParams {
   warehouseId?: string;
   dateFrom?: string;
   dateTo?: string;
+  search?: string;
 }
 
 @Injectable()
@@ -93,6 +96,15 @@ export class StockReceiptsService {
       conditions.push(gte(stockReceipts.receiptDate, filters.dateFrom));
     if (filters.dateTo)
       conditions.push(lte(stockReceipts.receiptDate, filters.dateTo));
+    if (filters.search) {
+      const pattern = `%${filters.search.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(
+        or(
+          ilike(stockReceipts.receiptCode, pattern),
+          ilike(stockReceipts.note, pattern),
+        )!,
+      );
+    }
     const [data, total] = await Promise.all([
       this.databaseService.db
         .select({
@@ -932,6 +944,7 @@ export class StockReceiptsService {
         ...getTableColumns(stockReceiptItems),
         itemCode: items.code,
         itemName: items.name,
+        itemImageUrl: items.imageUrl,
         itemType: items.itemType,
         trackingMode: items.trackingMode,
         unitId: units.id,

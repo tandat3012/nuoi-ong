@@ -73,6 +73,10 @@ export function notificationBodyText(notification: AppNotification): string {
     ? NOTIFICATION_DOCUMENT_KINDS[entityType]
     : undefined;
   if (!documentKind) return notification.body;
+  if (entityType === 'MAINTENANCE_REQUEST' && (notification.title.includes('Kết quả bảo trì') || notification.title.includes('quyết định cuối')))
+    return notification.body;
+  if (entityType === 'MAINTENANCE_REQUEST' && status === 'PENDING_APPROVAL')
+    return `${documentKind} ${code} đã được gửi. Mở phiếu để xem tiến độ hiện tại.`;
 
   switch (status) {
     case 'PENDING_APPROVAL':
@@ -104,6 +108,8 @@ export function notificationRoute(notification: AppNotification) {
     case 'STOCK_COUNT': return `/counts/${entityId}`;
     case 'STOCK_TRANSFER': return `/transfers/${entityId}`;
     case 'MAINTENANCE_REQUEST': return `/maintenance/requests/${entityId}`;
+    case 'MAINTENANCE_RETURN': return `/maintenance/history?recordId=${encodeURIComponent(entityId)}`;
+    case 'MAINTENANCE_RECORD': return `/maintenance/history?recordId=${encodeURIComponent(entityId)}`;
     case 'ASSET_TRANSFER_REQUEST': return `/assets/transfer-requests/${entityId}`;
     default: return null;
   }

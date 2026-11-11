@@ -78,21 +78,22 @@ export class AuditLogsController {
   @ApiOperation({ summary: 'Chi tiết một bản ghi lịch sử thao tác' })
   @ApiUuidParam('id', 'ID bản ghi lịch sử.')
   @ApiFarmIdQuery()
-  @ApiOkResponse({ description: 'Dữ liệu trước/sau và người thao tác.' })
+  @ApiOkResponse({
+    description:
+      'Dữ liệu trước/sau, người thao tác và `references` đổi các id liên quan sang mã hoặc tên để hiển thị.',
+  })
   @ApiNotFoundResponse({
     description: 'Không có bản ghi, hoặc ngoài phạm vi được xem.',
   })
-  async get(
+  get(
     @CurrentAuth() auth: { clerkUserId: string },
     @Param('id') id: string,
     @Query('farmId') farmId?: string,
   ) {
-    return {
-      data: await this.auditLogsService.get(
-        requireUuid(id, 'id'),
-        requireUuid(farmId, 'farmId'),
-        auth.clerkUserId,
-      ),
-    };
+    return this.auditLogsService.getDetail(
+      requireUuid(id, 'id'),
+      requireUuid(farmId, 'farmId'),
+      auth.clerkUserId,
+    );
   }
 }

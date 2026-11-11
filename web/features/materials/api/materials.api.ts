@@ -1,11 +1,10 @@
 import type { ApiRequestOptions } from '@/shared/api/client';
-import type { PaginatedResponse } from '@/shared/api/contracts';
 import type {
   CategoryReference,
   CreateMaterialInput,
   MaterialDetail,
   MaterialFilterParams,
-  MaterialListRow,
+  MaterialListResponse,
   UnitReference,
   UpdateMaterialInput,
 } from '../types/material';
@@ -20,7 +19,7 @@ export function getMaterials(
   request: AuthenticatedRequest,
   params: MaterialFilterParams & { farmId: string },
 ) {
-  return request<PaginatedResponse<MaterialListRow>>('/materials', {
+  return request<MaterialListResponse>('/materials', {
     params: { ...params, search: params.search?.trim() || undefined },
   });
 }

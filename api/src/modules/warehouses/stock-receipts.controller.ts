@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  normalizeSearch,
   parseOptionalEnum,
   parsePagination,
   requireUuid,
@@ -199,7 +200,9 @@ export class StockReceiptsController {
     @Query('warehouseId') warehouseId?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
   ) {
+    const normalizedSearch = normalizeSearch(search);
     return this.stockReceiptsService.listReceipts({
       clerkUserId: auth.clerkUserId,
       farmId: requireUuid(farmId, 'farmId'),
@@ -209,6 +212,7 @@ export class StockReceiptsController {
         ? requireUuid(warehouseId, 'warehouseId')
         : undefined,
       ...parseDateRange(dateFrom, dateTo),
+      ...(normalizedSearch ? { search: normalizedSearch } : {}),
     });
   }
 

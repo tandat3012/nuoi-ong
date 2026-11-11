@@ -6,6 +6,10 @@ describe('InventoryController transactions query', () => {
   const service = {
     listTransactions: jest.fn(),
     listBalances: jest.fn(),
+    getItemsSummary: jest.fn(),
+    getForecast: jest.fn(),
+    listLots: jest.fn(),
+    getLot: jest.fn(),
   };
   const controller = new InventoryController(
     service as unknown as InventoryService,
@@ -145,5 +149,127 @@ describe('InventoryController transactions query', () => {
     expect(service.listBalances).toHaveBeenCalledWith(
       expect.objectContaining({ farmId, assetId: itemId }),
     );
+  });
+
+  it('validates search, tracking filters and itemIds on listBalances', async () => {
+    service.listBalances.mockReset();
+    const categoryId = '44444444-4444-4444-8444-444444444444';
+    await controller.listBalances(
+      auth,
+      farmId,
+      warehouseId,
+      undefined,
+      undefined,
+      '1',
+      '20',
+      undefined,
+      '  mật ong  ',
+      categoryId,
+      'LOT',
+      'ASSET',
+      `${itemId},${categoryId}`,
+    );
+    expect(service.listBalances).toHaveBeenCalledWith({
+      clerkUserId: auth.clerkUserId,
+      farmId,
+      warehouseId,
+      itemId: undefined,
+      lotId: undefined,
+      assetId: undefined,
+      page: 1,
+      pageSize: 20,
+      offset: 0,
+      search: 'mật ong',
+      categoryId,
+      trackingMode: 'LOT',
+      excludeTrackingMode: 'ASSET',
+      itemIds: [itemId, categoryId],
+    });
+
+    expect(() =>
+      controller.listBalances(
+        auth,
+        farmId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        `${itemId},bad-uuid`,
+      ),
+    ).toThrow(BadRequestException);
+  });
+
+  it('validates items-summary, forecast, listLots search and getLot', async () => {
+    await controller.getItemsSummary(
+      auth,
+      farmId,
+      warehouseId,
+      '1',
+      '8',
+      'đường',
+      undefined,
+      'LOT',
+      'ASSET',
+      'true',
+    );
+    expect(service.getItemsSummary).toHaveBeenCalledWith({
+      clerkUserId: auth.clerkUserId,
+      farmId,
+      warehouseId,
+      page: 1,
+      pageSize: 8,
+      offset: 0,
+      search: 'đường',
+      categoryId: undefined,
+      trackingMode: 'LOT',
+      excludeTrackingMode: 'ASSET',
+      lowStockOnly: true,
+    });
+
+    expect(() =>
+      controller.getItemsSummary(
+        auth,
+        farmId,
+        warehouseId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'invalid-bool',
+      ),
+    ).toThrow(BadRequestException);
+
+    await controller.getForecast(auth, farmId, warehouseId, '1', '10');
+    expect(service.getForecast).toHaveBeenCalledWith({
+      clerkUserId: auth.clerkUserId,
+      farmId,
+      warehouseId,
+      page: 1,
+      pageSize: 10,
+      offset: 0,
+    });
+    expect(() => controller.getForecast(auth, farmId)).toThrow(
+      BadRequestException,
+    );
+
+    await controller.listLots(auth, farmId, itemId, undefined, '1', '20', 'LOT-001');
+    expect(service.listLots).toHaveBeenCalledWith(
+      expect.objectContaining({ farmId, itemId, search: 'LOT-001' }),
+    );
+
+    const lotId = '55555555-5555-4555-8555-555555555555';
+    service.getLot.mockResolvedValueOnce({ id: lotId });
+    await expect(controller.getLot(auth, lotId, farmId)).resolves.toEqual({
+      data: { id: lotId },
+    });
+    expect(service.getLot).toHaveBeenCalledWith(lotId, farmId, auth.clerkUserId);
   });
 });

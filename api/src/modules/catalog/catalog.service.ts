@@ -11,6 +11,7 @@ import {
   eq,
   ilike,
   inArray,
+  ne,
   notInArray,
   or,
   sql,
@@ -58,6 +59,8 @@ export interface ItemListFilters extends PaginationParams {
   itemTypes?: ItemType[];
   trackingMode?: TrackingMode;
   status?: RecordStatus;
+  categoryId?: string;
+  excludeTrackingMode?: TrackingMode;
 }
 
 export interface FarmLookupFilters extends PaginationParams {
@@ -131,6 +134,12 @@ export class CatalogService {
     }
     if (filters.status) {
       predicates.push(eq(items.status, filters.status));
+    }
+    if (filters.categoryId) {
+      predicates.push(eq(items.categoryId, filters.categoryId));
+    }
+    if (filters.excludeTrackingMode) {
+      predicates.push(ne(items.trackingMode, filters.excludeTrackingMode));
     }
 
     const where = and(...predicates);

@@ -12,6 +12,7 @@ import {
   desc,
   eq,
   gte,
+  ilike,
   isNull,
   or,
   sql,
@@ -72,6 +73,7 @@ type Filters = PaginationParams & {
   farmId: string;
   clerkUserId: string;
   status?: typeof stockTransfers.$inferSelect.status;
+  search?: string;
 };
 @Injectable()
 export class StockTransfersService {
@@ -96,6 +98,15 @@ export class StockTransfersService {
     if (readMemberId)
       c.push(eq(stockTransfers.createdByMemberId, readMemberId));
     if (f.status) c.push(eq(stockTransfers.status, f.status));
+    if (f.search) {
+      const pattern = `%${f.search.replace(/[\\%_]/g, '\\$&')}%`;
+      c.push(
+        or(
+          ilike(stockTransfers.transferCode, pattern),
+          ilike(stockTransfers.note, pattern),
+        )!,
+      );
+    }
     const w = and(...c);
     const [data, t] = await Promise.all([
       this.databaseService.db
@@ -875,6 +886,7 @@ export class StockTransfersService {
         ...getTableColumns(stockTransferItems),
         itemCode: items.code,
         itemName: items.name,
+        itemImageUrl: items.imageUrl,
         trackingMode: items.trackingMode,
         unitName: units.name,
         unitSymbol: units.symbol,
