@@ -125,7 +125,7 @@ export function documentPushEligibility() {
       OR (m.return_status::text IN ('CONFIRMED','REJECTED') AND ${notifications.type}='MAINTENANCE_RETURN_' || m.return_status::text AND (
         EXISTS (SELECT 1 FROM maintenance_requests mr JOIN farm_members c ON c.id=mr.requested_by_member_id WHERE mr.maintenance_record_id=m.id AND mr.farm_id=m.farm_id AND c.user_id=${notifications.userId} AND c.status='ACTIVE')
         OR EXISTS (SELECT 1 FROM farm_members c WHERE c.id=m.performed_by_member_id AND c.user_id=${notifications.userId} AND c.status='ACTIVE')
-        OR (NOT EXISTS (SELECT 1 FROM maintenance_requests mr WHERE mr.maintenance_record_id=m.id AND mr.farm_id=m.farm_id) AND EXISTS (SELECT 1 FROM farm_members c WHERE c.id=m.return_created_by_member_id AND c.user_id=${notifications.userId} AND c.status='ACTIVE'))))))
+        OR (NOT EXISTS (SELECT 1 FROM maintenance_requests mr WHERE mr.maintenance_record_id=m.id AND mr.farm_id=m.farm_id) AND EXISTS (SELECT 1 FROM farm_members c WHERE c.id=m.return_created_by_member_id AND c.user_id=${notifications.userId} AND c.status='ACTIVE')))))))
     OR (${notifications.entityType} = 'MAINTENANCE_RECORD' AND EXISTS (
       SELECT 1 FROM maintenance_records m JOIN assets a ON a.id=m.asset_id WHERE m.id=${notifications.entityId} AND m.farm_id=${notifications.farmId}
       AND ${notifications.data}->>'milestone' = CASE WHEN m.status='SCHEDULED' THEN m.scheduled_at::text WHEN m.status='IN_PROGRESS' THEN m.expected_return_at::text ELSE NULL END
