@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
 import {
   ActivityIndicator,
   Alert,
@@ -28,6 +29,11 @@ import {
   type InventoryBalance,
   type Warehouse,
 } from '@/src/features/inventory/api';
+import {
+  ItemMultiSelectModal,
+  type MultiSelectFetchParams,
+  type MultiSelectLine,
+} from '@/src/features/inventory/presentation/ItemMultiSelectModal';
 import { navigateToReceiptList } from '@/src/features/inventory/receipt-list.logic';
 import NotificationBell from '@/src/features/notifications/presentation/NotificationBell';
 import { apiRequest, clearApiCache, isAbortError, MobileApiError } from '@/src/shared/api/client';
@@ -60,6 +66,30 @@ type AssetOption = {
   status: string;
   imageUrl?: string | null;
 };
+
+type MaintenanceLocalDraft = {
+  version: 1;
+  farmId: string;
+  memberId: string;
+  savedAt: string;
+  title: string;
+  maintenanceType: string;
+  note: string;
+  assets: AssetOption[];
+};
+
+function maintenanceDraftStorageKey(farmId: string, memberId: string) {
+  return `maintenance-draft-v1:${farmId}:${memberId}`;
+}
+
+function maintenanceDraftSnapshot(value: Pick<MaintenanceLocalDraft, 'title' | 'maintenanceType' | 'note' | 'assets'>) {
+  return JSON.stringify({
+    title: value.title,
+    maintenanceType: value.maintenanceType,
+    note: value.note,
+    assets: value.assets.map(({ id, label, code, name, status }) => ({ id, label, code, name, status })),
+  });
+}
 
 const ACTION_PICKER_PAGE_SIZE = 20;
 
@@ -136,22 +166,42 @@ const ServerPickerRow = memo(function ServerPickerRow({
   );
 });
 
-export default function InventoryActionScreen({ mode }: { mode: InventoryActionMode }) {
+export default function InventoryActionScreen({ mode, editId }: { mode: InventoryActionMode; editId?: string }) {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ assetId?: string; itemId?: string; lotId?: string; sourceWarehouseId?: string }>();
-  const { currentFarmId, getAccessToken } = useAuthContext();
+  const { data, currentFarmId, getAccessToken } = useAuthContext();
+  const currentMemberId = data?.memberships.find(({ farm }) => farm.id === currentFarmId)?.memberId ?? null;
   const copy = screenCopy[mode];
+  const isEditMode = mode === 'transfer' && Boolean(editId);
+  const [editLoading, setEditLoading] = useState(isEditMode);
+  const [editLoadError, setEditLoadError] = useState<string | null>(null);
+  const editLoadedRef = useRef(false);
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [destinationWarehouses, setDestinationWarehouses] = useState<Warehouse[]>([]);
   const [selectedAssetOptions, setSelectedAssetOptions] = useState<AssetOption[]>([]);
+  const [selectedTransferLines, setSelectedTransferLines] = useState<MultiSelectLine[]>([]);
+  const [transferItemsOpen, setTransferItemsOpen] = useState(false);
   const [selectedTransferOption, setSelectedTransferOption] = useState<TransferOption | null>(null);
   const [transferLoading, setTransferLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [transferDraftSaved, setTransferDraftSaved] = useState(false);
+  const [maintenanceDraftSaved, setMaintenanceDraftSaved] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const submittingRef = useRef(false);
+  const transferDraftIdRef = useRef<string | null>(null);
+  const savedTransferSnapshotRef = useRef<string | null>(null);
+  const hasUnsavedTransferDraftRef = useRef(false);
+  const hasUnsavedMaintenanceDraftRef = useRef(false);
+  const pendingExitAction = useRef<unknown>(null);
+  const allowExit = useRef(false);
+  const saveTransferDraftRef = useRef<(leaveAfterSave?: boolean) => Promise<void>>(async () => {});
+  const saveMaintenanceDraftRef = useRef<(leaveAfterSave?: boolean) => Promise<void>>(async () => {});
+  const savedMaintenanceSnapshotRef = useRef<string | null>(null);
+  const loadedMaintenanceDraftKeyRef = useRef<string | null>(null);
 
   const [form, setForm] = useState({
     tracking: 'SỐ LƯỢNG',
@@ -163,6 +213,88 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     maintenanceType: 'Sửa chữa đột xuất',
     note: '',
   });
+
+  useEffect(() => {
+    if (mode !== 'maintenance' || !currentFarmId || !currentMemberId || params.assetId) return;
+    const key = maintenanceDraftStorageKey(currentFarmId, currentMemberId);
+    if (loadedMaintenanceDraftKeyRef.current === key) return;
+    loadedMaintenanceDraftKeyRef.current = key;
+    savedMaintenanceSnapshotRef.current = null;
+    setMaintenanceDraftSaved(false);
+
+    void SecureStore.getItemAsync(key).then((raw) => {
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<MaintenanceLocalDraft>;
+      if (
+        parsed.version !== 1 ||
+        parsed.farmId !== currentFarmId ||
+        parsed.memberId !== currentMemberId ||
+        typeof parsed.title !== 'string' ||
+        typeof parsed.note !== 'string' ||
+        !Array.isArray(parsed.assets)
+      ) throw new Error('Bản nháp bảo trì lưu trên thiết bị không hợp lệ.');
+
+      const restored: MaintenanceLocalDraft = {
+        version: 1,
+        farmId: currentFarmId,
+        memberId: currentMemberId,
+        savedAt: typeof parsed.savedAt === 'string' ? parsed.savedAt : new Date().toISOString(),
+        title: parsed.title,
+        maintenanceType: typeof parsed.maintenanceType === 'string' ? parsed.maintenanceType : 'Sửa chữa đột xuất',
+        note: parsed.note,
+        assets: parsed.assets.filter((asset): asset is AssetOption => Boolean(
+          asset && typeof asset === 'object' && 'id' in asset && typeof asset.id === 'string'
+          && 'code' in asset && typeof asset.code === 'string'
+          && 'name' in asset && typeof asset.name === 'string'
+          && 'label' in asset && typeof asset.label === 'string'
+          && 'status' in asset && typeof asset.status === 'string'
+        )),
+      };
+      savedMaintenanceSnapshotRef.current = maintenanceDraftSnapshot(restored);
+      setForm((current) => ({
+        ...current,
+        title: restored.title,
+        maintenanceType: restored.maintenanceType,
+        note: restored.note,
+      }));
+      setSelectedAssetOptions(restored.assets);
+      setMaintenanceDraftSaved(true);
+    }).catch((cause: unknown) => {
+      Alert.alert('Không thể khôi phục nháp bảo trì', cause instanceof Error ? cause.message : 'Dữ liệu nháp trên thiết bị không đọc được.');
+    });
+  }, [currentFarmId, currentMemberId, mode, params.assetId]);
+
+  const transferDraftSnapshot = mode === 'transfer'
+    ? JSON.stringify({
+        sourceWarehouse: form.sourceWarehouse,
+        destinationWarehouse: form.destinationWarehouse,
+        note: form.note,
+        items: selectedTransferLines.map((line) => ({
+          itemId: line.itemId,
+          lotId: line.lotId ?? null,
+          quantity: line.quantity,
+        })),
+      })
+    : '';
+  const transferHasUnsavedChanges = mode === 'transfer' && (
+    transferDraftIdRef.current
+      ? transferDraftSnapshot !== savedTransferSnapshotRef.current
+      : selectedTransferLines.length > 0
+  );
+  hasUnsavedTransferDraftRef.current = transferHasUnsavedChanges;
+  const currentMaintenanceSnapshot = maintenanceDraftSnapshot({
+    title: form.title,
+    maintenanceType: form.maintenanceType,
+    note: form.note,
+    assets: selectedAssetOptions,
+  });
+  const maintenanceFormHasContent = Boolean(form.title.trim() || form.note.trim() || selectedAssetOptions.length);
+  const maintenanceHasUnsavedChanges = mode === 'maintenance' && (
+    savedMaintenanceSnapshotRef.current === null
+      ? maintenanceFormHasContent
+      : currentMaintenanceSnapshot !== savedMaintenanceSnapshotRef.current
+  );
+  hasUnsavedMaintenanceDraftRef.current = maintenanceHasUnsavedChanges;
 
   type PickerKind = 'tracking' | 'asset' | 'sourceWarehouse' | 'destinationWarehouse' | 'item';
   const [picker, setPicker] = useState<PickerKind | null>(null);
@@ -187,6 +319,61 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     details?: Array<{ label: string; value: string }>;
     items?: Array<{ name: string; quantity: string }>;
   } | null>(null);
+
+  useEffect(() => navigation.addListener('beforeRemove', (event) => {
+    if (allowExit.current) {
+      allowExit.current = false;
+      return;
+    }
+    const hasUnsavedChanges = mode === 'transfer'
+      ? hasUnsavedTransferDraftRef.current
+      : hasUnsavedMaintenanceDraftRef.current;
+    if (!hasUnsavedChanges) return;
+
+    event.preventDefault();
+    pendingExitAction.current = event.data.action;
+    Alert.alert(
+      mode === 'transfer' ? 'Lưu phiếu điều chuyển?' : 'Lưu nháp báo bảo trì?',
+      mode === 'transfer'
+        ? 'Bạn đã chọn vật phẩm. Có thể lưu phiếu nháp để tiếp tục theo dõi, thoát và bỏ thay đổi, hoặc ở lại chỉnh sửa.'
+        : 'Thông tin chưa gửi sẽ được lưu nháp trên thiết bị này. Bạn có thể lưu rồi thoát, bỏ thay đổi hoặc ở lại chỉnh sửa.',
+      [
+        {
+          text: 'Ở lại',
+          style: 'cancel',
+          onPress: () => { pendingExitAction.current = null; },
+        },
+        {
+          text: 'Thoát không lưu',
+          style: 'destructive',
+          onPress: () => leaveWithoutSaving(),
+        },
+        {
+          text: 'Lưu nháp & thoát',
+          onPress: () => {
+            if (mode === 'transfer') void saveTransferDraftRef.current(true);
+            else void saveMaintenanceDraftRef.current(true);
+          },
+        },
+      ],
+    );
+  }), [mode, navigation]);
+
+  function leaveWithoutSaving() {
+    allowExit.current = true;
+    const action = pendingExitAction.current;
+    pendingExitAction.current = null;
+    if (action) navigation.dispatch(action as never);
+    else router.back();
+  }
+
+  function leaveAfterSaving() {
+    allowExit.current = true;
+    const action = pendingExitAction.current;
+    pendingExitAction.current = null;
+    if (action) navigation.dispatch(action as never);
+    else router.back();
+  }
 
   useEffect(() => {
     if (!currentFarmId) return;
@@ -468,10 +655,6 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
       .map((warehouse) => `${warehouse.id} • ${warehouse.code} • ${warehouse.name}`),
   }), [destinationWarehouses, form.sourceWarehouse, warehouses]);
 
-  const transferQuantityError = mode === 'transfer'
-    ? validateQuantityInput(form.quantity, { max: selectedTransferOption?.quantity })
-    : null;
-
   function update(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
   }
@@ -484,6 +667,7 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
       const sourceId = value.split(' • ')[0];
       const suggestedDestination = destinationWarehouses.find((warehouse) => warehouse.id !== sourceId)?.id ?? '';
       setSelectedTransferOption(null);
+      setSelectedTransferLines([]);
       setForm((current) => ({
         ...current,
         sourceWarehouse: sourceId,
@@ -522,18 +706,181 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     setPicker(null);
   }, [serverTransferOptions]);
 
+  async function buildTransferDraftPayload(token: string) {
+    if (!currentFarmId) throw new Error('Chưa chọn trang trại.');
+    const fromWarehouseId = form.sourceWarehouse.split(' • ')[0];
+    const toWarehouseId = form.destinationWarehouse.split(' • ')[0];
+    if (!fromWarehouseId || !toWarehouseId) throw new Error('Vui lòng chọn cả kho nguồn và kho đích.');
+    if (fromWarehouseId === toWarehouseId) throw new Error('Kho nguồn và kho đích phải khác nhau.');
+    if (selectedTransferLines.length === 0) throw new Error('Hãy chọn ít nhất một mặt hàng hoặc lô để lưu nháp.');
+
+    const items: Array<{ itemId: string; quantity: string; lotId?: string }> = [];
+    for (const line of selectedTransferLines) {
+      const latest = await listBalancesPage(token, currentFarmId, {
+        warehouseId: fromWarehouseId,
+        itemIds: [line.itemId],
+        trackingMode: line.trackingMode,
+        lotId: line.lotId || undefined,
+        positiveOnly: true,
+        page: 1,
+        pageSize: 100,
+        skipCache: true,
+      });
+      const available = filterPositiveBalancesForScope(latest.data, currentFarmId, fromWarehouseId)
+        .filter(({ balance }) => balance.itemId === line.itemId
+          && balanceMatchesTrackingMode(balance, line.trackingMode)
+          && (line.trackingMode !== 'LOT' || balance.lotId === line.lotId))
+        .reduce((sum, { balance }) => sum + Number(balance.quantityOnHand), 0);
+      const quantityError = validateQuantityInput(line.quantity, { max: available });
+      if (quantityError) {
+        throw new Error(`${line.name} (${line.code}): ${quantityError} Tồn khả dụng hiện tại: ${formatQuantity(available)}.`);
+      }
+      items.push({
+        itemId: line.itemId,
+        quantity: line.quantity.trim().replace(',', '.'),
+        ...(line.trackingMode === 'LOT' && line.lotId ? { lotId: line.lotId } : {}),
+      });
+    }
+
+    return {
+      fromWarehouseId,
+      toWarehouseId,
+      note: form.note.trim() || (transferDraftIdRef.current ? '' : undefined),
+      items,
+    };
+  }
+
+  async function persistTransferDraft(token: string) {
+    if (!currentFarmId) throw new Error('Chưa chọn trang trại.');
+    const body = await buildTransferDraftPayload(token);
+    const snapshotAtSave = transferDraftSnapshot;
+    let id = transferDraftIdRef.current;
+
+    if (id) {
+      await apiRequest(`/stock-transfers/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        token,
+        params: { farmId: currentFarmId },
+        body,
+      });
+    } else {
+      const response = await apiRequest<{ data: { transfer?: { id?: string }; id?: string } | { transfer?: { id?: string }; id?: string } }>(
+        '/stock-transfers',
+        { method: 'POST', token, params: { farmId: currentFarmId }, body },
+      );
+      const transfer = unwrap(response) as { transfer?: { id?: string }; id?: string };
+      id = transfer?.transfer?.id ?? transfer?.id ?? null;
+      if (!id) throw new Error('API đã lưu phiếu nhưng không trả về mã phiếu. Tải lại danh sách trước khi thử tạo lại để tránh trùng phiếu.');
+      transferDraftIdRef.current = id;
+    }
+
+    savedTransferSnapshotRef.current = snapshotAtSave;
+    setTransferDraftSaved(true);
+    clearApiCache();
+    return { id, body };
+  }
+
+  async function persistMaintenanceDraft() {
+    if (!currentFarmId || !currentMemberId) throw new Error('Không xác định được tài khoản hoặc trang trại để lưu nháp.');
+    const draft: MaintenanceLocalDraft = {
+      version: 1,
+      farmId: currentFarmId,
+      memberId: currentMemberId,
+      savedAt: new Date().toISOString(),
+      title: form.title,
+      maintenanceType: form.maintenanceType,
+      note: form.note,
+      assets: selectedAssetOptions.map(({ id, label, code, name, status }) => ({ id, label, code, name, status })),
+    };
+    await SecureStore.setItemAsync(
+      maintenanceDraftStorageKey(currentFarmId, currentMemberId),
+      JSON.stringify(draft),
+    );
+    savedMaintenanceSnapshotRef.current = maintenanceDraftSnapshot(draft);
+    setMaintenanceDraftSaved(true);
+    return draft;
+  }
+
+  async function saveMaintenanceDraft(leaveAfterSave = false) {
+    if (mode !== 'maintenance' || submittingRef.current) return;
+    if (!currentFarmId || !currentMemberId) {
+      Alert.alert('Chưa sẵn sàng', 'Chưa xác định được tài khoản và trang trại hiện tại.');
+      pendingExitAction.current = null;
+      return;
+    }
+
+    submittingRef.current = true;
+    setSubmitting(true);
+    setSavingDraft(true);
+    try {
+      await persistMaintenanceDraft();
+      const confirmation = leaveAfterSave
+        ? [{ text: 'Đóng', onPress: () => leaveAfterSaving() }]
+        : [{ text: 'Đóng' }];
+      Alert.alert(
+        'Đã lưu nháp',
+        'Bản nháp được lưu trên thiết bị này. Yêu cầu chưa được tạo và chưa gửi cho quản lý.',
+        confirmation,
+      );
+    } catch (cause: unknown) {
+      pendingExitAction.current = null;
+      Alert.alert('Không thể lưu nháp', cause instanceof Error ? cause.message : 'Vui lòng thử lại.');
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+      setSavingDraft(false);
+    }
+  }
+
+  saveMaintenanceDraftRef.current = saveMaintenanceDraft;
+
+  async function saveTransferDraft(leaveAfterSave = false) {
+    if (mode !== 'transfer' || submittingRef.current) return;
+    if (!currentFarmId) {
+      Alert.alert('Chưa chọn trang trại', 'Vui lòng chọn trang trại trước khi lưu nháp.');
+      pendingExitAction.current = null;
+      return;
+    }
+
+    submittingRef.current = true;
+    setSubmitting(true);
+    setSavingDraft(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
+      await persistTransferDraft(token);
+      const confirmation = leaveAfterSave
+        ? [{ text: 'Đóng', onPress: () => leaveAfterSaving() }]
+        : [{ text: 'Đóng' }];
+      Alert.alert(
+        'Đã lưu nháp',
+        'Phiếu điều chuyển đã được lưu. Phiếu chưa gửi duyệt và chưa làm thay đổi tồn kho.',
+        confirmation,
+      );
+    } catch (cause: unknown) {
+      pendingExitAction.current = null;
+      Alert.alert('Không thể lưu nháp', cause instanceof Error ? cause.message : 'Vui lòng thử lại.');
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+      setSavingDraft(false);
+    }
+  }
+
+  saveTransferDraftRef.current = saveTransferDraft;
+
   function submit() {
     if (submittingRef.current) return;
     if (mode === 'transfer' && form.sourceWarehouse === form.destinationWarehouse) {
       Alert.alert('Kho không hợp lệ', 'Kho nguồn và kho đích phải khác nhau.');
       return;
     }
-    if (mode === 'transfer' && (transferLoading || !selectedTransferOption || form.item !== selectedTransferOption.id)) {
-      Alert.alert('Chưa có vật phẩm khả dụng', transferLoading ? 'Đang tải tồn kho của kho nguồn.' : 'Kho nguồn không có vật phẩm phù hợp với cách theo dõi đã chọn.');
+    if (mode === 'transfer' && (!form.sourceWarehouse || !form.destinationWarehouse)) {
+      Alert.alert('Thiếu kho điều chuyển', 'Vui lòng chọn cả kho nguồn và kho đích.');
       return;
     }
-    if (mode === 'transfer' && transferQuantityError) {
-      Alert.alert('Số lượng điều chuyển không hợp lệ', `${selectedTransferOption?.label ?? 'Vật tư'}: “${form.quantity || 'trống'}”. ${transferQuantityError}`);
+    if (mode === 'transfer' && selectedTransferLines.length === 0) {
+      Alert.alert('Chưa chọn mặt hàng', 'Vui lòng chọn ít nhất một mặt hàng hoặc lô để điều chuyển.');
       return;
     }
     if (mode === 'maintenance' && selectedAssetOptions.length === 0) {
@@ -555,57 +902,22 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
     }
     submittingRef.current = true;
     setSubmitting(true);
+    let createdTransferId: string | null = null;
+    let transferWasPersisted = false;
     try {
       const token = await getAccessToken();
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
       const selectedWarehouse = form.sourceWarehouse.split(' • ')[0];
       const selectedDestination = form.destinationWarehouse.split(' • ')[0];
-      let createdTransferId: string | null = null;
-
       if (mode === 'transfer') {
-        const selected = selectedTransferOption;
-        if (!selected) throw new Error('Vật phẩm không còn trong danh sách tồn của kho nguồn.');
-        const quantity = form.quantity;
-        const latest = await listBalancesPage(token, currentFarmId, {
-          warehouseId: selectedWarehouse,
-          itemIds: [selected.itemId],
-          trackingMode: selected.trackingMode,
-          lotId: selected.lotId || undefined,
-          positiveOnly: true,
-          page: 1,
-          pageSize: 100,
-          skipCache: true,
-        });
-        const available = filterPositiveBalancesForScope(latest.data, currentFarmId, selectedWarehouse)
-          .filter(({ balance }) =>
-            balance.itemId === selected.itemId &&
-            balanceMatchesTrackingMode(balance, selected.trackingMode) &&
-            (selected.trackingMode !== 'LOT' || balance.lotId === selected.lotId),
-          )
-          .reduce((sum, { balance }) => sum + Number(balance.quantityOnHand), 0);
-        const quantityError = validateQuantityInput(quantity, { max: available });
-        if (quantityError) throw new Error(`${selected.label}: “${quantity || 'trống'}”. ${quantityError}`);
-
-        const response = await apiRequest<{ data: { transfer: { id: string } } | { id: string } }>('/stock-transfers', {
+        const persisted = await persistTransferDraft(token);
+        createdTransferId = persisted.id;
+        transferWasPersisted = true;
+        await apiRequest(`/stock-transfers/${encodeURIComponent(createdTransferId)}/submit`, {
           method: 'POST',
           token,
           params: { farmId: currentFarmId },
-          body: {
-            fromWarehouseId: selectedWarehouse,
-            toWarehouseId: selectedDestination,
-            note: form.note.trim() || undefined,
-            items: [{ itemId: selected.itemId, quantity: quantity.trim().replace(',', '.'), lotId: selected.lotId }],
-          },
         });
-        const transferObj = unwrap(response);
-        createdTransferId = (transferObj as { transfer?: { id?: string } })?.transfer?.id ?? (transferObj as { id?: string })?.id ?? null;
-        if (createdTransferId) {
-          await apiRequest(`/stock-transfers/${encodeURIComponent(createdTransferId)}/submit`, {
-            method: 'POST',
-            token,
-            params: { farmId: currentFarmId },
-          });
-        }
       } else {
         const created: Array<{ asset: AssetOption; id: string | null }> = [];
         const failed: Array<{ asset: AssetOption; message: string }> = [];
@@ -670,13 +982,23 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
             { label: 'Kho nguồn', value: sourceName },
             { label: 'Kho đích', value: destName },
           ],
-          items: selectedTransferOption
-            ? [{ name: selectedTransferOption.label, quantity: `${form.quantity} đơn vị` }]
-            : undefined,
+          items: selectedTransferLines.map((line) => ({
+            name: `${line.name} · ${line.code}${line.lotCode ? ` · ${line.lotCode}` : ''}`,
+            quantity: `${line.quantity} ${line.unit}`,
+          })),
         });
       }
     } catch (cause: unknown) {
-      Alert.alert('Không thể lưu', cause instanceof Error ? cause.message : 'API trả về lỗi.');
+      const message = cause instanceof Error ? cause.message : 'API trả về lỗi.';
+      if (mode === 'transfer' && transferWasPersisted && createdTransferId) {
+        clearApiCache();
+        Alert.alert(
+          'Phiếu đã lưu nhưng chưa gửi duyệt',
+          `Phiếu đã được lưu dưới dạng nháp nhưng chưa gửi duyệt. Lỗi: ${message}\nMở danh sách điều chuyển để kiểm tra trước khi thao tác lại.`,
+        );
+      } else {
+        Alert.alert('Không thể lưu', message);
+      }
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -762,22 +1084,11 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
               onPress={() => openPicker('destinationWarehouse')}
             />
             <PickerField
-              label="Cách theo dõi"
-              value={form.tracking}
-              onPress={() => openPicker('tracking')}
-            />
-            <PickerField
-              label="Vật tư / lô trong kho nguồn"
-              value={selectedTransferOption?.label ?? (transferLoading ? 'Đang tải tồn kho...' : 'Chọn vật tư có tồn')}
-              onPress={() => openPicker('item')}
-            />
-            <Field
-              label={`Số lượng chuyển (tối đa ${formatQuantity(selectedTransferOption?.quantity ?? 0)})`}
-              value={form.quantity}
-              placeholder="0"
-              onChangeText={(value) => update('quantity', value)}
-              keyboardType="decimal-pad"
-              error={transferQuantityError}
+              label={`Mặt hàng / lô (${selectedTransferLines.length} đã chọn)`}
+              value={selectedTransferLines.length
+                ? selectedTransferLines.map((line) => `${line.name} × ${line.quantity}`).join('  ·  ')
+                : 'Chọn một hoặc nhiều mặt hàng có tồn'}
+              onPress={() => setTransferItemsOpen(true)}
             />
             <Field
               label="Lý do điều chuyển"
@@ -788,6 +1099,21 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
             />
           </Card>
         ) : null}
+
+        {mode === 'transfer' ? <>
+          {transferDraftSaved ? <Text style={styles.savedDraftNotice}>Bản nháp đã lưu · Chưa gửi duyệt</Text> : null}
+          <Pressable
+            disabled={submitting || !transferHasUnsavedChanges}
+            onPress={() => { void saveTransferDraft(false); }}
+            android_ripple={{ color: colors.primaryFixed }}
+            style={({ pressed }) => [styles.saveDraftButton, (submitting || !transferHasUnsavedChanges) && styles.disabledAction, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Lưu nháp điều chuyển"
+          >
+            <Icon name={savingDraft ? 'hourglass-top' : 'save'} color={colors.primary} />
+            <Text style={styles.saveDraftButtonText}>{savingDraft ? 'Đang lưu nháp...' : 'Lưu nháp'}</Text>
+          </Pressable>
+        </> : null}
 
         <Card style={styles.notice}>
           <Icon name="info-outline" color={colors.primary} />
@@ -813,8 +1139,8 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
           </Pressable>
           <View style={styles.submit}>
             <PrimaryButton
-              label={submitting ? 'Đang gửi...' : copy.action}
-              icon="save"
+              label={submitting ? (savingDraft ? 'Đang lưu nháp...' : 'Đang gửi...') : copy.action}
+              icon={savingDraft ? 'hourglass-top' : 'save'}
               loading={submitting}
               onPress={submitting ? undefined : submit}
             />
@@ -1046,6 +1372,68 @@ export default function InventoryActionScreen({ mode }: { mode: InventoryActionM
           navigateToReceiptList(router, navigation, mode === 'transfer' ? 'TRANSFER' : 'MAINTENANCE');
         }}
       />
+      {mode === 'transfer' ? (
+        <ItemMultiSelectModal
+          visible={transferItemsOpen}
+          onClose={() => setTransferItemsOpen(false)}
+          title="Chọn hàng điều chuyển"
+          subtitle={`Kho nguồn: ${warehouses.find((warehouse) => warehouse.id === form.sourceWarehouse)?.name ?? 'chưa chọn'}`}
+          hint="Chạm mặt hàng để thêm 1 đơn vị; dùng +/− hoặc nhập số lượng. Mỗi lô được chọn riêng."
+          notice="Chỉ hiển thị hàng đang có tồn ở kho nguồn. Tài sản có mã riêng cần chuyển qua chức năng yêu cầu chuyển tài sản."
+          trackingFilterOptions={[
+            { key: 'QUANTITY', label: 'Theo số lượng' },
+            { key: 'LOT', label: 'Theo lô' },
+          ]}
+          initialTrackingFilter={form.tracking === 'THEO LÔ' ? 'LOT' : 'QUANTITY'}
+          initialSelected={selectedTransferLines}
+          fetchPage={async (fetchParams: MultiSelectFetchParams) => {
+            if (!currentFarmId || !form.sourceWarehouse) {
+              return { items: [], page: { number: 1, size: fetchParams.pageSize, totalItems: 0, totalPages: 0 } };
+            }
+            const token = await getAccessToken();
+            if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
+            const response = await listBalancesPage(token, currentFarmId, {
+              warehouseId: form.sourceWarehouse,
+              trackingMode: fetchParams.trackingMode || 'QUANTITY',
+              search: fetchParams.search || undefined,
+              categoryId: fetchParams.categoryId || undefined,
+              positiveOnly: true,
+              page: fetchParams.page,
+              pageSize: fetchParams.pageSize,
+              skipCache: true,
+            }, fetchParams.signal);
+            const items = filterPositiveBalancesForScope(response.data, currentFarmId, form.sourceWarehouse)
+              .map(({ balance, itemName, itemCode, trackingMode, itemImageUrl, categoryName, item, lot }) => {
+                const availableQuantity = Number(balance.quantityOnHand);
+                if (!Number.isFinite(availableQuantity) || availableQuantity <= 0 || trackingMode === 'ASSET') return null;
+                return {
+                  id: trackingMode === 'LOT' ? `LOT:${balance.lotId}` : `QTY:${balance.itemId}`,
+                  itemId: balance.itemId,
+                  name: itemName,
+                  code: itemCode,
+                  categoryName,
+                  unit: item?.unit?.symbol ?? item?.unit?.name ?? 'đơn vị',
+                  trackingMode,
+                  lotId: balance.lotId,
+                  lotCode: lot?.lotCode,
+                  supplierLotNumber: lot?.supplierLotNumber,
+                  expiryDate: lot?.expiryDate,
+                  imageUrl: itemImageUrl ?? item?.imageUrl,
+                  availableQuantity,
+                };
+              })
+              .filter((item): item is NonNullable<typeof item> => item !== null);
+            return { items, page: response.page };
+          }}
+          onConfirm={(lines) => {
+            setSelectedTransferLines(lines);
+            setForm((current) => ({
+              ...current,
+              tracking: lines[0]?.trackingMode === 'LOT' ? 'THEO LÔ' : 'SỐ LƯỢNG',
+            }));
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -1129,6 +1517,9 @@ const styles = StyleSheet.create({
   noticeCopy: { flex: 1, minWidth: 0 },
   noticeTitle: { ...typography.labelLg, color: colors.primary },
   noticeText: { ...typography.bodySm, color: colors.onSurfaceVariant, marginTop: 3, flexShrink: 1 },
+  savedDraftNotice: { ...typography.bodySm, color: colors.statusSuccessStrong, textAlign: 'center', marginTop: spacing.spaceXs },
+  saveDraftButton: { minHeight: 48, borderRadius: radius.full, borderWidth: 1, borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerLowest, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.spaceSm, marginBottom: spacing.spaceSm },
+  saveDraftButtonText: { ...typography.labelLg, color: colors.primary },
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, marginBottom: spacing.spaceMd },
   cancel: { width: 72, minHeight: 48, borderRadius: radius.full, borderWidth: 1, borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerLowest, alignItems: 'center', justifyContent: 'center' },
   cancelText: { ...typography.labelLg, color: colors.onSurfaceVariant },

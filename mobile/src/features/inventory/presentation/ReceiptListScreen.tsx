@@ -33,7 +33,7 @@ const filterTabs: { icon: 'fact-check' | 'input' | 'output' | 'swap-horiz' | 'bu
 function tone(status: string): 'success' | 'amber' | 'danger' | 'cream' {
   if (status === 'CONFIRMED') return 'success';
   if (status === 'REJECTED' || status === 'CANCELLED') return 'danger';
-  if (status === 'PENDING_APPROVAL' || status === 'IN_TRANSIT' || status === 'COUNTING' || status === 'SCHEDULED' || status === 'IN_PROGRESS') return 'amber';
+  if (status === 'PENDING_APPROVAL' || status === 'IN_TRANSIT' || status === 'DISCREPANCY' || status === 'COUNTING' || status === 'SCHEDULED' || status === 'IN_PROGRESS') return 'amber';
   return 'cream';
 }
 
@@ -51,6 +51,7 @@ function cardStatusLabel(status: string, type: Filter) {
   }
   if (type === 'TRANSFER') {
     if (status === 'IN_TRANSIT') return 'ĐANG CHUYỂN';
+    if (status === 'DISCREPANCY') return 'NHẬN THIẾU · CHỜ XỬ LÝ';
     if (status === 'CONFIRMED') return 'ĐÃ NHẬN';
   }
   return statusLabel(status);
