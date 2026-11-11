@@ -12,6 +12,7 @@ import type {
   AssetChoice,
   AssetFilters,
   AssetListResponse,
+  AssetView,
   AssetLookupKind,
   ReturnAssetInput,
   AssetHistoryEntry,
