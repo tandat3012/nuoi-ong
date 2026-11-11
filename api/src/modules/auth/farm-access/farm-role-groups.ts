@@ -28,6 +28,8 @@ export const FARM_AREA_ROLES = [
   ...MAINTENANCE_WORK_ROLES,
   'GUEST',
 ];
+/** Read what a receipt form needs (warehouses, items, suppliers, locations, lots); store managers are scoped to the sales warehouse. */
+export const RESTOCK_ROLES = [...FARM_AREA_ROLES, 'STORE_MANAGER'];
 
 export const hasAnyRole = (roleCodes: string[], allowed: string[]) =>
   roleCodes.some((code) => allowed.includes(code));

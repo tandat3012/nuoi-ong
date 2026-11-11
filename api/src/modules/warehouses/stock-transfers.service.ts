@@ -151,8 +151,16 @@ export class StockTransfersService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       user,
+      true,
     );
     assertInScope(writer.scope, input.fromWarehouseId, input.toWarehouseId);
+    if (writer.salesOnly)
+      await this.warehousesService.assertSalesRestock(
+        writer,
+        farmId,
+        input.fromWarehouseId,
+        input.toWarehouseId,
+      );
     const member = writer.memberId;
     const numbering = numberingOptionChanges(input, writer);
     this.validateItems(input.items);
@@ -211,6 +219,7 @@ export class StockTransfersService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       user,
+      true,
     );
     const numbering = numberingOptionChanges(input, writer);
     await this.databaseService.db.transaction(async (tx) => {
@@ -226,6 +235,13 @@ export class StockTransfersService {
       const from = input.fromWarehouseId ?? cur.fromWarehouseId;
       const to = input.toWarehouseId ?? cur.toWarehouseId;
       assertInScope(writer.scope, from, to);
+      if (writer.salesOnly)
+        await this.warehousesService.assertSalesRestock(
+          writer,
+          farmId,
+          from,
+          to,
+        );
       if (from === to)
         throw new BadRequestException(
           'Source and destination warehouses must differ',
@@ -285,6 +301,7 @@ export class StockTransfersService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       user,
+      true,
     );
     await this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);
@@ -322,6 +339,7 @@ export class StockTransfersService {
     const writer = await this.warehousesService.assertDocumentWriter(
       farmId,
       user,
+      true,
     );
     await this.databaseService.db.transaction(async (tx) => {
       const row = await this.only(id, farmId, tx, true);

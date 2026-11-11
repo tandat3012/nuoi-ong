@@ -15,6 +15,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Select } from "@/shared/components/ui/select";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
+  canCreateRestock,
   documentCodeLabel,
   isFarmOwner,
   numberingDraft,
@@ -175,7 +176,12 @@ export function StockDocumentLines({
   const current = result?.revision === revision ? result : null;
   const detail = current?.detail;
   const canEdit = detail
-    ? stockDocumentActions(viewer, detail.header).edit
+    ? stockDocumentActions(
+        viewer,
+        detail.header,
+        // Transfers can be restock drafts of a store manager; counts stay with stock writers.
+        counts ? undefined : canCreateRestock(viewer.roles),
+      ).edit
     : false;
   const warehouseId =
     detail?.header.warehouseId ?? detail?.header.fromWarehouseId ?? "";

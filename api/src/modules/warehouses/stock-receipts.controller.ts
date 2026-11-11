@@ -45,7 +45,7 @@ import {
 } from '../../common/swagger-docs';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
-import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
+import { RESTOCK_ROLES } from '../auth/farm-access/farm-role-groups';
 import { parseDateRange } from '../../common/date-range';
 
 const receiptSchema = {
@@ -147,7 +147,7 @@ const receiptDetailSchema = {
 @UseGuards(FarmAccessGuard)
 // Store-only managers have no access to warehouse, asset or maintenance modules,
 // except receipts into the sales warehouse (the service limits them to it).
-@FarmRoles(...FARM_AREA_ROLES, 'STORE_MANAGER')
+@FarmRoles(...RESTOCK_ROLES)
 @ApiTags('Phiếu nhập kho')
 @ApiBearerAuth('clerk-jwt')
 export class StockReceiptsController {

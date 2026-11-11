@@ -210,7 +210,7 @@ describe('Store order HTTP authorization and contract', () => {
         .expect(403);
     }));
 
-  it('keeps a store-only manager out of warehouse, asset and maintenance routes', () =>
+  it('keeps a store-only manager out of warehouse, asset and maintenance routes, except what a receipt needs', () =>
     withApp(async ({ ids }, app, tx) => {
       const [employee] = await tx
         .select()
@@ -231,8 +231,19 @@ describe('Store order HTTP authorization and contract', () => {
         .query({ farmId: ids.farm })
         .set('Authorization', `Bearer ${ids.staff}`)
         .expect(200);
+      // Receipts into the sales warehouse, and the lists its form reads.
       for (const path of [
+        '/api/v1/stock-receipts',
+        '/api/v1/stock-transfers',
+        '/api/v1/inventory',
         '/api/v1/warehouses',
+      ])
+        await http
+          .get(path)
+          .query({ farmId: ids.farm })
+          .set('Authorization', `Bearer ${ids.staff}`)
+          .expect(200);
+      for (const path of [
         '/api/v1/stock-issues',
         '/api/v1/inventory/adjustments',
         '/api/v1/assets',
