@@ -83,6 +83,8 @@ export function notificationBodyText(notification: AppNotification): string {
       return `${documentKind} ${code} đang chờ duyệt.`;
     case 'IN_TRANSIT':
       return `${documentKind} ${code} đã xuất, chờ kho nhận xác nhận số thực nhận.`;
+    case 'DISCREPANCY':
+      return `${documentKind} ${code} đã nhận thiếu hoặc có sai lệch, đang chờ quản lý xử lý.`;
     case 'SCHEDULED':
       return `${documentKind} ${code} đã được lên lịch, chờ chọn đơn vị và ngày hẹn trả.`;
     case 'READY_TO_SEND':

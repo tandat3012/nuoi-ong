@@ -228,6 +228,42 @@ export async function notifyFarmApprovers(
   );
 }
 
+/** Notify farm admins and the document creator, excluding the member who just received it. */
+export async function notifyFarmAdminsAndCreator(
+  tx: Transaction,
+  notification: DocumentNotification,
+  actingMemberId: string,
+  creatorMemberId: string | null,
+) {
+  const recipientRoles = inArray(roles.code, FARM_ADMIN_ROLES);
+  const recipientScope = creatorMemberId
+    ? or(recipientRoles, eq(farmMembers.id, creatorMemberId))
+    : recipientRoles;
+  const recipients = await tx
+    .select({ userId: farmMembers.userId })
+    .from(farmMembers)
+    .innerJoin(users, eq(users.id, farmMembers.userId))
+    .innerJoin(
+      farmMemberRoleLink,
+      eq(farmMemberRoleLink.farmMemberId, farmMembers.id),
+    )
+    .innerJoin(roles, eq(roles.id, farmMemberRoleLink.roleId))
+    .where(
+      and(
+        eq(farmMembers.farmId, notification.farmId),
+        eq(farmMembers.status, 'ACTIVE'),
+        eq(users.status, 'ACTIVE'),
+        ne(farmMembers.id, actingMemberId),
+        recipientScope,
+      ),
+    );
+  await insertForUsers(
+    tx,
+    recipients.map(({ userId }) => userId),
+    notification,
+  );
+}
+
 export async function notifyDocumentCreator(
   tx: Transaction,
   notification: DocumentNotification,

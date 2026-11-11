@@ -338,6 +338,7 @@ export type StockDocumentStatus =
   | 'COUNTING'
   | 'PENDING_APPROVAL'
   | 'IN_TRANSIT'
+  | 'DISCREPANCY'
   | 'CONFIRMED'
   | 'REJECTED'
   | 'CANCELLED';
@@ -443,6 +444,7 @@ export function statusLabel(status: string) {
   switch (status) {
     case 'PENDING_APPROVAL': return 'CHỜ DUYỆT';
     case 'IN_TRANSIT': return 'ĐANG CHUYỂN';
+    case 'DISCREPANCY': return 'CHỜ XỬ LÝ LỆCH';
     case 'CONFIRMED': return 'ĐÃ DUYỆT';
     case 'REJECTED': return 'TỪ CHỐI';
     case 'CANCELLED': return 'ĐÃ HỦY';

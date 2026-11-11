@@ -269,6 +269,32 @@ function quantityForPayload(item: ReceiptItem) {
   return (item.quantityInput ?? String(item.quantity)).trim().replace(',', '.');
 }
 
+function draftSnapshot(input: {
+  warehouseId: string | null;
+  documentNote: string | null;
+  documentBusinessDate: string | null;
+  items: ReceiptItem[];
+}) {
+  return JSON.stringify({
+    warehouseId: input.warehouseId,
+    documentNote: input.documentNote?.trim() ?? '',
+    documentBusinessDate: input.documentBusinessDate,
+    items: input.items.map((item) => ({
+      itemId: item.itemId ?? item.id,
+      quantity: quantityForPayload(item),
+      note: item.note?.trim() ?? '',
+      lotId: item.lotId ?? null,
+      supplierLotNumber: item.supplierLotNumber?.trim() ?? '',
+      manufacturedDate: item.manufacturedDate ?? null,
+      expiryDate: item.expiryDate ?? null,
+      assetId: item.assetId ?? null,
+      assetCode: item.assetCode?.trim() ?? '',
+      serialNumber: item.serialNumber?.trim() ?? '',
+      locationId: item.locationId ?? null,
+    })),
+  });
+}
+
 export default function ReceiptDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
@@ -302,8 +328,16 @@ export default function ReceiptDetailScreen() {
   const newReceiptLineId = useRef(0);
   const itemsRef = useRef<ReceiptItem[]>(items);
   itemsRef.current = items;
+  const savedSnapshotRef = useRef(draftSnapshot({
+    warehouseId: null,
+    documentNote: null,
+    documentBusinessDate: null,
+    items: [],
+  }));
+  const hasUnsavedChangesRef = useRef(false);
 
   const submittingDocument = useRef(false);
+  const savingDraftRef = useRef(false);
   const [warehousePickerOpen, setWarehousePickerOpen] = useState(false);
   const [warehouses, setWarehouses] = useState<Awaited<ReturnType<typeof listWarehouses>>['data']>([]);
   const [locations, setLocations] = useState<WarehouseLocation[]>([]);
@@ -330,11 +364,13 @@ export default function ReceiptDetailScreen() {
   const canEditDocument = isReceiptDocumentEditable(loading, documentError, documentStatus);
   const canEditDocumentRef = useRef(canEditDocument);
   canEditDocumentRef.current = canEditDocument;
-  const hasUnsavedChanges =
-    !params.id &&
-    !createdDocumentId &&
-    documentStatus === 'DRAFT' &&
-    (items.length > 0 || Boolean(documentNote?.trim()));
+  const hasUnsavedChanges = documentStatus === 'DRAFT' && draftSnapshot({
+    warehouseId,
+    documentNote,
+    documentBusinessDate,
+    items,
+  }) !== savedSnapshotRef.current;
+  hasUnsavedChangesRef.current = hasUnsavedChanges;
 
   useEffect(() => {
     if (documentDate || effectiveId) return;
@@ -343,7 +379,7 @@ export default function ReceiptDetailScreen() {
   }, [documentDate, effectiveId]);
 
   useEffect(() => navigation.addListener('beforeRemove', (event) => {
-    if (!hasUnsavedChanges || allowRemoval.current) {
+    if (!hasUnsavedChangesRef.current || allowRemoval.current) {
       allowRemoval.current = false;
       return;
     }
@@ -351,7 +387,7 @@ export default function ReceiptDetailScreen() {
     pendingBackAction.current = event.data.action;
     setDraftSaveError(null);
     setExitPromptOpen(true);
-  }), [hasUnsavedChanges, navigation]);
+  }), [navigation]);
 
   function leaveWithoutSaving() {
     setExitPromptOpen(false);
@@ -371,57 +407,100 @@ export default function ReceiptDetailScreen() {
     else router.back();
   }
 
+  async function validateDraftBeforeSave() {
+    if (!currentFarmId || !warehouseId || documentItems.length === 0) {
+      throw new Error('Để lưu nháp, hãy chọn kho và thêm ít nhất một vật tư hợp lệ.');
+    }
+    const quantityError = documentQuantityError();
+    if (quantityError) throw new Error(quantityError);
+    if (documentType === 'issue') {
+      const token = await getAccessToken();
+      if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
+      const { balances, assets } = await fetchScopedIssueStock(token, currentFarmId, warehouseId, documentItems);
+      const stockError = issueStockError(documentItems, balances, assets);
+      if (stockError) throw new Error(stockError);
+    }
+  }
+
+  async function persistDraftDocument() {
+    if (!currentFarmId || !warehouseId) throw new Error('Hãy chọn trang trại và kho trước khi lưu.');
+    const token = await getAccessToken();
+    if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
+    const base = documentType === 'receipt' ? 'stock-receipts' : 'stock-issues';
+    const businessDate = documentBusinessDate ?? formatVietnamDateOnly(new Date());
+    const body = documentType === 'receipt'
+      ? { warehouseId, receiptDate: businessDate, note: documentNote ?? undefined, items: receiptItemsPayload(documentItems.map((item) => ({ ...item, itemId: item.itemId ?? item.id, quantity: quantityForPayload(item) }))) }
+      : { warehouseId, issueDate: businessDate, reason: documentNote ?? undefined, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: quantityForPayload(item), lotId: item.lotId, assetId: item.assetId })) };
+    let id = params.id ?? createdDocumentId ?? undefined;
+
+    if (id) {
+      await apiRequest(`/${base}/${id}`, { method: 'PATCH', token, params: { farmId: currentFarmId }, body });
+    } else {
+      const created = await apiRequest<{ data: StockReceiptDetail | StockIssueDetail }>(`/${base}`, { method: 'POST', token, params: { farmId: currentFarmId }, body });
+      const createdData = unwrap(created);
+      const document = documentType === 'receipt' ? (createdData as StockReceiptDetail).receipt : (createdData as StockIssueDetail).issue;
+      id = document.id;
+      setCreatedDocumentId(id);
+      setDocumentStatus(document.status);
+      setSavedCode(documentType === 'receipt'
+        ? (document as StockReceiptDetail['receipt']).receiptCode ?? null
+        : (document as StockIssueDetail['issue']).issueCode ?? null);
+      setDocumentDate(document.createdAt ?? null);
+      setCreatorMemberId(document.createdByMemberId ?? currentMemberId ?? null);
+    }
+    if (!id) throw new Error('Không nhận được mã phiếu sau khi lưu nháp.');
+
+    setDocumentBusinessDate(businessDate);
+    savedSnapshotRef.current = draftSnapshot({
+      warehouseId,
+      documentNote,
+      documentBusinessDate: businessDate,
+      items: documentItems,
+    });
+    hasUnsavedChangesRef.current = false;
+    clearApiCache();
+    return { id, businessDate };
+  }
+
+  async function saveDraftInPlace() {
+    if (!canEditDocumentRef.current || !hasUnsavedChangesRef.current) return;
+    if (savingDraftRef.current || submittingDocument.current) return;
+    savingDraftRef.current = true;
+    setSavingDraft(true);
+    setDraftSaveError(null);
+    try {
+      await validateDraftBeforeSave();
+      await persistDraftDocument();
+      Alert.alert('Đã lưu nháp', 'Các thay đổi đã được lưu và phiếu vẫn ở trạng thái nháp.');
+    } catch (cause: unknown) {
+      const message = cause instanceof Error ? cause.message : 'Không thể lưu nháp. Vui lòng thử lại.';
+      setDraftSaveError(message);
+      Alert.alert('Không thể lưu nháp', message);
+    } finally {
+      savingDraftRef.current = false;
+      setSavingDraft(false);
+    }
+  }
+
   async function saveDraftAndLeave() {
     if (!canEditDocumentRef.current) {
       leaveWithoutSaving();
       return;
     }
-    if (!currentFarmId || !warehouseId || documentItems.length === 0) {
-      setDraftSaveError('Để lưu nháp, hãy chọn kho và thêm ít nhất một vật tư hợp lệ.');
-      Alert.alert('Không thể lưu nháp', 'Hãy chọn kho và thêm ít nhất một vật tư hợp lệ.');
-      return;
-    }
-    const quantityError = documentQuantityError();
-    if (quantityError) {
-      setDraftSaveError(quantityError);
-      Alert.alert('Số lượng không hợp lệ', quantityError);
-      return;
-    }
+    if (savingDraftRef.current || submittingDocument.current) return;
+    savingDraftRef.current = true;
     setSavingDraft(true);
     setDraftSaveError(null);
     try {
-      const token = await getAccessToken();
-      if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
-      if (documentType === 'issue') {
-        const { balances, assets } = await fetchScopedIssueStock(token, currentFarmId, warehouseId, documentItems);
-        const stockError = issueStockError(documentItems, balances, assets);
-        if (stockError) throw new Error(stockError);
-      }
-      const base = documentType === 'receipt' ? 'stock-receipts' : 'stock-issues';
-      const businessDate = documentBusinessDate ?? formatVietnamDateOnly(new Date());
-      const body = documentType === 'receipt'
-        ? { warehouseId, receiptDate: businessDate, note: documentNote ?? undefined, items: receiptItemsPayload(documentItems.map((item) => ({ ...item, itemId: item.itemId ?? item.id, quantity: quantityForPayload(item) }))) }
-        : { warehouseId, issueDate: businessDate, reason: documentNote ?? undefined, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: quantityForPayload(item), lotId: item.lotId, assetId: item.assetId })) };
-
-      if (params.id) {
-        await apiRequest(`/${base}/${params.id}`, { method: 'PATCH', token, params: { farmId: currentFarmId }, body });
-      } else if (createdDocumentId) {
-        await apiRequest(`/${base}/${createdDocumentId}`, { method: 'PATCH', token, params: { farmId: currentFarmId }, body });
-      } else {
-        const created = await apiRequest<{ data: StockReceiptDetail | StockIssueDetail }>(`/${base}`, { method: 'POST', token, params: { farmId: currentFarmId }, body });
-        const createdData = unwrap(created);
-        const document = documentType === 'receipt' ? (createdData as StockReceiptDetail).receipt : (createdData as StockIssueDetail).issue;
-        setCreatedDocumentId(document.id);
-        setDocumentStatus(document.status);
-        setDocumentDate(document.createdAt ?? null);
-        setDocumentBusinessDate(documentType === 'receipt' ? (document as StockReceiptDetail['receipt']).receiptDate ?? businessDate : (document as StockIssueDetail['issue']).issueDate ?? businessDate);
-      }
+      await validateDraftBeforeSave();
+      await persistDraftDocument();
       leaveAfterSavingDraft();
     } catch (cause: unknown) {
       const message = cause instanceof Error ? cause.message : 'Không thể lưu nháp. Vui lòng thử lại.';
       setDraftSaveError(message);
       Alert.alert('Không thể lưu nháp', message);
     } finally {
+      savingDraftRef.current = false;
       setSavingDraft(false);
     }
   }
@@ -556,7 +635,7 @@ export default function ReceiptDetailScreen() {
 
   const reloadDocumentById = useCallback(
     async (docId: string, signal?: AbortSignal) => {
-      if (!currentFarmId) return;
+      if (!currentFarmId || hasUnsavedChangesRef.current) return;
       setLoading(true);
       try {
         const token = await getAccessToken();
@@ -574,13 +653,19 @@ export default function ReceiptDetailScreen() {
         setWarehouses(farmWarehouses);
         const document = documentType === 'receipt' ? (detail as StockReceiptDetail).receipt : (detail as StockIssueDetail).issue;
         const lines = detail.items;
+        const loadedBusinessDate = documentType === 'receipt'
+          ? (document as StockReceiptDetail['receipt']).receiptDate ?? null
+          : (document as StockIssueDetail['issue']).issueDate ?? null;
+        const loadedNote = documentType === 'receipt'
+          ? (document as StockReceiptDetail['receipt']).note ?? null
+          : (document as StockIssueDetail['issue']).reason ?? (document as StockIssueDetail['issue']).note ?? null;
         setDocumentStatus(document.status);
         setSavedCode(documentType === 'receipt' ? (document as StockReceiptDetail['receipt']).receiptCode : (document as StockIssueDetail['issue']).issueCode);
         setDocumentDate(document.createdAt ?? null);
-        setDocumentBusinessDate(documentType === 'receipt' ? (document as StockReceiptDetail['receipt']).receiptDate ?? null : (document as StockIssueDetail['issue']).issueDate ?? null);
+        setDocumentBusinessDate(loadedBusinessDate);
         setCreatorMemberId(document.createdByMemberId ?? null);
         setWarehouseId(document.warehouseId);
-        setDocumentNote(documentType === 'receipt' ? (document as StockReceiptDetail['receipt']).note ?? null : (document as StockIssueDetail['issue']).reason ?? (document as StockIssueDetail['issue']).note ?? null);
+        setDocumentNote(loadedNote);
 
         let mapped: ReceiptItem[] = lines.map((line) => {
           const trackingMode = line.trackingMode ?? 'UNKNOWN';
@@ -633,6 +718,13 @@ export default function ReceiptDetailScreen() {
           }
         }
         if (signal?.aborted) return;
+        savedSnapshotRef.current = draftSnapshot({
+          warehouseId: document.warehouseId,
+          documentNote: loadedNote,
+          documentBusinessDate: loadedBusinessDate,
+          items: mapped,
+        });
+        hasUnsavedChangesRef.current = false;
         setItems(mapped);
         setDocumentError(null);
       } catch (cause: unknown) {
@@ -1497,7 +1589,7 @@ export default function ReceiptDetailScreen() {
   }, []);
 
   async function submitDocument() {
-    if (!canEditDocumentRef.current || submittingDocument.current) return;
+    if (!canEditDocumentRef.current || submittingDocument.current || savingDraftRef.current) return;
     submittingDocument.current = true;
     setSubmitting(true);
     try {
@@ -1583,32 +1675,16 @@ export default function ReceiptDetailScreen() {
       Alert.alert('Cần chọn đúng đối tượng tồn', `Vật tư “${missingIssueTracking.name}” cần chọn lô hoặc tài sản cụ thể trước khi xuất.`);
       return;
     }
-    let id = params.id ?? createdDocumentId ?? undefined;
+    let persistedId: string | undefined;
+    let draftPersisted = false;
     try {
+      const persisted = await persistDraftDocument();
+      persistedId = persisted.id;
+      draftPersisted = true;
       const token = await getAccessToken();
       if (!token) throw new MobileApiError('Phiên đăng nhập đã hết hạn.', 401);
       const base = documentType === 'receipt' ? 'stock-receipts' : 'stock-issues';
-      const businessDate = documentBusinessDate ?? formatVietnamDateOnly(new Date());
-      const body = documentType === 'receipt'
-        ? { warehouseId, receiptDate: businessDate, note: documentNote ?? undefined, items: receiptItemsPayload(documentItems.map((item) => ({ ...item, itemId: item.itemId ?? item.id, quantity: quantityForPayload(item) }))) }
-        : { warehouseId, issueDate: businessDate, reason: documentNote ?? undefined, items: documentItems.map((item) => ({ itemId: item.itemId ?? item.id, quantity: quantityForPayload(item), lotId: item.lotId, assetId: item.assetId })) };
-      if (!id) {
-        const created = await apiRequest<{ data: StockReceiptDetail | StockIssueDetail }>(`/${base}`, { method: 'POST', token, params: { farmId: currentFarmId }, body });
-        const createdData = unwrap(created);
-        const createdDocument = documentType === 'receipt' ? (createdData as StockReceiptDetail).receipt : (createdData as StockIssueDetail).issue;
-        id = createdDocument.id;
-        setCreatedDocumentId(id);
-
-        setSavedCode(documentType === 'receipt'
-          ? (createdDocument as StockReceiptDetail['receipt']).receiptCode ?? null
-          : (createdDocument as StockIssueDetail['issue']).issueCode ?? null);
-        setDocumentDate(createdDocument.createdAt ?? null);
-        setDocumentBusinessDate(documentType === 'receipt' ? (createdDocument as StockReceiptDetail['receipt']).receiptDate ?? businessDate : (createdDocument as StockIssueDetail['issue']).issueDate ?? businessDate);
-        setCreatorMemberId(createdDocument.createdByMemberId ?? currentMemberId ?? null);
-      } else if (canEditDocumentRef.current) {
-        await apiRequest(`/${base}/${id}`, { method: 'PATCH', token, params: { farmId: currentFarmId }, body });
-      }
-      await apiRequest(`/${base}/${id}/submit`, { method: 'POST', token, params: { farmId: currentFarmId } });
+      await apiRequest(`/${base}/${persistedId}/submit`, { method: 'POST', token, params: { farmId: currentFarmId } });
       clearApiCache();
       setDocumentStatus('PENDING_APPROVAL');
       setPickerOpen(false);
@@ -1618,11 +1694,10 @@ export default function ReceiptDetailScreen() {
       setLocationPickerItemId(null);
       setSuccessDialogOpen(true);
     } catch (cause: unknown) {
-      if (cause instanceof MobileApiError && cause.status === 409) {
-        const reloadId = id ?? params.id ?? createdDocumentId;
-        if (reloadId) {
+      if (cause instanceof MobileApiError && cause.status === 409 && draftPersisted) {
+        if (persistedId) {
           clearApiCache();
-          void reloadDocumentById(reloadId);
+          void reloadDocumentById(persistedId);
         }
       }
       Alert.alert('Không thể gửi phiếu', cause instanceof Error ? cause.message : 'Vui lòng thử lại.');
@@ -2112,16 +2187,16 @@ export default function ReceiptDetailScreen() {
           <Pressable onPress={() => router.back()} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.outlineAction, pressed && styles.pressed]} accessibilityLabel="Quay lại danh sách">
             <Icon name="arrow-back" size={19} color={colors.onSurfaceVariant} />
           </Pressable>
-          {canEditDocument ? <Pressable disabled={submitting} onPress={() => void submitDocument()} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.confirmAction, submitting && styles.disabledAction, pressed && styles.pressed]}>
+          {canEditDocument ? <Pressable disabled={submitting || savingDraft} onPress={() => void submitDocument()} android_ripple={{ color: colors.primary }} style={({ pressed }) => [styles.confirmAction, (submitting || savingDraft) && styles.disabledAction, pressed && styles.pressed]}>
             <LinearGradient colors={gradients.honeyCta} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.confirmGradient}>
               <Icon name={submitting ? 'hourglass-top' : 'check-circle'} size={19} color={colors.onPrimary} filled={!submitting} />
               <Text style={styles.confirmText}>{submitting ? 'Đang gửi...' : actionLabel}</Text>
             </LinearGradient>
           </Pressable> : <View style={styles.readOnlyNotice}><Icon name="lock" size={16} color={colors.onSurfaceVariant} /><Text style={styles.readOnlyText}>{documentError ? 'Không tải được dữ liệu phiếu' : 'Chỉ phiếu nháp mới được chỉnh sửa'}</Text></View>}
-          <Pressable onPress={() => Alert.alert('Xuất phiếu', 'Chức năng xuất PDF sẽ được nối sau.')} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.exportAction, pressed && styles.pressed]} accessibilityLabel="Xuất phiếu">
-            <Icon name="print" size={19} color={colors.onSurfaceVariant} />
-            <Text style={styles.exportText}>Xuất</Text>
-          </Pressable>
+          {canEditDocument ? <Pressable disabled={submitting || savingDraft || !hasUnsavedChanges} onPress={() => void saveDraftInPlace()} android_ripple={{ color: colors.primaryFixed }} style={({ pressed }) => [styles.saveDraftAction, (submitting || savingDraft || !hasUnsavedChanges) && styles.disabledAction, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Lưu nháp">
+            <Icon name={savingDraft ? 'hourglass-top' : 'save'} size={17} color={colors.primary} />
+            <Text style={styles.saveDraftText}>{savingDraft ? 'Đang lưu...' : 'Lưu nháp'}</Text>
+          </Pressable> : null}
         </View>
         <View style={styles.bottomNav}>
           {navItems.map((item) => {
@@ -2566,11 +2641,11 @@ const styles = StyleSheet.create({
   bottomDock: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.surfaceContainerLowest, borderTopWidth: 1, borderTopColor: colors.outlineVariant, ...shadows.floating },
   actionShelf: { maxWidth: 440, width: '100%', alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, paddingHorizontal: spacing.gutterMobile, paddingVertical: 10 },
   outlineAction: { width: 48, height: 48, borderRadius: radius.full, backgroundColor: colors.surfaceContainerLowest, borderWidth: 1, borderColor: colors.outlineVariant, alignItems: 'center', justifyContent: 'center' },
+  saveDraftAction: { height: 48, minWidth: 104, paddingHorizontal: spacing.spaceSm, borderRadius: radius.full, backgroundColor: colors.surfaceContainerLowest, borderWidth: 1, borderColor: colors.outlineVariant, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.spaceXs },
+  saveDraftText: { ...typography.labelSm, color: colors.primary },
   confirmAction: { flex: 1, minHeight: 48, borderRadius: radius.full, overflow: 'hidden', ...shadows.surface },
   confirmGradient: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.spaceSm, paddingHorizontal: spacing.spaceSm, paddingVertical: spacing.spaceSm },
   confirmText: { ...typography.labelLg, color: colors.onPrimary, textAlign: 'center', flexShrink: 1 },
-  exportAction: { minWidth: 58, minHeight: 48, paddingHorizontal: spacing.spaceSm, paddingVertical: spacing.spaceSm, borderRadius: radius.full, backgroundColor: colors.surfaceContainerLowest, borderWidth: 1, borderColor: colors.outlineVariant, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.spaceXs },
-  exportText: { ...typography.labelMd, color: colors.onSurfaceVariant, flexShrink: 1 },
   readOnlyNotice: { flex: 1, minHeight: 48, borderRadius: radius.full, backgroundColor: colors.surfaceContainer, borderWidth: 1, borderColor: colors.outlineVariant, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.spaceXs, paddingHorizontal: spacing.spaceSm },
   readOnlyText: { ...typography.labelSm, color: colors.onSurfaceVariant, textAlign: 'center', flexShrink: 1 },
   bottomNav: { height: 68, maxWidth: 440, width: '100%', alignSelf: 'center', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: spacing.spaceSm, borderTopWidth: 1, borderTopColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerLowest },

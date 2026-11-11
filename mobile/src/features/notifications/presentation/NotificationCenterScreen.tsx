@@ -172,7 +172,7 @@ export default function NotificationCenterScreen() {
 function NotificationCard({ notification, onPress }: { notification: AppNotification; onPress: () => void }) {
   const status = notification.data?.status;
   const entityType = notification.data?.documentType ?? notification.entityType;
-  const tone = status === 'CONFIRMED' ? 'success' : status === 'REJECTED' ? 'danger' : status === 'PENDING_APPROVAL' || status === 'IN_TRANSIT' ? 'amber' : 'neutral';
+  const tone = status === 'CONFIRMED' ? 'success' : status === 'REJECTED' ? 'danger' : status === 'PENDING_APPROVAL' || status === 'IN_TRANSIT' || status === 'DISCREPANCY' ? 'amber' : 'neutral';
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`Mở thông báo: ${notification.title}`} onPress={onPress} style={({ pressed }) => [pressed && styles.pressed]}>
       <Card style={[styles.notificationCard, !notification.readAt && styles.unreadCard]}>
@@ -210,6 +210,7 @@ function statusLabel(status: string, entityType?: string | null, title?: string)
   switch (status) {
     case 'PENDING_APPROVAL': return 'Chờ duyệt';
     case 'IN_TRANSIT': return 'Đang chuyển';
+    case 'DISCREPANCY': return 'Chờ xử lý lệch';
     case 'CONFIRMED': return entityType === 'STOCK_TRANSFER' ? 'Đã nhận' : 'Đã duyệt';
     case 'REJECTED': return 'Từ chối';
     default: return status;

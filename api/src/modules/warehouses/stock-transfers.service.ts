@@ -50,6 +50,7 @@ import {
 } from './stock-document-code';
 import {
   notifyDocumentCreator,
+  notifyFarmAdminsAndCreator,
   notifyFarmApprovers,
 } from '../notifications/notification-events';
 import {
@@ -672,8 +673,18 @@ export class StockTransfersService {
         confirmed,
         { after: received },
       );
-      // The order waiting on this top-up keeps waiting until the rest is settled.
-      if (anyShort) return;
+      // A short receipt remains open for farm-admin resolution; notify both
+      // authorized resolvers and the member who created the transfer.
+      if (anyShort) {
+        await notifyFarmAdminsAndCreator(
+          tx,
+          this.notification(confirmed, 'DISCREPANCY'),
+          member,
+          row.createdByMemberId,
+        );
+        // The order waiting on this top-up keeps waiting until the rest is settled.
+        return;
+      }
       if (row.createdByMemberId !== member)
         await notifyDocumentCreator(
           tx,
@@ -869,7 +880,12 @@ export class StockTransfersService {
   }
   private notification(
     row: typeof stockTransfers.$inferSelect,
-    status: 'PENDING_APPROVAL' | 'IN_TRANSIT' | 'CONFIRMED' | 'REJECTED',
+    status:
+      | 'PENDING_APPROVAL'
+      | 'IN_TRANSIT'
+      | 'DISCREPANCY'
+      | 'CONFIRMED'
+      | 'REJECTED',
   ) {
     return {
       farmId: row.farmId,

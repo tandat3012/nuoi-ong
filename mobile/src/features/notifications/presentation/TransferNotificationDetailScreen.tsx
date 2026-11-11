@@ -1,10 +1,11 @@
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { Animated, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useCallback, useRef, useState } from 'react';
 
 import { colors, radius, spacing, typography } from '@/src/core/theme/tokens';
 import { formatQuantity } from '@/src/shared/format-quantity';
 import { formatApiDateTime } from '@/src/shared/format-date-time';
+import { toThumbnailUrl } from '@/src/shared/cloudinary-url';
 import { useAuthContext } from '@/src/features/auth/context/AuthContext';
 import { documentCodeLabel, formatDate, statusLabel, type Paginated, type Warehouse } from '@/src/features/inventory/api';
 import { navigateToReceiptList } from '@/src/features/inventory/receipt-list.logic';
@@ -18,9 +19,10 @@ type TransferDetail = {
     id: string; transferCode: string | null; status: string; fromWarehouseId: string; toWarehouseId: string;
     note?: string | null; rejectionReason?: string | null; createdAt?: string; transferDate?: string | null;
     confirmedAt?: string | null; dispatchedAt?: string | null; dispatchedByMemberId?: string | null; createdByMemberId: string;
+    resolution?: 'RETURN_TO_SOURCE' | 'WRITE_OFF' | null; resolutionNote?: string | null; resolvedAt?: string | null;
   };
   items: {
-    id: string; itemId: string; itemCode?: string | null; itemName?: string | null;
+    id: string; itemId: string; itemCode?: string | null; itemName?: string | null; itemImageUrl?: string | null;
     quantity: string; receivedQuantity?: string | null; discrepancyReason?: string | null; unitSymbol?: string | null; unitName?: string | null;
     lotId?: string | null; lotCode?: string | null; lotSupplierLotNumber?: string | null; lotExpiryDate?: string | null; note?: string | null;
   }[];
@@ -29,8 +31,45 @@ type TransferDetail = {
 function statusTone(status: string): 'success' | 'amber' | 'danger' | 'cream' {
   if (status === 'CONFIRMED') return 'success';
   if (status === 'REJECTED' || status === 'CANCELLED') return 'danger';
-  if (status === 'PENDING_APPROVAL' || status === 'IN_TRANSIT') return 'amber';
+  if (status === 'PENDING_APPROVAL' || status === 'IN_TRANSIT' || status === 'DISCREPANCY') return 'amber';
   return 'cream';
+}
+
+function transferStatusText(status: string, resolution?: TransferDetail['transfer']['resolution']) {
+  if (status === 'DISCREPANCY') return 'CHỜ XỬ LÝ CHÊNH LỆCH';
+  if (status === 'CONFIRMED' && resolution) return 'ĐÃ XỬ LÝ LỆCH';
+  if (status === 'CONFIRMED') return 'ĐÃ NHẬN';
+  return statusLabel(status);
+}
+
+function quantityToMilli(value: string) {
+  const match = /^(-?)(\d+)(?:[.,](\d+))?$/.exec(value.trim());
+  if (!match) return 0n;
+  const sign = match[1] === '-' ? -1n : 1n;
+  const whole = BigInt(match[2]);
+  const fraction = BigInt((match[3] ?? '').slice(0, 3).padEnd(3, '0') || '0');
+  return sign * (whole * 1000n + fraction);
+}
+
+function formatMilliQuantity(value: bigint) {
+  const sign = value < 0n ? '-' : '';
+  const absolute = value < 0n ? -value : value;
+  const whole = absolute / 1000n;
+  const fraction = absolute % 1000n;
+  return formatQuantity(`${sign}${whole}.${fraction.toString().padStart(3, '0')}`);
+}
+
+function transferNoticeText(transfer: TransferDetail['transfer']) {
+  if (transfer.status === 'DRAFT') return 'Phiếu nháp chưa được gửi duyệt. Tồn kho chưa thay đổi.';
+  if (transfer.status === 'PENDING_APPROVAL') return 'Phiếu đang chờ quản lý kho nguồn xác nhận xuất. Tồn kho chưa thay đổi.';
+  if (transfer.status === 'IN_TRANSIT') return 'Kho nguồn đã xuất hàng (đã trừ tồn kho nguồn). Đang chờ kho đích xác nhận nhận hàng.';
+  if (transfer.status === 'DISCREPANCY') return 'Kho nguồn đã xuất hàng và kho đích đã nhận một phần. Phiếu đang chờ chủ trại xử lý phần chênh lệch.';
+  if (transfer.status === 'CONFIRMED' && transfer.resolution === 'RETURN_TO_SOURCE') return 'Kho đích đã nhận phần thực nhận; phần thiếu đã được hoàn trả về kho nguồn.';
+  if (transfer.status === 'CONFIRMED' && transfer.resolution === 'WRITE_OFF') return 'Kho đích đã nhận phần thực nhận; phần thiếu đã được ghi nhận mất hoặc hỏng.';
+  if (transfer.status === 'CONFIRMED') return 'Kho đích đã nhận hàng và tồn kho đã được cập nhật.';
+  if (transfer.status === 'REJECTED') return 'Phiếu điều chuyển đã bị từ chối. Tồn kho chưa thay đổi.';
+  if (transfer.status === 'CANCELLED') return 'Phiếu điều chuyển đã bị hủy.';
+  return 'Trạng thái phiếu chưa được xác định.';
 }
 
 export default function TransferNotificationDetailScreen() {
@@ -110,7 +149,7 @@ export default function TransferNotificationDetailScreen() {
           <HoneycombDecor tone={statusTone(transfer.status) === 'success' ? 'green' : 'amber'} />
           <View style={styles.heroContent}>
             <Text style={styles.eyebrow}>CHUYỂN VẬT TƯ GIỮA CÁC KHO</Text>
-            <View style={styles.heroHead}><View style={styles.heroTitle}><Text style={styles.code}>{documentCodeLabel(transfer.transferCode, transfer.id, 'CK')}</Text><Text style={styles.muted}>Tạo lúc {formatApiDateTime(transfer.createdAt)}</Text></View><Pill tone={statusTone(transfer.status)}><Text style={styles.status}>{transfer.status === 'CONFIRMED' ? 'ĐÃ NHẬN' : statusLabel(transfer.status)}</Text></Pill></View>
+            <View style={styles.heroHead}><View style={styles.heroTitle}><Text style={styles.code}>{documentCodeLabel(transfer.transferCode, transfer.id, 'CK')}</Text><Text style={styles.muted}>Tạo lúc {formatApiDateTime(transfer.createdAt)}</Text></View><Pill tone={statusTone(transfer.status)}><Text style={styles.status}>{transferStatusText(transfer.status, transfer.resolution)}</Text></Pill></View>
             <View style={styles.route}><Icon name="warehouse" color={colors.primary} /><View style={styles.routeCopy}><Text style={styles.routeLabel}>Kho nguồn</Text><Text style={styles.routeName}>{source}</Text></View></View>
             <View style={styles.routeArrow}><Icon name="south" size={19} color={colors.secondary} /></View>
             <View style={styles.route}><Icon name="warehouse" color={colors.statusSuccessStrong} /><View style={styles.routeCopy}><Text style={styles.routeLabel}>Kho đích</Text><Text style={styles.routeName}>{destination}</Text></View></View>
@@ -121,20 +160,38 @@ export default function TransferNotificationDetailScreen() {
           <Info label="Ngày điều chuyển" value={formatDate(transfer.transferDate)} />
           {transfer.dispatchedAt ? <Info label="Thời gian kho nguồn xuất" value={formatApiDateTime(transfer.dispatchedAt)} /> : null}
           {transfer.confirmedAt ? <Info label={transfer.dispatchedAt ? 'Thời gian kho đích nhận' : 'Thời gian xác nhận'} value={formatApiDateTime(transfer.confirmedAt)} /> : null}
+          {transfer.resolvedAt ? <Info label="Thời gian xử lý chênh lệch" value={formatApiDateTime(transfer.resolvedAt)} /> : null}
           <Info label="Ghi chú" value={transfer.note || 'Không có ghi chú'} />
           {transfer.rejectionReason ? <Text style={styles.rejection}>Lý do từ chối: {transfer.rejectionReason}</Text> : null}
         </Card>
+        {transfer.status === 'CONFIRMED' && transfer.resolution ? <Card style={styles.card}>
+          <SectionTitle title="Kết quả xử lý chênh lệch" />
+          <Info label="Cách xử lý" value={transfer.resolution === 'RETURN_TO_SOURCE' ? 'Trả phần thiếu về kho nguồn' : 'Ghi nhận mất hoặc hỏng'} />
+          {transfer.resolutionNote ? <Info label="Căn cứ xử lý" value={transfer.resolutionNote} /> : null}
+          {transfer.resolvedAt ? <Info label="Thời gian" value={formatApiDateTime(transfer.resolvedAt)} /> : null}
+        </Card> : null}
         <SectionTitle title="Vật tư điều chuyển" count={`${detail.items.length} mục`} />
-        {detail.items.map((line) => <Card key={line.id} style={styles.lineCard}>
-          <View style={styles.lineHead}><View style={styles.lineIcon}><Icon name="inventory-2" color={colors.primary} /></View><View style={styles.lineCopy}><Text style={styles.lineName}>{line.itemName || 'Vật tư'}</Text><Text style={styles.muted}>{line.itemCode || line.itemId}</Text></View><Pill tone="cream"><Text style={styles.quantity}>{formatQuantity(line.quantity)} {line.unitSymbol || line.unitName || ''}</Text></Pill></View>
-          {line.receivedQuantity != null ? <Info label="Đã xuất / Thực nhận" value={`${formatQuantity(line.quantity)} / ${formatQuantity(line.receivedQuantity)} ${line.unitSymbol || line.unitName || ''}`.trim()} /> : null}
+        {detail.items.map((line) => {
+          const unit = line.unitSymbol || line.unitName || '';
+          const thumbnailUrl = toThumbnailUrl(line.itemImageUrl, 128);
+          const discrepancyMilli = line.receivedQuantity == null
+            ? null
+            : quantityToMilli(line.quantity) - quantityToMilli(line.receivedQuantity);
+          return <Card key={line.id} style={styles.lineCard}>
+          <View style={styles.lineHead}><View style={styles.lineIcon}>{thumbnailUrl ? <Image source={{ uri: thumbnailUrl }} style={styles.lineImage} resizeMode="cover" /> : <Icon name="inventory-2" color={colors.primary} />}</View><View style={styles.lineCopy}><Text style={styles.lineName}>{line.itemName || 'Vật tư'}</Text><Text style={styles.muted}>{line.itemCode || line.itemId}</Text></View><Pill tone="cream"><Text style={styles.quantity}>{formatQuantity(line.quantity)} {line.unitSymbol || line.unitName || ''}</Text></Pill></View>
+          {line.receivedQuantity != null ? <>
+            <Info label="Đã xuất" value={`${formatQuantity(line.quantity)} ${unit}`.trim()} />
+            <Info label="Thực nhận" value={`${formatQuantity(line.receivedQuantity)} ${unit}`.trim()} />
+            <Info label="Chênh lệch thiếu" value={`${formatMilliQuantity(discrepancyMilli ?? 0n)} ${unit}`.trim()} />
+          </> : null}
           {line.discrepancyReason ? <Info label="Lý do lệch" value={line.discrepancyReason} /> : null}
           {line.lotId ? <Info label="Mã lô nội bộ" value={line.lotCode || line.lotId} /> : null}
           {line.lotSupplierLotNumber ? <Info label="Số lô trên hàng" value={line.lotSupplierLotNumber} /> : null}
           {line.lotExpiryDate ? <Info label="Hạn sử dụng" value={formatDate(line.lotExpiryDate)} /> : null}
           {line.note ? <Info label="Ghi chú dòng hàng" value={line.note} /> : null}
-        </Card>)}
-        <Card style={styles.notice}><Icon name="info-outline" color={colors.primary} /><Text style={styles.noticeText}>{transfer.status === 'DRAFT' ? 'Phiếu nháp chưa được gửi duyệt. Tồn kho chưa thay đổi.' : transfer.status === 'PENDING_APPROVAL' ? 'Phiếu đang chờ quản lý kho nguồn xác nhận xuất. Tồn kho chưa thay đổi.' : transfer.status === 'IN_TRANSIT' ? 'Kho nguồn đã xuất hàng (đã trừ tồn kho nguồn). Đang chờ kho đích xác nhận nhận hàng.' : transfer.status === 'CONFIRMED' ? 'Kho đích đã nhận hàng và tồn kho đã được cập nhật.' : 'Phiếu đã kết thúc; tồn kho không thay đổi.'}</Text></Card>
+        </Card>;
+        })}
+        <Card style={styles.notice}><Icon name="info-outline" color={colors.primary} /><Text style={styles.noticeText}>{transferNoticeText(transfer)}</Text></Card>
         {canSubmit ? <PrimaryButton label={submitting ? 'Đang gửi...' : 'Gửi duyệt'} icon="send" loading={submitting} onPress={() => void submit()} /> : null}
       </> : <Card><Text style={styles.message}>Không tìm thấy phiếu điều chuyển trong trang trại này.</Text></Card>}
     </AppShell>
@@ -189,6 +246,7 @@ const styles = StyleSheet.create({
   lineCard: { gap: spacing.spaceSm, backgroundColor: colors.surfaceContainerLowest },
   lineHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.spaceSm, flexWrap: 'wrap' },
   lineIcon: { width: 38, height: 38, borderRadius: radius.default, backgroundColor: colors.honeyChip, alignItems: 'center', justifyContent: 'center' },
+  lineImage: { width: 38, height: 38, borderRadius: radius.default },
   lineCopy: { flex: 1, minWidth: 0 },
   lineName: { ...typography.labelLg, color: colors.deepAmberStrong },
   quantity: { ...typography.labelSm, color: colors.primary },

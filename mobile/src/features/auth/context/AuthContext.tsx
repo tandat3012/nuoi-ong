@@ -1,6 +1,6 @@
 import { useAuth } from '@clerk/clerk-expo';
 import * as SecureStore from 'expo-secure-store';
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { apiRequest, clearApiCache, MobileApiError } from '@/src/shared/api/client';
@@ -24,6 +24,7 @@ export function AuthContextProvider({ children }: { children: ReactNode }) {
   const loadedSession = useRef<string | null>(null);
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
+  const getAccessToken = useCallback(() => getTokenRef.current(), []);
   const [data, setData] = useState<AuthContextResponse | null>(null);
   const [currentFarmId, setCurrentFarmId] = useState<string | null>(null);
   const [error, setError] = useState<MobileApiError | null>(null);
@@ -111,7 +112,7 @@ export function AuthContextProvider({ children }: { children: ReactNode }) {
       },
       isLoading: !isLoaded || loading,
       error,
-      getAccessToken: getToken,
+      getAccessToken,
       async selectFarm(farmId: string) {
         if (!data?.memberships.some(({ farm }) => farm.id === farmId)) {
           throw new Error('Trang trại không thuộc tài khoản hiện tại.');
@@ -120,7 +121,7 @@ export function AuthContextProvider({ children }: { children: ReactNode }) {
         setCurrentFarmId(farmId);
       },
     }),
-    [data, currentFarmId, error, getToken, isLoaded, loading],
+    [data, currentFarmId, error, getAccessToken, isLoaded, loading],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
