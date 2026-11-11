@@ -71,12 +71,18 @@ export function HistoryList({ farmId, filters, revision, onPageChange, showEntit
     onRetry={current.status === 401 || current.status === 403 ? undefined : () => setAttempt((value) => value + 1)} />;
   if (!current.response) return null;
   const references = current.response.references ?? {};
+  const own = current.response.scope === "PERFORMED_BY_ME";
   return (
     <>
+      {own && (
+        <p className="border-b bg-muted/40 px-4 py-3 text-sm text-muted-foreground sm:px-6">
+          Chỉ hiển thị các thao tác do bạn thực hiện. Chủ trại và quản trị viên xem được toàn bộ lịch sử.
+        </p>
+      )}
       {!current.response.data.length && (
         <div role="status" className="flex flex-col items-center gap-3 px-4 py-12 text-center">
           <History className="size-6 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm font-medium">Chưa có lịch sử thay đổi phù hợp.</p>
+          <p className="text-sm font-medium">{own ? "Bạn chưa có thao tác nào ở mục này." : "Chưa có lịch sử thay đổi phù hợp."}</p>
           <p className="max-w-sm text-sm text-muted-foreground">Các thao tác được ghi nhận sẽ xuất hiện tại đây.</p>
         </div>
       )}
