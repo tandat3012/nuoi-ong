@@ -304,7 +304,8 @@ export class StockCountsController {
     description: 'Thiếu hoặc không hợp lệ Clerk session JWT.',
   })
   @ApiForbiddenResponse({
-    description: 'Chỉ quản trị viên hoặc chủ trang trại được xác nhận phiếu.',
+    description:
+      'Chỉ ADMIN, FARM_OWNER (toàn Farm) hoặc WAREHOUSE_MANAGER (kho được phân công) được xác nhận phiếu; người lập không được tự duyệt phiếu có chênh lệch (SELF_APPROVAL).',
   })
   async confirm(
     @CurrentAuth() auth: { clerkUserId: string },
