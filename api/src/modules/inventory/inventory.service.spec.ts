@@ -80,6 +80,7 @@ describe('InventoryService', () => {
         totalPages: 0,
       },
     });
+    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(databaseService.db.execute).not.toHaveBeenCalled();
   });
 
@@ -220,9 +221,9 @@ describe('InventoryService', () => {
       .mockReturnValueOnce(queryReturning([lotRow]))
       .mockReturnValueOnce(queryReturning([]));
 
-    await expect(
-      service.getLot('lot-1', farmId, clerkUserId),
-    ).resolves.toBe(lotRow);
+    await expect(service.getLot('lot-1', farmId, clerkUserId)).resolves.toBe(
+      lotRow,
+    );
     await expect(
       service.getLot('missing-lot', farmId, clerkUserId),
     ).rejects.toBeInstanceOf(NotFoundException);
