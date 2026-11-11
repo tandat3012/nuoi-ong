@@ -275,3 +275,23 @@ test("warehouse managers approve; employees only create; store managers do neith
   assert.equal(canCreateStockDocuments(["EMPLOYEE"]), true);
   assert.equal(canCreateStockDocuments(["STORE_MANAGER"]), false);
 });
+
+test('a store manager drafts restock documents, but is not an approver or a stock writer', async () => {
+  const { canCreateRestock, canCreateStockDocuments, canApproveStockDocuments, isSalesRestockOnly, stockDocumentActions } =
+    await import("./stock-document.logic.ts");
+  const seller = ["STORE_MANAGER"];
+  assert.equal(canCreateRestock(seller), true);
+  assert.equal(canCreateStockDocuments(seller), false);
+  assert.equal(canApproveStockDocuments(seller), false);
+  assert.equal(isSalesRestockOnly(seller), true);
+  assert.equal(isSalesRestockOnly(["STORE_MANAGER", "EMPLOYEE"]), false);
+  assert.equal(isSalesRestockOnly(["ADMIN"]), false);
+  // Own drafts only: submit and cancel, never confirm.
+  const draft = { status: "DRAFT", createdByMemberId: "m1" };
+  const viewer = { roles: seller, memberId: "m1" };
+  assert.deepEqual(
+    stockDocumentActions(viewer, draft, canCreateRestock(seller)),
+    { edit: true, cancel: true, submit: true, confirm: false, reject: false },
+  );
+  assert.equal(stockDocumentActions({ ...viewer, memberId: "m2" }, draft, true).submit, false);
+});

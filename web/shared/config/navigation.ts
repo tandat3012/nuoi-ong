@@ -36,7 +36,7 @@ export type NavigationItem = {
   storeOnly?: boolean;
 };
 
-type NavigationRequirement = 'manageFarm' | 'manageWarehouse' | 'manageStore' | 'deliver' | 'farmArea' | 'masterData' | 'history';
+type NavigationRequirement = 'manageFarm' | 'manageWarehouse' | 'manageStore' | 'deliver' | 'farmArea' | 'restock' | 'masterData' | 'history';
 
 export type NavigationSection = {
   title: string;
@@ -56,9 +56,9 @@ export const primaryNavigationSections: readonly NavigationSection[] = [
     title: 'Vận hành kho',
     items: [
       { href: '/inventory', label: 'Tồn kho', icon: PackageSearch, requires: 'farmArea', description: 'Số lượng hiện có theo kho, lô và vật tư.' },
-      { href: '/receipts', label: 'Phiếu nhập', icon: ArrowDownToLine, requires: 'farmArea', description: 'Lập và xác nhận phiếu nhập hàng vào kho.' },
+      { href: '/receipts', label: 'Phiếu nhập', icon: ArrowDownToLine, requires: 'restock', description: 'Lập và xác nhận phiếu nhập hàng vào kho.' },
       { href: '/issues', label: 'Phiếu xuất', icon: ArrowUpFromLine, requires: 'farmArea', description: 'Xuất vật tư, lô hoặc tài sản ra khỏi kho.' },
-      { href: '/transfers', label: 'Điều chuyển', icon: ArrowRightLeft, requires: 'farmArea', description: 'Chuyển hàng giữa các kho của trang trại.' },
+      { href: '/transfers', label: 'Điều chuyển', icon: ArrowRightLeft, requires: 'restock', description: 'Chuyển hàng giữa các kho của trang trại.' },
       { href: '/counts', label: 'Kiểm kê', icon: ClipboardCheck, requires: 'farmArea', description: 'Đối chiếu số lượng thực tế với hệ thống.' },
     ],
   },
@@ -106,6 +106,7 @@ export type NavigationAccess = {
   canManageStore: boolean;
   canDeliver: boolean;
   canAccessFarmArea: boolean;
+  canAccessRestock: boolean;
   canAccessMasterData: boolean;
   canViewHistory: boolean;
   isStoreFarm: boolean;
@@ -117,6 +118,7 @@ const requirementAccess = {
   manageStore: 'canManageStore',
   deliver: 'canDeliver',
   farmArea: 'canAccessFarmArea',
+  restock: 'canAccessRestock',
   masterData: 'canAccessMasterData',
   history: 'canViewHistory',
 } as const satisfies Record<NavigationRequirement, keyof NavigationAccess>;

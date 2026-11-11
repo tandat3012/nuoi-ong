@@ -18,7 +18,9 @@ import { PageHeader } from '@/shared/components/ui/page-header';
 import { Button } from '@/shared/components/ui/button';
 import { Select } from '@/shared/components/ui/select';
 import { DateRangeFilter } from '@/shared/components/ui/date-range-filter';
-import { canCreateStockDocuments, useStockDocumentQuery } from '@/features/stock-documents';
+import { canCreateRestock, useStockDocumentQuery } from '@/features/stock-documents';
+import { useSearchParams } from 'next/navigation';
+import { receiptPresetFromQuery } from './receipt-draft.logic';
 import { useNotificationRefresh } from '@/features/notifications';
 import { BeeLoader } from '@/shared/components/ui/bee-loader';
 import { Plus, RefreshCw, Search, RotateCcw, X } from 'lucide-react';
@@ -36,10 +38,14 @@ export function ReceiptsPage() {
 function FarmReceiptsPage({ farmId }: { farmId: string }) {
   const { membership } = useFarmMembership();
   const roles = membership?.roles ?? [];
-  const canCreate = canCreateStockDocuments(roles);
+  const canCreate = canCreateRestock(roles);
+  const searchParams = useSearchParams();
+  const [presetDraft, setPresetDraft] = useState(() =>
+    receiptPresetFromQuery(searchParams),
+  );
   const viewer = { roles, memberId: membership?.memberId };
   const [selectedId, setSelectedId] = useStockDocumentQuery();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(Boolean(presetDraft));
   const [editing, setEditing] = useState<ReceiptDraftInitial | null>(null);
   const [warehouseFilter, setWarehouseFilter] =
     useState<DraftChoice | null>(null);
@@ -101,14 +107,17 @@ function FarmReceiptsPage({ farmId }: { farmId: string }) {
         farmId={farmId}
         canWrite={canCreate}
         initial={editing ?? undefined}
+        preset={presetDraft ?? undefined}
         onCancel={() => {
           setCreating(false);
           setEditing(null);
+          setPresetDraft(null);
           reload();
         }}
         onSaved={(id) => {
           setCreating(false);
           setEditing(null);
+          setPresetDraft(null);
           reload();
           setSelectedId(id);
         }}

@@ -223,3 +223,40 @@ export function receiptSaveErrorMessage(
     );
   return `Chưa xác nhận được kết quả ${action}. Hãy tải lại danh sách trước khi gửi lại.`;
 }
+
+/** A new draft opened already filled in, e.g. from the sales-stock "Nhập thêm" link. */
+export type ReceiptPreset = {
+  warehouse: { id: string; label: string };
+  item?: { id: string; label: string; trackingMode: 'QUANTITY' | 'LOT' };
+};
+
+export function receiptPresetHref({ warehouse, item }: ReceiptPreset) {
+  const query = new URLSearchParams({
+    new: '1',
+    warehouseId: warehouse.id,
+    warehouseLabel: warehouse.label,
+    ...(item && {
+      itemId: item.id,
+      itemLabel: item.label,
+      trackingMode: item.trackingMode,
+    }),
+  });
+  return `/receipts?${query}`;
+}
+
+export function receiptPresetFromQuery(
+  params: Pick<URLSearchParams, 'get'>,
+): ReceiptPreset | null {
+  const warehouseId = params.get('warehouseId');
+  // An open document wins, so reloading after a save does not reopen the form.
+  if (params.get('new') !== '1' || !warehouseId || params.get('id')) return null;
+  const itemId = params.get('itemId');
+  const trackingMode = params.get('trackingMode');
+  return {
+    warehouse: { id: warehouseId, label: params.get('warehouseLabel') || 'Kho' },
+    ...(itemId &&
+      (trackingMode === 'QUANTITY' || trackingMode === 'LOT') && {
+        item: { id: itemId, label: params.get('itemLabel') || 'Vật tư', trackingMode },
+      }),
+  };
+}

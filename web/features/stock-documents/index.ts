@@ -1,5 +1,7 @@
 export {
   canApproveStockDocuments,
+  canCreateRestock,
+  isSalesRestockOnly,
   canCreateStockDocuments,
   DOCUMENT_CODE_HINT,
   documentCodeLabel,

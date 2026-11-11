@@ -30,7 +30,10 @@ import {
 } from '../../common/swagger-docs';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
-import { FARM_AREA_ROLES } from '../auth/farm-access/farm-role-groups';
+import {
+  FARM_AREA_ROLES,
+  RESTOCK_ROLES,
+} from '../auth/farm-access/farm-role-groups';
 
 @Controller()
 @UseGuards(FarmAccessGuard)
@@ -42,6 +45,7 @@ export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
   @Get('inventory')
+  @FarmRoles(...RESTOCK_ROLES)
   @ApiOperation({
     summary: 'Số dư tồn kho hiện tại',
     description:
@@ -349,6 +353,7 @@ export class InventoryController {
   }
 
   @Get('lots/suggestions')
+  @FarmRoles(...RESTOCK_ROLES)
   @ApiOperation({ summary: 'Gợi ý lô còn tồn và chưa hết hạn' })
   @ApiFarmIdQuery()
   @ApiUuidQuery('itemId', 'Giới hạn theo mặt hàng.')
@@ -424,6 +429,7 @@ export class InventoryController {
   }
 
   @Get('lots')
+  @FarmRoles(...RESTOCK_ROLES)
   @ApiOperation({
     summary: 'Danh sách lô theo trang',
     description:
