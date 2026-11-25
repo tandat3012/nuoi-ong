@@ -202,14 +202,12 @@ export class CommerceService {
 
     if (!row) throw new NotFoundException('Product not found');
 
-    const extras = await this.loadProductExtras([row.id], region, quantity);
-
-    const images = await this.databaseService.db
+    const imagesQuery = this.databaseService.db
       .select({ src: storeProductImages.url, alt: storeProductImages.alt })
       .from(storeProductImages)
       .where(eq(storeProductImages.productId, row.id))
       .orderBy(asc(storeProductImages.position));
-    const variants = await this.databaseService.db
+    const variantsQuery = this.databaseService.db
       .select({
         id: storeProductVariants.id,
         name: storeProductVariants.name,
@@ -239,13 +237,24 @@ export class CommerceService {
         ),
       )
       .orderBy(asc(storeProductVariants.id));
+
+    const [stockByProduct, images, variants] = await Promise.all([
+      this.loadProductAvailability([row.id], region, quantity),
+      imagesQuery,
+      variantsQuery,
+    ]);
+    const [image] = images;
+    const extras = {
+      ...(stockByProduct.get(row.id) ?? this.toAvailability(NO_STOCK, region)),
+      ...(image ? { image } : {}),
+    };
     const primary =
       variants.find((v) =>
         region ? v.regionQty || v.regionStep || v.served : v.anywhere,
       ) ?? variants[0];
 
     return {
-      ...this.toProduct(row, extras.get(row.id)),
+      ...this.toProduct(row, extras),
       unitName: primary?.unitName,
       unitSymbol: primary?.unitSymbol ?? null,
       itemType: primary?.itemType ?? null,
@@ -738,13 +747,12 @@ export class CommerceService {
   private async loadProductExtras(
     productIds: string[],
     region?: StoreRegion,
-    quantity = 1,
   ): Promise<Map<string, ProductExtras>> {
     const extras = new Map<string, ProductExtras>();
     if (productIds.length === 0) return extras;
 
     const db = this.databaseService.db;
-    const [images, availability] = await Promise.all([
+    const [images, stockByProduct] = await Promise.all([
       db
         .selectDistinctOn([storeProductImages.productId], {
           productId: storeProductImages.productId,
@@ -757,42 +765,12 @@ export class CommerceService {
           asc(storeProductImages.productId),
           asc(storeProductImages.position),
         ),
-      db
-        .select({
-          productId: storeProductVariants.productId,
-          maxPrice: sql<string>`MAX(${storeProductVariants.price})`.as(
-            'max_price',
-          ),
-          variantCount: sql<number>`COUNT(${storeProductVariants.id})::int`.as(
-            'variant_count',
-          ),
-          ...this.availabilityFlags(region, quantity, true),
-        })
-        .from(storeProductVariants)
-        .innerJoin(units, eq(units.id, storeProductVariants.unitId))
-        .where(
-          and(
-            this.eligibleVariantConditions(),
-            inArray(storeProductVariants.productId, productIds),
-          ),
-        )
-        .groupBy(storeProductVariants.productId),
+      this.loadProductAvailability(productIds, region),
     ]);
 
     const imageByProduct = new Map(
       images.map(({ productId, src, alt }) => [productId, { src, alt }]),
     );
-    const stockByProduct = new Map(
-      availability.map(({ productId, maxPrice, variantCount, ...flags }) => [
-        productId,
-        {
-          ...this.toAvailability(flags, region),
-          maxPrice: this.toPrice(maxPrice),
-          variantCount,
-        },
-      ]),
-    );
-
     for (const id of productIds) {
       const image = imageByProduct.get(id);
       extras.set(id, {
@@ -802,6 +780,44 @@ export class CommerceService {
     }
 
     return extras;
+  }
+
+  private async loadProductAvailability(
+    productIds: string[],
+    region?: StoreRegion,
+    quantity = 1,
+  ) {
+    const availability = await this.databaseService.db
+      .select({
+        productId: storeProductVariants.productId,
+        maxPrice: sql<string>`MAX(${storeProductVariants.price})`.as(
+          'max_price',
+        ),
+        variantCount: sql<number>`COUNT(${storeProductVariants.id})::int`.as(
+          'variant_count',
+        ),
+        ...this.availabilityFlags(region, quantity, true),
+      })
+      .from(storeProductVariants)
+      .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+      .where(
+        and(
+          this.eligibleVariantConditions(),
+          inArray(storeProductVariants.productId, productIds),
+        ),
+      )
+      .groupBy(storeProductVariants.productId);
+
+    return new Map(
+      availability.map(({ productId, maxPrice, variantCount, ...flags }) => [
+        productId,
+        {
+          ...this.toAvailability(flags, region),
+          maxPrice: this.toPrice(maxPrice),
+          variantCount,
+        },
+      ]),
+    );
   }
 
   private toProduct(row: ProductRow, extras: ProductExtras | undefined) {
