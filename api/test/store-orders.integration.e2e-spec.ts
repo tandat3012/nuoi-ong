@@ -1007,6 +1007,80 @@ describe('Store orders (migrated PostgreSQL)', () => {
       expect(await sizes(81)).toEqual([0, 0]);
     }));
 
+  it('labels every cart line in one query, in cart order', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, commerce, database } = ctx;
+      await tx
+        .update(schema.storeSettings)
+        .set({ salesEnabled: false })
+        .where(ne(schema.storeSettings.farmId, ids.farm));
+      const other = await addSeller(ctx, tx, '10');
+      const southOnly = randomUUID();
+      const southItem = randomUUID();
+      await tx.insert(schema.storeProductVariants).values({
+        id: southOnly,
+        productId: ids.product,
+        unitId: ids.unit,
+        name: 'Thùng',
+        price: '50000',
+      });
+      await tx.insert(schema.items).values({
+        id: southItem,
+        farmId: ids.otherFarm,
+        categoryId: ids.category,
+        unitId: ids.unit,
+        code: southItem,
+        name: 'Hive',
+        itemType: 'MATERIAL',
+        trackingMode: 'QUANTITY',
+      });
+      await tx.insert(schema.storeVariantItems).values({
+        variantId: southOnly,
+        farmId: ids.otherFarm,
+        itemId: southItem,
+      });
+      await tx.insert(schema.inventoryBalances).values({
+        farmId: ids.otherFarm,
+        warehouseId: other.warehouseId,
+        itemId: southItem,
+        quantityOnHand: '5',
+      });
+      type Tx = Parameters<typeof commerce.cartCoverage>[0];
+      type RunInTx = (fn: (t: Tx) => Promise<unknown>) => Promise<unknown>;
+      const db = database.db as unknown as { transaction: RunInTx };
+      const selects: jest.SpyInstance[] = [];
+      // The spy calls through after this once: the inner call is the real transaction.
+      jest
+        .spyOn(db, 'transaction')
+        .mockImplementationOnce((fn: (t: Tx) => Promise<unknown>) =>
+          db.transaction((t: Tx) => {
+            selects.push(jest.spyOn(t, 'select'));
+            return fn(t);
+          }),
+        );
+      const unknown = randomUUID();
+
+      const cart = await commerce.cartAvailability('CENTRAL', [
+        { variantId: unknown, quantity: 1 },
+        { variantId: southOnly, quantity: 1 },
+        { variantId: ids.variant, quantity: 96 },
+        { variantId: ids.variant, quantity: 1 },
+      ]);
+
+      // One query locks the warehouses, one labels every line.
+      expect(selects[0].mock.calls).toHaveLength(2);
+      expect(cart).toEqual({
+        canOrder: false,
+        lines: [
+          { variantId: unknown, availability: 'OUT_OF_STOCK' },
+          { variantId: southOnly, availability: 'REGION_NOT_SUPPORTED' },
+          { variantId: ids.variant, availability: 'INSUFFICIENT_IN_REGION' },
+          { variantId: ids.variant, availability: 'AVAILABLE' },
+        ],
+        groups: [[ids.variant]],
+      });
+    }));
+
   it('confirms an order next to a legacy XB- issue code without reusing it', () =>
     inRollback(async ({ ids, service, input }, tx) => {
       const { order } = await service.create(ids.customer, input());
