@@ -408,30 +408,7 @@ export class CommerceService {
   ) {
     return this.databaseService.db.transaction(async (tx) => {
       const coverage = await this.cartCoverage(tx, region, lines);
-      const statuses = await Promise.all(
-        lines.map(async ({ variantId, quantity }) => {
-          const [flags] = await tx
-            .select(this.availabilityFlags(region, quantity))
-            .from(storeProductVariants)
-            .innerJoin(
-              storeProducts,
-              eq(storeProducts.id, storeProductVariants.productId),
-            )
-            .innerJoin(units, eq(units.id, storeProductVariants.unitId))
-            .where(
-              and(
-                eq(storeProductVariants.id, variantId),
-                this.orderableVariantConditions(),
-              ),
-            );
-          return {
-            variantId,
-            availability: flags
-              ? this.toAvailability(flags, region).availability
-              : ('OUT_OF_STOCK' as const),
-          };
-        }),
-      );
+      const statuses = await this.cartLineLabels(tx, region, lines);
       const canOrder = coverage.some(
         ({ items }) => items.size === lines.length,
       );
@@ -440,6 +417,51 @@ export class CommerceService {
         canOrder,
         lines: statuses,
         groups: canOrder ? [] : this.splitGroups(coverage),
+      };
+    });
+  }
+
+  /** Availability label of each cart line, in cart order, from one query. */
+  private async cartLineLabels(
+    tx: Transaction,
+    region: StoreRegion,
+    lines: { variantId: string; quantity: number }[],
+  ) {
+    if (lines.length === 0) return [];
+    // Alias must not clash with the ones inside itemStock() (b, l, ii, si, ti, st).
+    const cartLines = sql`(VALUES ${sql.join(
+      lines.map(
+        ({ variantId, quantity }, line) =>
+          sql`(${line}::int, ${variantId}::uuid, ${quantity}::numeric)`,
+      ),
+      sql`, `,
+    )}) AS cart_line(line, variant_id, quantity)`;
+    const rows = await tx
+      .select({
+        line: sql<number>`cart_line.line`.as('line'),
+        ...this.availabilityFlags(region, sql`cart_line.quantity`),
+      })
+      .from(storeProductVariants)
+      .innerJoin(
+        cartLines,
+        sql`cart_line.variant_id = ${storeProductVariants.id}`,
+      )
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.id, storeProductVariants.productId),
+      )
+      .innerJoin(units, eq(units.id, storeProductVariants.unitId))
+      .where(this.orderableVariantConditions());
+    const flagsByLine = new Map(
+      rows.map(({ line, ...flags }) => [line, flags]),
+    );
+    return lines.map(({ variantId }, line) => {
+      const flags = flagsByLine.get(line);
+      return {
+        variantId,
+        availability: flags
+          ? this.toAvailability(flags, region).availability
+          : ('OUT_OF_STOCK' as const),
       };
     });
   }
@@ -514,7 +536,7 @@ export class CommerceService {
    */
   private availabilityFlags(
     region?: StoreRegion,
-    quantity = 1,
+    quantity: number | SQL = 1,
     aggregate = false,
   ) {
     const step = sql`${storeProductVariants.quantityStep}`;
