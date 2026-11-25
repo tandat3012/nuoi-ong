@@ -240,6 +240,17 @@ describe('Commerce products (migrated PostgreSQL)', () => {
     ).toEqual([]);
   });
 
+  it('loads a product without images in four queries', async () => {
+    const product = await createProduct('Product without images');
+    queries.length = 0;
+
+    const detail = await service.getProduct(product.id, 'NORTH', 2);
+
+    expect(queries).toHaveLength(4);
+    expect(detail.images).toEqual([]);
+    expect(detail).not.toHaveProperty('image');
+  });
+
   it.each(['%', '_', '\\', '100%_\\'])(
     'matches literal keyword %j',
     async (q) => {
