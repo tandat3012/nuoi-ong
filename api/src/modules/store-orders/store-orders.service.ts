@@ -1506,8 +1506,6 @@ export class StoreOrdersService implements StockTransferHook {
   /**
    * First sales warehouse, in stable farm order, that alone holds every line:
    * an order is never split across warehouses.
-   * shortcut: one stock query per warehouse and line, fine for a handful of
-   * farms and small carts; batch per warehouse if farms grow into the dozens.
    */
   private async pickWarehouse(
     tx: Transaction,

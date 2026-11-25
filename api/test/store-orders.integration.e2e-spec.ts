@@ -925,6 +925,88 @@ describe('Store orders (migrated PostgreSQL)', () => {
       );
     }));
 
+  it('checks every sales warehouse and cart line in one stock query, keeping cart order', () =>
+    inRollback(async (ctx, tx) => {
+      const { ids, commerce } = ctx;
+      await tx
+        .update(schema.storeSettings)
+        .set({ salesEnabled: false })
+        .where(ne(schema.storeSettings.farmId, ids.farm));
+      const other = await addSeller(ctx, tx, '10');
+      const secondVariant = randomUUID();
+      const secondItem = randomUUID();
+      await tx.insert(schema.storeProductVariants).values({
+        id: secondVariant,
+        productId: ids.product,
+        unitId: ids.unit,
+        name: 'Thùng',
+        price: '50000',
+      });
+      await tx.insert(schema.items).values({
+        id: secondItem,
+        farmId: ids.otherFarm,
+        categoryId: ids.category,
+        unitId: ids.unit,
+        code: secondItem,
+        name: 'Hive',
+        itemType: 'MATERIAL',
+        trackingMode: 'QUANTITY',
+      });
+      await tx.insert(schema.storeVariantItems).values({
+        variantId: secondVariant,
+        farmId: ids.otherFarm,
+        itemId: secondItem,
+      });
+      await tx.insert(schema.inventoryBalances).values({
+        farmId: ids.otherFarm,
+        warehouseId: other.warehouseId,
+        itemId: secondItem,
+        quantityOnHand: '5',
+      });
+      const scoped = tx as unknown as Parameters<
+        typeof commerce.cartCoverage
+      >[0];
+      const select = jest.spyOn(scoped, 'select');
+      const execute = jest.spyOn(scoped, 'execute');
+
+      const coverage = await commerce.cartCoverage(scoped, 'SOUTH', [
+        { variantId: secondVariant, quantity: 1 },
+        { variantId: ids.variant, quantity: 1 },
+        { variantId: randomUUID(), quantity: 1 },
+      ]);
+
+      // One query locks the candidate warehouses, one checks all their stock.
+      expect(select).toHaveBeenCalledTimes(1);
+      expect(execute).toHaveBeenCalledTimes(1);
+      const byWarehouse = new Map(
+        coverage.map(({ warehouse, items }) => [
+          warehouse.warehouseId,
+          [...items],
+        ]),
+      );
+      expect(byWarehouse).toEqual(
+        new Map([
+          [ids.warehouse, [[ids.variant, ids.item]]],
+          [
+            other.warehouseId,
+            [
+              [secondVariant, secondItem],
+              [ids.variant, other.itemId],
+            ],
+          ],
+        ]),
+      );
+      // Each line keeps its own quantity: ten units at a step of 0.125 cover 80, not 81.
+      const sizes = async (quantity: number) =>
+        (
+          await commerce.cartCoverage(scoped, 'SOUTH', [
+            { variantId: ids.variant, quantity },
+          ])
+        ).map(({ items }) => items.size);
+      expect(await sizes(80)).toEqual([1, 1]);
+      expect(await sizes(81)).toEqual([0, 0]);
+    }));
+
   it('confirms an order next to a legacy XB- issue code without reusing it', () =>
     inRollback(async ({ ids, service, input }, tx) => {
       const { order } = await service.create(ids.customer, input());
