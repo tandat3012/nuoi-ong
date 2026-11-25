@@ -346,43 +346,55 @@ export class CommerceService {
     lines: { variantId: string; quantity: number }[],
   ) {
     const candidates = await this.salesWarehouses(tx, region);
-    const coverage: {
-      warehouse: SalesWarehouse;
-      items: Map<string, string>;
-    }[] = [];
-    for (const warehouse of candidates) {
-      const covered = new Map<string, string>();
-      for (const line of lines) {
-        const [row] = await tx
-          .select({
-            itemId: storeVariantItems.itemId,
-            inStock: this.variantInStock(
-              sql`${storeProductVariants.quantityStep} * ${line.quantity}::numeric`,
-              eq(storeSettings.salesWarehouseId, warehouse.warehouseId),
-            ).as('in_stock'),
-          })
-          .from(storeVariantItems)
-          .innerJoin(
-            storeProductVariants,
-            eq(storeProductVariants.id, storeVariantItems.variantId),
-          )
-          .innerJoin(
-            storeProducts,
-            eq(storeProducts.id, storeProductVariants.productId),
-          )
-          .innerJoin(units, eq(units.id, storeProductVariants.unitId))
-          .where(
-            and(
-              eq(storeVariantItems.variantId, line.variantId),
-              eq(storeVariantItems.farmId, warehouse.farmId),
-              this.orderableVariantConditions(),
-            ),
-          )
-          .limit(1);
-        if (row?.inStock) covered.set(line.variantId, row.itemId);
-      }
-      coverage.push({ warehouse, items: covered });
-    }
+    const coverage = candidates.map((warehouse) => ({
+      warehouse,
+      items: new Map<string, string>(),
+    }));
+    if (coverage.length === 0 || lines.length === 0) return coverage;
+
+    // One statement for every warehouse × line pair; same stock rule as before.
+    // Aliases must not clash with the ones inside itemStock() (b, l, ii, si, ti, st).
+    const { rows } = await tx.execute<{
+      warehouse_id: string;
+      line: number;
+      item_id: string;
+    }>(sql`
+      SELECT cart_wh.warehouse_id, cart_line.line, ${storeVariantItems.itemId} AS item_id
+      FROM (VALUES ${sql.join(
+        candidates.map(
+          ({ warehouseId, farmId }) =>
+            sql`(${warehouseId}::uuid, ${farmId}::uuid)`,
+        ),
+        sql`, `,
+      )}) AS cart_wh(warehouse_id, farm_id)
+      CROSS JOIN (VALUES ${sql.join(
+        lines.map(
+          ({ variantId, quantity }, line) =>
+            sql`(${line}::int, ${variantId}::uuid, ${quantity}::numeric)`,
+        ),
+        sql`, `,
+      )}) AS cart_line(line, variant_id, quantity)
+      JOIN ${storeVariantItems}
+        ON ${storeVariantItems.variantId} = cart_line.variant_id
+        AND ${storeVariantItems.farmId} = cart_wh.farm_id
+      JOIN ${storeProductVariants} ON ${storeProductVariants.id} = ${storeVariantItems.variantId}
+      JOIN ${storeProducts} ON ${storeProducts.id} = ${storeProductVariants.productId}
+      JOIN ${units} ON ${units.id} = ${storeProductVariants.unitId}
+      WHERE ${this.orderableVariantConditions()}
+        AND ${this.variantInStock(
+          sql`${storeProductVariants.quantityStep} * cart_line.quantity`,
+          sql`${storeSettings.salesWarehouseId} = cart_wh.warehouse_id`,
+        )}
+    `);
+    const found = new Map(
+      rows.map((row) => [`${row.warehouse_id}:${row.line}`, row.item_id]),
+    );
+    // Insert in cart order, as the per-line loop did: splitGroups() keeps it.
+    for (const { warehouse, items } of coverage)
+      lines.forEach(({ variantId }, line) => {
+        const itemId = found.get(`${warehouse.warehouseId}:${line}`);
+        if (itemId) items.set(variantId, itemId);
+      });
     return coverage;
   }
 
