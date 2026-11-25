@@ -442,6 +442,44 @@ describe('Dashboard timeseries and stock report (migrated PostgreSQL)', () => {
       ).rejects.toMatchObject({ status: 404 });
     }));
 
+  it('reads the ledger once when the table and period totals load together', () =>
+    inRollback(async (tx) => {
+      const { ids, dashboard } = await scenario(tx);
+      const ledger = jest.spyOn(
+        dashboard as unknown as { ledger: () => Promise<unknown> },
+        'ledger',
+      );
+      const [series, report] = await Promise.all([
+        dashboard.timeseries(ids.farm, '2026-09-01', '2026-11-30'),
+        dashboard.stockReport(ids.farm, '2026-09-01', '2026-11-30'),
+      ]);
+      expect(ledger).toHaveBeenCalledTimes(1);
+      // Week buckets come from the shared day-level ledger: the week of Monday
+      // 5 Oct holds the issue of the 5th (4 × 1000) and the receipt of the 10th (4 × 1500).
+      expect(series.granularity).toBe('week');
+      expect(
+        series.periods.find((p) => p.period === '2026-10-05'),
+      ).toMatchObject({
+        inboundValue: '6000',
+        outboundValue: '4000',
+        inboundDocuments: 1,
+        outboundDocuments: 1,
+      });
+      expect(series).toEqual(
+        await dashboard.timeseries(ids.farm, '2026-09-01', '2026-11-30'),
+      );
+      expect(report).toEqual(
+        await dashboard.stockReport(ids.farm, '2026-09-01', '2026-11-30'),
+      );
+      // Nothing is kept once a read settles, and other ranges never share.
+      expect(ledger).toHaveBeenCalledTimes(3);
+      await Promise.all([
+        dashboard.stockReport(ids.farm, '2026-10-01', '2026-10-31'),
+        dashboard.stockReport(ids.farm, '2026-10-02', '2026-10-31'),
+      ]);
+      expect(ledger).toHaveBeenCalledTimes(5);
+    }));
+
   it('shows the report closing value on the dashboard card (AC27)', () =>
     inRollback(async (tx) => {
       const { ids, dashboard } = await scenario(tx);

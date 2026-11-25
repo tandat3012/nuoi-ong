@@ -17,6 +17,7 @@ import {
   MOVE_KINDS,
   type LedgerMove,
   type MoveKind,
+  type ValuedMove,
   moveKind,
   valueMoves,
 } from './stock-valuation';
@@ -97,6 +98,17 @@ type Ledger = (LedgerMove & {
   otherWarehouseId: string | null;
 })[];
 
+type ValuedLedger = { ledger: Ledger; valued: ValuedMove[] };
+
+/** The `granularity` bucket of a ledger day, as date_trunc gives it (weeks start on Monday). */
+export function bucketOf(day: string, granularity: Granularity) {
+  if (granularity === 'day') return day;
+  if (granularity === 'month') return `${day.slice(0, 8)}01`;
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+  return date.toISOString().slice(0, 10);
+}
+
 const TZ = sql.raw(`'Asia/Ho_Chi_Minh'`);
 const rangeStart = (dateFrom: string) =>
   sql`(${dateFrom}::date::timestamp AT TIME ZONE ${TZ})`;
@@ -119,6 +131,9 @@ const inWarehouses =
 
 @Injectable()
 export class DashboardService {
+  /** Ledger reads in flight, by farm and range; an entry lives until its read settles. */
+  private readonly pendingLedgers = new Map<string, Promise<ValuedLedger>>();
+
   constructor(private readonly databaseService: DatabaseService) {}
 
   /** `scope` limits stock figures to the caller's warehouses (null = whole farm). */
@@ -219,8 +234,8 @@ export class DashboardService {
         ? sql``
         : sql`AND ${assetInScope(sql.raw('m.asset_id'), scope)}`;
 
-    const [ledger, result] = await Promise.all([
-      this.ledger(farmId, dateFrom, dateTo, granularity),
+    const [{ ledger, valued }, result] = await Promise.all([
+      this.valuedLedger(farmId, dateFrom, dateTo),
       this.databaseService.db.execute<
         Omit<
           TimeseriesPeriod,
@@ -300,18 +315,18 @@ export class DashboardService {
       Record<'in' | 'out', { value: number; documents: Set<string> }>
     >();
     let unpricedMovements = 0;
-    const valued = valueMoves(ledger);
     ledger.forEach((move, index) => {
       const direction = directions[move.kind];
       if (!move.period || !direction || !counted(move.warehouseId)) return;
       if (move.transferKey && !crossesEdge(move)) return;
-      let period = stock.get(move.period);
+      const bucket = bucketOf(move.period, granularity);
+      let period = stock.get(bucket);
       if (!period) {
         period = {
           in: { value: 0, documents: new Set() },
           out: { value: 0, documents: new Set() },
         };
-        stock.set(move.period, period);
+        stock.set(bucket, period);
       }
       period[direction].value += Math.abs(valued[index].value);
       period[direction].documents.add(move.document);
@@ -352,8 +367,8 @@ export class DashboardService {
   ): Promise<{ rows: StockReportRow[] }> {
     granularityFor(dateFrom, dateTo);
     await this.assertWarehouse(farmId, warehouseId);
-    const [ledger, names] = await Promise.all([
-      this.ledger(farmId, dateFrom, dateTo, 'day'),
+    const [{ ledger, valued }, names] = await Promise.all([
+      this.valuedLedger(farmId, dateFrom, dateTo),
       this.databaseService.db.execute<{
         warehouseId: string;
         warehouseCode: string;
@@ -389,7 +404,6 @@ export class DashboardService {
         closingUnpriced: number;
       }
     >();
-    const valued = valueMoves(ledger);
     const shown = inWarehouses(warehouseId, scope);
     ledger.forEach((move, index) => {
       if (!shown(move.warehouseId)) return;
@@ -471,8 +485,7 @@ export class DashboardService {
   private async stockValue(farmId: string, scope: WarehouseScope) {
     if (scope?.length === 0) return { stockValue: '0', unpricedItems: 0 };
     const today = vietnamDate(new Date());
-    const ledger = await this.ledger(farmId, today, today, 'day');
-    const valued = valueMoves(ledger);
+    const { ledger, valued } = await this.valuedLedger(farmId, today, today);
     const shown = inWarehouses(undefined, scope);
     const stocks = new Map<string, { itemId: string; unpriced: number }>();
     let total = 0;
@@ -502,17 +515,42 @@ export class DashboardService {
   }
 
   /**
+   * The farm's day-bucketed ledger and its values. Concurrent calls for the same
+   * farm and range share one read: the stock tab asks for the table and the
+   * period totals at once. Each caller still filters by its own warehouses, and
+   * nothing is kept once the read settles.
+   */
+  private valuedLedger(
+    farmId: string,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<ValuedLedger> {
+    const key = `${farmId}:${dateFrom}:${dateTo}`;
+    const pending = this.pendingLedgers.get(key);
+    if (pending) return pending;
+    const read = this.ledger(farmId, dateFrom, dateTo).then((ledger) => ({
+      ledger,
+      valued: valueMoves(ledger),
+    }));
+    this.pendingLedgers.set(key, read);
+    const forget = () => {
+      if (this.pendingLedgers.get(key) === read)
+        this.pendingLedgers.delete(key);
+    };
+    read.then(forget, forget);
+    return read;
+  }
+
+  /**
    * The farm's ledger up to the end of `dateTo`, in the order valueMoves needs;
-   * `period` is the bucket for rows on or after `dateFrom`, null before.
+   * `period` is the Vietnam day of rows on or after `dateFrom`, null before.
    * shortcut: reads the whole history on each call; add month-end snapshots if the ledger gets large.
    */
   private async ledger(
     farmId: string,
     dateFrom: string,
     dateTo: string,
-    granularity: Granularity,
   ): Promise<Ledger> {
-    const unit = sql.raw(`'${granularity}'`);
     const result = await this.databaseService.db.execute<{
       warehouseId: string;
       itemId: string;
@@ -563,7 +601,7 @@ export class DashboardService {
               AND t2.transaction_type IN ('TRANSFER_IN', 'TRANSFER_OUT') LIMIT 1)
         )::text END AS "otherWarehouseId",
         CASE WHEN t.created_at >= ${rangeStart(dateFrom)} THEN
-          to_char(date_trunc(${unit}, t.created_at AT TIME ZONE ${TZ}), 'YYYY-MM-DD')
+          to_char(t.created_at AT TIME ZONE ${TZ}, 'YYYY-MM-DD')
         END AS "period"
       FROM inventory_transactions t
       LEFT JOIN receipt_price rp ON t.source_type = 'STOCK_RECEIPT'
