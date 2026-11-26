@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  coalesce,
   notificationBadgeText,
   notificationBodyText,
   notificationDocumentCode,
@@ -101,4 +102,21 @@ test('notifications keep the permanent or asset code; uncoded drafts get the doc
     }),
     'Phiếu nhập kho PN-8d049163 đang chờ duyệt.',
   );
+});
+
+test('coalesce runs once per burst of triggers and not after cancel', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let runs = 0;
+  const refresh = coalesce(() => { runs += 1; }, 100);
+  refresh.trigger();
+  refresh.trigger();
+  t.mock.timers.tick(100);
+  assert.equal(runs, 1);
+  refresh.trigger();
+  t.mock.timers.tick(100);
+  assert.equal(runs, 2);
+  refresh.trigger();
+  refresh.cancel();
+  t.mock.timers.tick(100);
+  assert.equal(runs, 2);
 });

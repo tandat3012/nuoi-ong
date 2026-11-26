@@ -142,3 +142,23 @@ export function notificationErrorMessage(status: number | null, message: string)
   if (status === 400) return `Dữ liệu không hợp lệ: ${message}`;
   return 'Không tải được thông báo';
 }
+
+/**
+ * Runs `run` once for a burst of triggers within `waitMs`. Returning to a tab
+ * fires both `focus` and `visibilitychange`; this turns them into one reload.
+ */
+export function coalesce(run: () => void, waitMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    trigger() {
+      timer ??= setTimeout(() => {
+        timer = undefined;
+        run();
+      }, waitMs);
+    },
+    cancel() {
+      clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
