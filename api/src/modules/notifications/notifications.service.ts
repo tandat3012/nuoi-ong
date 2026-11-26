@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import { notifications, users } from '../../db/schema';
@@ -109,7 +109,7 @@ export class NotificationsService {
     ];
     if (filters.unreadOnly) conditions.push(isNull(notifications.readAt));
     const where = and(...conditions);
-    const [rawRows, unreadTotals, filteredTotals] = await Promise.all([
+    const [rawRows, [totals]] = await Promise.all([
       this.database.db
         .select()
         .from(notifications)
@@ -117,31 +117,26 @@ export class NotificationsService {
         .orderBy(desc(notifications.createdAt), desc(notifications.id))
         .limit(filters.pageSize)
         .offset(filters.offset),
+      // Same filter as the page, so unread-only keeps the partial unread index;
+      // there every row is unread and both totals match.
       this.database.db
-        .select({ value: count() })
-        .from(notifications)
-        .where(
-          and(
-            eq(notifications.userId, userId),
-            eq(notifications.farmId, filters.farmId),
-            isNull(notifications.readAt),
-          ),
-        ),
-      this.database.db
-        .select({ value: count() })
+        .select({
+          all: count(),
+          unread: sql<string>`count(*) filter (where ${notifications.readAt} is null)`,
+        })
         .from(notifications)
         .where(where),
     ]);
     const data = rawRows.map((row) => this.normalizeNotificationRow(row));
-    const filteredCount = Number(filteredTotals[0]?.value ?? 0);
+    // An aggregate without GROUP BY always returns exactly one row.
     return {
       data,
-      unreadCount: Number(unreadTotals[0]?.value ?? 0),
+      unreadCount: Number(totals.unread),
       page: {
         number: filters.page,
         size: filters.pageSize,
-        totalItems: filteredCount,
-        totalPages: Math.ceil(filteredCount / filters.pageSize),
+        totalItems: totals.all,
+        totalPages: Math.ceil(totals.all / filters.pageSize),
       },
     };
   }
