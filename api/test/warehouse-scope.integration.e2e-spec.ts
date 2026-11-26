@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from '../src/db/schema';
@@ -172,6 +172,43 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
         ...page,
       });
       expect(idleWarehouses.page.totalItems).toBe(0);
+    }));
+
+  it('counts the stock page total in the summary query, keeping the response shape', () =>
+    inRollback(async (tx) => {
+      const { ids, inventory } = await setup(tx);
+      const [{ n }] = (
+        await tx.execute<{ n: number }>(
+          sql`SELECT count(*)::int AS n FROM inventory_balances WHERE farm_id = ${ids.farm} AND quantity_on_hand > 0`,
+        )
+      ).rows;
+      expect(n).toBeGreaterThan(1);
+      const select = jest.spyOn(tx, 'select');
+      const stock = await inventory.listBalances({
+        farmId: ids.farm,
+        clerkUserId: ids.admin,
+        page: 1,
+        pageSize: 1,
+        offset: 0,
+      });
+      // Warehouse scope, the page rows, and one aggregate for total + summary.
+      expect(select).toHaveBeenCalledTimes(3);
+      expect(stock.data).toHaveLength(1);
+      expect(stock.page).toEqual({
+        number: 1,
+        size: 1,
+        totalItems: n,
+        totalPages: n,
+      });
+      expect(Object.keys(stock.summary).sort()).toEqual([
+        'assetBalanceRows',
+        'expiredLots',
+        'expiringLots',
+        'healthyLots',
+        'lotBalanceRows',
+        'lotRowsWithoutLot',
+        'lotsWithoutExpiry',
+      ]);
     }));
 
   it('lets only managers of the destination receive an asset dispatched across warehouses (P1-02)', () =>
