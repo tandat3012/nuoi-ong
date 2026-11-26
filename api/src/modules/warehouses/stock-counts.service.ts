@@ -123,7 +123,7 @@ export class StockCountsService {
         .select()
         .from(stockCounts)
         .where(where)
-        .orderBy(desc(stockCounts.createdAt))
+        .orderBy(desc(stockCounts.createdAt), desc(stockCounts.id))
         .limit(f.pageSize)
         .offset(f.offset),
       this.dbService.db

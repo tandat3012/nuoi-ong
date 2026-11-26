@@ -113,7 +113,7 @@ export class StockTransfersService {
         .select()
         .from(stockTransfers)
         .where(w)
-        .orderBy(desc(stockTransfers.createdAt))
+        .orderBy(desc(stockTransfers.createdAt), desc(stockTransfers.id))
         .limit(f.pageSize)
         .offset(f.offset),
       this.databaseService.db

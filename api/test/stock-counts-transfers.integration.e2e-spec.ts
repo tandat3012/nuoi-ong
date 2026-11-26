@@ -1384,4 +1384,45 @@ describe('Warehouse count and transfer UI HTTP contracts', () => {
       expect(await ledger()).toEqual([]);
     },
   );
+
+  it.each(['counts', 'transfers'] as const)(
+    'pages %s created in one transaction in a fixed id order, each exactly once',
+    async (kind) => {
+      // Ascending ids, so insertion order is the opposite of the expected order.
+      const ids = Array.from({ length: 5 }, () => randomUUID()).sort();
+      const rows = ids.map((id) => ({
+        id,
+        farmId: farm,
+        createdByMemberId: member,
+      }));
+      // One transaction gives every row the same now(), so created_at ties.
+      await db.transaction(async (tx) => {
+        if (kind === 'counts')
+          await tx
+            .insert(schema.stockCounts)
+            .values(rows.map((row) => ({ ...row, warehouseId: source })));
+        else
+          await tx.insert(schema.stockTransfers).values(
+            rows.map((row) => ({
+              ...row,
+              fromWarehouseId: source,
+              toWarehouseId: destination,
+            })),
+          );
+      });
+      const seen: string[] = [];
+      for (let page = 1; page <= ids.length; page += 1) {
+        const response = await http()
+          .get(`/api/v1/stock-${kind}`)
+          .query({ farmId: farm, page, pageSize: 1 })
+          .expect(200);
+        seen.push(
+          ...(response.body as { data: { id: string }[] }).data.map(
+            (row) => row.id,
+          ),
+        );
+      }
+      expect(seen).toEqual([...ids].sort().reverse());
+    },
+  );
 });
