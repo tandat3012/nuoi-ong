@@ -149,6 +149,27 @@ describe('Store orders (migrated PostgreSQL)', () => {
       ).toBe('585000');
     }));
 
+  it('lists each delivery with only its own lines', () =>
+    inRollback(async ({ ids, service, issues, input }) => {
+      const orders: string[] = [];
+      for (const quantity of [3, 2]) {
+        const { order } = await service.create(ids.customer, input(quantity));
+        const confirmed = await service.confirm(ids.farm, ids.staff, order.id);
+        await issues.confirm(confirmed.stockIssue.id, ids.farm, ids.admin);
+        orders.push(order.id);
+      }
+      const ready = await service.deliveries(ids.farm, ids.staff, 'available');
+      expect(
+        ready.map(({ id, items }) => ({
+          id,
+          items: items.map((item) => item.quantity),
+        })),
+      ).toEqual([
+        { id: orders[0], items: [3] },
+        { id: orders[1], items: [2] },
+      ]);
+    }));
+
   it('lets delivery staff take an order, return it with a reason and mark it delivered', () =>
     inRollback(async ({ ids, service, issues, input }, tx) => {
       const [deliveryRole] = await tx
