@@ -68,7 +68,10 @@ export class StoreWarrantiesService {
     const db = this.databaseService.db;
     const [rows, [{ total }]] = await Promise.all([
       this.rows(db, where)
-        .orderBy(desc(storeWarrantyRequests.createdAt))
+        .orderBy(
+          // NULLS LAST matches idx_store_warranty_requests_farm; created_at is NOT NULL.
+          sql`${storeWarrantyRequests.createdAt} DESC NULLS LAST`,
+        )
         .limit(filters.pageSize)
         .offset(filters.offset),
       db.select({ total: count() }).from(storeWarrantyRequests).where(where),

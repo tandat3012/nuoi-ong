@@ -1728,7 +1728,11 @@ export class StoreOrdersService implements StockTransferHook {
         .from(storeOrders)
         .innerJoin(users, eq(users.id, storeOrders.userId))
         .where(where)
-        .orderBy(desc(storeOrders.createdAt), desc(storeOrders.id))
+        .orderBy(
+          // NULLS LAST matches the (…, created_at DESC NULLS LAST, id) indexes; created_at is NOT NULL.
+          sql`${storeOrders.createdAt} DESC NULLS LAST`,
+          desc(storeOrders.id),
+        )
         .limit(filters.pageSize)
         .offset(filters.offset),
       db

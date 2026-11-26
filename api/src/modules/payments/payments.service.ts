@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, isNull, or, SQL } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, or, sql, SQL } from 'drizzle-orm';
 import { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -221,7 +221,8 @@ export class PaymentsService {
         .leftJoin(storeOrders, eq(storeOrders.id, paymentTransactions.orderId))
         .where(where)
         .orderBy(
-          desc(paymentTransactions.createdAt),
+          // NULLS LAST matches idx_payment_transactions_farm_created; created_at is NOT NULL.
+          sql`${paymentTransactions.createdAt} DESC NULLS LAST`,
           desc(paymentTransactions.id),
         )
         .limit(filters.pageSize)
