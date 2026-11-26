@@ -212,7 +212,7 @@ export class InventoryService {
     predicates.push(validLot);
     const where = and(...predicates);
     const localToday = sql`(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`;
-    const [rows, totals, summaryRows] = await Promise.all([
+    const [rows, [totals]] = await Promise.all([
       this.databaseService.db
         .select({
           id: inventoryBalances.id,
@@ -256,15 +256,9 @@ export class InventoryService {
         .limit(filters.pageSize)
         .offset(filters.offset),
       this.databaseService.db
-        .select({ value: count() })
-        .from(inventoryBalances)
-        .innerJoin(items, eq(inventoryBalances.itemId, items.id))
-        .innerJoin(units, eq(items.unitId, units.id))
-        .innerJoin(warehouses, eq(inventoryBalances.warehouseId, warehouses.id))
-        .leftJoin(inventoryLots, eq(inventoryBalances.lotId, lotIdColumn))
-        .where(where),
-      this.databaseService.db
+        // One pass over the filtered rows gives the page total and the summary.
         .select({
+          totalItems: count(),
           lotBalanceRows: sql<number>`COUNT(*) FILTER (WHERE ${items.trackingMode} = 'LOT')::int`,
           assetBalanceRows: sql<number>`COUNT(*) FILTER (WHERE ${items.trackingMode} = 'ASSET')::int`,
           lotRowsWithoutLot: sql<number>`COUNT(*) FILTER (WHERE ${items.trackingMode} = 'LOT' AND ${inventoryBalances.lotId} IS NULL)::int`,
@@ -280,16 +274,8 @@ export class InventoryService {
         .leftJoin(inventoryLots, eq(inventoryBalances.lotId, lotIdColumn))
         .where(where),
     ]);
-    const totalItems = Number(totals[0]?.value ?? 0);
-    const summary = summaryRows[0] ?? {
-      lotBalanceRows: 0,
-      assetBalanceRows: 0,
-      lotRowsWithoutLot: 0,
-      lotsWithoutExpiry: 0,
-      expiredLots: 0,
-      expiringLots: 0,
-      healthyLots: 0,
-    };
+    // An aggregate without GROUP BY always returns exactly one row.
+    const { totalItems, ...summary } = totals;
     return {
       ...(selectedAsset ? { selectedAsset } : {}),
       data: rows.map((row) => ({
