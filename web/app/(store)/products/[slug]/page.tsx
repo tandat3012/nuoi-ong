@@ -1,4 +1,4 @@
-import { cache } from 'react';
+import { cache, Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -147,12 +147,14 @@ export default async function ProductDetailPage({
       {/* Bố cục 2 cột chính (Gallery + Summary) & Khối thông tin chi tiết đồng bộ quy cách đang chọn */}
       <ProductDetailContent product={product} />
 
-      {/* Sản phẩm liên quan cùng danh mục */}
-      <ProductRelatedProducts
-        categorySlug={product.category.slug}
-        currentProductId={product.id}
-        currentProductSlug={product.slug}
-      />
+      {/* Sản phẩm liên quan cùng danh mục: tải sau, không chặn phần chi tiết */}
+      <Suspense fallback={null}>
+        <ProductRelatedProducts
+          categorySlug={product.category.slug}
+          currentProductId={product.id}
+          currentProductSlug={product.slug}
+        />
+      </Suspense>
     </main>
   );
 }
