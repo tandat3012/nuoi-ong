@@ -35,16 +35,19 @@ export function StockReportTab({
   farmName,
   warehouseName,
   query,
+  itemId,
 }: {
   farmId: string;
   farmName: string;
   warehouseName: string;
   query: Query;
+  /** Show only this row, from a "Mở báo cáo gốc" link. */
+  itemId?: string;
 }) {
   const request = useAuthenticatedRequest();
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{ query: Query; data?: StockReport; error?: string } | null>(null);
-  const [filters, setFilters] = useState<StockReportFilters>({ search: "", itemType: "" });
+  const [filters, setFilters] = useState<StockReportFilters>({ search: "", itemType: "", itemId });
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +67,7 @@ export function StockReportTab({
     const applied = [
       filters.itemType && `Loại: ${ITEM_TYPE_LABELS[filters.itemType]}`,
       filters.search.trim() && `Tìm: ${filters.search.trim()}`,
+      filters.itemId && "Một mặt hàng (từ Hỏi dữ liệu)",
     ].filter(Boolean);
     const csv = stockReportCsv(view, {
       farmName,
@@ -112,6 +116,11 @@ export function StockReportTab({
             ))}
           </Select>
         </label>
+        {filters.itemId && (
+          <Button type="button" variant="ghost" onClick={() => setFilters((value) => ({ ...value, itemId: undefined }))}>
+            Đang xem một mặt hàng · Hiện tất cả
+          </Button>
+        )}
         <Button type="button" variant="outline" onClick={download} disabled={lineCount === 0}>
           <Download className="size-4" aria-hidden="true" />
           Tải CSV

@@ -19,6 +19,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+import { AssistantModule } from './modules/assistant/assistant.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     DashboardModule,
     NotificationsModule,
     AuditLogsModule,
+    AssistantModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
