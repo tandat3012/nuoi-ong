@@ -122,6 +122,25 @@ describe('Store warranties NV06 (migrated PostgreSQL)', () => {
       });
     }));
 
+  it('pages requests created at the same instant in a fixed id order, each once', () =>
+    inRollback(async (ctx) => {
+      const { order, line } = await delivered(ctx);
+      // One outer transaction: every request shares now(), so created_at ties.
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i += 1)
+        ids.push((await claim(ctx, order.id, line.id)).id);
+      const seen: string[] = [];
+      for (let page = 1; page <= ids.length; page += 1) {
+        const result = await ctx.warranties.list(ctx.ids.farm, ctx.ids.staff, {
+          page,
+          pageSize: 1,
+          offset: page - 1,
+        });
+        seen.push(...result.data.map((row) => row.id));
+      }
+      expect(seen).toEqual([...ids].sort().reverse());
+    }));
+
   it('keeps the warranty sold with the order and allows only paid repair once it expired', () =>
     inRollback(async (ctx, tx) => {
       const { ids } = ctx;
