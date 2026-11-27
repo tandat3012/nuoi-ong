@@ -65,7 +65,8 @@ export function stockLine(row: StockReportRow): StockReportLine {
 
 const zero = () => Object.fromEntries(STOCK_COLUMNS.map((column) => [column, 0])) as Record<StockColumn, number>;
 
-export type StockReportFilters = { search: string; itemType: ItemType | "" };
+/** `itemId`: one exact row, set by the "Hỏi dữ liệu" link. */
+export type StockReportFilters = { search: string; itemType: ItemType | ""; itemId?: string };
 export type StockReportGroup = {
   warehouseId: string;
   warehouseName: string;
@@ -80,6 +81,7 @@ export function stockReportView(rows: StockReportRow[], filters: StockReportFilt
   const total = zero();
   let unpriced = 0;
   for (const row of rows) {
+    if (filters.itemId && row.itemId !== filters.itemId) continue;
     if (filters.itemType && row.itemType !== filters.itemType) continue;
     if (filters.search.trim() && !matchesSearch(`${row.itemCode} ${row.itemName}`, filters.search)) continue;
     let group = groups.get(row.warehouseId);

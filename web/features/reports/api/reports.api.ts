@@ -1,5 +1,6 @@
 import type { AuthenticatedRequest } from "@/features/warehouses";
 import type { StockReport, StockTimeseries } from "../types/reports";
+import type { ReportFilters } from "../report-question.logic";
 
 type ReportParams = { farmId: string; dateFrom: string; dateTo: string; warehouseId?: string };
 const params = (query: ReportParams) => ({ ...query, warehouseId: query.warehouseId || undefined });
@@ -10,4 +11,8 @@ export function getStockTimeseries(request: AuthenticatedRequest, query: ReportP
 
 export function getStockReport(request: AuthenticatedRequest, query: ReportParams) {
   return request<{ data: StockReport }>("/dashboard/stock-report", { params: params(query) });
+}
+
+export function askReportFilters(request: AuthenticatedRequest, farmId: string, question: string) {
+  return request<{ data: ReportFilters }>("/assistant/report-filters", { method: "POST", params: { farmId }, data: { question } });
 }

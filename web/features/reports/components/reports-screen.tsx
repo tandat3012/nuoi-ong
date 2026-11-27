@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useAuthenticatedRequest, useFarmMembership } from "@/features/auth";
 import { getWarehouses, type Warehouse } from "@/features/warehouses";
@@ -29,8 +30,10 @@ import {
   type ReportPreset,
   type StockMode,
 } from "../reports.logic";
+import { parseReportLink, reportLinkQuery, type ReportLink } from "../report-question.logic";
 import type { StockTimeseries } from "../types/reports";
 import { ReportBarChart } from "./report-bar-chart";
+import { ReportQuestion } from "./report-question";
 import { StockReportTab } from "./stock-report-tab";
 
 const TABS = [
@@ -55,7 +58,7 @@ export function ReportsScreen() {
   return (
     <div className="space-y-6">
       <PageHeader title="Thống kê" description={`Nhập – xuất – tồn kho và chi phí theo thời gian · ${membership.farm.name}`} />
-      <StockReports
+      <ReportsWorkspace
         key={membership.farm.id}
         farmId={membership.farm.id}
         farmName={membership.farm.name}
@@ -66,17 +69,55 @@ export function ReportsScreen() {
 }
 
 type Range = { dateFrom: string; dateTo: string };
+type ReportsProps = { farmId: string; farmName: string; allLabel: string };
+
+/** The question box and the report share one warehouse list; a report link (?tab=stock&…) remounts the report on it. */
+function ReportsWorkspace(props: ReportsProps) {
+  const request = useAuthenticatedRequest();
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  const link = useMemo(() => parseReportLink(new URLSearchParams(search)), [search]);
+  const [warehouses, setWarehouses] = useState<Warehouse[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getWarehouses(request, { farmId: props.farmId, page: 1, pageSize: 100 })
+      .then(({ data }) => !cancelled && setWarehouses(data))
+      .catch(() => !cancelled && setWarehouses([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [request, props.farmId]);
+
+  function openReport(next: ReportLink) {
+    router.push(`${pathname}${reportLinkQuery(next)}`, { scroll: false });
+    document.getElementById("report-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <>
+      <ReportQuestion farmId={props.farmId} warehouses={warehouses} onOpenReport={openReport} />
+      <StockReports key={link ? search : ""} {...props} warehouses={warehouses ?? []} link={link} />
+    </>
+  );
+}
 
 /** `allLabel`: warehouse managers only see the warehouses they are assigned to. */
-function StockReports({ farmId, farmName, allLabel }: { farmId: string; farmName: string; allLabel: string }) {
+function StockReports({
+  farmId,
+  farmName,
+  allLabel,
+  warehouses,
+  link,
+}: ReportsProps & { warehouses: Warehouse[]; link: ReportLink | null }) {
   const request = useAuthenticatedRequest();
-  const [preset, setPreset] = useState<ReportPreset | null>("3m");
-  const [custom, setCustom] = useState<Range | null>(null);
+  const [preset, setPreset] = useState<ReportPreset | null>(link ? null : "3m");
+  const [custom, setCustom] = useState<Range | null>(link && { dateFrom: link.dateFrom, dateTo: link.dateTo });
   const [customError, setCustomError] = useState<string | null>(null);
-  const [warehouseId, setWarehouseId] = useState("");
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseId, setWarehouseId] = useState(link?.warehouseId ?? "");
   const [mode, setMode] = useState<StockMode>("value");
-  const [tab, setTab] = useState<Tab>("charts");
+  const [tab, setTab] = useState<Tab>(link ? "stock" : "charts");
   const [attempt, setAttempt] = useState(0);
   const range = useMemo(
     () => custom ?? presetRange(preset ?? "3m", vietnamToday()),
@@ -84,16 +125,6 @@ function StockReports({ farmId, farmName, allLabel }: { farmId: string; farmName
   );
   const query = useMemo(() => ({ ...range, warehouseId }), [range, warehouseId]);
   const [result, setResult] = useState<{ query: typeof query; data?: StockTimeseries; error?: string } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getWarehouses(request, { farmId, page: 1, pageSize: 100 })
-      .then(({ data }) => !cancelled && setWarehouses(data))
-      .catch(() => !cancelled && setWarehouses([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [request, farmId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,7 +213,7 @@ function StockReports({ farmId, farmName, allLabel }: { farmId: string; farmName
         </section>
       )}
 
-      <div role="tablist" aria-label="Nội dung thống kê" className="flex gap-1 border-b">
+      <div id="report-tabs" role="tablist" aria-label="Nội dung thống kê" className="flex scroll-mt-4 gap-1 border-b">
         {TABS.map(({ key, label }) => (
           <button
             key={key}
@@ -209,6 +240,7 @@ function StockReports({ farmId, farmName, allLabel }: { farmId: string; farmName
             farmName={farmName}
             warehouseName={warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ?? allLabel}
             query={query}
+            itemId={link?.itemId}
           />
         </div>
       )}
