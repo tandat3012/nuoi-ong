@@ -1,23 +1,36 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
   ApiServiceUnavailableResponse,
+  ApiTooManyRequestsResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiFarmIdQuery } from '../../common/swagger-docs';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
 import { FarmRoles } from '../auth/farm-access/farm-access.decorator';
 import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
+import type { AuthRequest } from '../auth/clerk/types/auth-request.type';
 import { AssistantService } from './assistant.service';
+import { QUESTIONS_PER_MINUTE, QuestionLimiter } from './question-limiter';
 import { ReportQuestionDto } from './report-question.dto';
 
 @ApiTags('Assistant')
 @Controller('assistant')
 @ApiBearerAuth('clerk-jwt')
 export class AssistantController {
+  private readonly limiter = new QuestionLimiter();
+
   constructor(private readonly assistantService: AssistantService) {}
 
   @Post('report-filters')
@@ -51,11 +64,20 @@ export class AssistantController {
   @ApiForbiddenResponse({
     description: 'Chỉ quản trị viên, chủ trang trại hoặc quản lý kho.',
   })
+  @ApiTooManyRequestsResponse({
+    description: `AI_RATE_LIMITED: quá ${QUESTIONS_PER_MINUTE} câu mỗi phút cho một người trong một trại; retryAfterSeconds.`,
+  })
   @ApiServiceUnavailableResponse({
     description:
       'AI_UNAVAILABLE: chưa cấu hình, quá thời gian hoặc lỗi Gemini.',
   })
-  async reportFilters(@Body() dto: ReportQuestionDto) {
+  async reportFilters(
+    @Req() request: AuthRequest,
+    @Query('farmId') farmId: string,
+    @Body() dto: ReportQuestionDto,
+  ) {
+    // farmId is already checked by FarmAccessGuard.
+    this.limiter.take(`${request.auth.clerkUserId}:${farmId}`);
     return { data: await this.assistantService.reportFilters(dto.question) };
   }
 }

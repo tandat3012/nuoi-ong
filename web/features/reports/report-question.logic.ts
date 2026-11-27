@@ -95,6 +95,7 @@ export function questionErrorMessage(error: unknown) {
   const status = (error as { status?: number } | null)?.status;
   if (status === 403) return "Chỉ quản trị viên, chủ trại hoặc quản lý kho mới hỏi được dữ liệu kho.";
   if (status === 400) return "Câu hỏi trống hoặc dài quá 300 ký tự.";
+  if (status === 429) return "Bạn hỏi hơi nhanh: tối đa 10 câu mỗi phút. Chờ một chút rồi hỏi lại.";
   if (status === 503) return "Trợ lý tạm thời không phản hồi. Thử lại sau ít phút, hoặc xem báo cáo bên dưới.";
   return "Không gửi được câu hỏi. Vui lòng thử lại.";
 }

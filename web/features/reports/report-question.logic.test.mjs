@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { answerLines, matchByName, missingFilters, parseReportLink, pickedWithoutAsking, reportLinkQuery } from "./report-question.logic.ts";
+import { answerLines, matchByName, missingFilters, parseReportLink, pickedWithoutAsking, questionErrorMessage, reportLinkQuery } from "./report-question.logic.ts";
 import { stockReportView } from "./stock-report.logic.ts";
 
 const warehouses = [
@@ -110,4 +110,9 @@ test("the item filter keeps only the answered row, even when search would match 
   const view = stockReportView([row, other], { search: "", itemType: "", itemId: "i1" });
   assert.deepEqual(view.groups.flatMap((g) => g.lines.map((l) => l.row.itemId)), ["i1"]);
   assert.equal(stockReportView([row, other], { search: "mật ong", itemType: "" }).groups[0].lines.length, 2);
+});
+
+test("rate limit and AI outage get their own messages", () => {
+  assert.match(questionErrorMessage({ status: 429 }), /10 câu mỗi phút/);
+  assert.match(questionErrorMessage({ status: 503 }), /tạm thời/);
 });

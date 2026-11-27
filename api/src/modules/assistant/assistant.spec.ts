@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { FARM_ROLES_KEY } from '../auth/farm-access/farm-access.decorator';
 import { FarmAccessGuard } from '../auth/farm-access/farm-access.guard';
@@ -6,6 +6,7 @@ import { WAREHOUSE_MANAGE_ROLES } from '../auth/farm-access/farm-role-groups';
 import { AssistantController } from './assistant.controller';
 import { AssistantService } from './assistant.service';
 import { parseReportFilters, reportFilterInstruction } from './report-filters';
+import { QUESTIONS_PER_MINUTE, QuestionLimiter } from './question-limiter';
 
 const answer = (filters: object) =>
   new Response(
@@ -184,5 +185,29 @@ describe('AssistantController access', () => {
     expect(Reflect.getMetadata(FARM_ROLES_KEY, handler)).toEqual([
       ...WAREHOUSE_MANAGE_ROLES,
     ]);
+  });
+});
+
+describe('QuestionLimiter', () => {
+  it('allows 10 questions per member and farm in a sliding minute', () => {
+    const limiter = new QuestionLimiter();
+    for (let i = 0; i < QUESTIONS_PER_MINUTE; i += 1)
+      limiter.take('user:farm', 1_000 + i);
+    let response: { code: string; retryAfterSeconds: number } | undefined;
+    try {
+      limiter.take('user:farm', 30_000);
+    } catch (error) {
+      expect((error as HttpException).getStatus()).toBe(429);
+      response = (error as HttpException).getResponse() as typeof response;
+    }
+    expect(response).toMatchObject({
+      code: 'AI_RATE_LIMITED',
+      retryAfterSeconds: 31,
+    });
+    // Another member, or the same member in another farm, is not affected.
+    expect(() => limiter.take('other:farm', 30_000)).not.toThrow();
+    expect(() => limiter.take('user:farm2', 30_000)).not.toThrow();
+    // The oldest question leaves the window after a minute.
+    expect(() => limiter.take('user:farm', 61_001)).not.toThrow();
   });
 });
