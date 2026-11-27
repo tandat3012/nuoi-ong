@@ -315,4 +315,82 @@ describe('Materials HTTP contract with local PostgreSQL', () => {
       .send({ trackingMode: 'QUANTITY' })
       .expect(409);
   });
+
+  it('counts the page total and low stock in one summary query matching the per-item formula', async () => {
+    const warehouseId = randomUUID();
+    await client!.query(
+      'INSERT INTO warehouses (id, farm_id, code, name) VALUES ($1,$2,$3,$3)',
+      [warehouseId, farmA, `${tag}-WH`],
+    );
+    // [min stock, quantity on hand or null for no balance row, tracking, status]
+    const cases: [string, string | null, string, string][] = [
+      ['0', null, 'QUANTITY', 'ACTIVE'],
+      ['5', '3', 'QUANTITY', 'ACTIVE'],
+      ['5', '9', 'LOT', 'ACTIVE'],
+      ['0', '2', 'QUANTITY', 'INACTIVE'],
+      ['4', '4', 'QUANTITY', 'ACTIVE'],
+    ];
+    for (const [index, [min, quantity, tracking, status]] of cases.entries()) {
+      const id = randomUUID();
+      await client!.query(
+        "INSERT INTO items (id, farm_id, category_id, unit_id, code, name, item_type, tracking_mode, min_stock_level, status) VALUES ($1,$2,$3,$4,$5,$5,'MATERIAL',$6,$7,$8)",
+        [
+          id,
+          farmA,
+          categoryId,
+          unitId,
+          `${tag}-SUM-${index}`,
+          tracking,
+          min,
+          status,
+        ],
+      );
+      if (quantity !== null)
+        await client!.query(
+          'INSERT INTO inventory_balances (farm_id, warehouse_id, item_id, quantity_on_hand) VALUES ($1,$2,$3,$4)',
+          [farmA, warehouseId, id, quantity],
+        );
+    }
+    // The original per-item formula, as an oracle.
+    const expected = (
+      await client!.query<{
+        total: number;
+        lot: number;
+        active: number;
+        low: number;
+      }>(
+        `SELECT count(*)::int AS total,
+           count(*) FILTER (WHERE i.tracking_mode = 'LOT')::int AS lot,
+           count(*) FILTER (WHERE i.status = 'ACTIVE')::int AS active,
+           count(*) FILTER (WHERE q.qty <= 0 OR (i.min_stock_level > 0 AND q.qty <= i.min_stock_level))::int AS low
+         FROM items i,
+           LATERAL (SELECT COALESCE(SUM(b.quantity_on_hand), 0) AS qty FROM inventory_balances b
+                    WHERE b.item_id = i.id AND b.farm_id = i.farm_id) q
+         WHERE i.farm_id = $1 AND i.item_type = 'MATERIAL'`,
+        [farmA],
+      )
+    ).rows[0];
+    expect(expected.low).toBeGreaterThan(0);
+    const query = jest.spyOn(client!, 'query');
+    try {
+      const result = await app!
+        .get(MaterialsService)
+        .listMaterials({ farmId: farmA, page: 1, pageSize: 1, offset: 0 });
+      // Page rows plus one aggregate for the total and the summary.
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(result.page).toEqual({
+        number: 1,
+        size: 1,
+        totalItems: expected.total,
+        totalPages: expected.total,
+      });
+      expect(result.summary).toEqual({
+        lotCount: expected.lot,
+        activeCount: expected.active,
+        lowStockCount: expected.low,
+      });
+    } finally {
+      query.mockRestore();
+    }
+  });
 });

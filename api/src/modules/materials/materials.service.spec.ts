@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
 import type { DatabaseService } from '../../db/database.service';
 import { MaterialsService } from './materials.service';
 
@@ -44,6 +45,14 @@ describe('MaterialsService', () => {
     query.offset.mockReturnValue(query);
     query.for.mockReturnValue(query);
     return query;
+  }
+
+  /** The per-item stock subquery that listMaterials joins into its summary. */
+  function balancesSubquery() {
+    const query = queryReturning([]);
+    return Object.assign(query, {
+      as: () => ({ itemId: sql`item_id`, quantity: sql`quantity` }),
+    });
   }
 
   function mockGetMaterial(material: unknown[]) {
@@ -233,10 +242,13 @@ describe('MaterialsService', () => {
   it('returns a paginated material list and quantity', async () => {
     const rows = [{ item: { code: 'MAT-TEST' }, quantityOnHand: '12' }];
     select
+      .mockReturnValueOnce(balancesSubquery())
       .mockReturnValueOnce(queryReturning(rows))
-      .mockReturnValueOnce(queryReturning([{ value: '1' }]))
+      // Page total and summary come from one aggregate query.
       .mockReturnValueOnce(
-        queryReturning([{ lotCount: 1, activeCount: 1, lowStockCount: 0 }]),
+        queryReturning([
+          { totalItems: 1, lotCount: 1, activeCount: 1, lowStockCount: 0 },
+        ]),
       );
 
     await expect(
@@ -256,9 +268,14 @@ describe('MaterialsService', () => {
 
   it('returns no materials when the filtered result is empty', async () => {
     select
+      .mockReturnValueOnce(balancesSubquery())
       .mockReturnValueOnce(queryReturning([]))
-      .mockReturnValueOnce(queryReturning([]))
-      .mockReturnValueOnce(queryReturning([]));
+      // An aggregate without GROUP BY returns one row of zeros when nothing matches.
+      .mockReturnValueOnce(
+        queryReturning([
+          { totalItems: 0, lotCount: 0, activeCount: 0, lowStockCount: 0 },
+        ]),
+      );
 
     await expect(
       service.listMaterials({ farmId, page: 1, pageSize: 20, offset: 0 }),
