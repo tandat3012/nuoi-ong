@@ -1280,15 +1280,20 @@ export class StoreOrdersService implements StockTransferHook {
           )
           .orderBy(asc(storeOrderItems.id))
       : [];
+    // Group once instead of filtering all lines per order; keeps line order.
+    const linesByOrder = new Map<
+      string,
+      Omit<(typeof lines)[number], 'orderId'>[]
+    >();
+    for (const { orderId, ...line } of lines) {
+      const group = linesByOrder.get(orderId);
+      if (group) group.push(line);
+      else linesByOrder.set(orderId, [line]);
+    }
     return rows.map(({ orderNumber, ...row }) => ({
       ...row,
       code: orderCode(orderNumber),
-      items: lines
-        .filter((line) => line.orderId === row.id)
-        .map(({ orderId, ...line }) => {
-          void orderId;
-          return line;
-        }),
+      items: linesByOrder.get(row.id) ?? [],
     }));
   }
 
