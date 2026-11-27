@@ -55,8 +55,15 @@ function StoreSearchBarInner({
   React.useEffect(() => {
     if (!isOpen || trimmedKeyword.length < 2) return;
     let active = true;
+    // Cancels a request still in flight when the keyword or region changes.
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      getProductsStore({ q: trimmedKeyword, pageSize: 5, region })
+      getProductsStore({
+        q: trimmedKeyword,
+        pageSize: 5,
+        region,
+        signal: controller.signal,
+      })
         .then((res) => {
           if (!active) return;
           setSuggestions({
@@ -74,6 +81,7 @@ function StoreSearchBarInner({
     return () => {
       active = false;
       clearTimeout(timer);
+      controller.abort();
     };
   }, [isOpen, trimmedKeyword, region, searchKey]);
 

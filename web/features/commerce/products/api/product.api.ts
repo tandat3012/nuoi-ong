@@ -14,6 +14,8 @@ export interface StoreProductsQuery {
   sort?: 'price_asc' | 'price_desc';
   inStock?: boolean;
   region?: StoreRegion | null;
+  /** Aborts the request, e.g. when a newer search replaces it. */
+  signal?: AbortSignal;
 }
 
 export async function getProductsStore(
@@ -80,7 +82,11 @@ export async function getProductsStore(
     `${baseUrl}${API_CONFIG.VERSION}/store/products?${query}`,
     {
       cache: 'no-store',
-      signal: AbortSignal.timeout(10000),
+      // AbortSignal.any is missing before Safari 17.4: keep the timeout only there.
+      signal:
+        queryObj.signal && typeof AbortSignal.any === 'function'
+          ? AbortSignal.any([AbortSignal.timeout(10000), queryObj.signal])
+          : AbortSignal.timeout(10000),
     },
   );
 
