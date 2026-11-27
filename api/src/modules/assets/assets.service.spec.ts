@@ -49,9 +49,11 @@ describe('AssetsService', () => {
     const rows = [{ asset: { id: assetId, assetCode: 'ASSET-001' } }];
     select
       .mockReturnValueOnce(queryReturning(rows))
-      .mockReturnValueOnce(queryReturning([{ value: '1' }]))
+      // Page total and summary come from one aggregate query.
       .mockReturnValueOnce(
-        queryReturning([{ available: 1, inUse: 0, attention: 0 }]),
+        queryReturning([
+          { totalItems: 1, available: 1, inUse: 0, attention: 0 },
+        ]),
       );
 
     await expect(
