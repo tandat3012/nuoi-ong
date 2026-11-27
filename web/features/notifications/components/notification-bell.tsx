@@ -18,6 +18,7 @@ import {
   type Notification, type NotificationsResponse,
 } from '../api/notifications.api';
 import {
+  coalesce,
   notificationBadgeText,
   notificationBodyText,
   notificationDocumentCode,
@@ -66,12 +67,15 @@ function FarmNotificationBell({ farmId }: { farmId: string }) {
 
   useEffect(() => {
     active.current = true;
-    const onVisible = () => { if (document.visibilityState === 'visible') reload(); };
-    window.addEventListener('focus', reload);
+    // Returning to the tab fires focus and visibilitychange: one reload for both.
+    const refresh = coalesce(reload, 100);
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh.trigger(); };
+    window.addEventListener('focus', refresh.trigger);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       active.current = false;
-      window.removeEventListener('focus', reload);
+      refresh.cancel();
+      window.removeEventListener('focus', refresh.trigger);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [reload]);
