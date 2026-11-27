@@ -77,7 +77,8 @@ export class AssistantController {
     @Body() dto: ReportQuestionDto,
   ) {
     // farmId is already checked by FarmAccessGuard.
-    this.limiter.take(`${request.auth.clerkUserId}:${farmId}`);
+    // Lowercased: Postgres accepts either case of the same UUID.
+    this.limiter.take(`${request.auth.clerkUserId}:${farmId.toLowerCase()}`);
     return { data: await this.assistantService.reportFilters(dto.question) };
   }
 }
