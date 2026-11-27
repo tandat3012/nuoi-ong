@@ -853,6 +853,37 @@ describe('Stock document approval rules', () => {
         auditLogs.list({ ...page, farmId: farm, clerkUserId: clerk('guest') }),
       ).rejects.toThrow('Audit history permission is required');
     });
+
+    it('reads every label of a page in one query', async () => {
+      await db.insert(schema.auditLogs).values({
+        farmId: farm,
+        userId: actors.owner.id,
+        action: 'UPDATE',
+        entityType: 'WAREHOUSE',
+        entityId: warehouse,
+        newData: { itemId: item, memberId: actors.peer.member },
+      });
+      const query = jest.spyOn(pool, 'query');
+      try {
+        const view = await auditLogs.list({
+          page: 1,
+          pageSize: 50,
+          offset: 0,
+          farmId: farm,
+          clerkUserId: clerk('owner'),
+          entityType: 'WAREHOUSE',
+        });
+        // Membership, page rows, total, then all labels in one UNION ALL.
+        expect(query).toHaveBeenCalledTimes(4);
+        expect(view.references).toMatchObject({
+          [warehouse]: `SOURCE — ${tag}`,
+          [item]: `${tag} — ${tag}`,
+          [actors.peer.member]: `${clerk('peer')}@example.local`,
+        });
+      } finally {
+        query.mockRestore();
+      }
+    });
   });
 
   describe.each(cases)('$type owner numbering options', (document) => {

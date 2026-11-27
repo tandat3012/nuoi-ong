@@ -3,16 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  and,
-  AnyColumn,
-  count,
-  desc,
-  eq,
-  inArray,
-  sql,
-  SQL,
-} from 'drizzle-orm';
+import { and, AnyColumn, count, desc, eq, sql, SQL } from 'drizzle-orm';
+import { unionAll } from 'drizzle-orm/pg-core';
 import type { PaginationParams } from '../../common/query-params';
 import { DatabaseService } from '../../db/database.service';
 import {
@@ -190,44 +182,48 @@ export class AuditLogsService {
     const ids = [...found];
     if (!ids.length) return {};
     const db = this.databaseService.db;
+    // One array parameter for every branch instead of one parameter per id.
+    const idList = sql.param(ids);
+    const anyId = (column: AnyColumn) =>
+      sql`${column} = ANY(${idList}::uuid[])`;
     const codeName = (code: AnyColumn, name: AnyColumn) =>
       sql<string>`${code} || ' — ' || ${name}`;
-    const groups = await Promise.all([
+    // One UNION ALL statement instead of a query per table: a page used to
+    // take every pooled connection at once.
+    const labels = await unionAll(
       db
         .select({
           id: warehouses.id,
           label: codeName(warehouses.code, warehouses.name),
         })
         .from(warehouses)
-        .where(and(eq(warehouses.farmId, farmId), inArray(warehouses.id, ids))),
+        .where(and(eq(warehouses.farmId, farmId), anyId(warehouses.id))),
       db
         .select({ id: items.id, label: codeName(items.code, items.name) })
         .from(items)
-        .where(and(eq(items.farmId, farmId), inArray(items.id, ids))),
+        .where(and(eq(items.farmId, farmId), anyId(items.id))),
       db
         .select({
           id: locations.id,
           label: codeName(locations.code, locations.name),
         })
         .from(locations)
-        .where(and(eq(locations.farmId, farmId), inArray(locations.id, ids))),
+        .where(and(eq(locations.farmId, farmId), anyId(locations.id))),
       db
         .select({
           id: suppliers.id,
           label: codeName(suppliers.code, suppliers.name),
         })
         .from(suppliers)
-        .where(and(eq(suppliers.farmId, farmId), inArray(suppliers.id, ids))),
+        .where(and(eq(suppliers.farmId, farmId), anyId(suppliers.id))),
       db
         .select({ id: inventoryLots.id, label: inventoryLots.lotCode })
         .from(inventoryLots)
-        .where(
-          and(eq(inventoryLots.farmId, farmId), inArray(inventoryLots.id, ids)),
-        ),
+        .where(and(eq(inventoryLots.farmId, farmId), anyId(inventoryLots.id))),
       db
         .select({ id: assets.id, label: assets.assetCode })
         .from(assets)
-        .where(and(eq(assets.farmId, farmId), inArray(assets.id, ids))),
+        .where(and(eq(assets.farmId, farmId), anyId(assets.id))),
       db
         .select({
           id: farmMembers.id,
@@ -235,27 +231,21 @@ export class AuditLogsService {
         })
         .from(farmMembers)
         .innerJoin(users, eq(users.id, farmMembers.userId))
-        .where(
-          and(eq(farmMembers.farmId, farmId), inArray(farmMembers.id, ids)),
-        ),
+        .where(and(eq(farmMembers.farmId, farmId), anyId(farmMembers.id))),
       db
         .select({
           id: stockReceipts.id,
           label: sql<string>`coalesce(${stockReceipts.receiptCode}, 'PN-' || left(${stockReceipts.id}::text, 8))`,
         })
         .from(stockReceipts)
-        .where(
-          and(eq(stockReceipts.farmId, farmId), inArray(stockReceipts.id, ids)),
-        ),
+        .where(and(eq(stockReceipts.farmId, farmId), anyId(stockReceipts.id))),
       db
         .select({
           id: stockIssues.id,
           label: sql<string>`coalesce(${stockIssues.issueCode}, 'PX-' || left(${stockIssues.id}::text, 8))`,
         })
         .from(stockIssues)
-        .where(
-          and(eq(stockIssues.farmId, farmId), inArray(stockIssues.id, ids)),
-        ),
+        .where(and(eq(stockIssues.farmId, farmId), anyId(stockIssues.id))),
       db
         .select({
           id: stockTransfers.id,
@@ -263,10 +253,7 @@ export class AuditLogsService {
         })
         .from(stockTransfers)
         .where(
-          and(
-            eq(stockTransfers.farmId, farmId),
-            inArray(stockTransfers.id, ids),
-          ),
+          and(eq(stockTransfers.farmId, farmId), anyId(stockTransfers.id)),
         ),
       db
         .select({
@@ -274,9 +261,7 @@ export class AuditLogsService {
           label: sql<string>`coalesce(${stockCounts.countCode}, 'KK-' || left(${stockCounts.id}::text, 8))`,
         })
         .from(stockCounts)
-        .where(
-          and(eq(stockCounts.farmId, farmId), inArray(stockCounts.id, ids)),
-        ),
+        .where(and(eq(stockCounts.farmId, farmId), anyId(stockCounts.id))),
       // Maintenance records and requests are named by the asset they concern.
       db
         .select({ id: maintenanceRecords.id, label: assets.assetCode })
@@ -285,7 +270,7 @@ export class AuditLogsService {
         .where(
           and(
             eq(maintenanceRecords.farmId, farmId),
-            inArray(maintenanceRecords.id, ids),
+            anyId(maintenanceRecords.id),
           ),
         ),
       db
@@ -295,7 +280,7 @@ export class AuditLogsService {
         .where(
           and(
             eq(maintenanceRequests.farmId, farmId),
-            inArray(maintenanceRequests.id, ids),
+            anyId(maintenanceRequests.id),
           ),
         ),
       db
@@ -305,14 +290,14 @@ export class AuditLogsService {
         .where(
           and(
             eq(assetTransferRequests.farmId, farmId),
-            inArray(assetTransferRequests.id, ids),
+            anyId(assetTransferRequests.id),
           ),
         ),
       // NV10: the shared catalog is public; sales settings are named by this farm.
       db
         .select({ id: storeProducts.id, label: storeProducts.name })
         .from(storeProducts)
-        .where(inArray(storeProducts.id, ids)),
+        .where(anyId(storeProducts.id)),
       db
         .select({
           id: storeProductVariants.id,
@@ -323,29 +308,29 @@ export class AuditLogsService {
           storeProducts,
           eq(storeProducts.id, storeProductVariants.productId),
         )
-        .where(inArray(storeProductVariants.id, ids)),
+        .where(anyId(storeProductVariants.id)),
       db
         .select({ id: storeCategories.id, label: storeCategories.name })
         .from(storeCategories)
-        .where(inArray(storeCategories.id, ids)),
+        .where(anyId(storeCategories.id)),
       db
         .select({ id: farms.id, label: farms.name })
         .from(farms)
-        .where(and(eq(farms.id, farmId), inArray(farms.id, ids))),
+        .where(and(eq(farms.id, farmId), anyId(farms.id))),
       db
         .select({
           id: categories.id,
           label: codeName(categories.code, categories.name),
         })
         .from(categories)
-        .where(inArray(categories.id, ids)),
+        .where(anyId(categories.id)),
       db
         .select({
           id: units.id,
           label: sql<string>`case when nullif(${units.symbol}, '') is not null then ${units.name} || ' (' || ${units.symbol} || ')' else ${units.name} end`,
         })
         .from(units)
-        .where(inArray(units.id, ids)),
+        .where(anyId(units.id)),
       db
         .select({
           id: users.id,
@@ -353,7 +338,7 @@ export class AuditLogsService {
         })
         .from(users)
         .innerJoin(farmMembers, eq(farmMembers.userId, users.id))
-        .where(and(eq(farmMembers.farmId, farmId), inArray(users.id, ids))),
+        .where(and(eq(farmMembers.farmId, farmId), anyId(users.id))),
       db
         .select({
           id: assetIncidents.id,
@@ -362,10 +347,7 @@ export class AuditLogsService {
         .from(assetIncidents)
         .innerJoin(assets, eq(assets.id, assetIncidents.assetId))
         .where(
-          and(
-            eq(assetIncidents.farmId, farmId),
-            inArray(assetIncidents.id, ids),
-          ),
+          and(eq(assetIncidents.farmId, farmId), anyId(assetIncidents.id)),
         ),
       db
         .select({
@@ -380,10 +362,7 @@ export class AuditLogsService {
         )
         .innerJoin(users, eq(users.id, farmMembers.userId))
         .where(
-          and(
-            eq(assetAssignments.farmId, farmId),
-            inArray(assetAssignments.id, ids),
-          ),
+          and(eq(assetAssignments.farmId, farmId), anyId(assetAssignments.id)),
         ),
       db
         .select({
@@ -391,9 +370,7 @@ export class AuditLogsService {
           label: sql<string>`'DH' || lpad(${storeOrders.orderNumber}::text, 6, '0')`,
         })
         .from(storeOrders)
-        .where(
-          and(eq(storeOrders.farmId, farmId), inArray(storeOrders.id, ids)),
-        ),
+        .where(and(eq(storeOrders.farmId, farmId), anyId(storeOrders.id))),
       db
         .select({
           id: storeWarrantyRequests.id,
@@ -403,14 +380,12 @@ export class AuditLogsService {
         .where(
           and(
             eq(storeWarrantyRequests.farmId, farmId),
-            inArray(storeWarrantyRequests.id, ids),
+            anyId(storeWarrantyRequests.id),
           ),
         ),
-    ]);
+    );
     return Object.fromEntries(
-      groups
-        .flat()
-        .map(({ id, label }) => [id, label ?? `(nháp #${id.slice(0, 8)})`]),
+      labels.map(({ id, label }) => [id, label ?? `(nháp #${id.slice(0, 8)})`]),
     );
   }
 

@@ -10,6 +10,13 @@ import { WarehousesService } from '../warehouses/warehouses.service';
 import { AuditLogsController } from './audit-logs.controller';
 import { AuditLogsService } from './audit-logs.service';
 
+// The per-table mock queries below resolve to rows; the real UNION ALL needs SQL builders.
+jest.mock('drizzle-orm/pg-core', () => ({
+  ...jest.requireActual<object>('drizzle-orm/pg-core'),
+  unionAll: async (...queries: Promise<unknown[]>[]) =>
+    (await Promise.all(queries)).flat(),
+}));
+
 describe('AuditLogsService', () => {
   const farmId = '11111111-1111-4111-8111-111111111111';
   const logId = '22222222-2222-4222-8222-222222222222';
