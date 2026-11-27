@@ -326,7 +326,7 @@ export class AssetsService {
     }
 
     const where = and(...predicates);
-    const [data, totalRows, summaryRows] = await Promise.all([
+    const [data, [totals]] = await Promise.all([
       this.databaseService.db
         .select({
           asset: assets,
@@ -357,20 +357,10 @@ export class AssetsService {
         .orderBy(asc(assets.assetCode))
         .limit(filters.pageSize)
         .offset(filters.offset),
-      this.databaseService.db
-        .select({ value: count() })
-        .from(assets)
-        .innerJoin(items, eq(assets.itemId, items.id))
-        .leftJoin(
-          locations,
-          and(
-            eq(assets.currentLocationId, locations.id),
-            eq(locations.farmId, assets.farmId),
-          ),
-        )
-        .where(where),
+      // One pass over the filtered assets gives the page total and the summary.
       this.databaseService.db
         .select({
+          totalItems: count(),
           available: sql<number>`COUNT(*) FILTER (WHERE ${assets.status} = 'AVAILABLE')::int`,
           inUse: sql<number>`COUNT(*) FILTER (WHERE ${assets.status} IN ('ASSIGNED', 'IN_USE'))::int`,
           attention: sql<number>`COUNT(*) FILTER (WHERE ${assets.status} IN ('MAINTENANCE', 'DAMAGED', 'LOST', 'TRANSFER_PENDING'))::int`,
@@ -387,12 +377,8 @@ export class AssetsService {
         .where(where),
     ]);
 
-    const totalItems = Number(totalRows[0]?.value ?? 0);
-    const summary = summaryRows[0] ?? {
-      available: 0,
-      inUse: 0,
-      attention: 0,
-    };
+    // An aggregate without GROUP BY always returns exactly one row.
+    const { totalItems, ...summary } = totals;
 
     return {
       data,

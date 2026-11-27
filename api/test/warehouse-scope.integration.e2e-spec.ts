@@ -211,6 +211,71 @@ describe('Warehouse scope (migrated PostgreSQL)', () => {
       ]);
     }));
 
+  it('counts the asset page total in the summary query, keeping the response shape', () =>
+    inRollback(async (tx) => {
+      const { ids, warehouses } = await setup(tx);
+      const assetItem = randomUUID();
+      await tx.insert(schema.items).values({
+        id: assetItem,
+        farmId: ids.farm,
+        categoryId: ids.category,
+        unitId: ids.unit,
+        code: assetItem,
+        name: 'Smoker',
+        itemType: 'EQUIPMENT',
+        trackingMode: 'ASSET',
+      });
+      await tx.insert(schema.assets).values(
+        (['AVAILABLE', 'IN_USE', 'LOST'] as const).map((status) => ({
+          farmId: ids.farm,
+          itemId: assetItem,
+          assetCode: `SUM-${randomUUID().slice(0, 8)}`,
+          status,
+          currentLocationId: ids.location,
+        })),
+      );
+      const [expected] = (
+        await tx.execute<{
+          n: number;
+          available: number;
+          in_use: number;
+          attention: number;
+        }>(
+          sql`SELECT count(*)::int AS n,
+            count(*) FILTER (WHERE status = 'AVAILABLE')::int AS available,
+            count(*) FILTER (WHERE status IN ('ASSIGNED', 'IN_USE'))::int AS in_use,
+            count(*) FILTER (WHERE status IN ('MAINTENANCE', 'DAMAGED', 'LOST', 'TRANSFER_PENDING'))::int AS attention
+            FROM assets WHERE farm_id = ${ids.farm}`,
+        )
+      ).rows;
+      const assetsService = new AssetsService(
+        { db: tx } as unknown as DatabaseService,
+        warehouses,
+      );
+      const select = jest.spyOn(tx, 'select');
+      const list = await assetsService.listAssets({
+        farmId: ids.farm,
+        clerkUserId: ids.admin,
+        page: 1,
+        pageSize: 1,
+        offset: 0,
+      });
+      // Warehouse scope, the page rows, and one aggregate for total + summary.
+      expect(select).toHaveBeenCalledTimes(3);
+      expect(list.data).toHaveLength(1);
+      expect(list.page).toEqual({
+        number: 1,
+        size: 1,
+        totalItems: expected.n,
+        totalPages: expected.n,
+      });
+      expect(list.summary).toEqual({
+        available: expected.available,
+        inUse: expected.in_use,
+        attention: expected.attention,
+      });
+    }));
+
   it('lets only managers of the destination receive an asset dispatched across warehouses (P1-02)', () =>
     inRollback(async (tx) => {
       const { ids, people, warehouses } = await setup(tx);
