@@ -156,4 +156,37 @@ describe('In-app notifications with PostgreSQL', () => {
       service.list({ ...page, clerkUserId: `${tag}-missing`, farmId: farm }),
     ).rejects.toThrow('Active user account is required');
   });
+
+  it('reads both totals in one query, for all and unread-only pages', async () => {
+    await seed(userA, farm);
+    await seed(userA, farm);
+    await seed(userA, farm, true);
+    await seed(userA, otherFarm);
+    const select = jest.spyOn(db, 'select');
+    try {
+      for (const unreadOnly of [false, true]) {
+        select.mockClear();
+        const result = await service.list({
+          page: 2,
+          pageSize: 1,
+          offset: 1,
+          clerkUserId: `${tag}-a`,
+          farmId: farm,
+          unreadOnly,
+        });
+        // User lookup, page rows, totals.
+        expect(select).toHaveBeenCalledTimes(3);
+        expect(result.data).toHaveLength(1);
+        expect(result.unreadCount).toBe(2);
+        expect(result.page).toEqual({
+          number: 2,
+          size: 1,
+          totalItems: unreadOnly ? 2 : 3,
+          totalPages: unreadOnly ? 2 : 3,
+        });
+      }
+    } finally {
+      select.mockRestore();
+    }
+  });
 });
