@@ -11,6 +11,7 @@ import {
   answerLines,
   matchByName,
   missingFilters,
+  pickedWithoutAsking,
   questionErrorMessage,
   type ReportFilters,
   type ReportLink,
@@ -24,8 +25,8 @@ type Phase =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "message"; text: string; error?: boolean }
-  | { kind: "pickWarehouse"; period: Period; item: string; note: string; options: Warehouse[] }
-  | { kind: "pickItem"; period: Period; warehouse: Warehouse; rows: StockReportRow[] }
+  | { kind: "pickWarehouse"; period: Period; item: string; question: string; note: string; options: Warehouse[] }
+  | { kind: "pickItem"; period: Period; note: string; rows: StockReportRow[] }
   | { kind: "answer"; period: Period; row: StockReportRow };
 
 const byWarehouse = (warehouse: Warehouse) => warehouse;
@@ -51,14 +52,23 @@ export function ReportQuestion({
   // Only the latest question may change the answer.
   const latest = useRef(0);
 
-  async function loadRows(run: number, period: Period, item: string, warehouse: Warehouse) {
+  async function loadRows(run: number, period: Period, item: string, question: string, warehouse: Warehouse) {
     setPhase({ kind: "loading" });
     try {
       const { data } = await getStockReport(request, { farmId, ...period, warehouseId: warehouse.id });
       if (run !== latest.current) return;
-      const rows = matchByName(data.rows, item, byItem);
-      if (rows.length === 1) setPhase({ kind: "answer", period, row: rows[0] });
-      else if (rows.length > 1) setPhase({ kind: "pickItem", period, warehouse, rows });
+      const match = matchByName(data.rows, item, byItem);
+      const row = pickedWithoutAsking(match, item, question);
+      if (row) setPhase({ kind: "answer", period, row });
+      else if (match.matches.length)
+        setPhase({
+          kind: "pickItem",
+          period,
+          rows: match.matches,
+          note: match.exact
+            ? `Có ${match.matches.length} dòng trùng tên “${item}” tại ${warehouse.name}. Chọn mặt hàng:`
+            : `Không có dòng trùng đúng tên “${item}” tại ${warehouse.name}. Các mặt hàng gần giống:`,
+        });
       else
         setPhase({
           kind: "message",
@@ -69,17 +79,19 @@ export function ReportQuestion({
     }
   }
 
-  function chooseWarehouse(run: number, filters: ReportFilters, all: Warehouse[]) {
+  function chooseWarehouse(run: number, filters: ReportFilters, question: string, all: Warehouse[]) {
     const period = { dateFrom: filters.dateFrom!, dateTo: filters.dateTo! };
     const item = filters.item!;
-    const matches = filters.warehouse ? matchByName(all, filters.warehouse, byWarehouse) : [];
-    if (matches.length === 1) return loadRows(run, period, item, matches[0]);
+    const match = filters.warehouse ? matchByName(all, filters.warehouse, byWarehouse) : { exact: false, matches: [] };
+    const picked = filters.warehouse ? pickedWithoutAsking(match, filters.warehouse, question) : null;
+    if (picked) return loadRows(run, period, item, question, picked);
+    const { matches } = match;
     const note = !filters.warehouse
       ? "Câu hỏi chưa nói kho nào. Chọn kho:"
       : matches.length
-        ? `Có ${matches.length} kho khớp “${filters.warehouse}”. Chọn kho:`
+        ? `Kho nào là “${filters.warehouse}”? Chọn kho:`
         : `Không thấy kho “${filters.warehouse}” trong các kho bạn được xem. Chọn kho:`;
-    setPhase({ kind: "pickWarehouse", period, item, note, options: matches.length ? matches : all });
+    setPhase({ kind: "pickWarehouse", period, item, question, note, options: matches.length ? matches : all });
   }
 
   async function ask(event: FormEvent) {
@@ -94,7 +106,7 @@ export function ReportQuestion({
       const missing = missingFilters(data);
       if (missing) setPhase({ kind: "message", text: missing });
       else if (!warehouses.length) setPhase({ kind: "message", text: "Bạn chưa được phân công kho nào." });
-      else await chooseWarehouse(run, data, warehouses);
+      else await chooseWarehouse(run, data, text, warehouses);
     } catch (error) {
       if (run === latest.current) setPhase({ kind: "message", text: questionErrorMessage(error), error: true });
     }
@@ -138,13 +150,13 @@ export function ReportQuestion({
             options={phase.options.map((warehouse) => ({ key: warehouse.id, label: warehouse.name }))}
             onPick={(id) => {
               const warehouse = phase.options.find((option) => option.id === id)!;
-              void loadRows(++latest.current, phase.period, phase.item, warehouse);
+              void loadRows(++latest.current, phase.period, phase.item, phase.question, warehouse);
             }}
           />
         )}
         {phase.kind === "pickItem" && (
           <Choices
-            note={`Có ${phase.rows.length} mặt hàng khớp tại ${phase.warehouse.name}. Chọn mặt hàng:`}
+            note={phase.note}
             options={phase.rows.map((row) => ({ key: row.itemId, label: `${row.itemName} (${row.itemCode})` }))}
             onPick={(id) => {
               const row = phase.rows.find((option) => option.itemId === id)!;
@@ -173,7 +185,7 @@ export function ReportQuestion({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => onOpenReport({ ...phase.period, warehouseId: phase.row.warehouseId, itemId: phase.row.itemId })}
+                onClick={() => onOpenReport({ farmId, ...phase.period, warehouseId: phase.row.warehouseId, itemId: phase.row.itemId })}
               >
                 <ExternalLink className="size-4" aria-hidden="true" />
                 Mở báo cáo gốc

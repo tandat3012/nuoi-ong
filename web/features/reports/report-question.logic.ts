@@ -20,16 +20,26 @@ const name = (value: string) => normalizeSearch(value).replace(/^kho\s+/, "");
  */
 export function matchByName<T>(candidates: T[], text: string, label: (candidate: T) => { code: string; name: string }) {
   const wanted = name(text);
-  if (!wanted) return [];
+  if (!wanted) return { exact: false, matches: [] };
   const exact = candidates.filter((candidate) => {
     const { code, name: candidateName } = label(candidate);
     return name(code) === wanted || name(candidateName) === wanted;
   });
-  if (exact.length) return exact;
-  return candidates.filter((candidate) => {
+  if (exact.length) return { exact: true, matches: exact };
+  const matches = candidates.filter((candidate) => {
     const { code, name: candidateName } = label(candidate);
     return matchesSearch(`${code} ${candidateName}`, wanted);
   });
+  return { exact: false, matches };
+}
+
+/**
+ * Answer without asking only for one exact match on words the user really typed. A partial match
+ * may be a different item (the report leaves out rows without stock or moves), and a name that is
+ * not in the question came from the model, not the user.
+ */
+export function pickedWithoutAsking<T>(match: { exact: boolean; matches: T[] }, text: string, question: string) {
+  return match.exact && match.matches.length === 1 && normalizeSearch(question).includes(name(text)) ? match.matches[0] : null;
 }
 
 /** Why the question cannot be answered yet; null when the item and the period are there. */
@@ -52,7 +62,8 @@ export function answerLines(row: StockReportRow) {
   ];
 }
 
-export type ReportLink = { dateFrom: string; dateTo: string; warehouseId: string; itemId: string };
+/** `farmId` keeps a link from applying the warehouse of another farm after a farm switch. */
+export type ReportLink = { farmId: string; dateFrom: string; dateTo: string; warehouseId: string; itemId: string };
 
 /** The report filtered to the answered row. */
 export function reportLinkQuery(link: ReportLink) {
@@ -63,8 +74,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A link back into the report; null unless the whole link is valid, so a bad URL keeps the default report. */
-export function parseReportLink(params: URLSearchParams): ReportLink | null {
+export function parseReportLink(params: URLSearchParams, farmId: string): ReportLink | null {
   const link = {
+    farmId: params.get("farmId") ?? "",
     dateFrom: params.get("dateFrom") ?? "",
     dateTo: params.get("dateTo") ?? "",
     warehouseId: params.get("warehouseId") ?? "",
@@ -74,7 +86,7 @@ export function parseReportLink(params: URLSearchParams): ReportLink | null {
     const time = DAY.test(day) ? Date.parse(`${day}T00:00:00Z`) : NaN;
     return !Number.isNaN(time) && new Date(time).toISOString().startsWith(day);
   };
-  if (params.get("tab") !== "stock" || !realDay(link.dateFrom) || !realDay(link.dateTo)) return null;
+  if (params.get("tab") !== "stock" || link.farmId !== farmId || !realDay(link.dateFrom) || !realDay(link.dateTo)) return null;
   if (rangeError(link.dateFrom, link.dateTo) || !UUID.test(link.warehouseId) || !UUID.test(link.itemId)) return null;
   return link;
 }

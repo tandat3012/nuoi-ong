@@ -35,6 +35,8 @@ export class AssistantService {
       model: process.env.AI_MODEL || 'gemini-3.5-flash-lite',
       system_instruction: reportFilterInstruction(vietnamDate(now)),
       input: question,
+      // One-shot request: nothing to continue, so Google need not keep the question.
+      store: false,
       response_format: {
         type: 'text',
         mime_type: 'application/json',

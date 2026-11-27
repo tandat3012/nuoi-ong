@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { answerLines, matchByName, missingFilters, parseReportLink, reportLinkQuery } from "./report-question.logic.ts";
+import { answerLines, matchByName, missingFilters, parseReportLink, pickedWithoutAsking, reportLinkQuery } from "./report-question.logic.ts";
 import { stockReportView } from "./stock-report.logic.ts";
 
 const warehouses = [
@@ -11,21 +11,33 @@ const warehouses = [
 const label = ({ code, name }) => ({ code, name });
 
 test("an exact warehouse name wins over phrase matches, with or without 'kho' and diacritics", () => {
-  assert.deepEqual(matchByName(warehouses, "kho Cà Phê", label).map((w) => w.id), ["w1"]);
-  assert.deepEqual(matchByName(warehouses, "ca phe", label).map((w) => w.id), ["w1"]);
-  assert.deepEqual(matchByName(warehouses, "kho-nhan", label).map((w) => w.id), ["w2"]);
+  const ids = (text) => matchByName(warehouses, text, label).matches.map((w) => w.id);
+  assert.deepEqual(ids("kho Cà Phê"), ["w1"]);
+  assert.deepEqual(ids("ca phe"), ["w1"]);
+  assert.deepEqual(ids("kho-nhan"), ["w2"]);
 });
 
 test("a partial name returns every match so the user can choose", () => {
-  assert.deepEqual(matchByName(warehouses, "Cà Phê Đắk", label).map((w) => w.id), ["w3"]);
+  assert.deepEqual(matchByName(warehouses, "Cà Phê Đắk", label), { exact: false, matches: [warehouses[2]] });
   const items = [
     { code: "MO-CP", name: "Mật ong hoa cà phê" },
     { code: "MO-NHAN", name: "Mật ong hoa nhãn" },
     { code: "SAP", name: "Sáp ong" },
   ];
-  assert.deepEqual(matchByName(items, "mật ong", label).map((i) => i.code), ["MO-CP", "MO-NHAN"]);
-  assert.deepEqual(matchByName(items, "keo ong", label), []);
-  assert.deepEqual(matchByName(items, "  ", label), []);
+  assert.deepEqual(matchByName(items, "mật ong", label).matches.map((i) => i.code), ["MO-CP", "MO-NHAN"]);
+  assert.deepEqual(matchByName(items, "keo ong", label).matches, []);
+  assert.deepEqual(matchByName(items, "  ", label).matches, []);
+});
+
+test("only one exact match on the user's own words is answered without asking", () => {
+  const items = [{ code: "MO-CP-HC", name: "Mật ong hoa cà phê hữu cơ" }];
+  const question = "Tháng này kho Cà Phê nhập bao nhiêu mật ong hoa cà phê?";
+  // The plain item has no report row; its organic sibling must not be answered silently.
+  assert.equal(pickedWithoutAsking(matchByName(items, "mật ong hoa cà phê", label), "mật ong hoa cà phê", question), null);
+  const exact = matchByName(warehouses, "Cà Phê", label);
+  assert.equal(pickedWithoutAsking(exact, "Cà Phê", question), warehouses[0]);
+  // A name the model produced that the user never typed.
+  assert.equal(pickedWithoutAsking(matchByName(warehouses, "Nhãn", label), "Nhãn", question), null);
 });
 
 test("missing item or period is asked back; out of scope is said", () => {
@@ -81,15 +93,16 @@ const W = "11111111-1111-4111-8111-111111111111";
 const I = "22222222-2222-4222-8222-222222222222";
 
 test("the report link round-trips and rejects bad or partial links", () => {
-  const link = { dateFrom: "2026-11-01", dateTo: "2026-11-27", warehouseId: W, itemId: I };
-  assert.deepEqual(parseReportLink(new URLSearchParams(reportLinkQuery(link))), link);
-  const bad = (overrides) => parseReportLink(new URLSearchParams({ tab: "stock", ...link, ...overrides }));
+  const link = { farmId: "f1", dateFrom: "2026-11-01", dateTo: "2026-11-27", warehouseId: W, itemId: I };
+  assert.deepEqual(parseReportLink(new URLSearchParams(reportLinkQuery(link)), "f1"), link);
+  assert.equal(parseReportLink(new URLSearchParams(reportLinkQuery(link)), "f2"), null);
+  const bad = (overrides) => parseReportLink(new URLSearchParams({ tab: "stock", ...link, ...overrides }), "f1");
   assert.equal(bad({ dateTo: "2026-02-30" }), null);
   assert.equal(bad({ dateFrom: "2026-11-28" }), null);
   assert.equal(bad({ dateFrom: "2025-01-01" }), null);
   assert.equal(bad({ warehouseId: "x" }), null);
   assert.equal(bad({ tab: "charts" }), null);
-  assert.equal(parseReportLink(new URLSearchParams("")), null);
+  assert.equal(parseReportLink(new URLSearchParams(""), "f1"), null);
 });
 
 test("the item filter keeps only the answered row, even when search would match several", () => {

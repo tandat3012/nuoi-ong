@@ -77,8 +77,10 @@ function ReportsWorkspace(props: ReportsProps) {
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams().toString();
-  const link = useMemo(() => parseReportLink(new URLSearchParams(search)), [search]);
+  const link = useMemo(() => parseReportLink(new URLSearchParams(search), props.farmId), [search, props.farmId]);
   const [warehouses, setWarehouses] = useState<Warehouse[] | null>(null);
+  // Each "Mở báo cáo gốc" click resets the report to the link, even when the URL is already that link.
+  const [opened, setOpened] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,13 +94,14 @@ function ReportsWorkspace(props: ReportsProps) {
 
   function openReport(next: ReportLink) {
     router.push(`${pathname}${reportLinkQuery(next)}`, { scroll: false });
+    setOpened((value) => value + 1);
     document.getElementById("report-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
     <>
       <ReportQuestion farmId={props.farmId} warehouses={warehouses} onOpenReport={openReport} />
-      <StockReports key={link ? search : ""} {...props} warehouses={warehouses ?? []} link={link} />
+      <StockReports key={link ? `${search}#${opened}` : ""} {...props} warehouses={warehouses ?? []} link={link} />
     </>
   );
 }
